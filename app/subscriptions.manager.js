@@ -363,9 +363,8 @@ window.SubscriptionsManager = (function () {
   };
 
   const initializeConferenceChoices = () => {
-    const currentYear = new Date().getFullYear();
     if (!selectedConferenceYears.length) {
-      selectedConferenceYears = [String(currentYear)];
+      selectedConferenceYears = normalizeConferenceYearsForSelection([String(new Date().getFullYear())]);
     }
   };
 
@@ -374,9 +373,29 @@ window.SubscriptionsManager = (function () {
     return [currentYear, currentYear - 1, currentYear - 2].map((year) => String(year));
   };
 
+  const isConferenceYearSelectable = (conference, year) => {
+    const conf = normalizeText(conference).toUpperCase();
+    const yearText = normalizeText(year);
+    if (conf === 'ICML' && yearText === String(new Date().getFullYear())) {
+      return false;
+    }
+    return true;
+  };
+
+  const normalizeConferenceYearsForSelection = (years, conference = selectedConference) => {
+    const allowed = getConferenceYearOptions().filter((year) =>
+      isConferenceYearSelectable(conference, year),
+    );
+    const selected = new Set((Array.isArray(years) ? years : []).map((year) => normalizeText(year)));
+    const out = allowed.filter((year) => selected.has(year));
+    if (out.length) return out;
+    return allowed.length ? [allowed[0]] : [];
+  };
+
   const renderConferenceChoiceButtons = () => {
     const conferenceWrap = document.getElementById('arxiv-admin-conference-choice-group');
     const yearWrap = document.getElementById('arxiv-admin-conference-year-group');
+    selectedConferenceYears = normalizeConferenceYearsForSelection(selectedConferenceYears);
     if (conferenceWrap) {
       conferenceWrap.innerHTML = QUICK_RUN_CONFERENCES
         .map((name) => {
@@ -395,11 +414,13 @@ window.SubscriptionsManager = (function () {
       yearWrap.innerHTML = getConferenceYearOptions()
         .map((year) => {
           const active = selectedYears.has(year);
+          const disabled = !isConferenceYearSelectable(selectedConference, year);
           return `<button
-            class="dpr-choice-pill${active ? ' is-active' : ''}"
+            class="dpr-choice-pill${active ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}"
             type="button"
             data-conference-year="${year}"
             aria-pressed="${active ? 'true' : 'false'}"
+            ${disabled ? 'disabled title="ICML 2026 暂未公开，暂不可选择"' : ''}
           >${year}</button>`;
         })
         .join('');
@@ -1145,6 +1166,7 @@ window.SubscriptionsManager = (function () {
         const nextConference = normalizeText(btn.getAttribute('data-conference-choice') || '');
         if (!nextConference) return;
         selectedConference = nextConference;
+        selectedConferenceYears = normalizeConferenceYearsForSelection(selectedConferenceYears, selectedConference);
         renderConferenceChoiceButtons();
       });
     }
@@ -1159,6 +1181,7 @@ window.SubscriptionsManager = (function () {
         if (!btn) return;
         const year = normalizeText(btn.getAttribute('data-conference-year') || '');
         if (!year) return;
+        if (!isConferenceYearSelectable(selectedConference, year)) return;
         const current = new Set(selectedConferenceYears);
         if (current.has(year)) {
           if (current.size <= 1) return;
