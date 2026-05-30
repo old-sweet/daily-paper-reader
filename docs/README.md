@@ -6,29 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-05-21 ~ 2026-05-30
-- 运行时间：2026-05-30 06:26:05 UTC
+- 最新运行日期：2026-05-30
+- 运行时间：2026-05-30 20:43:29 UTC
 - 运行状态：成功
-- 本次总论文数：3
+- 本次总论文数：4
 - 精读区：2
-- 速读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-今日推荐3篇论文，聚焦SystemVerilog断言生成与形式化验证。最值得看的是两项断言生成研究：语义对齐框架《SpecAlign》与综合LLM基准《AssertLLM2》，均获9.0高分。建议重点关注语义对齐与LLM评估方法，以提升断言自动生成与验证效率。
-- 详情：[/20260521-20260530/README](/20260521-20260530/README)
+今日精选4篇论文，重点精读《mstlo: Efficient Online Monitoring of Signal Temporal Logic》（8.0）与《FT-Pilot: Automated Fault-Tolerant RTL Rewriting via Vulnerability-Guided LLMs》（8.0），分别聚焦信号时序逻辑在线监测和LLM驱动的硬件容错重写。最值得关注的方向是形式化验证效率提升与自动化容错设计，两者均展示了新颖思路。建议优先精读这两篇高分论文，再速读《Reliable Reasoning with Large Language Models via Preference-Based Maximum Satisfiability》（7.0）以补充LLM可靠性推理视角。
+- 详情：[/202605/30/README](/202605/30/README)
 
 ### 精读区论文标签
-1. [SpecAlign: A Semantic Alignment Framework for SystemVerilog Assertion Generation](/20260521-20260530/2605.25181v1-specalign-a-semantic-alignment-framework-for-systemverilog-assertion-generation)  
-   标签：评分：9.0/10、query:llm-chip-ver
-   evidence：基于大语言模型的SystemVerilog断言生成用于芯片验证
-2. [AssertLLM2: A Comprehensive LLM Benchmark for Assertion Generation from Design Specifications](/20260521-20260530/2605.27472v1-assertllm2-a-comprehensive-llm-benchmark-for-assertion-generation-from-design-specifications)  
-   标签：评分：9.0/10、query:llm-chip-ver
-   evidence：使用LLM进行硬件断言生成的基准测试
+1. [mstlo: Efficient Online Monitoring of Signal Temporal Logic](/202605/30/2605.26847v2-mstlo-efficient-online-monitoring-of-signal-temporal-logic)  
+   标签：评分：8.0/10、query:chip-formal
+   evidence：信号时序逻辑的高效在线监测
+2. [FT-Pilot: Automated Fault-Tolerant RTL Rewriting via Vulnerability-Guided LLMs](/202605/30/2605.28169v1-ft-pilot-automated-fault-tolerant-rtl-rewriting-via-vulnerability-guided-llms)  
+   标签：评分：8.0/10、query:llm-chip-ver
+   evidence：基于LLM的RTL重写实现芯片容错
 
 ### 速读区论文标签
-1. [ConVer: Using Contracts and Loop Invariant Synthesis for Scalable Formal Software Verification](/20260521-20260530/2605.27051v1-conver-using-contracts-and-loop-invariant-synthesis-for-scalable-formal-software-verification)  
+1. [Reliable Reasoning with Large Language Models via Preference-Based Maximum Satisfiability](/202605/30/2605.29687v1-reliable-reasoning-with-large-language-models-via-preference-based-maximum-satisfiability)  
    标签：评分：7.0/10、query:chip-formal
-   evidence：使用大语言模型合成函数契约进行形式化验证，方法可直接应用于芯片形式化验证
+   evidence：大语言模型生成代码进行MaxSAT形式化推理
+2. [mstlo: Efficient Online Monitoring of Signal Temporal Logic](/202605/30/2605.26847v1-mstlo-efficient-online-monitoring-of-signal-temporal-logic)  
+   标签：评分：6.0/10、query:chip-formal
+   evidence：信号时序逻辑的高效在线监控
 
 
 <div class="dpr-home-promo-card">
