@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-05-31 <!--dpr-date:20260531-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202605/31/2605.24649v1-on-the-stability-and-realizability-of-recurrent-polynomial-surrogate-ternary-logic-gate-networks" data-sidebar-item="{&quot;title&quot;: &quot;On the Stability and Realizability of Recurrent Polynomial Surrogate Ternary Logic Gate Networks&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2605.24649v1-on-the-stability-and-realizability-of-recurrent-polynomial-surrogate-ternary-logic-gate-networks&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;chip-formal&quot;}], &quot;evidence&quot;: &quot;用于监控时序规范的三值逻辑电路&quot;}">On the Stability and Realizability of Recurrent Polynomial Surrogate Ternary Logic Gate Networks</a>
   * 2026-05-30 <!--dpr-date:20260530-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202605/30/2605.26847v2-mstlo-efficient-online-monitoring-of-signal-temporal-logic" data-sidebar-item="{&quot;title&quot;: &quot;mstlo: Efficient Online Monitoring of Signal Temporal Logic&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2605.26847v2-mstlo-efficient-online-monitoring-of-signal-temporal-logic&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;chip-formal&quot;}], &quot;evidence&quot;: &quot;信号时序逻辑的高效在线监测&quot;}">mstlo: Efficient Online Monitoring of Signal Temporal Logic</a>
