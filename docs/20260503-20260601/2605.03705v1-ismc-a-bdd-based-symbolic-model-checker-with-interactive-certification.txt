@@ -1,0 +1,1536 @@
+Title: iSMC: A BDD-based Symbolic Model Checker with Interactive Certification
+
+URL Source: https://arxiv.org/pdf/2605.03705v1
+
+Published Time: Wed, 06 May 2026 00:56:39 GMT
+
+Number of Pages: 43
+
+Markdown Content:
+# iSMC : A BDD-based Symbolic Model Checker with Interactive Certification 
+
+Philipp Czerner , Javier Esparza , and Konrad Winslow 
+
+Technical University of Munich, Germany, 
+
+{czerner, esparza, mko}@cit.tum.de 
+
+Abstract. We present iSMC , the first self-certifying model checker with interactive certification, a certification paradigm based on the theory of interactive proof systems. iSMC is a symbolic BDD-based model checker for arbitrary properties of Computation Tree Logic (CTL) with justice requirements. After solving an instance of the model-checking problem, 
+
+iSMC conducts a certification procedure that guarantees with high prob-ability (chosen by the user) that the answer is correct. iSMC is based on the technology of the QBF-solver with interactive certification pre-sented by Couillard et al. at CAV 2023. We extend, improve on, and re-implement this technology, adapting it to the needs of CTL model checking. 
+
+# 1 Introduction 
+
+Interactive certification is a certification paradigm based on the theory of in-teractive proof systems [16,1]. In the standard certification paradigm an agent solves a problem (e.g. satisfiability of a Boolean formula), produces a certificate (e.g. a satisfying assignment or a resolution proof of unsatisfiability), and sends it to another agent, which checks the certificate and accepts it or not. Interac-tive certification generalizes this paradigm by allowing the agents to engage in a protocol with multiple rounds in which the verifier repeatedly and adaptively ask questions to the other agent. We present iSMC , the first self-certifying model checker with interactive cer-tification. iSMC is a symbolic BDD-based model checker for properties expressed in Computation Tree Logic (CTL) [7,4]. It accepts flattened boolean models in the established smv format and arbitrary CTL formulas and justice requirements [24,27]. After solving an instance of the model-checking problem, iSMC conducts a certification procedure that guarantees with high probability—chosen by the user—that the answer is correct. iSMC extends, improves, and reimplements technology of the BDD-based QBF-solver developed by Couillard et al. in [11]. 
+
+Architecture and functionality of iSMC . Conceptually, iSMC consists of three modules: Solver, Prover and Verifier. Solver and Prover are implemented on top of the clic BDD-library, an optimization and extension of the blic library of [11]. Given a system and a CTL specification, Solver first computes a BDD representing the set of all reachable states of the system satisfying the specifi-cation; essentially, Solver implements the same algorithm as SMV, NuMSV, or  
+
+> arXiv:2605.03705v1 [cs.LO] 5 May 2026 2P. Czerner, J. Esparza, K. Winslow
+
+(the BDD-based part of) NuXmv [7,6,8,24]. Then, Prover and Verifier engage in an interactive proof protocol called TraceCert . Loosely speaking, an inter-active proof protocol specifies a sequence of interactions between Prover and Verifier, starting with a claim by Prover about the answer to a computational question, and ending with Verifier deciding to believe Prover or not [1]. At the start of TraceCert , Prover sends Verifier the execution trace of Solver on the model-checking instance, consisting of the sequence of calls to the BDD library executed by Solver, interspersed with assertions describing the decisions made at conditional branches. The trace ends with an assertion about the final result, stating either that the system satisfies the specification or that it does not 1. Af-ter receiving the trace, Verifier asks Prover questions about it in such a way that, after TraceCert terminates, Verifier can tell with high probability whether all the assertions of the trace are true, without executing it . For this, TraceCert en-codes boolean functions as multivariate polynomials over a finite field Fp, where 
+
+p is some large prime. For example, the function x1 ∨ x2 is encoded as the poly-nomial x1 + x2 − x1x2. Intuitively, the polynomial behaves like the formula for 
+
+x1, x 2 ∈ { 0, 1}, but Verifier asks questions about the values of the polynomials at points chosen uniformly at random from Fp. This guarantees that the error probability, defined as the probability that Verifier does not catch a wrong result by Prover or any malicious attempt by Prover to “fool” Verifier, is very small. 
+
+iSMC exhibits three fundamental properties: 1. If at least one of the assertions of the execution trace is false, then the error probability is at most ℓ/ |Fp|. In our experiments we use p = 2 61 − 1, and the error probability never exceeds 2.54 · 10 −7.2
+
+2. Verifier runs in time O(n2ℓ), where n is the number of variables of the model-checking instance, and ℓ is the length of the execution trace. (Verifier’s run-time depends only on the length of the trace, not on the time it takes to execute it. Since the trace consists of a sequence of BDD operations, the time can be exponentially larger.) In particular, Verifier runs in polynomial time in the number of variables for systems whose state space has fixed diameter or for bounded model-checking problems. In experiments conducted with a timeout of 15 minutes for Prover, Verifier never needs more than 3.6 seconds. 3. For any model-checking instance, if Solver runs in time S, then Prover runs in time O(S). In our experiments, the constant hidden in the big-oh notation lies between 1 and 2.8. Currently, the price to pay for interactive verification is a penalty in the efficiency of Solver. In our experiments, conducted with a timeout of 15 minutes, the av-erage slowdown factor w.r.t. NuSMV is 5.84. The properties above make iSMC 
+
+particularly attractive for architectures in which a client with limited computa-tional resources asks a powerful but untrusted server to solve a model-checking        
+
+> 1The length of the execution trace can grow exponentially in the size of the model-checking instance in the worst case, but it is usually much smaller than the compu-tation time, and can even be exponentially smaller.
+> 2For smaller probabilities one can take a larger por run TraceCert multiple times. A BDD-based Symbolic Model Checker with Interactive Certification 3
+
+instance. In such an architecture, iSMC ’s Solver and Prover run on the server, while Verifier runs on the client. By property 2., Verifier only invests linear time in ℓ, and so it can certify even very large instances of the model-checking problem. By property 3., this is achieved with reasonable overhead. To the best of our knowledge, properties 2.-3. are a unique feature of iSMC .The reason is a fundamental theoretical limit: to the best of our knowledge, all certification procedures implemented in current model checkers are non-interactive protocols in which Prover sends Verifier one or more objects, called certificates ,and then, without further interaction with Prover , Verifier runs an algorithm on the certificate and emits a verdict. It is well-known that such certificates have worst-case exponential length in ℓ unless NP = coNP (see e.g. [1]), and so Verifier needs exponential time in ℓ.
+
+Main technical contributions. Our first main contribution is the observation that the problem of checking all assertions of the execution trace can be reduced to the problem studied in [11]: computing the number of satisfying assignments of a boolean circuit with partial evaluation , an extension of standard boolean circuits introduced in [11]. (The reduction is sketched in the next section.) This allows one to reuse CPCertify , the interactive proof protocol of [11], and its implementation on top of the blic BDD library, also developed in [11]. However, the resulting tool is inefficient, because neither CPCertify nor blic are tailored to the needs of symbolic model checking. Our three other main contributions are solutions to three bottlenecks of this direct approach: 1. CPCertify proceeds in rounds, one for each gate of the input boolean circuit. Many of these gates are labeled with equivalence and renaming operators. However, in CPCertify the rounds for these gates are very expensive for Prover: the round for an equivalence gate ψ1 ≡ ψ2 takes O(n1 · n2) time, where ni is the BDD-size of ψi, and the round for a renaming gate [X′/X ]ψ
+
+takes O(n2k
+
+) time, where n is the BDD-size of ψ and k = |X|. In TraceCert ,our new protocol, these rounds take O(1) and O(n) time, respectively. 2. CPCertify traverses the circuit in topological order, starting at its output gate and moving towards its input gates. However, Solver proceeds in the 
+
+reverse order, from inputs to outputs. For this reason, Solver needs to store all BDDs for all gates of the circuit. This prevents the use of garbage col-lection, an important feature of BDD-libraries for discarding BDD-nodes no longer required by the application (see e.g. [23,30]). We show that, under the assumption that Prover acts as an oracle (meaning that it does not store information from previous queries) our new protocol TraceCert can traverse the circuit in the same order as Solver without runtime penalty. 3. BDD-libraries use a global computation cache of BDD-nodes for all the boolean functions computed along an execution trace and their sub-functions (see e.g. [30]). For model-checking applications, the table leads to efficiency gains of 1-2 orders of magnitude [35]. However, blic does not use a global ta-ble. The reason is that blic manipulates not only BDDs, but extended BDDs 
+
+(eBDDs), a data structure introduced in [11], and blic ’s implementation of 4 P. Czerner, J. Esparza, K. Winslow 
+
+eBDD operations is incompatible with a global computation cache. We in-troduce a novel representation of eBDDs that solves this problem. In our experimental comparison, the contributions 1.-3. lead to an average twofold reduction in execution time, where the reduction factor increases with the exe-cution time and reaches a maximum of 73, and an average sixteen fold reduction in memory usage. 
+
+Related Work. Namjoshi introduced a certification procedure for μ-calculus model checking based on deductive proof systems [26]. Griggio et al. also pro-pose to use deductive systems for certification of LTL model checking [17]. We follow a different approach that does not require to use deductive systems. Yu et al. have developed a certification procedure for SAT-based model checking that uses inductive invariants as certificates for k-induction [36,37,38,15]. Jussila et al. presents a method to generate proof certificates from BDDs that can also be used to construct certificates for symbolic BBD-based model-checking of safety properties [18]. Conchon et al. and Mebsout and Tinelli construct certificates for SMT-based model checking of safety properties of infinite-state and param-eterized systems [10,25]. All these approaches are limited to safety properties, while we target arbitrary CTL properties with justice requirements. Kuismin and Heljanko present a certification procedure for LTL liveness properties that works by reduction to certification of safety properties [20]. All the approaches above generate certificates of worst-case exponential size in the size of the instance, even for bounded model-checking problems, and so their Verifier components need exponential time and space in the size of the instance. In our approach Verifier only needs polynomial time. Interactive certification for QBF-solving and SAT-solving using interactive proof systems has been studied in [11,12]. There is also recent interest in zero-knowledge, interactive proof systems for unsatisfiable SAT formulas [22]. The approach has been recently extended to zero-knowledge proofs for all PSPACE problems [19]. Our approach follows the paradigm of certifying computations without reexe-cuting them [33]. We focus on computations consisting of calls to a BDD-library, which allows us to obtain a certification procedure with much smaller overhead. Verified model checkers are an alternative to certification [31,14,34,32]. They do not need to produce or check certificates, but require to maintain the correct-ness proof whenever the implementation of the model checker changes. 
+
+Structure of the paper. Section 2 fixes some notation on CTL model checking and introduces interactive proof protocols. Section 3 describes the structure of 
+
+iSMC . Section 4 presents TraceCert , the extension of the interactive proof pro-tocol of [11] used by iSMC . Section 5 presents our implementation of the Prover of 4. Section 6 presents our experimental results. Throughout the paper we refer the reader to several appendices containing formal definitions and proofs. A BDD-based Symbolic Model Checker with Interactive Certification 5
+
+# 2 Preliminaries 
+
+We assume the reader is familiar with computation tree logic (CTL), the bottom-up model-checking algorithm for CTL, and its symbolic implementation with BDDs [9,27,13]. We briefly recall a few notions. Given a Kripke structure with set of states S and transition relation R ⊆ S×S
+
+and a CTL formula φ, the algorithm computes the set JφK ⊆ S of states satisfying 
+
+φ in bottom-up manner. For example, for the formula EGEF p the algorithm first computes JpK; then it computes JEF pK using the identity JEF pK = lfp Z (R−1(Z)∪
+
+JpK), where lfp denotes the least fixpoint of the mapping Z 7 → R−1(Z) ∪ JpK;finally, it computes JEGEF pK using the identity JEGEF pK = gfp Z (R−1(Z) ∩
+
+JEF pK), where gfp Z denotes the greatest fixpoint of Z 7 → R−1(Z) ∪ JEF pK).Symbolic model checking encodes a state of the Kripke structure as a valua-tion of a set X of boolean variables, a set of states T ⊆ S as a boolean function 
+
+T b(X) over X, and the transition relation R as a boolean function Rb(X, X ′)
+
+over the variables X ∪ X′, where X′ = {v′ | v ∈ X} is a second set of primed variables. In particular, we have (S ∩ D)b(X) = Sb(X) ∧ Db(X), (S \ D)b(X) = 
+
+Sb(X) ∧ ¬ Db(X), and (R−1(S)) b(X) = ∃X′ Rb(X, X ′) ∧ Sb(X)[ X′/X ], where 
+
+Sb(X)[ X′/X ] denotes the result of substituting x′ for x in Sb(X) for every vari-able x ∈ X.BDD-based symbolic model checkers for CTL, like NuSMV [8], represent and manipulate boolean functions as (ordered and reduced) binary decision diagrams (BDDs) [3,4]. Table 1 shows the BDD-based boolean function library interface of our library clic , with primitive operations above the line and derived operations below it. More details on these operations are given in Appendix A.1. 
+
+Table 1. BDD operations of clic .Name Boolean formula Complexity Implementation Binary Operation f ⊛ g O(|f | · | g|) Apply( f, g, ⊛)
+
+Negation ¬f O(|f |) Apply( f, 1, ∧)
+
+Restriction f |xi←b∈{ 0,1} O(|f |) Restrict( f, v i, b )
+
+Renaming [xi/x i′]f O(|f |) Rename( f, x i, v i′)
+
+Equivalence Check f ≡ g O(1) Root comparison Counting Solutions |{ v | f (v) = 1 }| O(|f |) Counting paths to 1
+
+Evaluation f (x0, . . . , x n) O(n) Graph traversal Composition f |xi←g O(|f |2 · | g|2) g ∧ f |vi←1 ∨ ¬ g ∧ f |vi←0
+
+Exists ∃xi f O(|f |2) f |xi←0 ∨ f |vi←1
+
+Forall ∀xi f O(|f |2) f |xi←0 ∧ f |xi←1
+
+Interactive Proof Protocols. Consider a computational problem consisting of, given a function f , computing f (x) for an input x. An interactive protocol for f
+
+is a communication protocol between two algorithms, called a Prover and a Ver-ifier . The protocol is run after Prover claims to Verifier that f (x) = d holds for 6 P. Czerner, J. Esparza, K. Winslow 
+
+some value d. The protocol tells Verifier how to choose a sequence of questions for Prover, depending on x and on Prover’s answers to previous questions, and how to decide whether to believe Prover’s claim or not. As a simple example, assume Prover claims to Verifier that two graphs G1, G 2 are not isomorphic. The interactive protocol instructs Verifier to repeatedly pick G ∈ { G1, G 2} uniformly at random, pick a permutation Gσ of G, again uniformly and random, and ask Prover which of G1 and G2 is isomorphic to Gσ . After a fixed number k of rounds, Verifier believes Prover’s claim iff all of Prover’s answers are correct. It is easy to see that for any Prover algorithm, the probability that Prover fools Verifier (i.e., that G1 and G2 are isomorphic, but Verifier believes Prover’s claim) is at most 2−k.The complexity class IP [1] contains all decision problems for which there exists a probabilistic Verifier (i.e., an algorithm that can flip coins) such that (a) Verifier runs in polynomial time; (b) for every input x, Verifier believes the honest Prover that claims the correct value for f (x) and answers questions truthfully; and (c) for every input x and for every Prover claiming a wrong value for f (x),Verifier believes Prover with probability at most 2−| x|.It is easy to see that SAT is in IP , which implies NP ⊆ IP : the 1-round proto-col where Prover sends Verifier an assignment, and Verifier checks in polynomial time that it satisfies the formula, shows it. It is harder to show UNSAT ∈ IP :the 1-round protocols in which Prover sends Verifier the complete truth table of the formula or, say, a resolution proof do not work, because Verifier cannot check them (not even read them!) in polynomial time in the size of the formula 3. The same happens for certificates in any other proof system unless NP = coNP .Finally, Shamir’s celebrated IP = PSPACE theorem shows that every problem in PSPACE has an interactive protocol with a polynomial-time Verifier [29,21]. 
+
+# 3 Introduction to iSMC 
+
+We explain the algorithm underlying iSMC by means of an example . Consider the following scenario. Let I(X) and R(X, X ′) be boolean functions representing the set of initial states and the transition relation of a system, and let p(X) be a function representing the set of states satisfying an atomic proposition p. We run iSMC ’s Solver to decide if all initial states satisfy EF p. For simplicity, we assume that Solver computes the set of all predecessors of p(X) (i.e., all states from which it is possible to reach some state satisfying p in arbitrarily many steps) and then intersects it with I(X), as shown at the top of figure 1 on the left. We abbreviate I(X), R (X, X ′), C (X) . . . to I, R, C . . . , and let Pre C (X) := 
+
+∃X′ : ( R(X, X ′) ∧ C(X)[ X′/X ]) denote the set of immediate predecessors of a give set C of states. Assume further that Solver exits the repeat loop after two iterations and returns true . The corresponding execution trace is shown at the top of figure 1, on the right. The trace is transformed into a generalized boolean circuit , a    
+
+> 3Verifier can check them in polynomial time in the size of the truth table or the resolution proof, but that is not what the class IP specifies.
+
+A BDD-based Symbolic Model Checker with Interactive Certification 7
+
+C ← p
+
+repeat 
+
+OldC ← CC ← C ∨ PreC 
+
+until C ≡ OldC 
+
+if C ∧I ≡ false then return false else return true end if 
+
+1: C0 ← p
+
+2: PreC 0 ← Pre C0
+
+3: C1 ← C0 ∨ PreC 0
+
+4: assert C1̸ ≡ C0
+
+5: PreC 1 ← Pre C1
+
+6: C2 ← C1 ∨ PreC 1
+
+7: assert C2 ≡ C1
+
+8: C3 := C2 ∧ I
+
+9: assert C3 ≡ false ≡        
+
+> 0
+> ∧C3
+> ≡I
+> ∨C2
+> Pre PreC 1
+> ≡
+> ∨C1
+> Pre PreC 0
+> pC0
+> ∨
+> ∃X′
+> ∧
+> R
+> X′/X
+> ∨
+> π[x′
+> 1:=1] π[x′
+> 1:=0]
+> ∨
+
+# · · ·  
+
+> ∨
+> π[x′
+> n:=1] π[x′
+> n:=0]
+
+Fig. 1. At the top, symbolic checking algorithm for the formula EF p (on the left), and one of its possible execution traces (on the right). At the bottom, circuit for this execution. Blue nodes correspond to basic gates, white nodes to “macros”. 
+
+generalization of the boolean circuits with partial evaluation used in [11] defined below, and a set of equivalence claims . In a nutshell, every instruction of the trace is transformed into a gate of the circuit, and each assertion is translated into an equivalence claim. In particular, this reduces the problem of certifying that the execution trace is correct is reduced to a generalization of the problem solved in [11], for which we then give an interactive protocol. 
+
+Generalized boolean circuits (GBCs). Let X be a set of boolean variables. GBC-expressions over V are given by the grammar 
+
+φ ::= > | ⊥ | x | ¬ φ | φ ⊛ ψ | π[x:= b]φ | φ[y/x ]
+
+where ⊛ is any boolean operator, x, y ∈ X, b ∈ { 0, 1}, and y does not appear in φ. The GBC of a GBC-expression φ is the acyclic graph with one node for each subexpression of φ and edges corresponding to the immediate subexpression relation. In analogy to boolean circuits, we call the nodes of a GBC gates . GBCs extend the circuits used in [11] with renaming gates φ[x′/x ].8 P. Czerner, J. Esparza, K. Winslow 
+
+The semantics of a GBC φ is a boolean function fn( φ) over X, defined by 
+
+fn( >) := 1 , fn( ⊥) := 0 , fn( x) := x, fn( φ ⊛ ψ) = fn( φ) ⊛ fn( ψ), π[x:= b]φ =fn( φ)|x←b (set x to b in fn( φ)), and fn( φ[y/x ]) := ¬x′ ∧fn( φ)|x←0 ∨x′ ∧fn( φ)|x←1
+
+(substitute y for x in fn( φ)). We denote by free( φ) the set of variable gates reachable from φ’s root. 
+
+From traces to GBCs. We illustrate the translation from execution traces to GBCs and equivalence claims by example. The GBC for the execution trace at the top of figure 1 is shown at the bottom of the figure. The GBC corresponds to the blue and white nodes, where the blue nodes model basic gates and the white nodes are “macros”, standing themselves for a circuit. For example, the node on the left labeled by Pre is a “macro” for the circuit shown in the middle (recall that Pre C (X) := ∃X′ : ( R(X, X ′) ∧ C(X)[ X′/X ]), and the node in the middle labeled by ∃X′ is a macro for the circuit on the right; we use the equivalence 
+
+∃x : φ ≡ πx:=1 (φ) ∨ πx:=0 (φ), valid for every formula φ. The nodes labeled by 
+
+p, I, R are macros for circuits for the boolean formulas p(X), I (X), R (X, X ′).Observe that the size of the circuit is linear in the length of the trace and of the inputs I, R, and p. The pink nodes are just a graphical representation of the equivalence claims corresponding to the assertions of the trace. 
+
+# 4 TraceCert : An interactive proof protocol for GBCs 
+
+We describe TraceCert , our improvement on CPCertify . TraceCert adds sup-port for efficient variable renaming and equivalence assertions, which are com-mon in execution traces. It takes as input the circuit φ obtained from the execu-tion trace of Solver. A first preprocessing phase, already present in CPCertify ,transforms φ into a GBC with additional so-called degree reduction nodes, de-noted conv( φ). We define conv( φ) in Section 4.1. TraceCert itself is presented in Section 4.2. 
+
+4.1 Preprocessing: From φ to conv( φ)
+
+Arithmetization of GBCs. Arithmetization is a core concept for interactive proof systems and underlies the proof of IP = PSPACE [21]. The arithmetization of a boolean function f is a polynomial Jf K over a finite field Fp s.t. f (σ) = Jf K(σ)
+
+for every boolean assignment σ [11, Prop. 1]. This is achieved by defining J0K := 0, J1K := 1 , J¬f K := 1 − Jf K, Jf ∧ gK := Jf K · JgK and Jf ∨ gK := Jf K + JgK − Jf K · JgK.The arithmetization of a GBC φ, denoted JφK, is defined as the arithmetization of its associated boolean function. For example, the arithmetization of the GBC 
+
+(x4 ∨ π[x3:=0] x3) ∧ π[x3:=1] x3 is (x4 + 0 − x4 · 0) · 1 = x4 (For more details see Appendix B). Arithmetization allows to design interactive protocols in which Verifier asks Prover to partially evaluate polynomials of circuits on non-boolean 
+
+assignments, which allows her to detect cheating Provers with good probability. We define partial evaluation π[x:= a]p of polynomials, which replaces x by a in p. The notation Πσ p stands for partially evaluating p on each assignment σ(xi) = 
+
+ai.A BDD-based Symbolic Model Checker with Interactive Certification 9
+
+Degree reductions and the circuit conv( φ). It is easy to see that the degree of the polynomial JφK may be exponential in the height of φ4 The design of interactive proof systems requires to limit the degree, because Verifier otherwise will not run in polynomial time. As in [11], for every variable xk we introduce a degree reduction operator δxk that reduces the exponents of all powers of xk to 1, e.g., 
+
+δx2 (x1x32 − 2x1x22 + 4) = x1v2 − 2x1x2 + 4 = −x1x2 + 4 ; observe that degree-reducing a polynomial does not change its value under boolean assignments, and so a polynomial and its degree reduction encode the same boolean function. Since we encode boolean functions as polynomials, we can interpret GBCs as arithmetic circuits over the field Fp. For example, ∧-gates correspond to multipli-cation. To limit the degree of JφK, we replace each boolean gate ψ = ψ1 ⊛ ψ2 of φ
+
+by a circuit ψ′ := δx1 (δx2 (· · · δn(ψ) · · · )) , where δxk is a degree-reduction gate for the variable xk, with semantics Jδxk (φ)K := δxk (JφK). We denote the final result by conv( φ) It is easy to see that for every circuit φ the polynomial Jconv( φ)K
+
+is unique and multilinear [11, Prop. 3]; loosely speaking, the degree-reduction nodes reduce all exponents of JφK to 1.
+
+4.2 TraceCert : High-level view. 
+
+We introduce the protocol TraceCert . In this section we give a high level view, and in the next describe the elements of the protocol in more detail. Pseudocode for the different parts of the protocol and correctness proofs can be found in Appendix C, with the top-level procedure being described in Appendix C.1. 
+
+Initialisation and goal. Given a GBC conv( φ) over a set X of n variables, ob-tained from an execution trace, Prover and Verifier initiate TraceCert by choos-ing a prime number p ≥ 2|X|. From now on, all polynomials they exchange are over the finite field Fp. Prover starts by making a set of claims about conv( φ)
+
+(Sec. B.1 of Appendix B). For GBCs coming from execution traces, these are equivalence claims corresponding to the assertions of the trace; in other words, Prover is claiming that the execution trace indeed satisfies the assertions. For example, the claims for the execution trace of the program on the left of figure 1 state that the while loop was exited after two iterations (which implicitly means that C2 is the set of all predecessors of p), and that the set of states (¬C2 ∧I)( X)
+
+is empty. Prover’s initial claims are the initial content of a set C of claims that gets re-peatedly updated throughout TraceCert . Some updates are deterministic, while others are probabilistic, i.e., the claims replacing a given one are sampled from a certain set. Both kinds of updates maintain claim equivalence with high prob-ability , or CEHP, defined as follows: if all claims of C are true before an update, then all claims after the update are true, and if some claim of C is false before an update, then, with probability 1 − (k/ |Fp|) for k  | Fp|, some claim of C
+
+is false after the update. At the end of TraceCert , C contains final claims that Verifier can check in polynomial time (which was not true of the initial claims).                
+
+> 4Observe that, for example, Jψ1∧ψ2K=Jψ1K·Jψ2K, and so the degree of Jψ1∧ψ2K
+> can be twice the degree of Jψ1Kand Jψ2K.10 P. Czerner, J. Esparza, K. Winslow
+
+Verifier checks the final claims and, if all are true, declares to believe Prover’s initial claims. 
+
+Round for a gate. TraceCert iterates over the gates of conv( φ) in topological or-der, starting at the output gates and handling each non-input gate at most once. At each non-input gate, Prover and Verifier engage in a round . Verifier starts the round for a gate ψ by collecting all claims of C about ψ, and replacing them by a single principal claim . Then, Verifier (using the principal claim) sends Prover a set of challenges : questions about the immediate successors of ψ according to the topological order. Prover answers the challenges with polynomials for each of ψ’s successors. Verifier conducts some consistency checks on the answers. If the poly-nomials do not pass the checks, Verifier declares it does not believe Prover and 
+
+TraceCert terminates; otherwise, Verifier replaces the principal claim (about ψ)by the new claims (about ψ’s successors) derived using Prover’s answers. 
+
+Decision. After the rounds, Prover’s initial equivalence claims—which Verifier cannot directly check because their polynomials have worst-case exponential size—have been replaced by claims about atomic circuit expressions of the form 
+
+>, ⊥, x k, whose polynomials are 0, 1, or xk. Verifier checks these claims herself in linear time, and believes Prover’s initial claims iff they are all true. The next sections provide details. The syntax and semantics of Prover’s claims and Verifier’s challenges, as well as a claim normalization step, are de-scribed in Section 4.3. The round for a gate is described in Section 4.4. 
+
+4.3 Detailed view of TraceCert : Claims, challenges, and claim normalization. 
+
+During the execution of TraceCert Prover can make claims of the following types, where ψ, ψ 1, ψ 2 denote gates of conv( φ):
+
+– Fp-Evaluation : An Fp-evaluation claim Πσ (JψK) = k, where σ : X → Fp and 
+
+k ∈ Fp, states that evaluating the polynomial JψK on σ yields k.
+
+– B-Evaluation : An evaluation claim Πσ fn( ψ) = b, where σ : X → { 0, 1} and 
+
+b ∈ { 0, 1}, states that evaluating the boolean function fn( ψ) on σ yields b.
+
+– Count : A count claim Σ fn( ψ) = k states that the boolean function fn( ψ)
+
+has exactly k satisfying assignments. 
+
+– B-Equivalence : A B-equivalence (or just equivalence) claim ψ1 ≡ ψ2 or ψ1 6 ≡
+
+ψ2 states that fn( ψ1) = fn( ψ2), or fn( ψ1) 6 = fn( ψ2), respectively. Verifier can pose challenges to Prover of these two types: 
+
+– A partial evaluation challenge Challenge( Πσ ψ) asks Prover to provide the result of evaluating the arithmetization JψK on an assignment σ : X → Fp
+
+that leaves at most one variable unassigned. If all variables are assigned, Prover answers with a field element. If one variable is unassigned, then Prover answers with a polynomial in one variable of degree at most two. 
+
+– A distinct asignment challenge ChallengeDistinct( ψ1, ψ 2) asks Prover to provide an assignment to all variables such that Πσ Jψ1K 6 = Π σ Jψ2K.A BDD-based Symbolic Model Checker with Interactive Certification 11 
+
+Claim normalization. Once C is initialized with Prover’s initial claims, Prover and Verifier execute Normalize (C), a procedure that replaces all claims of C, of all four types, by Fp-evaluation claims, while respecting CEHP. In particular, normalization deals with B-equivalence claims—which are very numerous in cir-cuits derived from model-checking executions—more efficiently than [11]. Here we only sketch the normalization procedure. A detailed description, including pseudocode and the proof that CEHP is respected, can be found in Appendix C.2. A B-evaluation claim Πσ fn( φ) = b is replaced by Πσ JφK = b. A count claim 
+
+Σ fn( φ) = k is replaced by Πσ JφK = k · 2−(|free( φ)|), where ∀xi ∈ free( φ). σ (xi) = 2−1 (the proof that this replacement preserves CEHP is non-trivial; it uses Lemma 2 of [11]). For a B-equality claim about (ψ1 ≡ ψ2) = 1 , Verifier samples an assignment σ : Fp → X uniformly at random ( $
+
+←), sends the challenges k1 =
+
+Challenge( Πσ ψ1) and k2 = Challenge( Πσ ψ2) to Prover, and adds the two claims returned by Prover to C after checking k1 = k2. For a B-equivalence claim 
+
+(ψ1 ≡ ψ2) = 0 , Verifier sends the challenge σ = ChallengeDistinct( ψ1, ψ 2) to Prover, and adds the claims Πσ Jψ1K = k1, Πσ Jψ2K = k2 returned by Prover ( σ
+
+is now chosen by Prover) to C after checking k1 6 = k2. (Loosely speaking, CEHP is preserved by the DeMillo-Lipton-Schwartz-Zippel lemma: since Jψ1K and Jψ2K
+
+have total degree at most n, the polynomial Jψ1K − Jψ2K has at most n zeroes; so the polynomials differ almost everywhere, and the probability that they differ for an assignment picked uniformly at random is at least 1 − n/ |Fp|.) 
+
+4.4 Detailed view of TraceCert : Rounds 
+
+We describe the round of TraceCert for a gate ψ. It consists of two parts: a procedure Merge , that reduces all claims about ψ to a unique principal claim 
+
+while preserving CEHP, followed by a procedure Propagate that replaces the principal claim about ψ by one claim for each successor of ψ5. Again, pseudocode and proofs can be found in Appendix C.3. 
+
+Merge is taken from CPCertify and was already described in [11]; since its role is more technical, it is only presented in. Here it suffices to note that Merge 
+
+preserves CEHP with probability at least 1 − 2n/ |Fp|. Propagate is the core of TraceCert . It consists of four procedures, depending on whether the gate is labeled with a boolean operation, a degree reduction, a projection, or a renaming. We describe the four cases, assuming that the principal claim is Πσ JψK = k for some σ : X → Fp and some k ∈ Fp. The first three are as in [11], and the last one is novel. 
+
+Propagate [Binary Operation ψ = ψ1 ⊛ ψ2]: Verifier sends Prover the challenges 
+
+Challenge( Πσ Jψ1K) and Challenge( Πσ Jψ2K). Prover answers with claims Πσ Jψ1K =
+
+k1 and Πσ Jψ1K = k2. Verifier checks the consistency condition, k1̂ ⊛k2 = k, where ̂
+
+⊛ is the operation on polynomials satisfying Jp1 ⊛ p2K = p1̂ ⊛p2; for example,            
+
+> 5So, if a gate ψ′has multiple predecessors ψ1, . . . , ψ k,Cmay contain up to kclaims about ψ.12 P. Czerner, J. Esparza, K. Winslow
+
+p1̂ ∧p2 = p1 · p2 and p1̂ ∨p2 = p1 + p2 − p1p2. If the condition does not hold, Verifier rejects Prover’s initial claims, and otherwise replaces Πσ JψK = k by 
+
+{Πσ Jψ1K = k1, Πσ Jψ1K = k2}. This update trivially satisfies CEHP with proba-bility 1. 
+
+Propagate [Degree Reduction ψ = δxi ψ′]: Observe that, by the definition of degree reduction, JψK = xi · Jψ′K|xi:=1 + (1 − xi)Jψ′K|xi:=0 . Verifier sends Prover the challenge Challenge( Πσ′ Jψ′K), where σ′ : X \ { xi} → Fp is the assignment satisfying σ′(y) = σ(y) for every y 6 = xi. Prover answers with a claim Πσ Jψ′K =
+
+p(xi), where p(xi) is a univariate polynomial of degree two. Verifier checks the consistency constraint σ(xi) · p(1) + (1 − σ(xi)) · p(0) = k. If the condition does not hold, Verifier rejects. Otherwise, Verifier picks r ∈ Fp u.a.r. and replaces 
+
+Πσ JψK = k by Πσ[xi:= r]Jψ′K = p(r). This update is shown to preserve CEHP with probability at least 1 − 2/|Fp| in [11]. Intuitively, if Πσ JψK 6 = k then Jψ′K
+
+and p are different polynomials of grade two, and so they differ almost everywhere (in at least Fp − 2 points). Therefore, with probability at least 1 − 2/|F | we have 
+
+Πσ[xi:= r]Jψ′K 6 = p(r).
+
+Propagate [Projection ψ = π[i:= b]ψ′]: Verifier replaces the claim Πσ JψK = k by 
+
+{Πσ′ Jψ′K = k}, where σ′ := σ[xi → JbK]. This update trivially preserves CEHP. 
+
+Propagate [Renaming ψ = ψ′[xl/x t]] : Verifier replaces the claim Πσ JψK = k
+
+by Πσ′ Jψ′K = k, where σ′ := σ[xl := σ(xt)] . This update preserves CEHP only because xl does not occur in ψ′. (See Appendix C.3 for the proof.) 
+
+4.5 Correctness 
+
+The soundness and completeness of TraceCert follow from the CEHP preserva-tion properties of each of the subprocedures it uses: 
+
+Lemma 1. If C contains a false claim about an GBC conv( φ) with n variables, then Verifier accepts with probability at most (4 n|φ| + n) /Fp for any Prover. If all claims in C are true, Verifier accepts with probability 1 for the honest prover (completeness). 
+
+Corollary 1. Any trace of iSMC containing N operations and using n distinct boolean variables is rejected by Verifier if at least one assertion in the trace is wrong with probability at least 1 − (4 nN + n) /Fp, and otherwise accepted with probability 1.Proof. Traces of length N result in GBCs of size ≤ N .
+
+# 5 BDD-Based Implementation of Prover 
+
+TraceCert describes what Prover has to do (compute certain polynomials and evaluate them), but not how to do it. We give an implementation of Prover that improves on the one presented in [11]. In Section 5.1, we briefly recall the implementation of [11]. In Section 5.2 we explain its shortcomings and sketch our novel implementation. A BDD-based Symbolic Model Checker with Interactive Certification 13 
+
+Algorithm 1 Apply (v1, v 2, ⊛)
+
+if v1 ∈ {0, 1} or v2 ∈ {0, 1}
+
+then return v1 ⊛ v2
+
+end if 
+
+⟨fi, f l, f r ⟩ = v1
+
+⟨gi, g l, g r ⟩ = v2
+
+if fi < g i then 
+
+fl ← v1
+
+fr ← v1
+
+else if gi < f i then 
+
+gl ← v1
+
+gr ← v1
+
+end if 
+
+l ← Apply (fl, g l, ⊛)
+
+r ← Apply (fr , g r , ⊛)
+
+return Reduce (⟨vi, l, r ⟩)
+
+Algorithm 2 ApplyEBDD (v1, v 2, ⊛)
+
+if v1 ∈ { 0, 1} or v2 ∈ { 0, 1} then return v1 ⊛ v2
+
+end if 
+
+⟨fi, f l, f r ⟩ = v1
+
+⟨gi, g l, g r ⟩ = v2
+
+if fi < g i then 
+
+fl ← v1
+
+fr ← v1
+
+else if vw < v u then 
+
+gl ← v2
+
+gr ← v2
+
+end if 
+
+l ← ApplyEBDD (fl, g l, ⊛)
+
+r ← ApplyEBDD (fr , g r , ⊛)
+
+final ← Reduce (⟨vi, lk(lk( l)) , lk(lk( r)) ⟩)
+
+node ← ⟨ vi, l, r ⟩; lk( node ) ← final 
+
+b ← ⟨ v1 ⊛ v2⟩; lk( b) ← node 
+
+return b
+
+Fig. 2. Comparison of Apply (v1, v 2, ⊛) and our new algorithm ApplyEBDD (v1, v 2, ⊛). 
+
+5.1 Implementation of Prover by Couillard et al. [11] 
+
+At first sight, the computations performed by Solver and Prover on an instance of the model-checking problem seem to be unrelated: Solver computes BDDs for the (boolean functions of) the gates of a circuit φ, while Prover computes polynomials for the gates of conv( φ). More precisely, consider a gate ψ = ψ1 ⊛ψ2
+
+of a circuit φ. After degree-reductions with the gate ψ′ := δxn δxn−1 · · · δx1 (ψ1 ⊛
+
+ψ2) of conv( φ) corresponding to φ, then: 
+
+– Solver’s task is to compute a BDD-node for fn( ψ) from BDD-nodes for 
+
+fn( ψ1) and fn( ψ2). For this, Solver uses a well-known recursive algorithm 
+
+Apply (v1, v 2, ⊛), where v1 and v2 are the unique BDD nodes representing 
+
+fn( ψ1), fn( ψ2). Apply is shown on the left of Figure 2. 
+
+– Prover’s task is to compute polynomials for each of the gates g0 := ψ1 ⊛ ψ2,
+
+g1 := δxn−1 g0, g2 := δxn−2 g1, . . . , gn = δx1 gn, where x1, . . . x n are the free variables of ψ1 ⊛ ψ2, and evaluate them at assignments chosen by Verifier. Couillard et al. show in [11] that, if polynomials are encoded using an appropriate data structure , then Prover does not have to compute them because, surprisingly, they are already computed by Solver. More precisely, Couillard et al. transform 
+
+Apply( v1, v 2, ⊛) into ComputeEBDD( v1, v 2, ⊛), another algorithm which, despite having the same runtime as Apply (v1, v 2, ⊛), computes not only the BDD-node for fn( ψ) but also encodings for all the polynomials in the data structure. The 14 P. Czerner, J. Esparza, K. Winslow x2              
+
+> ψ2
+> x1
+> ψ1
+> 10
+> x2
+> x1
+> 10
+> ∨
+> Jψ1∨ψ2K
+> x1
+> 10
+> x2
+> δx2Jψ1∨ψ2K
+> ∨
+> ∨
+> 10
+> x2
+> δx1δx2Jψ1∨ψ2K
+> x1x1
+
+Fig. 3. eBDDs for Jψ1 ∨ ψ2K, δx1 Jψ1 ∨ ψ2K, and δx2 δx1 Jψ1 ∨ ψ2K, where ψ1 = x1 and 
+
+ψ2 = x1 ∧ x2, and BDD obtained after simplifying the latter. 
+
+Solver of [11] just runs ComputeEBDD( v1, v 2, ⊛) instead of Apply( v1, v 2, ⊛). Ap-pendix D describes the algorithm in detail. The data structure is called extended BDDs (eBDDs). Formally, an eBDD node e is either 0, 1, a node 〈x, e 0, e 1〉, where x ∈ X and e0, e 1 are eBDD nodes, called the 0-child and 1-child of e, or—and this is the extension—a binary operation node 〈v1 ⊛ v2〉, where ⊛ is a binary boolean operator and v1, v 2 are BDD nodes. The semantics of an eBDD, say e, is the polynomial JeK defined by 
+
+J0K := 0 J1K := 1 J⟨x, e 0, e 1⟩K := x · Je1K + (1 − x) · Je0K J⟨v1 ⊛ v2⟩K := Jv1K̂⊛Jv2K
+
+Figure 3 shows eBDDs encoding the polynomials Jψ1 ∨ ψ2K, δx1 Jψ1 ∨ ψ2K, and 
+
+δx2 δx1 Jψ1 ∨ ψ2K for ψ1 = x1 and ψ2 = x1 ∧x2. Binary operation nodes are shaded blue. Observe that evaluating a polynomial on an assignment takes linear time in the size of the eBDD encoding it. For example, in order to compute J〈x, e 0, e 1〉K(σ) for an assignment σ we just use J〈x, e 0, e 1〉K(σ) = σ(x) · Je1K(σ) + (1 − σ(x)) · Je0K(σ).
+
+5.2 Improving ComputeEBDD and blic 
+
+While ComputeEBDD (v1, v 2, ⊛) has the same runtime as Apply (v1, v 2, ⊛), it has two strong shortcomings in practice: 
+
+– Apply (v1, v 2, ⊛) is a recursive algorithm with memoization. Like all recursive algorithms, it produces a tree of recursive calls that are processed in depth-first manner using the recursion stack. Loosely speaking, ComputeEBDD ex-plores the same tree, but in breadth-first manner, which prevents the re-use of the recursion stack across multiple invocations. 
+
+– BDD-libraries are implemented on top with a common optimization: A global computation cache containing BDD-nodes for all of the boolean (sub-)functions computed so far. If two functions use the same sub-function as part of their logic, they will share the computation of its BDD. However, ComputeEBDD is incompatible with a global cache. In order to match the runtime of Apply ,it uses a mutable data structure that stores eBDDs for the polynomials in-place, instead of creating new nodes. The mutations are written to an undo-log , which can be applied by Prover to access overwritten eBDDs. While a A BDD-based Symbolic Model Checker with Interactive Certification 15 
+
+global cache was not necessary for blic , using one tends to highly benefit model checking, with [35] finding a reduction of repeated sub-computations of at least an order of magnitude. x2   
+
+> x1
+> 10
+> ∨
+> Apply( v1, v 2,∨)
+> u∨v
+> x2
+> δx2
+> x1
+> δx1
+> ∨
+> ∨
+> 01
+> lk
+> standard node
+> final node
+> binary-operation node
+
+Fig. 4. New computation of immutable eBDDs using links for versioning. 
+
+We present a new algorithm ApplyEBDD , shown on the right of Figure 2, that solves these two problems. ApplyEBDD runs on top of a global cache. On top of the links to its children, every eBDD node w has an additional link ,accessible via lk( w). Intuitively lk( w) is used to access multiple versions of the 
+
+same eBDD node as a linked-list. This data structure allows for an arbitrary number of versions for each node, but in ApplyEBDD it is always limited to at most three: one for the initial, binary operation node; a second version for an eBDD node that has some binary operation node as a descendant ( standard 
+
+eBDD node), and a third fully reduced final BDD node. Figure 4 shows the resulting immutable eBDDs that encode each degree reduction ( ComputeEBDD 
+
+would produce the eBDDs shown in Fig. D.2). Note that any duplicate final nodes are only pictured for easier illustration and refer to the same object in the unique table. Appendix D contains more details on ApplyEBDD .The only difference between ApplyEBDD and Apply is that after computing the two recursive results l and r, it creates three new eBDD nodes instead of one, and connects them using the link field. Prover computes the eBDD for any polynomial of the form δxk · · · δx1 JuK ⊛ JvK for all 1 ≤ k ≤ n by evaluating BDD-nodes d with var( d) > x k as lk( d), and otherwise ignoring links. The unique final BDD is available by evaluating the root as lk(lk( r)) .Since ApplyEBDD follows the depth-first recursive structure of Apply , and does not mutate any existing nodes, the values it returns can easily be tabled according to their recursion parameters. The table can either be global, or cleared at any point throughout program execution. We prove in Appendix F: 
+
+Proposition 1. Let ψ1, ψ 2 denote nodes of conv( φ) and u1, u 2 BDDs with JuiK =
+
+JψiK, i ∈ { 1, 2}. Then ApplyEBDD (u1, u 2, ⊛) satisfies Jw0K = Jψ1 ⊛ ψ2K and 
+
+Jwi+1 K = δxn−i JwiK for every 0 ≤ i ≤ n − 1; moreover, wn is a BDD with 16 P. Czerner, J. Esparza, K. Winslow 
+
+wn = Apply (u1, u 2, ⊛). Finally, the algorithm runs in time O(T ), where T is the time taken by Apply (u1, u 2, ⊛). 
+
+Thus, Solver and Prover use ApplyEBDD to compute eBDDs for each boolean function and polynomial of the GBC constructed by BL-IP . Prover answers a 
+
+Challenge and ChallengeDistinct by traversing the arguments eBDDs in lin-ear time. Pseudocode and a detailed description is provided in Appendix E. 
+
+5.3 Garbage collection 
+
+Recall that iSMC ’s Solver runs bottom-up through a circuit: For every gate 
+
+ψ := ψ1 ⊛ ψ2 of conv( φ), Solver applies ApplyEBDD to ψ (that is, computes 
+
+ApplyEBDD (ψ1, ψ 2, ⊛)), after applying it to ψ1 and ψ2. In particular, Solver can garbage-collect all BDD-nodes of ψ1 or ψ2 that are not shared with ψ, reducing memory consumption. On the contrary, TraceCert runs top-down: the round for ψ is executed before the rounds for ψ1 and ψ2. Therefore, since Prover uses the output Solver for all gates of the circuit, garbage collection is not possible. We show that, under a reasonable assumption, TraceCert can be replaced by a TraceCertRev , another protocol that essentially runs TraceCert bottom-up (Rev stands for “reverse”). We explain the intuition for TraceCertRev with the help of the tiny circuit φ = x ∧ x, for which conv( φ) = δx(x ∧ x). Imagine a dishonest Prover claims Jconv( φ)K(1 /2) = 1 , which corresponds to claiming that 
+
+x ∧ x has two satisfying assignments. Then TraceCert runs as follows: (1) Verifier asks Prover to supply Jx ∧ xK.Let p(x) be Prover’s answer. Verifier checks that p(x) is at most quadratic and the consistency condition (x · p(1) + (1 − x) · p(0))(1 /2) = 1 /2( p(1) + 
+
+p(0)) ?
+
+= 1 , and rejects if it they are not met. In particular, if Prover answers the truth, namely p(x) := x2, then Prover is caught. So Prover answers with some p(r) 6 = r2.(2) Verifier picks r ∈ Fp u.a.r. and asks Prover to supply JxK(r).Let k be Prover’s answer. Verifier checks the condition p(r) ?
+
+= k2, and rejects if it is not met. Assume it holds. Then Verifier computes JxK(r) herself and checks JxK(r) = r ?
+
+= k, which is equivalent to p(r) ?
+
+= r2. But for p(r) 6 = r2 this holds only if r happens to be one of the at most two roots of the quadratic polynomial p(r) − r2, and so with probability 2/|Fp|. So Verifier catches that Prover’s initial claim is false with high probability. It is essential that the procedure runs top down, i.e., that (2) happens after (1). Otherwise Prover knows r when choosing p(x), and Prover can choose p(x) :=  
+
+> (r−2) x2+rx r−1
+
+, passing all checks. Imagine, however, that Prover behaves like an oracle , i.e., that it clears its memory after each query. Then in the bottom-up protocol in which (2) happens first, Prover forgets r, and then (1) happens, Prover is caught with the same probability as before. This condition is reasonable whenever Verifier can assume that Solver+Prover may be faulty but are not malicious and do not conspire A BDD-based Symbolic Model Checker with Interactive Certification 17 
+
+to “fool” Verifier. For example, if the code of Prover is publicly available, then Verifier can check, e.g. by program analysis, that Prover does not store data across queries. Appendix G describes TraceCertRev , a bottom-up version of TraceCert 
+
+with garbage collection. Here we only sketch it. Verifier starts TraceCertRev by creating a random assignment σ for all variables. Then TraceCertRev proceeds in rounds, one for each gate, in reverse topological order, i.e., from input to output gates. At the round for a gate ψ, Verifier replaces claims about the output gates of ψ by a claim about ψ itself. CEHP is preserved by the oracle assumption on Prover. At the end of TraceCertRev , Verifier accepts if at the end C contains claims for all assertions of the execution trace. In Appendix G we prove: 
+
+Lemma 2. If C contains a false claim about an GBC conv( φ) with n variables, then in TraceCertRev Verifier accepts with probability at most (4 n|φ| + n) /Fp
+
+for any Prover that acts as an oracle. If all claims in C are true, Verifier accepts with probability 1 for the honest prover (completeness). 
+
+# 6 Evaluation 
+
+We evaluate iSMC on benchmarks from the liveness track of HWMCC25’s [28]. We convert Aiger benchmarks to the smv format using aigtosmv [2], and retain the 53 benchmarks for which iSMC terminates within 15 minutes. All experi-ments are executed on a platform running Linux 6.15.2 with an AMD ‘Ryzen 9 7950X’ CPU, 32GB of DDR5 memory, and hosting the Clang compiler in version 19.1.7. 
+
+Performance of iSMC ’s Solver. Fig. 5 compares the runtime and memory con-sumption of iSMC ’s Solver and NuSMV 2.7.0 which, recall, does not offer certi-fication. Our solver is in average 5.84 times slower, which for a first prototype against a mature tool we consider a good result. The main reason is that iSMC ’s Solver does not yet support relational products [5]—a BDD operation that can significantly improve the performance of symbolic model checking—because its direct interactive certification by Prover and Verifier is still an open problem. 
+
+Performance of iSMC ’s Prover. Fig. 5 (bottom row) compares the time and mem-ory consumption of iSMC ’s Solver and iSMC ’s Prover. Our theoretical analysis shows that if Solver takes time T , then Prover takes time O(T ), and suggests a small constant, as answering all challenges amounts to traversing the BDDs computed by Solver once. The experiments confirm this, the constant being 2.00 on average. Note that Prover time includes both computing all eBDDs (solving the instance) and answering all challenges (certifying the result). 
+
+Performance of iSMC ’s Verifier. Fig. 6 (top row) compares the runtime of iSMC ’s Verifier and iSMC ’s Prover. For a timeout of 15 minutes, Verifier never takes more than 3.6 second and on average Verifier is 33.4 times faster than Prover. Further, Verifier’s runtime grows much slower than Prover’s runtime with the size of the instance in average. This reflects the fact that Verifier’s runtime is linear on the 18 P. Czerner, J. Esparza, K. Winslow 10 0 10 1 10 2 10 3 10 4 10 5               
+
+> 10 0
+> 10 3
+> 10 6
+> x
+> 10 x
+> .1x
+> NuSMV (ms)
+> i-SMV Solver (ms)
+> Computation time 10 410 4.210 4.410 4.610 4.810 5
+> 10 4
+> 10 5
+> 10 6
+> x
+> 10 x
+> NuSMV (KB)
+> i-SMV Solver (KB)
+> Memory consumption 10 010 110 210 310 410 510 6
+> 10 0
+> 10 3
+> 10 6x10 x
+> .1x
+> i-SMV Solver (ms)
+> i-SMV Prover (ms) 10 410 510 6
+> 10 4
+> 10 5
+> 10 6x10 x
+> .1x
+> i-SMV Solver (KB)
+> i-SMV Prover (KB)
+
+Fig. 5. Top: Solving time (left) and memory consumption (right) of solving instances using iSMC vs. NuSMV. Bottom: iSMC ’s Solver vs. iSMC ’s Prover computation time. 
+
+length of the execution trace, while Prover’s time is linear on the time it takes to execute it. Generally, execution traces for larger benchmarks manipulate larger BDDs, which improves the speedup of Verifier w.r.t. Prover; however, some have long trace sand small BDDs, and Verifier still takes almost as much time as Prover. 
+
+Impact of TraceCert and clic . Fig. 6 (bottom row) compares the performance of 
+
+iSMC when run on top of CPCertify +blic and and on top of TraceCertRev +clic 
+
+(that is, with dedicated handling of renaming gates and equivalence claims, with a BDD library that uses a global unique table and with fine-grained garbage collection). The speedup factor is 2.26 on average, increases with runtime, and reaches a maximum of 73. The memory-reduction factor is 16.12 on average, with median of 26.26 for the benchmarks that did not run out of memory (CPCertify +blic solves 4 fewer instances than TraceCertRev +clic ). 
+
+# 7 Conclusion 
+
+We have presented iSMC , the first model checker with interactive certification. 
+
+iSMC ’s Verifier module interactively checks that the execution sequence of the Solver module—that is, the sequence of BDD-operations executed to solve a given model-checking instance—is correct. Our certification technique works for any algorithm implemented on top of the BL-IP BDD-library. In particular, since there exists a BDD-based algorithm for the full modal μ-calculus, it can be used to construct a self-certifying model A BDD-based Symbolic Model Checker with Interactive Certification 19 10 1 10 2 10 3 10 4 10 5 10 6             
+
+> 10 0
+> 10 2
+> 10 4
+> x.1x
+> i-SMV Prover (ms)
+> i-SMV Verifier (ms)
+> Computation time 10 010 110 210 310 410 510 6
+> 10 0
+> 10 3
+> 10 6x10 x
+> .1x
+> blic (ms)
+> i-SMV (ms)
+> Computation time 10 410 510 6
+> 10 4
+> 10 5
+> 10 6x
+> .1x
+> blic (KB)
+> i-SMV (KB)
+> Memory consumption
+
+Fig. 6. Top: Computation time of iSMC ’s Prover vs. Verifier. Bottom: iSMC using our improvements vs. blic .
+
+checker not only for full CLT, but for the full modal μ-calculus. It can also be used to certify a CTL model-checker that computes predecessors by iterative squaring of the transition relation. The execution sequence of this algorithm always has polynomial length in the size of the model-checking instance, and so for this algorithm Verifier always runs in polynomial time. However, this algorithm is known to be much less efficient for Solver. 
+
+# References 
+
+1. Sanjeev Arora and Boaz Barak. Computational Complexity — A Modern Approach .Cambridge University Press, 2009. 2. Armin Biere, Marc Herbstritt, Daniel Le Berre, Siert Wieringa, and Aina Niemetz. Aiger. https://fmv.jku.at/aiger/, 2025. 3. Randal E. Bryant. Graph-based algorithms for boolean function manipulation. 
+
+IEEE Transactions on Computers , C35(8):677–691, 1986. 4. Randal E. Bryant. Binary decision diagrams. In Handbook of Model Checking ,pages 191–217. Springer International Publishing, 2018. 5. Jerry R. Burch, Edmund M. Clarke, David E. Long, Kenneth L. McMillan, and David D. Dill. Symbolic model checking for sequential circuit verification. 
+
+IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems ,13(4):401–424, 1994. 6. Roberto Cavada, Alessandro Cimatti, Michele Dorigatti, Alberto Griggio, Alessan-dro Mariotti, Andrea Micheli, Sergio Mover, Marco Roveri, and Stefano Tonetta. The nuxmv symbolic model checker. In CAV , volume 8559 of Lecture Notes in Computer Science , pages 334–342. Springer, 2014. 20 P. Czerner, J. Esparza, K. Winslow 7. Sagar Chaki and Arie Gurfinkel. BDD-based symbolic model checking. In Handbook of Model Checking , pages 219–245. Springer International Publishing, 2018. 8. Alessandro Cimatti, Edmund Clarke, Fausto Giunchiglia, and Marco Roveri. Nusmv: a new symbolic model checker. International Journal on Software Tools for Technology Transfer (STTT) , 2(4):410–425, 2000. 9. Edmund M. Clarke, Thomas A. Henzinger, and Helmut Veith. Introduction to model checking. In Handbook of Model Checking , pages 1–26. Springer International Publishing, 2018. 10. Sylvain Conchon, Alain Mebsout, and Fatiha Zaïdi. Certificates for parameterized model checking. In FM , volume 9109 of Lecture Notes in Computer Science , pages 126–142. Springer, 2015. 11. Eszter Couillard, Philipp Czerner, Javier Esparza, and Rupak Majumdar. Making 
+
+IP =PSPACE practical: Efficient interactive protocols for BDD algorithms. In CAV (3) , volume 13966 of Lecture Notes in Computer Science , pages 437–458. Springer, 2023. 12. Philipp Czerner, Javier Esparza, and Valentin Krasotin. A resolution-based inter-active proof system for UNSAT. In FoSSaCS (2) , volume 14575 of Lecture Notes in Computer Science , pages 116–136. Springer, 2024. 13. E. Allen Emerson and Joseph Y. Halpern. “Sometimes” and “not never” revisited: on branching versus linear time temporal logic. Journal of the ACM , 33(1):151–178, 1986. 14. Javier Esparza, Peter Lammich, René Neumann, Tobias Nipkow, Alexander Schimpf, and Jan-Georg Smaus. A fully verified executable LTL model checker. In 
+
+CAV , volume 8044 of Lecture Notes in Computer Science , pages 463–478. Springer, 2013. 15. Nils Froleyks, Emily Yu, Armin Biere, and Keijo Heljanko. Certifying phase ab-straction. In IJCAR (1) , volume 14739 of Lecture Notes in Computer Science ,pages 284–303. Springer, 2024. 16. Shafi Goldwasser, Silvio Micali, and Charles Rackoff. The knowledge complexity of interactive proof-systems (extended abstract). In STOC , pages 291–304. ACM, 1985. 17. Alberto Griggio, Marco Roveri, and Stefano Tonetta. Certifying proofs for sat-based model checking. Formal Methods Syst. Des. , 57(2):178–210, 2021. 18. Toni Jussila, Carsten Sinz, and Armin Biere. Extended resolution proofs for sym-bolic sat solving with quantification. In Theory and Applications of Satisfiability Testing - SAT 2006 , pages 54–60. Springer Berlin Heidelberg, 2006. 19. Ashwin Karthikeyan, Hengyu Liu, Kuldeep S. Meel, and Ning Luo. Towards prac-tical zero-knowledge proof for PSPACE. 2025. arXiv:2511.15071 [cs.CR]. 20. Tuomas Kuismin and Keijo Heljanko. Increasing confidence in liveness model checking results with proofs. In Haifa Verification Conference , volume 8244 of 
+
+Lecture Notes in Computer Science , pages 32–43. Springer, 2013. 21. Carsten Lund, Lance Fortnow, Howard Karloff, and Noam Nisan. Algebraic meth-ods for interactive proof systems. Journal of the ACM , 39(4):859–868, 1992-10. 22. Ning Luo, Timos Antonopoulos, William R. Harris, Ruzica Piskac, Eran Tromer, and Xiao Wang. Proving unsat in zero knowledge. In Proceedings of the 2022 ACM SIGSAC Conference on Computer and Communications Security , CCS 22, pages 2203–2217. ACM, 2022-11. 23. Guanfeng Lv, Kaile Su, and Yanyan Xu. Cacbdd: A BDD package with dynamic cache management. In CAV , volume 8044 of Lecture Notes in Computer Science ,pages 229–234. Springer, 2013. A BDD-based Symbolic Model Checker with Interactive Certification 21 24. Kenneth L. McMillan. Symbolic model checking . Kluwer, 1993. 25. Alain Mebsout and Cesare Tinelli. Proof certificates for smt-based model checkers for infinite-state systems. In FMCAD , pages 117–124. IEEE, 2016. 26. Kedar S. Namjoshi. Certifying model checkers. In Computer Aided Verification ,pages 2–13. Springer Berlin Heidelberg, 2001. 27. Nir Piterman and Amir Pnueli. Temporal logic and fair discrete systems. In 
+
+Handbook of Model Checking , pages 27–73. Springer International Publishing, 2018. 28. Mathias Preiner, Nils Froleyks, and Armin Biere. HWMCC’25 benchmarks and results, 2025. 29. Adi Shamir. IP = PSPACE. Journal of the ACM , 39(4):869–877, 1992-10. 30. Fabio Somenzi. CUDD: CU Decision Diagram Package Release 3.0.0 , 2015-12-31. 31. Christoph Sprenger. A verified model checker for the modal μ-calculus in coq. In TACAS , volume 1384 of Lecture Notes in Computer Science , pages 167–183. Springer, 1998. 32. Ming-Hsien Tsai, Yu-Fu Fu, Jiaxiang Liu, Xiaomu Shi, Bow-Yaw Wang, and Bo-Yin Yang. Coqcryptoline: A verified model checker with certified results. In CAV (2) , volume 13965 of Lecture Notes in Computer Science , pages 227–240. Springer, 2023. 33. Michael Walfish and Andrew J. Blumberg. Verifying computations without reexe-cuting them. Communications of the ACM , 58(2):74–84, 2015. 34. Simon Wimmer. Munta: A verified model checker for timed automata. In 
+
+FORMATS , volume 11750 of Lecture Notes in Computer Science , pages 236–243. Springer, 2019. 35. Bwolen Yang, Randal E. Bryant, David R. OHallaron, Armin Biere, Olivier Coud-ert, Geert Janssen, Rajeev K. Ranjan, and Fabio Somenzi. A performance study of bdd-based model checking. In Formal Methods in Computer-Aided Design , pages 255–289. Springer Berlin Heidelberg, 1998. 36. Emily Yu, Armin Biere, and Keijo Heljanko. Progress in certifying hardware model checking results. In CAV (2) , volume 12760 of Lecture Notes in Computer Science ,pages 363–386. Springer, 2021. 37. Emily Yu, Nils Froleyks, Armin Biere, and Keijo Heljanko. Stratified certification for k-induction. In FMCAD , pages 59–64. IEEE, 2022. 38. Emily Yu, Nils Froleyks, Armin Biere, and Keijo Heljanko. Towards compositional hardware model checking certification. In FMCAD , pages 1–11. IEEE, 2023. 22 P. Czerner, J. Esparza, K. Winslow 
+
+# A Preliminaries 
+
+A.1 Binary Decision Diagrams (BDDs) 
+
+We recall basic notions on reduced ordered binary decision diagrams [3,4], called in this paper BDDs for short. BDDs are a symbolic representation of boolean functions as directed acyclic graphs (DAGs). The graph forms a decision diagram: Each node of the graph, starting at the root, is associated with a variable of the function. The node has two children: one ‘low’ child for the boolean function when setting the node’s variable to false, and one ‘high’ child for the function of setting its variable to true. We write 〈xi, l, r 〉 for a node with variable vi, the low child l, and the high child r. The leaf nodes are either 0 or 1. To evaluate the function represented by a BDD, one chooses the path from its root to a leaf according to the value of each variable. If the last node is 0, then the function evaluates to false, otherwise it evaluates to true. BDDs are ordered , because any sequence of variables encountered on a path of a BDD are sorted according to a strict global order. Further, BDDs are reduced since they cannot have redundant nodes: Whenever both children of a node represent the same function, the node should be omitted entirely and replaced by its child. Also, reduced BDDs never have a duplicate node (e.g. by using a cache or table). This ensures that any boolean function has a unique representation as a BDD [3]. v3
+
+v2
+
+1
+
+v2
+
+0v1
+
+0
+
+v1
+
+1
+
+v2
+
+1 0 
+
+> Fig. A.1. Unreduced (left) and reduced (right) ordered BDD representing the same function.
+
+Boolean operations on binary decision diagrams are implemented via recur-sion on the children of the operands. A BDD 〈xi, l, r 〉 represents a boolean func-tion f according to the Shannon expansion f = ( ¬xi ∧ f |xi←0) ∨ (xi ∧ f |xi←1)
+
+where l = f |xi←0 and r = f |xi←1. Boolean operations can be expressed using the subterms of the Shannon expansion, for example as: f ∧ g = ( ¬xi ∧ f |xi←0 ∧A BDD-based Symbolic Model Checker with Interactive Certification 23 
+
+g|xi←0) ∨ (xi ∧ f |xi←1 ∧ g|xi←1). This naturally gives rise to the Apply( f, g, ⊛)
+
+operation to compute the reduced BDD for the function f ⊛ g, where ⊛ is one of the 16 possible boolean binary operators. Where Reduce ensures the resulting BDD is unique and reduced by using a unique cache . As is, the Apply algorithm produces correct BDDs. However, the worst-case complexity is exponential in the size of its parameters. This can be avoided by caching results using a computation cache , which prevents 
+
+Apply( f, g, ⊛) being computed twice for any equal parameters. Because the unique cache is needed to correctly generate reduced ordered binary decision diagrams, entries cannot be removed from it while the entries’ node exists. The computation cache, on the other hand, can be limited to a maximum size in a trade-off between speed and memory overhead. The use of a computation cache limits the number of recursive calls to Apply( f, g, ⊛) to |f | · | g|, bounding the total execution time of an operation to O(|f | · | g|).Table 1 outlines the typical BDD-based boolean function library interface. The Restrict and Rename operations are also defined by simple recursion on the graph structure of a BDD, using a computation cache for efficiency. The difference between the two operations and Apply is that the terminal case dif-fers: While Apply stops recursion at the leaf nodes, they stop as soon as their recursion reaches a node with a variable lower than their argument. In general, both operations have a complexity linear in the size of their BDD argument. The renaming operation Rename( g, x i, x k), which substitutes the variable xi for xk
+
+in the BDD g, requires that none of the variables in between xk and xi is in the support of g. The condition ensures that each corresponding variable in the graph of g can be renamed without violating the BDD’s order. Quantifying a set of variables {x0, . . . , x n} using BDDs is implemented by a sequence of quantifications ∃x0 . . . ∃xn f , which may have a time complexity of O(|f |2n
+
+). This operation in particular can quickly become limiting for model checking as the algorithm quantifies a set of variables for every image and pre-image computation. 
+
+A.2 Interactive Proof Protocols 
+
+This appendix is taken from [1], with slight differences in notation. We first introduce deterministic interactive proof protocols, and then the general notion of an interactive proof protocol. A deterministic interactive proof protocol is a pair of deterministic Turing machines, called the honest Prover and the Verifier , that compute two functions 
+
+f, g : {0, 1}∗ → { 0, 1}∗. Intuitively, the honest Prover and the Verifier are the two parties of a communication protocol, and f, g describe their behavior: Given the sequence of messages exchanged between the two parties so far, modeled as a word w ∈ { 0, 1}∗, the strings f (w), g (w) model the next message sent by the honest Prover to Verifier resp. by Verifier to the honest Prover. Formally, a k-round interaction between the honest Prover and Verifier on a word x ∈ { 0, 1}∗
+
+is defined as follows: 24 P. Czerner, J. Esparza, K. Winslow 
+
+Definition A.1 ( k-round interaction). For any two Turing machines com-puting functions f, g : {0, 1}∗ → { 0, 1}∗ and an input x ∈ { 0, 1}∗, a k-round interaction 〈f, g 〉k(x) is defined as the sequence of binary strings a1, . . . , a k:
+
+a1 = f (x)
+
+a2i = g(x, a 1, . . . , a 2i−1) ∀i. 1 < 2i ≤ ka2i+1 = f (x, a 1, . . . , a 2i) ∀i. 1 < 2i < k 
+
+out 〈f, g 〉k(x) = f (x, a 1, . . . , a k)
+
+As usual, we model computational decision problems, like SAT or the model-checking problem for CTL, as the language containing the encodings of the “yes”-instances: for SAT, the set of all satisfiable boolean formulas, and for the model-checking problem the set of all pairs 〈system, CTL-property 〉 such that the system satisfies the property. We now formally define a k-round deterministic interactive proof protocol for a language. 
+
+Definition A.2 ( k-round deterministic interactive proof protocol). Let 
+
+L ⊆ { 0, 1}∗ be a language and let k : N → N. A k-round interactive proof protocol 
+
+for L is a pair HP , V of deterministic Turing machines, called the honest Prover 
+
+and the Verifier , satisfying the following properties for every input x:
+
+– Polynomiality : V runs in polynomial time in |x|.
+
+– Completeness : if x ∈ L, then out 〈V, HP 〉k(|x|)(x) = 1 .
+
+– Soundness : if x / ∈ L, then out 〈V, P 〉k(|x|)(x) = 0 for every deterministic Turing machine P .
+
+Intuitively, completeness means that for every x ∈ L the honest Prover makes Verifier accept the true claim “ x belongs to L” (Verifier outputs 1). Soundness means that for every x / ∈ L, no Prover whatsoever , honest or dishonest, can make Verifier accept the false claim “ x belongs to L”. As shown in [1], the power of interaction is only realized when Verifier is 
+
+probabilistic . So we need to introduce probabilistic Turing machines. 
+
+Definition A.3 (Probabilistic Turing Machine). A probabilistic Turing ma-chine M is a Turing machine that has a second random input tape R and a function t, such that for any input x ∈ { 0, 1}∗, R is initialized with a bitstring 
+
+r, sampled uniformly at random from {0, 1}t(|x|). We say that M takes time T
+
+if for every x, M terminates in at most T (|x|) steps for every r ∈ { 0, 1}t(|x|).
+
+It is easy to extend the definition of k-round interaction to the case in which Verifier is probabilistic. We add the bitstring r as input the function f , that is, we take a1 = f (x, r ), a3 = f (x, r, a 1, a 2), etc. The interaction 〈V, HP 〉(x) is now a random variable over r ∈ { 0, 1}t(|x|). Similarly the output out f 〈V, P 〉(x)
+
+is also a random variable. Now we can generalize deterministic interactive proof protocols to interactive proof protocols: A BDD-based Symbolic Model Checker with Interactive Certification 25 
+
+Definition A.4 ( k-round interactive proof protocol). Let L ⊆ { 0, 1}∗ be a language and let k : N → N. A k-round interactive proof protocol for L is a pair 
+
+HP , V of deterministic and probabilistic Turing machines, respectively, called the honest Prover and the Verifier , satisfying the following properties for every input x :
+
+– Polynomiality : V runs in polynomial time in |x|.
+
+– Completeness : if x ∈ L, then Pr[ out f 〈V, P 〉(x) = 1] = 1 .
+
+– Soundness : if x / ∈ L, then Pr[ out f 〈V, P 〉(x) = 1] ≤ 12|x| for every determin-istic Turing machine P .
+
+In other words: the honest Prover makes Verifier accept the true claim that 
+
+x belongs to L with probability 1. Soundness means that for every x / ∈ L, no Prover whatsoever , honest or dishonest, can make Verifier accept the false claim that x belongs to L with probability higher than 12|x| .Finally, we define the class IP of decision problems as the problems for which there exists a k-round interactive proof protocol for some number of rounds k
+
+polynomial in the size of the input. 
+
+Definition A.5 (IP[ k]). For any polynomial k(n) > 0, a language L is in IP [k]
+
+if there is a k-round interactive proof protocol for L. We define the class IP of problems with interactive proof systems as IP = ⋃ 
+
+> c> 0
+
+IP [nc].
+
+Shamir’s theorem states IP = PSPACE . In other words, for every problem in PSPACE —like the model checking problem for CTL where the set of initial configurations, the transition function, and the atomic propositions are given as BDDs—has an interactive proof protocol. 
+
+# B Preprocessing: From φ to conv( φ)
+
+As mentioned in the main text, TraceCert transforms a model checking trace to the generalized boolean circuit (GBC) conv( φ). A GBC is a directed, acyclic graph in which each node represents a boolean function. For example, fig. B.1 displays a GBC together with the boolean functions encoded by its nodes. Im-portantly, a GBC can share common sub-expressions, which allows conv( φ) to be linear in the size of the trace. In addition to a boolean function fn( φ), each node φ is associated with its 
+
+arithmetization [[ φ]] . As said in Section 4.1, [[ φ]] is a polynomial over finite field 
+
+Fp, which is equal to fn( φ) when each variable is assigned a boolean value. The paper explained how boolean operations get mapped to their arithmetization. To convert each node of a GBC, we also define an additional partial evaluation 
+
+operator for polynomials: 
+
+Definition B.1 (Polynomials). – Partial evaluation ( π[x:= a]p): returns the polynomial of setting variable x to 
+
+a ∈ Fp in p.26 P. Czerner, J. Esparza, K. Winslow ∧
+
+∨ π[x3:=1] 
+
+π[x3:=0] x4
+
+x3
+
+[( x′ 
+
+> 4
+
+∨ 0) ∧ 1] 
+
+[1] 
+
+[x′
+
+> 3
+
+]
+
+[0] [x′
+
+> 4
+
+]
+
+[x′ 
+
+> 4
+
+∨ 0] 
+
+Fig. B.1. Extended boolean circuit and each node’s corresponding boolean function. 
+
+– Degree reduction ( δxp): returns the polynomial obtained by setting the cur-rent degree d of x in every monomial of p to max( d, 1) .Adjacent partial evaluations or degree reductions are commutative, e.g. δxδy p =
+
+δy δxp. Also, if a variable v does not occur in p, then δv p = p and π[v:= a]p = p.We use these two facts throughout proofs without explicit mention. A partial evaluation of p under a partial assignment σ : X′ → Fp, X ′ ⊆ V ′,written Πσ p, is defined as π[x1:= σ(x1)] . . . π [xk := σ(xk )] for all variables in X′. We call a polynomial p with variables X binary iff ∀ (σ : X → { 0, 1}) . Πσ p ∈ { 0, 1}.
+
+Definition B.2 (Arithmetization of GBCs). Let p[xt/x k] stand for the poly-nomial equal to p with each occurrence of xk replaced by xt, and p ⊛ q for the arithmetization of the binary boolean operator ⊛. The arithmetization ([[ ]]) of an GBC node is defined inductively: 
+
+[[ >]] ≡ 1, [[ ⊥]] ≡ 0, [[ xk]] ≡ xk
+
+[[ φ ⊛ ψ]] ≡ [[ φ]] ⊛ [[ ψ]] , [[ ¬φ]] ≡ 1 − [[ φ]] [[ π[xk := b]φ]] ≡ π[xk :=[[ b]]] [[ φ]] [[ φ[xt/x k]]] ≡ [[ φ]][ xt/x k]
+
+As an example, if iSMC produces the following program trace: g = x1 ∨
+
+x2; f = g ⊕ x3, it first constructs the GBC φ = ( x1 ∨ x2) ⊕ x3. Then, it computes the GBC conv( φ) by adding degree-reduction gates, shown in Figure B.2. A BDD-based Symbolic Model Checker with Interactive Certification 27 δx3 δx2 δx1 
+
+> f
+> ⊕
+> δx1
+> g
+> δx2∨
+> x1x2
+> x3
+
+Fig. B.2. GBC conv (( v1 ∨ v2) ⊕ v3)generated by iSMC .
+
+B.1 Generating Claims from Assertions 
+
+The main paper introduces four types of claims that Prover makes about GBC nodes. The assertions present in the program trace given to BL-IP are mapped to claims as follows, where f, g are a program variable and ψ, ϕ are the associated nodes in the circuit: 
+
+– assert | { v | f (v) = 1 } | = k (asserting number of sat. assignments) gets mapped to count claim Σ fn( ψ) = k
+
+– assert f (b1, . . . , b n) = r (asserting evaluation result) gets mapped to B-evaluation claim Πσ fn( ψ) = r, where ∀i. σ (xi) = bi ∈ { 0, 1}.
+
+– assert f = g and assert f 6 = g (asserting functional-equality) get mapped to B-equivalence claims fn( ψ) = fn( ϕ) and fn( ψ) 6 = fn( ϕ) respectively. 
+
+# C The interactive proof protocol TraceCert 
+
+We present TraceCert in a top-down manner. Section C.1 describes the top-level procedure, which call procedures described in subsequent sections. 
+
+C.1 TraceCert : Top-level Procedure 
+
+The main text explains that the top level procedure TraceCert first uses Normalize 
+
+to turn all claims into Fp-evaluation claims. It then iterates over the GBC 
+
+conv( φ) in topological order, engaging in a round at each gate. It does this via the PropagateAssignments procedure (Alg. C.2). In each iteration, it first invokes Normalize before one of the Propagate variants (explained below). 
+
+Algorithm C.1 TraceCert( conv( φ), C)
+
+Input: conv( φ) {GBC generated from the trace} 
+
+Input: C {Set of claims about output gates in conv( φ)}
+
+Output: 1, if all claims could be certified, otherwise 0
+
+C ← Normalize( C) {C now only contains Fp-evaluation claims} 
+
+return CertifyAssignments( conv( φ), C)28 P. Czerner, J. Esparza, K. Winslow 
+
+CertifyAssignments proceeds by starting a round for each gate in topologi-cal order. It considers the set of assignment claims about the current node and merges them. If the current gate is an input gate, Verifier computes the arith-metization of and checks whether the claim is correct (‘Decision’ in main text). If it instead is an intermediate gate, it generates new claims about the node’s children, using one of the Propagate subroutines, depending on the type of node, and updates C while preserving CEHP. The two subroutines used by CertifyAssignments : Merge and Propagate 
+
+preserve CEHP with probabilities at least 1 − 2n/ |Fp| and 1 − 2/|Fp| (shown below). We use these facts to prove soundness and completeness. 
+
+Lemma C.1. For circuit conv( φ) and Fp-equivalence claims C, if all claims in C
+
+are true and Prover is honest, CertifyAssignments( conv( φ), C) makes Verifier accepts with probability 1 ( completeness ). If at least one claim in C is false, then Verifier rejects with probability at least 1 − 4n|φ|/|Fp|.Proof. The proof largely follows from the correctness theorem of CPCertify [11, Theorem 1]. The size of conv( φ) is at most n|φ|, with at most |φ| nodes that have more than one predecessor, (intermediate degree-reduction gates only have one prede-cessor). When iterating over gates in conv( φ), each node ψ is only visited once, and at most |φ| gates have more than one claim when visited, which is due to the limit of predecessors explained above, and the fact that initial claims cannot be about intermediate nodes added by conv . This means that (i) claims in C get replaced using Merge at most |φ| times. The Propagate procedure is called for each node, at most | conv( φ)| ≤ n|φ| times. Using the union bound, we have that if at least one Fp-equivalence claim in 
+
+C is false, then a false claim is replaced by a true claim with probability at most 
+
+|φ|· 2n/ |Fp|+n|φ|· 2/|Fp|. Conversely, if all claims are true, then all claims added to C are also true for an honest Prover. Thus, CertifyAssignments causes Verifier to accept with probability 1 given all claims are true and an honest Prover, and otherwise rejects with probability at least 1 − 4n|φ|/|Fp|.Using our knowledge about the CEHP properties of Normalize (Lemma C.3) and previous Lemma, proving the original correctness statement of the main text is straightforward: 
+
+Lemma 1. If C contains a wrong claim about the GBC conv( φ) with n variables, 
+
+TraceCert will accept with probability at most (4 n|φ| + n) /Fp for any prover (soundness). If all claims in C are correct, it will accept with probability 1 given an honest prover (completeness). Proof. Using the union bound, we have that Normalize preserves CEHP with probability at least 1 − n/ |Fp|, and that CertifyAssignments has a soundness error of at most 4n|φ|/|Fp|, and perfect completeness. A BDD-based Symbolic Model Checker with Interactive Certification 29 
+
+Algorithm C.2 CertifyAssignments( conv( φ), C)                                          
+
+> Input: conv( φ){GBC generated from the trace}
+> Input: C{Set of Fp-evaluation claims about nodes in conv( φ)}
+> Output: 1, if Accept() is called, 0, if Reject() is called
+> for Gate ψin topological order of conv( φ)do
+> C← C (ψ){Get the set of assignment claims about node ψ}
+> (Π σ[[ ψ]] = k)←Merge( C, ψ )
+> if IsLeaf( ψ)then
+> t←Πσ[[ ψ]] {Decision: ψis an input gate that Verifier checks in linear time}
+> if t̸=kthen
+> Reject()
+> end if else
+> C′←Propagate( ψ, Πσ[[ ψ]] = k)
+> C ← C ∪ C′
+> end if end for
+> Accept()
+
+C.2 Initialization: Normalize 
+
+The pseudocode for the initialization procedure Normalize explained in Sec-tion 4.3 is shown in Alg. C.3. The main text explains that Normalize replaces all four claim types by Fp-evaluation claims in a way that preserves CEHP. Conceptually, this is because arithmetizations encode more information about a function than just its value under a boolean assignment. Namely, assigning each variable to 2−1 ∈ Fp, instead of a boolean value, evaluates JφK to the number of satsifying assignments ([11, Lemma 2]). Further, because each function has a 
+
+unique arithmetization ([11, Prop. 3]), iff fn( φ) = fn( ψ), then JφK = JψK.
+
+Lemma C.2. If two degree-reduced GBC nodes φ, ψ represent the same boolean function, then 
+
+Pr  
+
+> σ
+
+[Π σ ([[ φ]] − JψK) = 0] = 1 
+
+Conversely, if they do not represent the same boolean function, then 
+
+Pr  
+
+> σ
+
+[Π σ ([[ φ]] − JψK) 6 = 0] ≥ 1 − n
+
+Fp
+
+Proof. We need to show that the probability of error is ≤ n 
+
+> |Fp|
+
+:We have φ ≡ ψ iff [[ ϕ]] − JψK = p − q = 0 by [11, Prop. 3] (arithmetization produces a unique polynomial). We further have that the total degree d of both p
+
+and q is ≤ n, because there are at most n variables of degree 1 in any monomial. 30 P. Czerner, J. Esparza, K. Winslow 
+
+By the Schwartz-Zippel lemma: 
+
+p − q = 0 = ⇒ Pr  
+
+> σ
+
+[Π σ (p − q) = 0] = Pr  
+
+> σ
+
+[Π σ p − Πσ q = 0] = 1 
+
+p − q 6 = 0 = ⇒ Pr  
+
+> σ
+
+[Π σ (p − q) = 0] = Pr  
+
+> σ
+
+[Π σ p − Πσ q = 0] ≤ d
+
+|Fp|
+
+The first goal, when φ ≡ ψ, immediately follows. We conclude our second goal, when φ 6 ≡ ψ, by 
+
+Pr  
+
+> σ
+
+[Π σ ([[ φ]] − JψK 6 = 0)] = 1 − Pr  
+
+> σ
+
+[Π σ ([[ φ]] − JψK = 0)] ≥ 1 − d
+
+Fp
+
+≥ 1 − n
+
+Fp
+
+Algorithm C.3 Normalize( C)
+
+Input: C {Set of all four possible types of claims} 
+
+Output: A set of assignment claims reduced from claims in C.
+
+C′ = {} 
+
+for all c ∈ C do if c = (Π σ [[ φ]] = k) then 
+
+C′ ← C ′ ∪ { c}
+
+else if c = (Π σ fn( φ) = b) then 
+
+C′ ← C ′ ∪ { Πσ [[ φ]] = b}
+
+else if c = ( Σ fn( φ) = k) then 
+
+∀xi ∈ free( φ). σ (xi) = 2 −1
+
+C′ ← C ′ ∪ { Πσ [[ φ]] = k · 2−(| free( φ)|)}
+
+else if c = ( φ ≡ ψ = 1) then 
+
+σ $
+
+← ([ x1, . . . , x n) → Fp)
+
+p ← Challenge( Πσ φ), q ← Challenge( Πσ ψ)
+
+if p̸ = q then 
+
+Reject() 
+
+end if 
+
+C′ ← C ′ ∪ { Πσ [[ φ]] = p, Πσ JψK = q}
+
+else if c = ( φ ≡ ψ = 0) then 
+
+σ ← ChallengeDistinct( φ, ψ )
+
+p ← Challenge( Πσ φ), q ← Challenge( Πσ ψ)
+
+if p = q then 
+
+Reject() 
+
+end if 
+
+C′ ← C ′ ∪ { Πσ [[ φ]] = p, Πσ JψK = q}
+
+end if end for return C′
+
+Now we can prove that Normalize( C) is CEHP with probability 1 − n/ |Fp|
+
+for an GBC with n variables. A BDD-based Symbolic Model Checker with Interactive Certification 31 
+
+Lemma C.3. For claims relating to an GBCwith n variables, Normalize( C) is CEHP with probability at least 1 − n/ |Fp|.Proof. Normalize replaces B-evaluation and count-claims without any error probability – i.e. for those two cases, CEHP is preserved with probability 1
+
+([11, Prop. 1, Lemma 2]). The only possibility to replace a wrong claim by a true claim is for B-equivalence claims of the form fn( ψ1) − fn( ψ2) (Lemma C.2). With these facts we show that Normalize is CEHP according to the following disjoint cases: If C contains a false claim of the form φ = ψ then 
+
+∀P. Pr[ Normalize( C) contains 0 false claims ] ≤ n
+
+Fp
+
+If C contains a false claim not of the form φ = ψ then 
+
+∀P. Pr[ Normalize( C) contains 0 false claims ] = 0 
+
+If C contains 0 false claims then 
+
+∃P. Pr[ Normalize( C) contains 0 false claims ] = 1 
+
+C.3 Round for Gate 
+
+Recall that TraceCert checks all remaining Fp-evaluation claims by iterating over each gate in a circuit in topological order, propagating claims to leaves via 
+
+CertifyAssignments . This section explains of processing an individual gate. 
+
+Merge : TraceCert invokes Merge to generate a single claim from a set of claims for each node. As mentioned in the paper, Merge is already used by CPCertify ,and the proof that it preserves CEHP largely follows from [11, Prop. 2]. For completeness, we explain the procedure. Merge( C, ψ ) is invoked at the beginning of Round for gate ψ, C ⊆ C being all Fp-evaluation claims about gate ψ. As mentioned, if ψ has k predecessors, then C contains k claims in addition to any initial claims. The function iterates over every variable xi of the assignments and, for each claim, sends Prover Challenge( Πσ\vi JψK), to which it responds with a linear polynomial undefined in xi. Verifier runs sanity checks on the answer. If the polynomial is not congruent with the original claim, Verifier rejects. Otherwise, it replaces all claims by sampling a value for variable xi from Fp uniformly at random. After going over all variables, the claims should be equal, otherwise Verifier rejects. Verifier returns the single remaining claim. 
+
+Merge maintains CEHP with probability 1−2k/ |Fp| if JψK has k free variables, where k ≤ n (n being the number of variables present ψ’s GBC). 
+
+Lemma C.4. Merge( C, ψ ) preserves CEHP with probability at least 1−2n/ |Fp|.
+
+The proof is part of [11, Prop. 2]. See in particular the reasoning for step (b.1). 32 P. Czerner, J. Esparza, K. Winslow 
+
+Algorithm C.4 Merge( C, ψ )
+
+Input: ψ {A node in the GBC conv( φ)}
+
+Input: C {A set of assignment claims about ψ}
+
+Output: A single assignment claim about ψ, reduced from C
+
+for all xi ∈ free( ψ) do 
+
+C′ ← {} 
+
+for all (Π σ [[ ψ]] = k) ∈ C do 
+
+p(xi) ← Challenge( Πσ\xi [[ ψ]] )
+
+if p(σ(xi)) ̸ = k then 
+
+Reject() 
+
+end if 
+
+C′ ← C′ ∪ (Π σ\xi [[ ψ]] = p(xi)) {Save polynomial in C′}
+
+end for 
+
+r $
+
+← Fp
+
+C ← {Πσ[xi→r][[ ψ]] = p(r) | Πσ [[ ψ]] = p(xi) ∈ C′}
+
+end for if |C|̸ = 1 then 
+
+Reject() 
+
+end if return claim ∈ C
+
+Propagate [Binary Operation]: As explained in Section 4.4, propagating claims about binary operation nodes was already present in CPCertify . Alg. C.5 shows its pseudocode. The procedure preserves CEHP with no possible error: 
+
+Lemma C.5. Propagate( φ = ψ1 ⊛ ψ2, Πσ JφK = k) preserves CEHP with probability 1.Proof. Consider the claim Πσ JφK = k to be true. In that case, honest Prover can provide correct answers to Challenge , s.t. the two new claims remain true. Instead consider the claim to be false. In that case, Prover must lie by an-swering with at least one wrong value pi ∈ Fp = Challenge( Πσ JψiK). This necessitates that the added claim Πσ JψiK = pi is also wrong, preserving CEHP. 
+
+Algorithm C.5 Propagate( ψ1 ⊛ ψ2, Πσ [[ ψ1 ⊛ ψ2]] = k)
+
+p ← Challenge( Πσ [[ ψ1]] )
+
+q ← Challenge( Πσ Jψ2K)
+
+if p ⊛ q̸ = k then 
+
+Reject() 
+
+end if return {Πσ [[ ψ1]] = p, Πσ Jψ2K = q}A BDD-based Symbolic Model Checker with Interactive Certification 33 
+
+Propagate [Degree Reduction]: Also taken from CPCertify , this case can cause Verifier to violate CEHP with small probability. The pseudocode of the procedure is shown in Alg. C.6. The reason we can bound the probability to at most 2/|Fp| is explained in [11, Prop. 2]. Essentially, because of the Schwartz-Zippel Lemma, any polynomial of degree i has at most i roots, which means that if we sample u.a.r from Fp, the chance of sampling a root is at most i/ |Fp|.
+
+Lemma C.6. Propagate( δxi ψ, Πσ Jδxi ψK = k) preserves CEHP with probabil-ity at least 1 − 2/|Fp|.Proof. If the claim Πσ Jδxi ψK = k is correct, then honest Prover answers with the correct polynomial p(xi) = Π σ\xi JψK, so the added claim remains true. If the claim is false, then xi ·Πσ\xi JψK+(1 −xi)·Πσ\xi JψK is not equal to k. So Prover must supply a wrong polynomial p(xi) unless Verifier immediately rejects the claim. Due to the Schwartz-Zippel Lemma, the added claim Πxi→r JψK = p(r)
+
+remains false with probability at least 1 − 2/|Fp|.
+
+Algorithm C.6 Propagate( δxi ψ, Πσ [[ δkψ]] = k)
+
+p(xi) ← Challenge( Πσ\xi JψK)
+
+q(xi) = xi · p(1) + (1 − xi) · p(0) 
+
+if q(σ(xi)) ̸ = k then 
+
+Reject() 
+
+end if 
+
+r $
+
+← Fp
+
+return {Πσ[xi→r]JψK = p(r)}
+
+Propagate [Projection]: Also part of CPCertify , propagating claims about projection gates trivially preserves CEHP with probability 1. For completeness, pseudocode is presented in Alg. C.7. 
+
+Algorithm C.7 Propagate( π[xi:= b]ψ, Πσ [[ π[xi:= b]ψ]] = k)
+
+return {Πσ[xi→[[b]]] ψ = k}
+
+Propagate [Renaming]: This case for a round of TraceCert is new, as CPCertify 
+
+did not previously support renaming gates. The procedure also preserves CEHP with no possibility for error. This is ensured by Verifier and BL-IP statically on the GBC it generates from a trace of iSMC . The idea is that renaming xi to xt
+
+via a renaming gate ψ[xt/x i] is only allowed if the variable xt is not in free( ψ),which means that JψK has degree 0 for variable xt.34 P. Czerner, J. Esparza, K. Winslow 
+
+Lemma C.7. Propagate( ψ[xt/x i], Πσ Jψ[xt/x i]K = k) preserves CEHP with probability 1.Proof. If the claim Πσ Jψ[xt/x i]K = k is true, then Jψ[xt/x i]K = JψK[xt/x i]. Be-cause JψK does not contain variable xt, JψK = Jψ[xt/x i]K[xi/x t] and the claim 
+
+Πσ[xi→σ(xt)] JψK remains true. Conversely, if the claim is false, then due to the same reasoning the added claim remains false. 
+
+Algorithm C.8 Propagate( ϕ[xt/x i], Πσ [[ ϕ[xt/x i]]] = k)
+
+σ′ = σ[xi → σ(xt)] 
+
+return {Πσ′ ϕ = k}
+
+# D Generating eBDDs: ApplyEBDD vs. ComputeEBDDs 
+
+In the paper we have given a high-level introduction to our improvements to 
+
+blic ’s ComputeEBDDs procedure, effectively allowing for a global unique BDD table. In this section we present both ComputeEBDDs and our improved version 
+
+ApplyEBDD .
+
+D.1 The algorithm ComputeEBDDs [x1 + x1x2 − x21x2]          
+
+> [x1+x1x2−x21x2]
+> [x1]δx1
+> δx2
+> ∨
+> ∧
+> x1x2
+> ∨
+> x2
+> x1
+> 10
+> x2
+> ∨∨
+> x1
+> 10
+> x1
+> 10
+
+Fig. D.1. GBC and arithmetization of nodes (left) and eBDDs with equal arithmeti-zation (right). A BDD-based Symbolic Model Checker with Interactive Certification 35 
+
+[11] introduced the data structure of extended BDDs . Figure D.1 illustrates an example of how eBDDs are used to encode polynomials of an underlying circuit. On the left is the GBC φ = δ1δ2ψ with ψ = v1 ∨ (v1 ∧ v2) (conv would also add degree reductions to v1 ∧ v2). To the right of the GBC are three eBDDs for JψK, Jδ2ψK, and Jδ1δ2ψK. The polynomial equal to both each GBC node and its eBDD is displayed in brackets on the left. v2                      
+
+> v1
+> 10
+> ∨
+> ComputeEBDDs( u, v, ∨)g0
+> u∨v
+> log:
+> g0
+> v2
+> v1
+> 10
+> v2
+> ComputeEBDDs( u, v, ∨)g1
+> δ2
+> ∨
+> ∨
+> 〈u∨v〉log:
+> g0g1
+> v2
+> v1
+> 10
+> v2
+> ComputeEBDDs( u, v, ∨)g2
+> δ1
+> v1v1
+> 〈u∨v〉〈v∨v〉〈v∨0〉log:
+> g0g1g2
+
+Fig. D.2. Previous computation of eBDDs using mutable nodes and a log. 
+
+For each gate ψ = ψ1 ⊛ ψ2 in a circuit conv( φ) with BDDs u1, u2 for 
+
+ψ1, ψ 2, algorithm ComputeEBDDs computed all eBDDs for polynomials in the sequence g0 = JψK, g1 = δnJψK, · · · , gn = δ1δ2 · · · JψK in the same time as 
+
+Apply( u1, u 2, ⊛). As state in section 5.2, this was achieved using in-place mu-tation and an undo-log . Prover would access each of the gi eBDDs by undo-ing modifications from the log. Figure D.2 sketches the eBDDs produced by 
+
+ComputeEBDDs . The figure shows the sequence of eBDDs g0 = Jψ1 ∨ ψ2K, g 1 =
+
+δ2g0, g2 = δ1g1. As Prover modifies nodes, it writes the modifications to its undo-log. To access any eBDD gi in the sequence, Prover simply undoes the modifications from the log up to its index. Using standard BDD algorithms, [11]’s Prover could evaluate each BDD’s polynomial JgK in linear time |g|. In fact, evaluating all polynomials Jg0K, . . . , JgnK
+
+of a sequence corresponding to degree reductions could also be done in time |g|
+
+(as opposed to n|g|) using a cache. The details of said cache are technical, but essentially exploits the fact that the total number of modifications between the BDDs are of size |g|.
+
+D.2 The algorithm ApplyEBDD 
+
+To prove the complexity and correctness of our novel method for computing eBDDs as stated in Proposition 1, we first introduce eBDD invariants that 36 P. Czerner, J. Esparza, K. Winslow 
+
+ApplyEBDD maintains. Recall from the main text that the three types of eBDD nodes by BL-IP are final , standard , and binary operation nodes. 
+
+Definition D.1 ( ApplyEBDD( f, g, ⊛) [Invariant]). The returned eBDD r and any child w adhere to the following invariants in addition to BDD invariants (see. Appendix A.1): 1. [[ r]] = [[ f ]] ⊛ [[ g]] .2. If w is a binary operation node, all its children are final BDD nodes. 3. lk( w) = 〈vk, l ′, r ′〉 is either a standard eBDD or final BDD node that fulfills 
+
+vk = var( w) and [[lk( w)]] = vk · π[vk :=1] [[ w]] + (1 − vk) · π[vk :=0] [[ w]] .4. lk(lk( w)) = u is a final BDD. We call BDDs final if they do not contain any binary operation nodes and thus represent standard BDDs. [[ u]] = δ1 · · · δn[[ r]] 
+
+for n being the number of variables in [[ w]] .5. w is a final BDD iff lk( w) = w.
+
+Next, we prove using induction on ApplyEBDD ’s recursive call graph that it maintains eBDD invariants. 
+
+Lemma D.1 ( ApplyEBDD( f, g, ⊛) [correctness]). Given final eBDD arguments 
+
+f, g that adhere to the invariants (Def. D.1), the result r = ApplyEBDD( u, w, ⊛)
+
+also adheres to said invariants. Proof. We proceed by f-induction on ComputeEBDDs (termination is proven by lemma D.2). Next we analyze the possible forms that the argument BDDs f and 
+
+g may have according to the following cases: 
+
+Base f ∈ { 0, 1} or g ∈ { 0, 1} : In the base case Prover computes the eBDD 
+
+r = f ⊛g directly according to the truth table of boolean operation ⊛. The result is either the final BDD node 1 or 0, which fulfills JrK = Jf K ⊛ JgK (first invariant). While not explicitly stated in the pseudocode, Prover also sets lk(lk( r)) = lk( r) = 
+
+r, such that invariants three to five hold. The second invariant is vacuously true. 
+
+Step f = 〈fi, f l, f r 〉 and g = 〈gi, g l, g r 〉 : ApplyEBDD first projects both f and g ac-cording to variable vi = max( fi, g i): fl = f |vi←0, f r = f |vi←1, g l = g|vi←0, g r =
+
+g|vi←1. It then computes new child BDD nodes l and r via recursion. We use the induction hypothesis to derive that l and r adhere to the eBDD invariants, giving us: 
+
+[[ l]] = π[vi:=0] [[ f ]] ⊛ π[vi:=0] [[ g]] [[ r]] = π[vi:=1] [[ f ]] ⊛ π[vi:=1] [[ g]] [[lk( l)]] = var( l) · π[var( l):=1] [[ l]] + (1 − var( l)) · π[var( l):=0] [[ l]] [[lk( r)]] = var( r) · π[var( r):=1] [[ r]] + (1 − var( r)) · π[var( r):=0] [[ r]] [[lk(lk( l))]] = δ1 . . . δ var( l)[[ l]] [[lk(lk( r))]] = δ1 . . . δ var( r)[[ r]] A BDD-based Symbolic Model Checker with Interactive Certification 37 
+
+The returned eBDD b inherently adheres to the first invariant since JbK =
+
+Jf K ⊛ JgK. lk( b) = node = 〈vi, l, r 〉, which is a standard eBDD that fulfills the following equation, thus satisfying invariants two and three. 
+
+[[ node ]] = vi · [[ r]] + (1 − vi) · [[ l]] = vi · (π[vi:=1] [[ u]] ⊛ π[vi:=1] [[ w]]) + (1 − vi) · (π[vi:=0] [[ u]] ⊛ π[vi:=0] [[ w]]) = vi · (π[vi:=1] ([[ u]] ⊛ [[ w]])) + (1 − vi) · (π[vi:=0] ([[ u]] ⊛ [[ w]])) = vi · (π[vi:=1] [[ b]]) + (1 − vi) · (π[vi:=0] [[ b]]) 
+
+The last two invariants hold because lk( node ) = final and final = 〈vi, lk(lk( l)) , lk(lk( r)) 〉
+
+fulfills: 
+
+[[ final ]] = vi · (δ1 . . . δ var( r)[[ r]]) + (1 − vi) · (δ1 . . . δ var( l)[[ l]]) 
+
+> 1
+
+= vi · (δ1 . . . δ i−1π[vi:=1] [[ b]]) + (1 − vi) · (δ1 . . . δ i−1π[vi:=0] [[ b]]) = δ1 . . . δ k[[ b]] 
+
+Where equation (1) uses the facts that eBDDs are ordered, var( r) < v i and 
+
+var( l) < v i. Note that Reduce does not change a node’s arithmetization (it either returns the node or its child, if both children are equal). The remaining structural invariants of standard BDDs are guaranteed by the induction hypothesis and Reduce in the same manner as in the well-known 
+
+Apply procedure. Figure 2 shows that ApplyEBDD follows the same recursive structure as Apply .Because the arguments given by Prover are final BDDs, it is easy to bound the runtime and space usage of our new algorithm according to the well-known bounds of Apply .
+
+Lemma D.2 ( ApplyEBDD( f, g, ⊛) [complexity]). Given final BDDs f, g , if the results of all recursive invocations of ApplyEBDD are cached according to their arguments, then (a) ApplyEBDD( f, g, ⊛) takes the same time as Apply( f, g, ⊛)
+
+up to a constant factor, and (b) creates at most 3 · | f || g| eBDD nodes. Proof. From the fact that f, g are final eBDD nodes we have that they comply to all invariants of ordered and reduced BDD nodes. It is obvious that the re-cursion tree of ApplyEBDD( f, g, ⊛) is equal to that of Apply( f, g, ⊛). Also, each recursion of ApplyEBDD (excluding recursive calls) takes constant time, yielding proposition (a). For (b) note from (a) that we have an upper bound of |u|| w|
+
+recursive invocations, and in each invocation we create at most three nodes: 
+
+node , final , and b.
+
+# E Implementing Challenge and ChallengeDistinct 
+
+The main text states that, given two GBC nodes ψ1, ψ 2 with BDDs u1, u 2,Prover computes the series of eBDDS Jg0K = Jψ1 ⊛ ψ2K, Jgi+1 K = δn−i · · · δnJψ1 ⊛ ψ2K38 P. Czerner, J. Esparza, K. Winslow 
+
+Algorithm E.1 AnswerChallenge( w, σ, k )
+
+Input: w {An eBDD calculated by ApplyEBDD }
+
+Input: σ {Partial assignment} 
+
+Output: Polynomial Πσ
+
+(δk · · · δvar( w)[[ w]] )
+
+if w ∈ { 0, 1} then return [[ w]] 
+
+end if if w = ⟨u ⊛ v⟩ and var( w) ≥ k then 
+
+w ← lk( w)
+
+else if w = ⟨u ⊛ v⟩ then return [[ AnswerChallenge( u, σ, k ) ⊛ AnswerChallenge( v, σ, k )]] 
+
+end if 
+
+⟨vi, l, r ⟩ = w
+
+if σ(vi) = c then return c · AnswerChallenge( r, σ, k ) + (1 − c) · AnswerChallenge( l, σ, k )
+
+else return vi · AnswerChallenge( r, σ, k ) + (1 − vi) · AnswerChallenge( l, σ, k )
+
+end if 
+
+using ApplyEBDD( u1, u 2, ⊛) and uses them to answer challenges sent by Verifier. There are two types of challenges Prover needs to answer: partial evaluation challenges and distinct assignment challenges. In both cases Prover traverses BDDs corresponding to the requested arithmetizations. Each BDD gi+1 can be accessed from the eBDD root, returned by ApplyEBDD , by interpreting each node 
+
+u with var( u) > n − i as lk( u), and g0 = lk(lk( w)) . This strategy is implemented in AnswerChallenge( u, σ, k ) (Alg. E.1). 
+
+Lemma E.1 ( AnswerChallenge [Correctness]). Given an eBDD w adher-ing to the invariants of def. D.1 and 0 ≤ k, AnswerChallenge( w, σ, k ) =Πσ δk · · · δvar( w)[[ w]] .Proof. By induction on w according to the inductive structure of eBDDs. 
+
+Base w ∈ { 0, 1} : The conclusion follows directly. 
+
+Step w = 〈u ⊛ v〉 :
+
+– Case var( w) ≥ k:
+
+〈vj , l, r 〉 = lk( w)
+
+vj = var( w) (D.1 )[[lk( w)]] = vj · [[ r]] + (1 − vj ) · [[ l]] = vj · π[vj :=1] [[ w]] + (1 − vj ) · π[vj :=0] [[ w]] (D.1 )
+
+AnswerChallenge( l, σ, k ) = Π σ[vj →0] δk · · · δvar( l)[[ w]] (IH )
+
+AnswerChallenge( r, σ, k ) = Π σ[vj →1] δk · · · δvar( r)[[ w]] (IH )A BDD-based Symbolic Model Checker with Interactive Certification 39 
+
+Thus, using the fact that vj = var( w) ≥ max(var( l), var( r)) ≥ k, if vj /∈ σ:
+
+vj · AnswerChallenge( r, σ, k ) + (1 − vj ) · AnswerChallenge( l, σ, k )
+
+= Π σ δk · · · δvar( w)[[ w]] 
+
+and if σ(vj ) = c:
+
+c · AnswerChallenge( r, σ, k ) + (1 − c) · AnswerChallenge( l, σ, k )
+
+= Π σ δk · · · δvar( w)[[ w]] 
+
+which are the respective results returned by the algorithm in this case. 
+
+– Case var( w) < k : We make use of the fact that all variables occurring in JuK
+
+and JvK are not in ∈ [var( w), . . . , k ] due to the ordering constraint. 
+
+AnswerChallenge( u, σ, k ) = Π σ [[ u]] (IH )
+
+AnswerChallenge( v, σ, k ) = Π σ [[ v]] (IH )[[ AnswerChallenge( u, σ, k )
+
+⊛ AnswerChallenge( v, σ, k )]] = Π σ [[ u]] ⊛ Πσ [[ v]] = Π σ [[ u ⊛ v]] 
+
+The conclusion follows, since the algorithm returns Πσ [[ u]] ⊛ Πσ [[ v]] .
+
+Step w = 〈vj , l, r 〉 : We have 
+
+AnswerChallenge( l, σ, k ) = Π σ δk · · · δvar( l)[[ l]] (IH )
+
+AnswerChallenge( r, σ, k ) = Π σ δk · · · δvar( r)[[ r]] (IH )
+
+Also, δj [[ w]] = [[ w]] since w is already in standard form and we can again rewrite the return value to match our proposition: If vj /∈ σ:
+
+vj · AnswerChallenge( r, σ, k ) + (1 − vj ) · AnswerChallenge( l, σ, k )
+
+= Π σ δk · · · δvar( w)[[ w]] 
+
+and if σ(vj ) = c:
+
+c · AnswerChallenge( r, σ, k ) + (1 − c) · AnswerChallenge( l, σ, k )
+
+= Π σ δk · · · δvar( w)[[ w]] 
+
+which are the respective results returned by the algorithm in this case. Unlike partial evaluation challenges, ChallengeDistinct (Alg. E.2) is only called by TraceCert on degree-reduced GBC nodes. Because degree-reduced nodes are represented using final BDDs, the link field of our eBDDs is un-used, and Prover generates a distinct assignment without the need for an ad-ditional parameter k. It is easy to see that ChallengeDistinct( w, r ) runs in time O(min( |w|, |r|)) .40 P. Czerner, J. Esparza, K. Winslow 
+
+Algorithm E.2 ChallengeDistinct( w, r )
+
+Input: w, r {Distinct, standard BDDs} 
+
+Output: Assignment σ on which [[ w]] ̸ = [[ r]] 
+
+if w ∈ { 0, 1} or r ∈ { 0, 1} then return σ {Terminal case, we can return any total assignment} 
+
+end if 
+
+⟨vi, l φ, r φ⟩ = w
+
+⟨vj , l ψ , r ψ ⟩ = r
+
+if vi < v j then 
+
+lφ ← w, r φ ← w
+
+else if vj < v i then 
+
+lψ ← r, r ψ ← r
+
+end if if lφ̸ = lψ then 
+
+σ ← ChallengeDistinct( lφ, l ψ )
+
+return σ[max( vi, v j ) → 0] 
+
+else 
+
+σ ← ChallengeDistinct( rφ, r ψ )
+
+return σ[max( vi, v j ) → 1] 
+
+end if 
+
+# F Proving Proposition 1 
+
+Having shown that ApplyEBDD computes a correct eBDD in Appendix D and that Prover can use it to compute the arithmetization of each gate in conv( φ)
+
+in Appendix E, we can now prove Proposition 1 of the main text. 
+
+Proposition 1. Let ψ1, ψ 2 denote nodes of conv( φ) and u1, u 2 BDDs with JuiK =
+
+JψiK, i ∈ { 1, 2}. Then ApplyEBDD (u1, u 2, ⊛) satisfies Jw0K = Jψ1 ⊛ ψ2K and 
+
+Jwi+1 K = δxn−i JwiK for every 0 ≤ i ≤ n − 1; moreover, wn is a BDD with 
+
+wn = Apply (u1, u 2, ⊛). Finally, the algorithm runs in time O(T ), where T is the time taken by Apply( u1, u 2, ⊛).Proof. From Lemma D.1 and Lemma E.1 we have that the series of eBDDs 
+
+Jw0K = Jψ1 ⊛ ψ2K and Jwi+1 K = δxn−i JwiK for every 0 ≤ i ≤ n − 1 are com-puted by Prover via ApplyEBDD( u1, u 2, ⊛). Further, Lemma D.2 bounds the algorithm’s runtime to O(T ).
+
+# G TraceCertRev : a bottom-up version of TraceCert 
+
+We describe TraceCertRev( φ, C), a bottom-up modification of TraceCert to allow Prover to remove intermediate eBDD nodes as Solver does. TraceCertRev 
+
+essentially checks all claims about circuit φ and then propagates them ‘upwards’ to its parent nodes, allowing φ to be removed. This means that TraceCertRev is invoked multiple times in a sequence, until no claims remain, while the top-down A BDD-based Symbolic Model Checker with Interactive Certification 41 
+
+TraceCert is invoked only once at the end of model checking. To accommodate garbage collection, Verifier is changed as follows: 1. At the first invocation of TraceCertRev( φ, C), Verifier creates a random assignment σ for all n variables. 2. Each time TraceCert samples a random value for a variable vk
+
+> $
+
+← Fp,
+
+TraceCertRev instead uses the random assignment vk ← σ(vk) computed at the beginning. 3. Verifier adds the claim Πσ JψK = k to C for each node ψ ∈ φ. Checking this claim allows Verifier to propagate claims to φ’s parents in the next invocation: Verifier replaces ψ by a new GBC node type εψk after running TraceCertRev .Note that this node type does not have any children, so unreachable nodes can be garbage collected. 4. In subsequent invocations, when checking a claim Πσ′ [[ εψk ]] = k′ (correspond-ing to a previously removed node), Verifier rejects iff. σ′ 6 = σ or k 6 = k′.The main text explains how, if a dishonest Prover can ‘remember’ old chal-lenges, then TraceCertRev would no longer be sound. However, under the rea-sonable assumption that Prover does not store previous communication with Verifier, TraceCertRev is sound and complete. The proof requires an additional Lemma that allows for sequential execution of the protocol ( TraceCert is run once, and its correctness proof only concerns a single execution). 
+
+Lemma G.1. For a series of interactive proofs TraceCertRev j (φj , Cj ) for j ∈
+
+0 . . . i and any Prover, assuming that Prover cannot remember previous chal-lenges, i.e. it models an oracle, if any Ck contains a wrong assignment claim about the n-GBC φk, TraceCertRev k(φk, Ck) will accept with probability at most (
+
+4n ∑kc=0 |φc|
+
+)
+
+/Fp. If Ck contains only wrong claims of non-assignment type, 
+
+TraceCertRev k(φk, Ck) will accept with probability at most 
+
+(
+
+4n ∑kc=0 |φc| + n
+
+)
+
+/Fp
+
+(soundness). If all claims in Ck are correct, it will accept with probability 1 given an honest Prover (completeness). 
+
+To prove the above Lemma, we refer to the proof of TraceCert (TraceCertRev 
+
+only differs by minor modifications). Remember that Lemma C.1 bounds the soundness error of CertifyAssignments to at most (4 n|φ|) /Fp, and it can only reach (4 n|φ| + n) /Fp due to Normalize if there are only false equivalence claims (Lemma C.3). 
+
+Proof. We prove soundness and completeness for each invocation TraceCertRev j , j ∈
+
+[0 , i ] via induction on i.
+
+Case i = 0 : We begin by proving soundness, i.e. if a claim in C0 is false, then 
+
+TraceCertRev 0(φ0, C0) accepts with probability at most 4n|φ| + n/ Fp. The orig-inal proof requires new reasoning for the following case: In any round in which a random value vk
+
+> $
+
+← Fp was sampled in TraceCert , we now instead use the value sampled at the beginning of the protocol vk ← σR(vk).42 P. Czerner, J. Esparza, K. Winslow 
+
+Note that because it is the first invocation, Verifier samples a random assign-ment σR and the circuit φ0 does not include any GBC node εψk . For a polynomial 
+
+p(vk) in TraceCert (sent by Prover), the probability that a value randomly sam-pled by Verifier turned a false claim into a true claim is at most 2/Fp due to the Schwartz-Zippel lemma. In TraceCertRev , this probability is also bound by 
+
+2/Fp due to the Schwartz-Zippel lemma, which we can use because the polyno-mial sent by Prover p(vk) and σR(vk) are independent (because Prover cannot ‘remember’ the interaction, i.e. Prover is an oracle). Proving perfect completeness for an honest Prover requires no adjustment to the original proof. 
+
+Case i = j + 1 : By the IH, we only need to bound the error probability for the next invocation j + 1 . We again begin by proving soundness. The proof requires handling the new case of checking a false claim of the form Πσ′ Jεψk K: Assume Verifier is checking false claim Πσ′ Jεψk K = k′ on a node. Further Assume that 
+
+σ′ = σR and k = k′, as otherwise Verifier rejects. Because ΠσR [[ εψk ]] = k is false, we have that ΠσR JψK 6 = k. However, the claim ΠσR JψK = k was verified previously by Verifier in invocation TraceCertRev c(ϕc, Cc) for c ≤ j before replacing ψ by εψk , which we can assume to have accepted with probability at most 4n ∑ct=0 |φt|/Fp by the induction hypothesis. Now we can prove that TraceCertRev i(φi, C i) rejects with probability at least 1 − (4 n|φi| + n)/Fp. In order to falsely accept, Verifier must either have replaced a false claim by a true claim as in the original protocol with prob. at most (4 n|φi| + n/ ) Fp or all of the false claims about dead nodes were wrongly accepted with prob. at most 
+
+(
+
+4n ∑jt=0 |φt|
+
+)
+
+/Fp. By the union bound, this gives us an upper bound on falsely accepting of 
+
+(
+
+4n ∑ic=0 |φc| + n
+
+)
+
+/Fp
+
+To show completeness for the new node type ε, assume that claim Πσ [[ εψk ]] = 
+
+k′ is correct. The only possibility for Verifier to reject said claim is if σ 6 = σR or 
+
+k 6 = k′. We first show that σ = σR when the claim gets propagated to node εψK .Recall from the description of TraceCertRev that Verifier added claims 
+
+ΠσR JϕK = k to each node ϕ in φi. If σ 6 = σR or k 6 = k′, then Verifier will use Merge at the beginning of visiting node εψk to generate a single assignment claim. Because every variable assignment is taken from σR in Merge , the result-ing assignment must be σR. By assumption that the claim is correct, k = k′.Therefore, Verifier accepts with probability 1.Lemma G.1 proves Lemma 2 by noting that, with garbage collection, iSMC 
+
+performs the series of certifications TraceCertRev j (φj , Cj ) for j ∈ [0 , i ], and, without garbage collection, iSMC performs one certification TraceCert (φ, C)
+
+with ⋃ φj = φ and φj , φ k disjoint. 
+
+Lemma 2 ( TraceCertRev ). [Soundness/Completeness] If C contains a false claim about an GBC conv( φ) with n variables, then Verifier accepts with proba-bility at most (4 n|φ| + n) /Fp for any Prover that acts as an oracle. If all claims A BDD-based Symbolic Model Checker with Interactive Certification 43 
+
+in C are true, Verifier accepts with probability 1 for the honest prover (complete-ness).
