@@ -1,0 +1,449 @@
+Title: Arcane: An Assertion Reduction Framework through Semantic Clustering and MCTS-Guided Rule Exploring
+
+URL Source: https://arxiv.org/pdf/2605.10107v1
+
+Published Time: Tue, 12 May 2026 02:15:10 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Arcane: An Assertion Reduction Framework through Semantic Clustering and MCTS-Guided Rule Exploring 
+
+Hongqin Lyu 1,2 , Yonghao Wang 1,2 , Zhiteng Chao 1, Tiancheng Wang 1,2 and Huawei Li 1,2 
+
+> 1
+
+State Key Lab of Processors, Institute of Computing Technology, CAS, Beijing, China 
+
+> 2
+
+University of Chinese Academy of Sciences, Beijing, China 
+
+Abstract —Assertion-based Verification (ABV) is essential for ensuring that hardware designs conform to their intended spec-ifications. However, existing automated assertion-generation ap-proaches, such as LLM-based frameworks, often generate large numbers of redundant assertions, which significantly degrade simulation efficiency. To mitigate the simulation overhead caused by redundant assertions, this paper proposes Arcane, an efficient assertion reduction framework. It integrates a two-tier assertion clustering approach for accurate semantic classification of large assertion sets, and employs Monte Carlo Tree Search (MCTS) to explore optimal rule-application sequences for efficient as-sertion reduction. The experimental results on Assertionbench [20] show that Arcane achieves a reduction of up to 76.2% in the assertion count while fully preserving formal coverage and mutation-detection ability. Further simulation studies demon-strate a speedup of 2.6x to 6.1x speedup in simulation time. The proposed framework is released at https://anonymous.4open. science/r/Arcane1-0A6F/ 
+
+Index Terms —Formal Verification, Assertion Reduction, Monte Carlo Tree Search. 
+
+I. I NTRODUCTION 
+
+Functional verification is essential in integrated circuit (IC) design, where verification engineers check whether the de-signers’ register-transfer level (RTL) code meets the archi-tectural specifications. Assertion-based verification (ABV) is widely adopted in RTL design due to its ability to enhance observability and reduce simulation debugging time by up to 50% [1]. In particular, high-quality SystemVerilog assertions (SVA) for property verification (PV) are critical within ABV methodologies [2], particularly due to its ability to accurately reflect both high-level design intent and low-level RTL details. As the complexity of the design increases, the development of efficient methods for the generation of SVA has become an urgent necessity. Traditional assertion generation approaches include schema-based methods that instantiate predefined templates [3], as well as waveform- or trace-mining techniques such as HARM [4] and GoldMine [5]. While effective for certain pattern, these methods often produce semantically fragmented assertions and remain limited in handling complex design semantics. Hybrid rule-based and learning-based methods improve gen-eration accuracy, but are still constrained by the complexity of natural language specifications [6]. More recently, large language models (LLMs) have opened new avenues for asser-tion generation [7], leveraging strong semantic understanding to produce more comprehensive and context-aware assertions from specifications and RTL code while mitigating semantic fragmentation [8]. Researchers also explored LLM-based as-sertion generation in specialized scenarios such as hardware security [9]. Although assertion generation techniques have advanced significantly, both traditional and LLM-based approaches still suffer from a key limitation: the generated assertions are often redundant and weakly integrated. Studies show that many as-sertions cover overlapping behaviors; for example, about 96% of GoldMine’s assertions are redundant [10]. Similarly, LLM-based methods still produce 20%–30% redundant assertions. This redundancy increases simulation time and computational overhead, reducing verification efficiency, especially for large-scale designs [11]. Prior research has explored improving checking efficiency in both software and hardware domains, such as hybrid static-dynamic techniques for reducing run-time checking cost [12] and checker selection or refinement methods in hardware verification [13]. To the best of our knowledge, no prior work targets redundant assertion reduction while maintaining their error detection capability. However, assertion reduction faces two major challenges. First, it is difficult to simplify assertions with complex boolean conditions and fine-grained temporal structures without chang-ing their original verification intent, since direct or partial transformations may yield logically equivalent yet semanti-cally confusing assertions that undermine the intended verifi-cation objectives. Second, the problem is inherently complex: as the number of assertions grows, interactions among logical conditions and signal usages increase exponentially, and the combinational use of reduction rules further enlarges the search space. To address these challenges, this paper presents Arcane, an efficient framework for assertion reduction. Arcane combines semantic embedding and automata-based acceptance analy-sis to capture behavioral similarities among assertions for high-quality clustering. It further adopts strictly semantics-preserving logical reduction rules and Monte Carlo Tree Search (MCTS) [14] to explore rule orders and combinations, maximizing redundancy elimination and reduction efficiency. The contributions of this paper are summarized as follows: 1) A two-tier clustering scheme based on semantic em-beddings and automata behavior is introduced to group             
+
+> arXiv:2605.10107v1 [cs.AI] 11 May 2026 Assertion Assertion Assertion Assertion Assertion Assertion Assertion Assertion Assertion Assertion
+> Assertion Assertion Assertion DBSCAN Bert-guided coarse classification Behavioral similarity via lasso runs ..... ..... ..... ..... .....  ..... Assertion automaton Group ’1Group ’2Group ’k..... ..... MCTS-guided reduction Final assert set Coarse-to-Fine Assertion Clustering Clustered assertion sets Coarse classification similarity Fine classification similarity 10.8 ... ... ... ... ... 11110.6 ... ... ... ... ... 111Similarity matrix Intra-class assertion transformation 10.7 ... ... ... ... 111... 10.5 ... ... ... ... ... 111Original assert set
+
+Fig. 1. The Arcane framework: It combines semantic and automata-based clustering with MCTS-guided reduction to generate a compact assertion set. 
+
+assertions with consistent behavioral intent, avoiding interference during reduction. 2) Each reduction rule is mapped to an action in the MCTS search process. Arcane then uses MCTS to efficiently explore reduction paths within this action space, ensur-ing functional equivalence without changing the original verification constraints. 3) Experimental results show that Arcane preserves full verification quality while reducing assertion sets by up to 76.2% and accelerating simulation by up to 6×. II. F RAMEWORK OF ARCANE 
+
+Before diving into the design details, we introduce the overall flow of the proposed assertion reduction framework Arcane, which consists of two main stages: coarse-to-fine assertion clustering, and MCTS-based reduction, as illustrated in Figure 1. 1) Coarse-to-Fine Assertion Clustering : Assertions are translated into natural language, coarsely grouped by their sim-ilarity exported from the bidirectional encoder representations from transformers (BERT) [15]. The resulting groups are then refined with lasso-based fine-grained analysis and finalized by intra-class clustering. 2) MCTS-Guided Reduction : For each refined cluster, MCTS is employed to search rule combinations that minimize redundancy while preserving coverage. 
+
+A. Coarse-to-Fine Assertion Clustering 1) BERT-guided coarse semantic classification :
+
+To improve assertion reduction efficiency, assertions with similar functional intent are grouped together. Their formal and unambiguous semantics allow translation into equivalent natural-language descriptions, enabling meaningful classifica-tion. Such classification reduces the search space, and thus lowers the cost of fine-grained clustering through smaller, semantically consistent groups. To achieve this, each assertion is first converted into a natural-language description. For example, the assertion a &
+
+b |→ c can be expressed as “if a and b hold, then c must also hold in the same cycle.” This aligns with BERT’s pretraining and improves semantic modeling. Each description is then en-coded into a 1024-dimensional vector using a pretrained BERT model, and cosine similarity is used to group semantically related assertions for further fine-grained reduction. 
+
+2) Behavioral similarity via lasso runs :
+
+While BERT-based semantic classification enables coarse grouping, relying solely on natural-language similarity may cause misclassification, as textually similar assertions can rep-resent conflicting functional conditions. For example, assert 
+
+(A ⇒ B) and assert (A ⇒ ¬ B) are linguistically similar but functionally opposite. To address this, we introduce a lasso-based fine classification method that captures logic-level behavioral correlations among assertions. G({!AP1 ##1 !AP2} |-> {##1 AP3})                           
+
+> G({AP4 ##1 !AP2} |-> {##1 AP3})
+> {AP1, AP2, AP3, AP4}
+> Assertion1:
+> Assertion2:
+> AP list:
+> AP1
+> AP2
+> AP3
+> AP4
+> 01
+> t
+> 23456789
+> Prefix 𝐀 𝐀 𝐀 𝐀 loop 𝐀 𝐀 𝐀 𝐀 𝐀 loop 𝐀 𝐀 𝐀 𝐀 𝐀
+> …
+> AP1
+> AP2
+> AP3
+> AP4
+> 01
+> t
+> 23456789
+> loop 𝐀 𝐀 𝐀 𝐀 𝐀 loop 𝐀 𝐀 𝐀 𝐀 𝐀
+> …
+> …
+> S0
+> S1
+> S2
+> S3
+> AP1
+> !AP1
+> AP1&AP2
+> AP1&AP3
+> !AP1&!AP2
+> AP1&!AP2
+> AP1&!AP2&AP3
+> ✅
+> ✅
+> ✅
+> ✗
+> Büchi automaton 1
+> S0
+> S1
+> S2
+> S3
+> !AP4
+> AP4
+> !AP4 &AP2
+> !AP4 &AP3
+> AP4 &!AP2
+> !AP4 &!AP2
+> !AP4 &!AP2&AP3
+> Büchi automaton 2
+
+Fig. 2. Both lasso paths λ1 and λ2 satisfy Assertion 1 and are accepted by B¨ uchi automaton 1. B¨ uchi automaton 2 requires AP4 to eventually be high, so it accepts λ1 but rejects λ2, whose loop keeps AP4 at 0. 
+
+To capture assertion semantics beyond syntax, we analyze their acceptance behavior via lasso runs in B¨ uchi automata [16]. A B¨ uchi automaton is defined as A = ( Q, Σ, δ, q 0, F ),where Q is a finite set of states, Σ an input alphabet, δ : Q ×
+
+Σ → 2Q the transition function, q0 the initial state, and F ⊆ Q
+
+the accepting set. A lasso represents an infinite execution by a finite prefix and a non-empty loop reachable from q0:
+
+λ = ( πpre , π loop ), q0
+
+πpre 
+
+−−→ p πloop 
+
+−−→ p, (1) where p is the loop-entry state, πpre ∈ Q∗ is a finite prefix, and 
+
+πloop ∈ Q+ is a non-empty loop. The corresponding infinite trace is ρλ = πpre · πω
+
+loop , where · denotes concatenation and ω
+
+denotes infinite repetition. The lasso λ is accepting iff 
+
+∃q ∈ F : q ∈ πloop , (2) i.e., the loop visits at least one accepting state. Figure 2 illustrates this notion of lasso acceptance on two example traces and their corresponding B¨ uchi automata. After obtaining lasso representations, we quantify behav-ioral similarity based on acceptance over sampled runs. For each assertion ai, let Li = {λ1, λ 2, . . . , λ m} denote the sampled lassos, and Ai ⊆ L i the accepted subset under Ai.The similarity between ai and aj is defined by the Jaccard index [17]: Sim (ai, a j ) = |A i ∩ A j ||A i ∪ A j | . (3) A higher value indicates more similar acceptance behaviors and thus stronger functional consistency. To capture both linguistic and automaton-level behavioral similarity, we compute a unified score sij = α s NL  
+
+> ij
+
++ β s lasso 
+
+> ij
+
+and convert it into a distance dij = 1 − sij . We then apply DBSCAN [18] to group assertions into dense semantic clusters that form the basis for subsequent reduction. 
+
+3) Acceleration strategies for lasso-driven behavior clas-sification :
+
+The lasso-based characterization is expressive but com-putationally expensive. For a B¨ uchi automaton A =(Q, Σ, δ, q 0, F ), the number of prefix–loop candidates is 
+
+O(|Q|2|Σ|), each requiring simulation for acceptance. To reduce cost, we first apply BERT-based classification to par-tition assertions into semantic subgraphs, and then perform lasso analysis locally, reducing computation while preserving behavioral fidelity. For propositional assertions, we avoid lasso runs and instead enumerate all 2N truth assignments over N atomic proposi-tions, compute satisfying sets, and use their Jaccard index as similarity. Since N is typically small in hardware designs, this is more efficient than lasso-based processing. 
+
+B. MCTS-guided reduction 
+
+After clustering assertions into semantically consistent groups, we perform intra-cluster reduction to eliminate re-dundancy. As different rule orders yield different results, we formulate this as a combinatorial optimization problem and apply MCTS to explore the search space. We model reduction as a deterministic MDP (S, A, f, R ), where states in S represent assertion configurations, actions in A apply reduction rules, f (s, a ) updates the set, and R evaluates the resulting configuration, as detailed below. s0                  
+
+> s1
+> s2 s3
+> s4
+> s5 s6
+> s7 s8
+> s0
+> s1
+> s2 s3
+> s4
+> s5 s6
+> s7 s8
+> s9
+> s2
+> s4
+> s5 s6
+> s7 s8
+> Selection Expansion Simulation Backpropagation
+> s0
+> s1
+> s2 s3
+> s4
+> s5 s6
+> s7 s8
+> s9
+> reward calculation
+> r1
+> r3
+> r2
+> r1
+> r3
+> r2 r4
+> r1
+> r3
+> r4 r2
+> r1
+> r3
+> r2 r4
+> ri: the i-th rule
+> si: the i-th state
+> Fig. 3. One iteration of the MCTS approach
+
+Figure 3 illustrates one iteration of MCTS. Starting from the root state s0, the algorithm performs selection by following tree edges to a leaf node, then expansion by adding an unexplored child (e.g., s9) via a rule ri. A simulation from this state yields a reward, which is backpropagated to update statistics along the path. This four-step loop constitutes MCTS and is instantiated in our setting via the S, A, f , and R
+
+components described below. 
+
+State space. In the context of assertion reduction, each state represents a specific configuration of the assertion set obtained after applying a sequence of reduction operations. Formally, a state st corresponds to the assertion subset St ⊆ S0, where 
+
+S0 is the original, unreduced assertion set. 
+
+Action space. The action space is composed of five prede-fined reduction rules, each representing a specific operation that modifies the current assertion set. The five rules are described below.  
+
+> Fig. 4. Example of intra-assertion reduction via temporal endpoint alignment and bucket-level entailment pruning.
+
+Rule 1. Single-assertion pre/post reduction : At a high level, intra-assertion reduction applies sound Boolean simplifica-tion to time-normalized obligations. Temporal endpoint align-ment rewrites operators into time-stamped propositions (e.g., 
+
+(A ##1 B) becomes A@t0 and B@t1), and timeline buck-eting groups literals by time offset (e.g., t0, t 1, . . . ), forming independent propositional obligations for local simplification. As an example, consider a micro-rule within a single time bucket (Figure 4). For an obligation A : pre |→ post with 
+
+post = V 
+
+> ℓ
+
+ℓ, any literal ℓ implied by pre can be removed without changing semantics: 
+
+post ′ = post \ { ℓ | pre |= ℓ}, A′ : pre |→ post ′. (4) For instance, 
+
+(A ∧ B) ##1 C |→ C ∧ D ⇒ (A ∧ B) ##1 C |→ D, 
+
+since C is already implied by the antecedent. In each bucket, entailment pre |= ℓ is checked via Unsat (pre ∧¬ ℓ). This prun-ing only demonstrates one micro-rule; others are summarized in Table I. 
+
+Rule 2. Common-antecedent POST Conjunction : When multiple assertions share the same clock annotation and an-tecedent, their consequents often capture distinct outcomes of the same triggering condition. Conjunctively merging these consequents (AND) reduces semantic redundancy while pre-serving full verification coverage. Mergeable assertions are identified by representing antecedents P with their canonical AST-based keys κ(P ), which group syntactically different but logically equivalent forms together. For each group, consequents are merged under the same timeline bucketing as in Rule 1, and a temporal rule is applied to handle SVA irregularities: eliminating redundant temporal prefixes (e.g., ##1(##1 C) ⇒ ##2 C ). TABLE I MICRO -RULES FOR NON -TEMPORAL ASSERTIONS .                                                                            
+
+> Micro-rule Example
+> Reflexive removal P|→ P⇒del
+> Vacuous implication (A∧B)|→ A⇒del
+> Inconsistent antecedent (A∧ ¬ A)|→ C⇒del
+> Conjunct dropping A|→ (A∧C)⇒A|→ C
+> Explicit falsity 1|→ 0⇒· · · |→ 0
+> Polarity conflict to zero A|→ (¬A∧C)⇒· · · |→ 0
+> Constant folding on consequent A|→ (C∧1) ⇒A|→ C
+> Idempotence on consequent A|→ (C∧C)⇒A|→ C
+> Absorption on consequent · · · |→ C∧(C∨D)⇒· · · |→ C
+> Entailment pruning (A∧C)|→ (C∧D)⇒(A∧C)|→D
+
+Rule 3. Common-consequent PRE Disjunction : This rule is the dual of the conjunction rule, handling assertions with the same clock annotation and consequent. When multiple antecedents imply the same consequent, they are merged dis-junctively to unify equivalent triggers and remove redundant paths: 
+
+Assert  C (
+
+> m
+
+_
+
+> i=1
+
+Pi) → Q, for {Assert (C P i → Q)}mi=1 . (5) For example, 
+
+(A → Q), (B → Q) ⇒  (A ∨ B) → Q.
+
+For temporal cases, merging is performed within each time-line bucket, and identical delay structures are compacted into ranges (e.g., ##[1:2] ∥ ##[2:3] ⇒ ##[1:3] ). Predicates with different structures or disjoint timing are not merged to preserve semantic equivalence. 
+
+Rule 4 & 5. Pairwise Equivalence and Implication Deter-mination : Logical relations between assertions are identified through pairwise analysis of their canonical Boolean forms. Given two reduced assertions E1 and E2, equivalence holds if E1 ⇔ E2, and implication if E1 ⇒ E2 or E2 ⇒ E1.CNF-based entailment efficiently detects redundant or sub-sumed assertions, while inconclusive cases involving temporal dependencies are verified exactly using the SPOT [19]model checker via B¨ uchi automata comparison. 
+
+State transition. At each step, the application of a reduction rule updates the current assertion set, thereby producing a new configuration that reflects a different reduction stage. Formally, given the current state st represented by an assertion set St,applying a rule ri ∈ R yields a new state st+1 with the updated set St+1 :
+
+St+1 = ri(St). (6) This transition reflects a concrete modification such as asser-tion merging, simplification, or elimination. Since each rule preserves semantic equivalence or containment, the overall reduction process forms a monotonically contracting sequence: 
+
+|St+1 | ≤ | St|, JSt+1 K ⊆ JStK. (7) 
+
+Algorithm 1 Assertion Reduction with MCTS.  
+
+> 1:
+
+Input: Clustered assertion groups G = {G1, . . . , G K },MDP (S, A, f, R ), reduction rules R = {r1, . . . , r 5} 
+
+> 2:
+
+Output: Reduced assertion set S⋆ 
+
+> 3:
+
+S⋆ ← ∅  
+
+> 4:
+
+for all Gk ∈ G in parallel do  
+
+> 5:
+
+G⋆k ← MCTS-R EDUCE (Gk, S, A, f, R, R) 
+
+> 6:
+
+S⋆ ← S⋆ ∪ G⋆k 
+
+> 7:
+
+end for  
+
+> 8:
+
+return S⋆ 
+
+> 9:
+
+function MCTS-R EDUCE (Gk, S, A, f, R, R) 
+
+> 10:
+
+s0 ← Gk ▷ initial MDP state  
+
+> 11:
+
+root node v0 with state s0 and prior on r1 
+
+> 12:
+
+Rmax ← −∞ , c ← 0 
+
+> 13:
+
+while c < 3 do  
+
+> 14:
+
+({st}, {at}, r ) ←
+
+ONE STEP MCTS (v0, S, A, f, R, R) 
+
+> 15:
+
+if r > R max then  
+
+> 16:
+
+Rmax ← r, c ← 0 
+
+> 17:
+
+G⋆k ← EXTRACT ASSERTIONS ({st}) 
+
+> 18:
+
+else  
+
+> 19:
+
+c ← c + 1  
+
+> 20:
+
+end if  
+
+> 21:
+
+end while  
+
+> 22:
+
+return G⋆k 
+
+> 23:
+
+end function 
+
+Thus, the reduction procedure evolves through a discrete sequence of states, each corresponding to a simplified assertion configuration. 
+
+Reward mechanism. Each rule application yields a reward reflecting its reduction effect: 
+
+Rt = ∆ |St| + ∆ |AP t|, (8) where ∆|St| and ∆|AP t| represents the decrease of assertion count and atomic predicate count respectively. This encourages transformations producing more compact yet semantically equivalent assertion sets. Having defined the MDP formulation, the reduction pro-cess is optimized via MCTS, which explores rule application sequences to maximize the cumulative reward. 
+
+MCTS optimization. The search adopts the Upper Confi-dence Bound for Trees (UCT) policy: 
+
+a∗ = arg max 
+
+> a
+
+
+
+Q(s, a ) + c
+
+q ln N (s) 
+
+> N(s,a )
+
+
+
+, (9) where Q(s, a ) is the mean reward, N (s) and N (s, a ) are visit counts, and c balances exploration and exploitation. To accelerate convergence, the root is initialized with Rule 1 to encourage early variable reduction, and the search stops early if the maximal reward does not improve for three consecutive iterations. MCTS then expands promising nodes and selects the path with maximal cumulative reward for efficient semantics-preserving reduction without exhaustive search (Algorithm 1). a) Reduction ratio distribution of assertions generated by 
+
+> HARM
+> b) Reduction ratio distribution of assertions generated
+> by LLM Fig. 5. Overall distribution of reduction ratios achieved by Arcane across 112 benchmark designs.
+
+III. E XPERIMENTS 
+
+A. Experimental Setup 
+
+In this study, we use AssertionBench [20], which con-tains 112 hardware designs, each with RTL code, wave-form traces, and corresponding assertions. These assertions are generated by two sources, HARM and an LLM-based generator, providing a realistic and heterogeneous benchmark for assertion reduction. For correctness analysis, we first filter assertions convertible to LTL [21], then use Cadence JasperGold (v21.12.002) for formal verification and Synopsys VCS (v2016.06) for simulation. All experiments are conducted on a server with an Intel(R) Xeon(R) Gold 6148 CPU at 2.40 GHz and 629 GB RAM. 
+
+B. Evaluation Metrics and Parameters 
+
+To ensure objectivity and mathematical rigor, the asser-tions obtained after reduction are used directly without post-processing, and semantic equivalence is assessed using both Proof Core (PC) and Mutation Testing (MT, i.e., error-detection rate ER). Unlike structural metrics such as PC, MT more directly reflects assertion quality through mutation-detection effectiveness. A truly semantics-preserving reduction should therefore preserve both formal behavior and defect-detection capability. To quantify performance gains, we also measure reduction processing time (PT) and use VCS to evaluate simulation runtime (RT). A complete summary of the evaluation metrics is given in Table II. 
+
+> TABLE II SUMMARY OF EVALUATION METRICS .
+
+Evaluation Metrics Summary 
+
+N The number of FPV-passed SVAs 
+
+P C Minimal logic to prove property 
+
+ER Error detection rate in mutation testing 
+
+P T The processing time of the assertion reduction 
+
+RT The running time of the VCS simulation 
+
+We configure Arcane with fixed hyperparameters: 500 lasso samples, similarity weights of α = 0 .4 (BERT) and β = 0 .6
+
+(lasso), a unified similarity threshold of 0.85 for both coarse-and fine-grained classification, and 64 threads for pairwise similarity computation. 
+
+C. Evaluation of the Arcane 1) Evaluation of assertion reduction ratio across full benchmarks : Figure5 (a) and (b) illustrate the assertion re-duction ratio distributions obtained by applying our framework to Harm-generated and LLM-generated assertions across the full benchmark set. Both curves are sharply peaked at 78 % 
+
+and 71 % , respectively, confirming that assertion reduction for the vast majority of circuits converges to a high simplification level. The sharp drop-off in (a) shows that only a few cases deviate significantly, while (b) confirms that the assertion set for every design is reduced by at least 68 % , underscoring the stability of our framework. a) Clustering based on BERT semantic similarity only b) Clustering based on BERT and Lasso similarity 
+
+> Fig. 6. Scatter plot distribution analysis on assertion classification using BERT and BERT+LASSO similarity
+
+2) Scatter plot distribution analysis of assertion clusters :
+
+To visualize similarities among assertions, we construct a sim-ilarity matrix based on BERT-only similarity and BERT+Lasso similarity, and then apply MDS to embed it into 2-D space (Figure 6). Using only BERT-based similarity, groups show overlap and loose structure, indicating limited ability to cap-ture functional relations. With BERT+Lasso, groups become more compact with clearer boundaries, demonstrating im-proved intra-group cohesion and reduced inter-group coupling. 
+
+3) Coverage preservation and mutation detection : To ensure that assertion reduction does not degrade verification quality, we evaluate functional coverage and mutation-testing error-detection rates before and after redundancy elimination. All reduced assertion sets are executed on the same circuits under identical simulation configurations, and we select six relatively large benchmark designs to illustrate the results. As shown in Table III, Arcane reduces the number of assertions to roughly one quarter of the original size ( 68%–76% reduction) across all six designs, while both PC and ER remain exactly unchanged. These results demonstrate that the reduced asser-tion sets preserve full semantic equivalence to the originals in terms of formal proof coverage and defect-detection capability. 
+
+4) Acceleration performance before and after assertion reduction : To evaluate runtime benefits, we conduct VCS simulations with each benchmark running for 100k cycles. For the above six circuits, we apply our reduction framework to the original assertion sets and measure both reduction time and simulation time. Reduction time is a one-time cost, while simulation is repeated during verification and thus dominates runtime. As shown in Table III, our framework achieves an average simulation speedup of over 2.6 ×.We also conduct an ablation study to evaluate the runtime impact of each component. Table IV compares pure lasso-based classification (“L”) with BERT pre-classification fol-lowed by lasso (“B+L”). In B+L, assertions are first partitioned into semantically coherent classes, and lasso is applied locally, TABLE III COMPARISON OF EVALUATION METRICS BEFORE AND AFTER REDUCTION .
+
+Design N P C ER P T (s) RT (s)
+
+Orig. Arcane Ratio Orig. Arcane Orig. Arcane Orig. Arcane Ratio ca prng 576 137 76.2% 92.0% 92.0% 3.2% 3.2% 45.3 1595.28 261.93 6.1x 
+
+control unit 1447 441 69.5% 99.3% 99.3% 11.6% 11.6% 209 7695.04 2223.98 3.46x 
+
+eth cop 265 67 74.5% 39.3% 39.3% 0.9% 0.9% 25.34 203.56 59.54 3.42x 
+
+eth receivecontrol 558 166 70.3% 37.6% 37.6% 12.5% 12.5% 62.13 176.29 62.19 2.83x 
+
+MAC rx ctrl 2434 774 68.2% 53.1% 53.1% 39.1% 39.1% 321.6 1786.12 670.03 2.67x 
+
+MAC tx Ctrl 7161 2008 71.9% 78.9% 78.9% 49.8% 49.8% 1388.33 10553.5 2866.41 3.68x 
+
+TABLE IV RUNTIME AND DBI OF ASSERTION CLASSIFICATION WITH BERT-BASED SEMANTIC PRE -CLASSIFICATION .
+
+Design Runtime(s) L →B+L (×) DBI (L) DBI (B+L) 
+
+ca prng 144.45 →31.93 ( 4.52 ) 0.3014 0.3172 control unit 1070.55 →161.83 ( 6.61 ) 0.3265 0.3379 eth cop 30.14 →14.50 ( 2.08 ) 0.2854 0.2907 eth receivecontrol 122.77 →51.06 ( 2.40 ) 0.2937 0.3162 MAC rx ctrl 3406.46 →289.51 ( 11.77 ) 0.3374 0.3516 MAC tx Ctrl 43321.48 →1274.51 ( 33.99 ) 0.3419 0.3626 
+
+reducing clustering time from 30–3406s to 15–290s on mid-sized designs and from 43321s to 1275s on MAC_tx_Ctrl 
+
+(2.1 ×–34.0 ×). The DBI (Davies-Bouldin Index, lower is bet-ter) [22] increase remains below 0.023 (0.015 on average), indicating only minor impact on clustering quality. IV. C ONCLUSION 
+
+This paper presents Arcane, a lightweight framework for eliminating redundancy in assertion sets. By combining BERT-based pre-classification, lasso-driven behavioral analysis, and MCTS exploration over a semantics-preserving rule space, Arcane achieves safe, equivalence-guaranteed reduction. Ex-periments on recent benchmarks show 68.2%–76.2% assertion reduction while preserving formal coverage and mutation detection capability, with 2.3–6.1 × simulation speedup. V. A CKNOWLEDGMENT 
+
+This paper is supported by the National Natural Science Foundation of China (NSFC) under grant No. 92373206. The corresponding authors are Tiancheng Wang and Huawei Li. REFERENCES [1] Y. Abarbanel, I. Beer, L. Gluhovsky, et al., “Focs–automatic genera-tion of simulation checkers from formal specifications,” International Conference on Computer Aided Verification , pp.538-542, 2000. [2] H. Witharana, Y. Lyu, S. Charles, et al., “A survey on assertion-based hardware verification,” ACM Computing Surveys. (CSUR) , vol. 54, no. 11, pp. 1-33, 2022. [3] A. Hekmatpour, A. Salehi, “Block-based shema-driven assertion gen-eration for functional verification,” IEEE 14th Asian Test Symposium. (ATS) , pp. 34-39, 2005. [4] Germiniani, Samuele, and Graziano Pravadelli. ”Harm: a hint-based assertion miner.” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 41.11, pp. 4277-4288, 2022. [5] Vasudevan, Shobha, et al. ”Goldmine: Automatic assertion generation using data mining and static analysis.” 2010 Design, Automation & Test in Europe Conference & Exhibition (DATE), 2010. [6] G. Parthasarathy, S. Nanda, P. Choudhary, et al., “SpecToSVA: Circuit specification document to systemverilog assertion translation,” Second Document Intelligence Workshop at KDD , 2021. [7] R. Kande, H. Pearce, B. Tan, et al., “(Security) assertions by large language models,” IEEE Trans. on Information Forensics and Security ,vol. 19, pp. 4374-4389, 2024. [8] V. Pulavarthi, D. Nandal, S. Dan, et al., “Are LLMs Ready for Practical Adoption for Assertion Generation?,” IEEE Design, Automation & Test in Europe Conference. (DATE) , pp. 1-7, 2025. [9] F. Aditi, M. S. Hsiao, “Hybrid rule-based and machine learning system for assertion generation from natural language specifications,” IEEE 31st Asian Test Symposium. (ATS) , pp. 126-131, 2022. [10] F. Wu, E. Pan, R. Kande, et al., “Spec2Assertion: Automatic pre-RTL assertion generation using large language models with progressive regularization,” arXiv preprint arXiv:2505.07995 , 2025. [11] M. R. H. Iman, G. Jervan, T. Ghasempouri, “ARTmine: Automatic as-sociation rule mining with temporal behavior for hardware verification,” 
+
+IEEE Design, Automation & Test in Europe Conference & Exhibition. (DATE) , pp. 1-6, 2024. [12] Stulova, Nataliia, Jos´ e F. Morales, and Manuel V. Hermenegildo. ”Re-ducing the overhead of assertion run-time checks via static analysis.” 
+
+Proceedings of the 18th International Symposium on Principles and Practice of Declarative Programming. , 2016. [13] Sanjaya, Sahan, Hasini Witharana, and Prabhat Mishra. ”Assertion-Based Validation using Clustering and Dynamic Refinement of Hard-ware Checkers.” ACM Transactions on Design Automation of Electronic Systems 29.6 , pp. 1-22, 2024. [14] ´Swiechowski, Maciej, et al. ”Monte Carlo tree search: A review of recent modifications and applications.” Artificial Intelligence Review 56.3, pp. 2497-2562, 2023. [15] Lee, J. D. M. C. K., and K. Toutanova. ”Pre-training of deep bidirectional transformers for language understanding.” arXiv preprint arXiv:1810.04805 3.8, pp. 4171-4186, 2018. [16] Schewe, Sven. ”Tighter bounds for the determinisation of B¨ uchi au-tomata.” International Conference on Foundations of Software Science and Computational Structures. Berlin, Heidelberg: Springer Berlin Hei-delberg, 2009. [17] Niwattanakul, Suphakit, et al. ”Using of Jaccard coefficient for keywords similarity.” Proceedings of the international multiconference of engineers and computer scientists. Vol. 1. No. 6. 2013. [18] Deng, Dingsheng. ”DBSCAN clustering algorithm based on density.” 2020 7th international forum on electrical engineering and automation (IFEEA), 2020. [19] Duret-Lutz, Alexandre, et al. ”Spot: a platform for LTL and omega-automata manipulation.” Online: https://spot. lre. epita. fr , 2023. [20] Pulavarthi, Vaishnavi, et al. ”Assertionbench: A benchmark to evaluate large-language models for assertion generation.” Findings of the Asso-ciation for Computational Linguistics: NAACL, 2025. [21] Armoni, Roy, Dana Fisman, and Naiyong Jin. ”SVA and PSL local variables-a practical approach.” International Conference on Computer Aided Verification. Berlin, Heidelberg: Springer Berlin Heidelberg, 2013. [22] Xiao, J., Lu, J., & Li, X. . Davies Bouldin Index based hierarchical initialization K-means. Intelligent Data Analysis, 21(6), pp. 1327-1338, 2017.
