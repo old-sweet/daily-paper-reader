@@ -1,0 +1,1094 @@
+Title: From Rocq to Metal: A Pipeline for Formally Verified Microcontroller Firmware
+
+URL Source: https://arxiv.org/pdf/2606.02651v1
+
+Published Time: Wed, 03 Jun 2026 00:02:33 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+From Rocq to Metal: A Pipeline for Formally Verified 
+
+# Microcontroller Firmware 
+
+Valentin Bergeron 
+
+Ledger, Paris, France 
+
+> valentin.bergeron@ledger.fr
+
+Karolina Gorna 
+
+Telecom Paris and Ledger Donjon, Paris, France 
+
+> karolina.gorna@telecom-paris.fr
+
+May 31, 2026 
+
+Abstract.  Enforcing invariants in safety-critical systems is increasingly urgent as AI-
+
+generated code becomes widespread. Unfortunately, the runtimes required to support 
+
+high-level specification languages are too large for most embedded targets. In this article, 
+
+we show how formally verified firmware is achievable today. We built  Encore! , a bare-metal 
+
+Continuation Passing Style (CPS) virtual machine (VM) that runs Rocq-extracted Scheme 
+
+on microcontrollers. We also show how to structure firmware as a pure state-transition 
+
+function, making its core fully provable in Rocq while keeping the unverified host layer 
+
+constant regardless of firmware complexity. Large Language Model (LLM)-assisted tactic 
+
+synthesis fits naturally into this workflow: formal theorem statements replace manual code 
+
+review, allowing AI-generated firmware to prove itself. 
+
+Keywords:  formal verification, Rocq, Gallina, microcontrollers, firmware, CPS, proof 
+
+extraction 
+
+# 1 Introduction 
+
+Large language models are fundamentally changing how software is written. For many projects, signif -
+
+icant pressure is being placed on maintainers, as the cost of producing code has been reduced by several 
+
+orders of magnitude. Firmware is no exception: the critical nature of such software demands more careful 
+
+review, which does not scale with the volume of generated code. 
+
+We believe that AI-assisted formal verification can resolve this tension. Software expressed as formal 
+
+specifications can be mathematically proven to satisfy required invariants, while code generation can be 
+
+used both to produce performant code and to synthesize proof terms. Type signatures and interfaces 
+
+become composable building blocks upon which larger verified systems can be constructed. 
+
+However, the hardware constraints of embedded firmware prevent straightforward use of standard speci -
+
+fication language extraction. The runtimes required to execute extracted code exceed the resource budget 
+
+of most microcontrollers. Until now, the standard practice has been either to manually translate formal 
+
+specifications into the host language, to automate that translation, or to rely on host language extensions. 
+
+All of which sacrifice the rigor and composability that a proper specification language provides. 
+
+We built  Encore!  [3] to close this gap.  Encore!  is a bare-metal CPS bytecode VM written in no_std Rust 
+
+that executes Rocq-extracted Scheme on microcontrollers. The pipeline is end-to-end: write firmware 
+
+logic and prove it correct in Rocq, extract to Scheme, compile with  Encore! , and deploy. What runs on 
+
+the MCU is directly derived from the Rocq source. 
+
+1We first present an architecture for structuring firmware so its core is fully verifiable, illustrated on a 
+
+concrete transaction-signing application. We then survey the landscape of extraction paths from theorem 
+
+provers to embedded targets, and characterize why executing this class of code on microcontrollers is 
+
+non-trivial. Next, we introduce  Encore!  and show how it addresses these challenges. Finally, we present 
+
+experimental results and outline remaining steps toward extending trust further up the toolchain. 
+
+This work makes three contributions: 
+
+• We show that code extracted from Rocq can run on Cortex-M microcontrollers, by choosing Scheme 
+
+as the extraction target and building a purpose-built bare-metal runtime. 
+
+• We present  Encore! , a  no_std  CPS bytecode VM in Rust that fits within the resource budget of ST33-
+
+class hardware and executes Rocq-extracted Scheme end-to-end. 
+
+• We introduce a firmware architecture structured as a pure state-transition function, making the 
+
+business-logic core fully provable in Rocq while keeping the unverified TCB constant regardless of 
+
+firmware complexity. 
+
+# 2 An Architecture for Verified Firmware 
+
+This section answers  what  to run on the MCU and how to structure it so correctness is fully provable 
+
+in Rocq. 
+
+# 2.1  The State Transition Model 
+
+In order to maximize the area that can be proven, we choose to model the application as a pure state 
+
+transition function, effectively treating the whole embedded device as a state machine. 
+
+Before diving into the modeling details, we assume that a Scheme VM is deployed as part of what we 
+
+call a Formal Software Development Kit (FSDK), that bridges the virtual machine and the host device. 
+
+The FSDK contains both host code (It  is  the real firmware that get deployed) and Rocq code to provide 
+
+the necessary bridge abstractions. 
+
+With this in mind, we define the state transition function as: 
+
+step  : State  × Event  → State  × (list  Effect ) (1) 
+
+Given the types: 
+
+State  is representing the application state. This will depend on what problem the application is solving, 
+
+independently from the FSDK. 
+
+Event  is an incoming event from the device. Device events are linked to the underlying hardware and 
+
+can be Network packets, user interface signals like pressed buttons or specific touch screen positions, etc. 
+
+Effect  is the description of an effectful computation that need to be interpreted to be realized. A critical 
+
+part of the FSDK is then to interpret the effects to perform them. 
+
+This model is effectively applying two key functional programming principles (copying instead of 
+
+mutating, and describing effects rather than performing them directly) to firmware code, effectively 
+
+maximizing the provable, business logic part. 
+
+The remaining parts (the  Event poller  and the  Effect interpreter ) form the trusted computing base 
+
+(TCB). Their size is independent of firmware complexity unless new hardware operations and capabilities 
+
+are added. The verified core grows with the application; the unverified boundary stays fixed. 
+
+Moreover, in a VM-based deployment the application logic can be fully specified in the VM input 
+
+code, allowing the same carefully reviewed base firmware to host custom, verified business logic — a 
+
+particularly powerful combination for safety-critical devices. 
+
+22.2  Admitted Axioms and the Trust Chain 
+
+Some operations are observationally pure from Rocq’s perspective but will be extremely impractical 
+
+to implement fully from a business point of view. For instance, Hash functions, Polynomial operations 
+
+(CRC), and more generally speaking any Finite Field operation involved in cryptographic algorithms. 
+
+Rather than relying on an Effect / Event pair with little added value, we choose to admit them in Rocq 
+
+as axioms and provide them as host callbacks before the application run loop starts. 
+
+Additionally, VM primitive operations such as raw byte operations ( bytes_len , bytes_concat , etc.) are 
+
+abstracted via a typeclass admitted in the extraction context. The FSDK bridges the typeclass and the 
+
+concrete VM-provided implementations via Rocq extraction directives. 
+
+𝐸 𝑖 −1 𝐹 𝑖 −1 𝐸 𝑖  𝐹 𝑖  𝐸 𝑖 +1 𝐹 𝑖 +1
+
+…
+
+𝑆 𝑖 −1
+
+step  𝑖  − 1 perform  poll  step  𝑖  perform  poll  step  𝑖  + 1 …
+
+𝑆 𝑖 +2𝑆 𝑖  𝑆 𝑖 +1
+
+Figure 1: Formal SDK generic app loop over two consecutive steps. 
+
+S: State, E: Event, F: Effects list. Ellipses denote the unbounded continuation of the loop. 
+
+# 2.3  Concrete Example: Transaction Signing Application 
+
+As a concrete example, we built a Ledger Flex transaction-signing app with  Encore! .
+
+LedgerOS provides us with higher level primitives we used as our  Event Poller  and our  Effect Handler .
+
+We tailored the component we called FSDK to the particular use cases of this app for the sake of 
+
+simplicity. In a real implementation of a Formal SDK for this class of ledger device and OS, the list of 
+
+events and effects is expected to be much longer. 
+
+The device receives raw Application Protocol Data Unit (APDU) bytes over USB, parses them into 
+
+structured fields, displays them for user approval, then signs and returns the result. The app is a toy: it 
+
+is not tied to any real crypto protocol.                                            
+
+> (* Application specific state *)
+> Inductive State :Type :=
+> |InitialState
+> |PendingTx (tx :Bytes).
+> (* Formal SDK -truncated *)
+> Inductive Event :Type :=
+> |InApdu (bytes :Bytes)
+> |ApprovedTx
+> |RejectedTx.
+> Inductive Effect :Type :=
+> |OutApdu (bytes :Bytes)
+> |DisplayProps (to :Bytes) (value :Bytes).
+
+Parser correctness is where formal verification pays off most directly. Two properties are proven for 
+
+our app:                                       
+
+> Theorem deserialize_preserves_data :forall data tx,
+> deserialize_transaction data =inr tx ->
+> tx_nonce tx ++ tx_to tx ++ tx_value tx ++ tx_memo tx =data.
+> Theorem check_encoding_spec :forall memo,
+> check_encoding memo =true <->
+> (forall b, In bmemo -> b<= MAX_ASCII).
+
+3deserialize_preserves_data  guarantees no bytes are dropped or reordered during parsing, exactly what 
+
+a hardware wallet must ensure before signing.  check_encoding_spec  gives a machine-checked certificate 
+
+that memo content is valid ASCII. 
+
+Note that neither property is expressible as a Rust type. 
+
+This structure suits LLM-assisted development. A model generates a candidate  step  function; the Rocq 
+
+type-checker validates its shape immediately. Correctness theorems are stated as signatures; the model 
+
+synthesizes proof terms or tactic scripts. Code review becomes proof review, a question with a machine-
+
+checkable answer. 
+
+# 3 Related Work 
+
+Over the course of this work, we investigated the feasibility of running proven logic on resource-
+
+constrained microcontrollers (MCUs). The target hardware for these experiments was the ST33K1M5, 
+
+with a secondary target of the ST33J2M0.  Table 1  summarizes their specifications. Since firmware must 
+
+run across the whole target range, the most constrained device sets the binding budget: the ST33J2M0, 
+
+with only 50 KB of RAM, is the tightest target we must fit. 
+
+Metric  ST33K1M5  ST33J2M0 
+
+ISA  ARM+Thumb2  ARM+Thumb2 
+
+Flash  1.5 MB  2 MB 
+
+RAM  64 KB  50 KB 
+
+Clock speed  70 MHz  60 MHz 
+
+Cache  2 KB  None 
+
+Table 1: Hardware specifications of the MCUs considered 
+
+The principal consequence is that any attached runtime must be as lean as possible. Most applications 
+
+targeting this class of MCU ship with no runtime at all, which sets the baseline expectation. Furthermore, 
+
+the code must not link against any external library, including the most fundamental ones such as libc 
+
+or the Rust standard library. With these constraints established, we now survey the alternatives we 
+
+explored. 
+
+# 3.1  Lean 4 
+
+Lean 4  [14 ] has mature code generation to native targets and an active proof ecosystem, making it a 
+
+natural first candidate. However, its runtime is fundamentally incompatible with our target hardware. 
+
+The runtime depends on C++ standard library features. 
+
+Practitioners at Galois who attempted to run Lean 4 on resource-constrained hardware confirmed that 
+
+the runtime pulls in a significant dependency closure due to the way numeric constants are compiled, 
+
+and reported that a more constrained environment than a Raspberry Pi would require substantial effort 
+
+[6]. The one known attempt to port Lean to a microcontroller targets the ESP32-C3, a device with 384 
+
+KB of RAM, nearly six times the RAM available on our primary target, and required a custom slimmed-
+
+down runtime, a patched libc++, and a custom picolibc integration just to achieve basic execution  [9].
+
+Even on that comparatively generous hardware, the port required significant engineering effort with no 
+
+proof infrastructure carried over. 
+
+Beyond the dependency problem, the runtime architecture assumes a hosted environment: it employs 
+
+reference counting with cycle collection, a task scheduler, and IO monad infrastructure that presupposes 
+
+operating system support. None of these are available on bare-metal Cortex-M targets, and eliminating 
+
+them would constitute a full rewrite of the runtime rather than a port. 
+
+The Lean FRO Year 3 roadmap (August 2025 – July 2026)  [10 ] lists eight development workstreams 
+
+(standard library, proof automation, compiler backend, IDE tooling, and others), none of which address 
+
+bare-metal or embedded targets. 
+
+43.2  Rocq Extraction to OCaml 
+
+Rocq’s native extraction to OCaml  [12 , 13 ] is the most mature extraction path available. However, 
+
+the OCaml runtime is architecturally incompatible with our target hardware for several compounding 
+
+reasons. 
+
+First, the runtime mandates a garbage collector (GC). The OCaml runtime uses a generational GC with 
+
+a minor heap collected by a copying collector and a major heap collected by an incremental mark-and-
+
+sweep collector. Major heap chunks are typically allocated in 1 MB units on 32-bit architectures, which 
+
+alone exceeds the total RAM budget of both target boards. 
+
+Second, running OCaml on bare metal means running the OCaml runtime written in C on bare metal, 
+
+which requires providing the libc and libm C functions used by that runtime, both unavailable without 
+
+further porting effort on our targets. 
+
+Third, the OCaml native code backend generates ARMv7-A (Application profile) object files. The 
+
+Cortex-M profile uses ARMv8-M, and while both use the Thumb-2 instruction set, the object file 
+
+metadata differs and the linker will not mix A and M profiles without manual intervention. The one 
+
+known attempt to run native OCaml on a Cortex-M class device required patching assembly output 
+
+with sed, writing a custom linker script, and stubbing large parts of the standard library  [5], all on a 
+
+target with four times the RAM of our primary board, and with no proof infrastructure carried over. 
+
+OMicroB  [19 ] is the closest existing approach: a purpose-built OCaml bytecode VM targeting resource-
+
+constrained microcontrollers. However, it does not support our target architecture. OMicroB’s supported 
+
+targets are AVR and PIC32; no ARM Cortex-M port exists in the upstream repository. The Cortex-
+
+M0 port mentioned in prior work  [18 ] remains an unmerged work in progress. Our targets use the 
+
+Cortex-M35P, which requires full Thumb-2 support. Porting OMicroB to this architecture would require 
+
+implementing a new backend from scratch. 
+
+# 3.3  CertiRocq 
+
+CertiRocq  [1] compiles Gallina to Clight, a subset of C, via a compiler chain that is itself largely verified 
+
+in Rocq, making it the most principled extraction path available. Large parts of the CertiRocq compiler 
+
+have been verified, while others are in the process of being verified. 
+
+The Clight code produced by CertiRocq allocates records from the compilation of inductive data 
+
+constructors, and the correctness proof is stated with respect to a GC-aware heap described by the 
+
+separation logic predicate full_gc, parameterized over a data graph, a thread info structure, GC roots, 
+
+and global variables  [8].
+
+This predicate encodes invariants that the runtime must maintain across every allocation and collection. 
+
+Deploying CertiRocq output on a bare-metal Cortex-M35P target therefore requires substituting the 
+
+default runtime with one that satisfies full_gc under the target’s memory constraints. The GC is written 
+
+in C and its correctness is established separately using the Verified Software Toolchain  [8], not as part 
+
+of the compiler proof. 
+
+The severity of this porting effort depends on the allocation profile of the program. For functions with 
+
+bounded, acyclic allocation, such as a transaction deserialiser that parses a fixed-size buffer into a flat 
+
+record, intermediate garbage never accumulates and collection is never triggered. In that regime the 
+
+full generational GC can be replaced by a static bump allocator backed by a pre-sized array, a runtime 
+
+of order tens of lines that requires no proof of collection semantics. For programs with dynamic or 
+
+unbounded allocation — closure-heavy algorithms, merge sort over variable-length data, or cryptographic 
+
+computations building large intermediate structures — intermediate garbage does accumulate. The GC 
+
+is genuinely required, and adapting it to a new memory model means re-establishing the VST proof under 
+
+new assumptions, which is a substantial verification effort falling outside the CertiRocq project scope. 
+
+Also unlike standard Rocq extraction, CertiRocq provides no mechanism to reduce Peano natural 
+
+numbers to machine arithmetic (which is driven by the  Extract Inductive nat  pattern in Rocq extraction 
+
+directives). Operations on values representative of byte counts or cryptographic operands (e.g. 2² ⁵⁶ )
+
+5become physically unreachable; any function using  nat  for indexing or comparison pays O(n) recursion 
+
+at the C level. Programs that rely on  nat  for non-trivial arithmetic require a source-level representation 
+
+change before CertiRocq extraction is viable. 
+
+# 3.4  Usage of Scheme Extraction 
+
+Rocq also supports extraction to Scheme  [13 ]. Among the three supported extraction targets, the Soft -
+
+ware Foundations documentation characterizes OCaml as the most mature, Haskell as mostly working, 
+
+and Scheme as a bit out of date. Despite this, Scheme is the most viable target for our constraints: it 
+
+has no mandatory GC-aware heap, and runtime requirements are minimal. The language semantics are 
+
+compact and evaluation is straightforward. 
+
+Prior work confirms that complete Scheme implementations fit within the resource budget of our targets. 
+
+Ribbit  [20 ] implements a full R4RS Scheme with continuations, a REPL, and an extensible runtime in 
+
+under 4 KB of executable code. Its VM (the RVM) uses a static allocation pool, which is precisely what 
+
+makes it portable to resource-constrained hosts. PICOBIT demonstrates a similar approach targeting 
+
+AVR microcontrollers with less than 7 KB of total memory  [17 ].
+
+Two existing implementations are natural candidates: Chibi Scheme  [16 ], a full R7RS interpreter, and 
+
+Ribbit  [20 ], a compact bytecode VM. We evaluate both against our deployment requirements in the 
+
+experimental results. 
+
+The path forward is to build a purpose-built, bare-metal Scheme runtime. That is  Encore! .
+
+# 4 The  Encore!  VM and Compiler 
+
+The purpose of  Encore!  is to tailor a Scheme runtime which is efficient, lightweight and safe to execute. 
+
+First we will describe the compilation pipeline and design, then dive into the specifics of the  Encore! 
+
+virtual machine. 
+
+The key design decision relative to the  Encore!  toolchain comes from the realization that most of the 
+
+Scheme emitted by the Rocq extraction is both heavily curried and mostly already present in suitable 
+
+form to undergo CPS rewrite, which is extremely well suited to implement functional languages on top 
+
+of register-based virtual machines. 
+
+First this means there is no stack frame management to be done by the runtime. The CPS-rewrite 
+
+eliminates the call stack  semantically , whereas the register VM eliminate it  physically . There is thus no 
+
+hidden control flow. On a side note, this means VM bugs we overcame were particularly well handled 
+
+by automated code assistants. 
+
+Second, register allocation maps naturally to CPS by making data flow explicit (every intermediate value 
+
+is named), which is exactly what register allocation needs. 
+
+Lastly, this means that the garbage collection routine does not have to do unbounded stack scanning to 
+
+capture all garbage collection roots. By essence, every active register is a GC root and by CPS they are 
+
+always contiguous. 
+
+Also Rocq-extracted Scheme forms a very particular subset of Scheme that presents particularities worth 
+
+optimizing. The extracted code must load a specific  macros_extr.csm  file, which contains primitives for 
+
+curried function definition and application, as well as constructor pattern matching. The goal of  Encore! 
+
+is to trade off generic Scheme macro support by only implementing these as core primitive of the target 
+
+execution model. 
+
+The only addition of  Encore!  to the Scheme grammar is the special  define extern  hook in order to make 
+
+external function (used in the host) definition possible. It allows the Rocq code to pose the external 
+
+functions as axioms and later reference them from the host. 
+
+The binary format (ENCR magic, arity table, global thunk offsets, bytecode) is compact and 
+
+position-independent, with optional metadata sections appending constructor and global names for the 
+
+disassembler. 
+
+64.1  VM Internals 
+
+The  Encore!  VM is a  #![no_std]  register-based bytecode interpreter with 256 registers and no call stack. 
+
+Every value is a packed 32-bit word encoding its type, metadata, and either an inline payload (integers, 
+
+code pointers) or a heap address (closures, constructors, byte strings). 
+
+Encore!  VM 
+
+Call function 
+
+Register external 
+
+Reads 
+
+Read/Write 
+
+Read/Write 
+
+Execute 
+
+Finds Roots 
+
+Collects 
+
+Interpreter 
+
+Extern Slots  Registers 
+
+Bytecode 
+
+Heap 
+
+GC 
+
+Host 
+
+Figure 2:  Encore!  VM architecture 
+
+The register file is divided between special register (Current function  SELF 0x00 , Current Continuation   
+
+> CONT 0x01
+
+and Nullary sentinel  NULL 0xff ), Argument registers ( 0x02 -> 0x0b ) and Regular registers 
+
+(0x0c -> 0xfe ). 
+
+The heap is a flat bump-allocated arena shared by closures, constructors, and byte strings, with all 
+
+objects prefixed by a GC header word. The garbage collector is mark-compact (Lisp-2 style): when a 
+
+bump allocation fails, it traces from all 256 registers and all globals as roots, marks reachable objects via 
+
+header bits, computes forwarding addresses in a linear scan, rewrites all pointers (roots and interior), 
+
+then slides live objects down and resets the heap pointer. Because all values are self-describing 32-bit 
+
+words with a type byte, the GC can identify pointer types without compiler-emitted maps. 
+
+All function dispatch is reduced to a single opcode: ENCORE. It overwrites SELF and CONT, resolves 
+
+the callee’s code pointer (inline for bare functions, from the heap header for closures), and jumps; it never 
+
+returns. Contrary to most VM, there is no CALL/RET pair and no frame stack. Calling a continuation 
+
+is the same instruction as calling a function; the NULL register is passed as the continuation argument 
+
+when resuming a final continuation. FIN halts the interpreter and returns a register’s value. 
+
+All other control flow is data-driven: MATCH does an indexed jump on a constructor tag, BRANCH is 
+
+a two-way variant. The remaining opcodes provide primitives for data movement and allocation, as well 
+
+as specialized opcodes for native integer handling and byte string manipulation. 
+
+# 4.2  Compiler pipeline 
+
+The compiler pipeline starts with a lexer/parser step, which identifies specific Rocq-extracted Scheme 
+
+macros and includes them in its intermediate representation (IR). Then the Scheme frontend Abstract 
+
+Syntax Tree (AST) is transformed into the first of  Encore! ‘s sub-IRs, DS (for Direct-Style). 
+
+We choose to articulate the compilation pipeline to first further refine the scheme to have better CPS 
+
+rewrite and optimization targets. 
+
+The first transform is to uncurry chains of application wherever they are complete. In typical code, full 
+
+application happens quite often and thus allowing us to spare the closure allocation and reduce GC 
+
+pressure in such constrained target. 
+
+Next step is to convert the direct-style IR to a fully CPS-transformed, De Bruijn-indexed IR. Then the 
+
+IR is optimized in a tight loop combining shrinking and expanding phases as described by Appel  [2] and 
+
+Kennedy  [7].
+
+7Finally, this IR is compiled to VM bytecode after register addressing. Post-emission high-value optimi -
+
+sation are also performed. 
+
+# 4.3  Host–VM Interface 
+
+Encore!  is designed for hosted deployment: the bytecode VM is a library embedded inside a Rust 
+
+application that retains full control of the execution context, memory budget, and I/O. 
+
+The interface is deliberately narrow. The VM exposes two entry points to the host: 
+
+1.  Function call: the host invokes a named global or a closure handle with 
+
+typed arguments and receives a typed result. 
+
+2.  Extern registration: the host registers typed callbacks that the VM may 
+
+invoke via the EXTERN opcode. 
+
+4.3.1  Derive-Macro Code Generation for ADTs 
+
+For algebraic data types exchanged across the boundary,  Encore!  provides procedural macros  
+
+> #[derive(ValueEncode)]
+
+and  #[derive(ValueDecode)] . Each variant or struct field must be annotated 
+
+with  #[ctor(tag)] , where  tag  is a  u8  constant from the compiler-generated  ctors  module ( Section 4.3.2 ). 
+
+This design draws a clear boundary between host-side types (ordinary Rust structs and enums), VM-
+
+side types (constructor tags and field layouts), and the bijection between them (the derive macros). 
+
+Neither side references the other’s internal representation; the mapping is established once at compile 
+
+time through the shared tag constants. 
+
+Additionally,  VmList<T>  and  VmBytes  provide type-safe handles to linked lists and byte arrays in the VM 
+
+heap. Both support lazy traversal and bounded materialization into caller-supplied buffers, which is the 
+
+only safe option in a no-alloc context. 
+
+4.3.2  Build-Time Binding Generation 
+
+The mapping between host identifiers and VM tags is produced at Cargo build time by a build.rs script 
+
+that runs the full compiler pipeline and emits two artefacts into  $OUT_DIR :
+
+• bytecode.bin: the ENCR binary, linked into the firmware as a static byte array via include_bytes!. 
+
+• bindings.rs: a Rust source file declaring two constant modules: 
+
+‣ funcs: one GlobalAddress constant per top-level let definition. 
+
+‣ ctors: one u8 constant per constructor tag, likewise named. 
+
+This build-time generation guarantees that host tag references cannot diverge from the bytecode: there 
+
+is no separate binding definition file to keep in sync. 
+
+# 5 Experimental Results 
+
+We validate the three contributions experimentally. First, we show that among all extraction paths, only 
+
+Encore!  and CertiRocq are viable candidates for running verified code on a Cortex-M MCU. Second, we 
+
+show that  Encore! ‘s design is better suited for embedded application development. Third, we demonstrate 
+
+the state-transition architecture on a real application. 
+
+The software versions used for this section are: 
+
+8tool  version  notes 
+
+Rocq  9.1.1  compiled with Ocaml 4.14.3 
+
+CertiRocq  0.9.1 
+
+Rust  1.88 
+
+QEMU  8.2.2 
+
+arm-none-eabi-gcc  13.2.1 
+
+Ribbit  1.0.0  compiled with Gambit v4.9.3 
+
+Chibi-Scheme  0.12.0 
+
+Table 2: Software versions used in this article. 
+
+# 5.1  Running Verified Code on a Microcontroller 
+
+The extraction survey identifies four candidate paths.  Table 3  summarises their compatibility with our 
+
+hardware constraints. 
+
+Extraction path  GC required  no_std  viable  Cortex-M viable  Proof infra pre -
+
+served 
+
+Lean 4  Ref-count + cycle 
+
+GC 
+
+No  No  None 
+
+OCaml / OMicroB  Generational GC  No  No  None 
+
+CertiRocq  Conditional  Partial  Partial  Compiler chain 
+
+Scheme /  Encore!  Mark-compact, 
+
+bounded 
+
+Yes  Yes  Full 
+
+Table 3: Rocq extraction paths against embedded deployment constraints 
+
+Lean 4 and OCaml are eliminated by their runtimes alone. CertiRocq is viable only for programs with 
+
+bounded allocation, where its GC can be replaced by a static bump allocator; it remains conditional. 
+
+Scheme extraction survives every constraint, leaving  Encore!  and CertiRocq as the two candidates worth 
+
+evaluating on hardware. 
+
+Among Scheme runtimes, we prototyped full deployment pipelines for Chibi, Ribbit, and  Encore!  on 
+
+QEMU.  Table 4  summarises the outcome. 
+
+Chibi.  The Rocq sources are extracted via  dune build  to  .scm  files, then the Chibi C runtime ( 50 files) 
+
+is cross-compiled with custom POSIX stubs, the Scheme sources are embedded as a C string literal, and 
+
+the whole is linked into a bare-metal binary. The entire Chibi interpreter runs on the MCU at runtime, 
+
+loading and evaluating the Scheme source on every boot. The resulting binary exceeds the 256 KB flash 
+
+budget. 
+
+Ribbit.  The Rocq sources are extracted to  .scm  files, then  build.rs  invokes  gsi rsc.scm  to produce 
+
+a C file in  OUT_DIR , which is patched to use a static heap and a semihosting shim before being cross-
+
+compiled for Cortex-M35P and linked into the binary. Only the bytecode and the minimal Ribbit VM 
+
+are embedded, and the binary fits on target. However, this step uses hand-written Scheme sources rather 
+
+than the Rocq-extracted ones, because Ribbit does not support quasiquote. The verified firmware logic 
+
+does not execute on the device. 
+
+Encore! . The Rocq sources are extracted to  .scm  files, then  build.rs  calls  encore_scheme::parse  and  
+
+> encore_compiler::compile
+
+directly as a Rust API — no external process, no C compilation, no patching. 
+
+The  encore_program!  macro links the resulting bytecode into the binary, and  encore_vm  runs it on the 
+
+MCU as a  no_std  Rust library. The bytecode is compiled directly from the Rocq-extracted Scheme 
+
+sources, end-to-end. 
+
+9Chibi  Ribbit  Encore! 
+
+Runtime model  interpreter  VM  VM 
+
+Runs Rocq-extracted Scheme  ✓ ✗ ✓
+
+Fits 256 KB flash  ✗ ✓ ✓
+
+Pipeline complexity  high  medium  low 
+
+Working bare-metal  ✗ ✓ ✓
+
+Table 4: Scheme runtimes against Rocq extraction deployment requirements 
+
+Encore!  is the only Scheme runtime that satisfies all four requirements. Together with the CertiRocq 
+
+path (viable for bounded-allocation programs), it is one of two candidates for running verified code on 
+
+the target hardware. 
+
+# 5.2  Encore!  Design Suitability 
+
+In order to run CertiRocq on such a constrained device, 4 surgical changes were made in the CertiRocq 
+
+runtime. The goal of these changes is to treat memory as a static bump allocator, enabling to compare 
+
+the runtime behaviors in term of allocation rate and overall performance. 
+
+1.  Static nursery instead of  malloc  calls ( gc_stack.c )
+
+2.  Garbage collection aborts the program ( gc_stack.c )
+
+3.  Stub implementation for the remaining methods ( gc_stack.c )
+
+4.  Bare metal config to take the ARM embedded target into account ( config.h  and  m.h )
+
+Table 5  compares  Encore!  against CertiRocq on 7 standard benchmarks.  sum , fibonacci  and  gcd  are 
+
+simple arithmetic examples,  fsm  is a toy fsm example, and  rbtree  is an implementation of a Red-Black 
+
+tree on  nat  for different tree size. Nodes from 1 to N are inserted then checked for membership. 
+
+Flash (B)  Min heap (B)  Build Benchmark 
+
+CR  E ratio  CR  E ratio  CR  E ratio 
+
+sum  2 480  14 340  0.17×  3 000  † ≤ 50  ≥60×  1 145 ms  485 ms  2.4× 
+
+fibonacci  2 524  14 364  0.18×  3 000  † 200  15×  1 155 ms  499 ms  2.3× 
+
+gcd  2 948  16 252  0.18×  1 000  ≤ 50  ≥20×  1 208 ms  459 ms  2.6× 
+
+fsm  2 804  14 944  0.19×  200  200  1×  784 ms  488 ms  1.6× 
+
+rbtree-10  6 232  17 912  0.35×  1 624  471  3.4×  758 ms  573 ms  1.3× 
+
+rbtree-50  29 004  17 912  1.6×  21 720  2 022  10.7×  7 461 ms  539 ms  13.8× 
+
+rbtree-100  146 152  17 912  8.2×  • ‡ 3 671  - 397 s  597 ms  665× 
+
+Table 5:  Encore!  (E) vs CertiRocq (CR) — all benchmarks (QEMU, Cortex-M).  ratio  is CertiRocq / 
+
+Encore!  
+
+> †
+
+Peano nat stack depth, not heap, is the binding constraint for arithmetic.  
+
+> ‡
+
+CertiRocq  rbtree(100)  requires 63 KB heap (O(N 1.56 ) growth), exceeding the 50 KB RAM of the most 
+
+constrained target (ST33J2M0) — impossible regardless of configuration. 
+
+Flash.  CertiRocq is 5–6× smaller on arithmetic and FSM due to the direct compilation into ARM 
+
+assembly. The balance flips for the red-black tree: CertiRocq inlines literal list construction at compile 
+
+time, so its binary grows from 6 KB at N=10 to 146 KB at N=100.  Encore!  stays constant at 18 KB 
+
+because construction is computed at runtime by the VM (crossover at N ≈40). 
+
+Heap.  Encore!  needs less heap in every case except  fsm . CertiRocq’s arithmetic benchmarks require 1–3 
+
+KB despite producing no long-lived data. Peano nat encoding materialises every intermediate value as a 
+
+heap cell ( ratio  ≥ 20× for sum and gcd). At large N, CertiRocq’s runtime-patched bump allocator cannot 
+
+reclaim intermediate nodes:  rbtree(100)  requires 63 KB, physically exceeding the 50 KB RAM of the 
+
+smallest target (ST33J2M0,  Table 1 ).  Encore! ‘s mark-compact GC keeps the requirement at 3.7 KB. 
+
+10 Build time.  Encore!  rebuilds 1.3–2.6× faster on simple cases — its pipeline is a single Rust API call 
+
+versus CertiRocq’s Rocq elaboration and C code generation. The gap explodes to 665× on  rbtree-100 : 
+
+> gcc
+
+must optimise a 146 KB generated C function with hundreds of intermediate variables. 
+
+# 5.3  State-Transition Architecture 
+
+The Ledger Flex transaction-signing app structures firmware as a pure  step : State × Event → State ×  
+
+> List Effect
+
+function. The verified Gallina core ( step , parser, helpers, and proofs) totals 400 lines. Two 
+
+non-trivial properties are machine-checked:  deserialize_preserves_data  (no bytes dropped or reordered 
+
+during parsing) and  check_encoding_spec  (memo ASCII validity). State-machine safety (signing only 
+
+from  PendingTx ) follows by  simpl; discriminate .
+
+The unverified Rust layer is 575 lines and is  stable : adding new state variants or event cases extends 
+
+only the verified core. The TCB grows only if new hardware operations are introduced — a structural 
+
+guarantee, not a coincidence of current implementation size. 
+
+Whereas the benchmarks of  Table 5  run on QEMU, this signing application was validated end-to-end 
+
+on physical Ledger Flex hardware: the Rocq-extracted,  Encore! -compiled firmware parses, displays, and 
+
+signs data on the device. 
+
+# 6 Discussion 
+
+# 6.1  A better GC for embedded CertiRocq 
+
+Our approach using a static bump allocator in place of the regular multi-generational GC of CertiRocq 
+
+was robust enough to validate the general design of  Encore!  but it is too limiting for more ambitious 
+
+programs. With careful care, one could weave a classic Mark & Sweep algorithm or a Cheney semispace 
+
+algorithm on static buffers in order to provide this path the ability to run larger programs. 
+
+# 6.2  Verified Optimisation Passes 
+
+The  Encore!  compiler’s nine CPS optimisation passes are currently implemented in Rust and trusted by 
+
+construction. The next step is to port the compiler to OCaml and prove each pass semantics-preserving, 
+
+in the style of CompCert  [11 ]. The CPS intermediate representation is well-suited for this: equational 
+
+reasoning about  𝜆 -calculus reductions is standard, and the shrinking reductions have textbook semantic 
+
+preservation proofs. The growth-enabling passes (inlining, hoisting, CSE, contification) are structurally 
+
+similar to optimisations already verified in Pilsner  [15 ].
+
+# 6.3  Ahead-of-Time Native Compilation 
+
+The AOT backend is fully designed. The implementation compiles CPS IR directly to ARMv8-M 
+
+Thumb-2 assembly, eliminating interpreter dispatch entirely. Six virtual registers (SELF, CONT, A1, A2, 
+
+X01–X04) are pinned to ARM hardware registers; the rest spill to a shadow register file. Tail calls resolve 
+
+through a code-table index and a single  BX , with no stack growth. Integer addition and subtraction reduce 
+
+to two ARM instructions by exploiting the packed value representation; pattern matching compiles to a  
+
+> TBH
+
+jump table. 
+
+# 6.4  Verifying the VM with rocq-of-rust  
+
+> encore_vm
+
+is  no_std  Rust with minimal  unsafe  and no trait objects. The  rocq-of-rust  tool  [4] translates 
+
+Rust source to Rocq definitions, enabling correctness proofs of Rust programs inside Rocq. Applying it 
+
+to  encore_vm  closes the last gap in the trust chain: the same proof assistant that certifies the firmware 
+
+logic certifies the runtime executing it. 
+
+# 7 Conclusion 
+
+We have shown that Rocq-proven firmware runs on a Cortex-M35P: extracted to Scheme, compiled by 
+
+Encore! , deployed on a Ledger Flex hardware wallet. The chain of trust runs end-to-end, and proven 
+
+logic specification is the only source of truth. 
+
+11 The architecture also scales. Structuring firmware as a pure state-transition function decouples verifi -
+
+cation effort from hardware complexity: the verified  step  grows freely with application logic while the 
+
+unverified components size stays constant. 
+
+As LLMs drive the cost of code generation toward zero, assurance cost does not follow. It only stays low 
+
+if the architecture makes verification the natural path, as ours does. Theorem signatures replace most 
+
+code review; the Rocq kernel replaces the human auditor. 
+
+Engineering work remains, but the hard question is answered: proven logic runs on bare metal, at scale, 
+
+today. 
+
+Acknowledgments.  The authors thank the anonymous reviewers for their valuable feedback and especially 
+
+Nicolas IOOSS (Ledger Donjon) for their invaluable insights and debugging assistance. 
+
+# Bibliography 
+
+[1]  Abhishek Anand, Andrew W. Appel, Greg Morrisett, Zoe Paraskevopoulou, Randy Pollack, Olivier 
+
+Savary Belanger, Matthieu Sozeau, and Matthew Weaver. 2017. CertiCoq: A Verified Compiler for 
+
+Coq. In  Proceedings of the Workshop on Coq for Programming Languages (CoqPL) , 2017. Retrieved 
+
+from  https://www.cs.princeton.edu/~appel/papers/certicoq-coqpl.pdf 
+
+[2]  Andrew W. Appel. 1992.  Compiling with Continuations . Cambridge University Press. 
+
+[3]  Valentin Bergeron. Encore!. Retrieved from  https://github.com/vbergeron/encore 
+
+[4]  Guillaume Claret and contributors. 2024. rocq-of-rust: Formal Verification of Rust Programs in 
+
+Rocq. Retrieved from  https://github.com/formal-land/rocq-of-rust 
+
+[5]  Mark Elvers. 2025. Multi Domain OCaml on Raspberry Pi Pico 2 Microcontroller. Retrieved from 
+
+https://www.tunbury.org/2025/12/31/ocaml-pico/ 
+
+[6]  Joe Hendrix. 2021. System Programming Using Lean 4 (Community Discussion). Re -
+
+trieved from  https://leanprover-community.github.io/archive/stream/270676-lean4/topic/System. 
+
+20programming.20using.20Lean.204.html 
+
+[7]  Andrew Kennedy. 2007. Compiling with Continuations, Continued. In  Proceedings of the 12th ACM 
+
+SIGPLAN International Conference on Functional Programming (ICFP 2007) , 2007. ACM, 177– 
+
+190. https://doi.org/ 10.1145/1291151.1291179 
+
+[8]  Joomy Korkut, Kathrin Stark, and Andrew W. Appel. 2025. A Verified Foreign Function Interface 
+
+between Coq and C.  Proc. ACM Program. Lang.  9, POPL (2025). https://doi.org/ 10.1145/3704854 
+
+[9]  György Kurucz. 2024. Porting Lean to the ESP32-C3 RISC-V Microcontroller. Retrieved from 
+
+https://kuruczgy.com/blog/2024/07/31/lean-esp32/ 
+
+[10]  Lean FRO. 2025. The Lean FRO Year 3 Roadmap. Retrieved from  https://lean-lang.org/fro/ 
+
+roadmap/y3 
+
+[11]  Xavier Leroy. 2009. Formal Verification of a Realistic Compiler.  Communications of the ACM  52, 
+
+7 (2009), 107–115. https://doi.org/ 10.1145/1538788.1538814 
+
+[12]  Pierre Letouzey. 2003. A New Extraction for Coq. In  Types for Proofs and Programs (TYPES 
+
+2002)  (Lecture Notes in Computer Science) , 2003. Springer, 200–219. https://doi.org/ 10.1007/3-
+
+540-39185-1_12 
+
+[13]  Pierre Letouzey. 2008. Extraction in Coq: An Overview. In  Logic and Theory of Algorithms (CiE 
+
+2008) , 2008. Springer. 
+
+[14]  Leonardo de Moura and Sebastian Ullrich. 2021. The Lean 4 Theorem Prover and Programming 
+
+Language. In  Automated Deduction – CADE 28  (Lecture Notes in Computer Science) , 2021. 
+
+Springer, 625–635. https://doi.org/ 10.1007/978-3-030-79876-5_37 
+
+12 [15]  Georg Neis, Chung-Kil Hur, Jan-Oliver Kaiser, Craig McLaughlin, Derek Dreyer, and Viktor 
+
+Vafeiadis. 2015. Pilsner: A Compositionally Verified Compiler for a Higher-Order Imperative 
+
+Language. In  Proceedings of the 20th ACM SIGPLAN International Conference on Functional 
+
+Programming (ICFP 2015) , 2015. ACM, 166–178. https://doi.org/ 10.1145/2784731.2784764 
+
+[16]  Alex Shinn. Chibi-Scheme. Retrieved from  https://github.com/ashinn/chibi-scheme 
+
+[17]  Vincent St-Amour and Marc Feeley. 2009. PICOBIT: A Compact Scheme System for Microcon -
+
+trollers. In  Implementation and Application of Functional Languages (IFL 2009) , 2009. Springer. 
+
+[18]  Simon Varoumas, Benoît Vaugon, and Emmanuel Chailloux. 2019. WCET of OCaml Bytecode on 
+
+Microcontrollers. In  19th International Workshop on Worst-Case Execution Time Analysis (WCET 
+
+2019) , 2019. Schloss Dagstuhl – Leibniz-Zentrum für Informatik. Retrieved from  https://drops. 
+
+dagstuhl.de/opus/volltexte/2019/10770/ 
+
+[19]  Simon Varoumas, Benoît Vaugon, and Emmanuel Chailloux. OMicroB: An OCaml Generic Virtual 
+
+Machine for Microcontrollers. Retrieved from  https://github.com/stevenvar/OMicroB 
+
+[20]  Samuel Yvon and Marc Feeley. 2021. A Small Scheme VM, Compiler, and REPL in 4K. In  Proceed -
+
+ings of the 13th ACM SIGPLAN International Workshop on Virtual Machines and Intermediate 
+
+Languages (VMIL 2021) , 2021. ACM, 14–24. https://doi.org/ 10.1145/3486606.3486783 
+
+13

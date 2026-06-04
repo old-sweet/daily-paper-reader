@@ -6,49 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-03
-- 运行时间：2026-06-03 22:53:57 UTC
+- 最新运行日期：2026-06-04
+- 运行时间：2026-06-04 21:23:12 UTC
 - 运行状态：成功
-- 本次总论文数：9
-- 精读区：5
-- 速读区：4
+- 本次总论文数：3
+- 精读区：2
+- 速读区：1
 
 ### 今日简报（AI）
-今日聚焦LLM在软件验证领域的应用，包括断言生成、可满足性求解及形式化验证自动化。
-最值得关注的是《AssertLLM2》中提出的全面基准测试（10分），以及《Satisfiability Solving》对LLM推理能力的配对评估（9分）。
-建议普通读者从这些研究了解LLM如何辅助提升代码验证效率与可靠性。
-- 详情：[/202606/03/README](/202606/03/README)
+今日精读2篇、速读1篇，聚焦硬件形式化验证与容错设计。最值得关注的是《FT-Pilot》利用LLM引导自动化容错RTL重写（9.0分），以及《From Rocq to Metal》的微控制器固件全流程形式化验证（8.0分）。建议读者先了解LLM在硬件漏洞修复中的潜力，再尝试将形式化验证工具链融入实际嵌入式开发。
+- 详情：[/202606/04/README](/202606/04/README)
 
 ### 精读区论文标签
-1. [AssertLLM2: A Comprehensive LLM Benchmark for Assertion Generation from Design Specifications](/202606/03/2605.27472v1-assertllm2-a-comprehensive-llm-benchmark-for-assertion-generation-from-design-specifications)  
-   标签：评分：10.0/10、query:llm-hw-fv
-   evidence：用于从硬件设计规格生成断言的LLM基准
-2. [Satisfiability Solving with LLMs: A Matched-Pair Evaluation of Reasoning Capability](/202606/03/2605.28602v1-satisfiability-solving-with-llms-a-matched-pair-evaluation-of-reasoning-capability)  
+1. [FT-Pilot: Automated Fault-Tolerant RTL Rewriting via Vulnerability-Guided LLMs](/202606/04/2605.28169v1-ft-pilot-automated-fault-tolerant-rtl-rewriting-via-vulnerability-guided-llms)  
    标签：评分：9.0/10、query:llm-hw-fv
-   evidence：评估LLM在SAT求解上的能力，SAT是硬件形式验证的核心
-3. [Formal Verification of Secure Encrypted Virtualization](/202606/03/2606.01381v1-formal-verification-of-secure-encrypted-virtualization)  
-   标签：评分：9.0/10、query:fsh
-   evidence：直接对硬件安全机制（AMD SEV）进行形式验证
-4. [Almost Fair Simulations](/202606/03/2605.26698v1-almost-fair-simulations)  
-   标签：评分：8.0/10、query:fsh
-   evidence：有限状态系统自动验证中的公平模拟
-5. [Automating Formal Verification with Reinforcement Learning and Recursive Inference](/202606/03/2605.30914v1-automating-formal-verification-with-reinforcement-learning-and-recursive-inference)  
-   标签：评分：8.0/10、query:ml-verify
-   evidence：强化学习用于形式验证
+   evidence：利用LLM自动化RTL重写以提升容错性
+2. [From Rocq to Metal: A Pipeline for Formally Verified Microcontroller Firmware](/202606/04/2606.02651v1-from-rocq-to-metal-a-pipeline-for-formally-verified-microcontroller-firmware)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：LLM辅助策略合成用于形式验证的微控制器固件
 
 ### 速读区论文标签
-1. [ConVer: Using Contracts and Loop Invariant Synthesis for Scalable Formal Software Verification](/202606/03/2605.27051v1-conver-using-contracts-and-loop-invariant-synthesis-for-scalable-formal-software-verification)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：利用大语言模型辅助C程序形式验证，方法可迁移至硬件验证
-2. [Automating Formal Verification with Agent-Guided Tree Search](/202606/03/2605.27485v1-automating-formal-verification-with-agent-guided-tree-search)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：LLM驱动的Lean形式验证，基于搜索的验证方法可迁移至硬件定理证明
-3. [A Rust-to-Lean Verification Pipeline with AI Provers: An Experience Report](/202606/03/2605.30106v1-a-rust-to-lean-verification-pipeline-with-ai-provers-an-experience-report)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：从Rust到Lean的AI辅助验证流水线，使用AI证明器，方法可应用于硬件形式验证
-4. [UniRTL: Unifying Code and Graph for Robust RTL Representation Learning](/202606/03/2605.31040v1-unirtl-unifying-code-and-graph-for-robust-rtl-representation-learning)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：使用RTL代码和图的多模态表示学习
+1. [FVSpec: Real-World Property-Based Tests as Lean Challenges](/202606/04/2606.01008v1-fvspec-real-world-property-based-tests-as-lean-challenges)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：使用LLM管道将基于属性的测试转换为Lean规范用于形式验证
 
 
 <div class="dpr-home-promo-card">
