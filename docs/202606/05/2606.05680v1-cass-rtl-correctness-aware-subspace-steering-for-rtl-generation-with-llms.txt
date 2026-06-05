@@ -1,0 +1,559 @@
+Title: CASS-RTL: Correctness-Aware Subspace Steering for RTL Generation with LLMs
+
+URL Source: https://arxiv.org/pdf/2606.05680v1
+
+Published Time: Fri, 05 Jun 2026 00:35:44 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# CASS-RTL: Correctness-Aware Subspace Steering for RTL Generation with LLMs 
+
+Mohammad Akyash, Nowfel Mashnoor, Kimia Azar, Hadi Kamali 
+
+Department of Electrical and Computer Engineering (ECE), University of Central Florida, Orlando, FL 32816, USA 
+
+{mohammad.akyash, nowfel.mashnoor, azar, kamali }@ucf.edu 
+
+Abstract —Recent advances in large language models (LLMs) have enabled the automatic synthesis (generation) of register-transfer level (RTL) code from natural language instructions, offering a promising pathway to accelerate chip design. Unlike typical natural language (and software coding) tasks, LLM-based RTL code generation demands strict cycle accuracy with concurrency, where minor logical errors can render acircuit unusable or insecure. While prior work has explored hallucination mitigation via external verification, self-evaluation prompts, retrieval-augmented prompting, domain specific fine-tuning, agentic solutions, and reasoning, these approaches largely overlook the attention-oriented internal mechanisms of LLMs that may inherently correlate with RTL correctness. This work proposes CASS-RTL, a first-of-its-kind framework for discov-ering and leveraging LLMs’ correctness-aware components to guide RTL generation toward functionally accurate outputs. We (i) identify attention heads whose activation patterns consistently differentiate correct from incorrect RTL; (ii) construct a low-dimensional subspace capturing correctness-relevant signals; and (iii) design a lightweight, geometry-aware intervention that steers the model at inference time. CASS-RTL is fully model-agnostic, requires no additional supervision or retraining, and readily integrates into existing models. Empirically, we evaluate CASS-RTL on multiple models and observe 10%–20% improvement in pass@1/5/10 accuracy on VerilogEval and 5% improvement on CVDP, demonstrating the effectiveness of our method in enhancing reliability without sacrificing model efficiency or requiring a large labeled dataset for fine-tuning 1.
+
+Index Terms —Large language models, RTL generation, LLM Steering, inference-time intervention, Functional Correctness. 
+
+I. I NTRODUCTION 
+
+Large language models (LLMs) have recently shown re-markable promise in generating register-transfer level (RTL) hardware descriptions from natural language instructions, un-locking new capabilities for intelligent hardware design and rapid semiconductor development [1]–[12]. However, unlike natural language generation, RTL code synthesis demands strict adherence to cycle-accurate functional correctness with concurrency, structural constraints, and semantic precision [13]. While LLMs can produce syntactically valid RTL, their outputs sometimes contains subtle functional bugs. In some cases, the generated RTL, though structurally and syntactically correct, fails to align with the given instruction commonly known as hallucination [14], [15]. This misalignment poses a serious barrier to deploying LLMs in hardware design, where even minor semantic deviations (from the instructions) can lead to invalid or insecure implementations [16], [17]. 
+
+> 1
+
+Code is available at https://github.com/mhakyash/CASS-RTL 
+
+While Li et al. [18] shows that incorporating external knowl-edge (e.g. search engine–based retrieval [19] or knowledge graphs [20]) can help reduce hallucinations 2 in LLM outputs, growing evidence from natural language tasks suggests that 
+
+LLMs possess internal signals indicating when their out-puts are hallucinated or low-quality , with few recent studies exploring and demonstrating that “models often know when they are wrong 3,” even if their responses appear fluent and con-fident [23], [24], [25], [22]. Leveraging this, recent works show that LLMs can self-evaluate to detect hallucinations without human supervision. For instance, Zhang et al. [26] prompt models to assess the factuality of their own responses (self-refine-oriented), improving reliability through self-alignment and confidence calibration. Other works go further by using self-generated critiques as feedback to iteratively refine model outputs, enabling LLMs to improve through self-feedback [27], [28]. These key findings indicate that LLMs embed truth-relevant information in their internal representations, but this latent knowledge is often underutilized during standard inference. To better harness this latent capability, a promising line of research focuses on guiding LLMs through their internal representations. For instance, TruthX [24] explores disentangling truthfulness from semantics in the latent space using contrastive learning, while contrast-consistent search (CCS) [29] identifies internal directions correlated with truth-ful behavior without requiring labeled data. Other methods, such as inference-time intervention (ITI) [23] analyze inter-mediate activations (e.g. ranking attention heads) to localize and influence truth-relevant components within the model. In chip design process (especially at RTL coding) LLMs are becoming an increasingly prominent [1]. However, current methods overwhelmingly emphasize surface-level improve-ments, through fine-tuning [2], agentic prompting [6], and self-verification [30], while largely overlooking the internal sig-nals models already possess about correctness. Consequently, LLM-based RTL generation inherits the same fundamental limitation seen in natural-language tasks that “models often know when they generate wrong RTL” . Prior methods offer insights in natural-language settings but do not directly transfer to RTL code, which lacks semantic contrast and demands fine-grained control. As a result, RTL generation remains black-box 
+
+> 2
+
+Follow-ups like HaluEval-Wild show that even very strong models (e.g., GPT-4 Turbo) still hallucinate on ∼20% of prompts [21]. 
+
+> 3
+
+A trained classifier on hidden states of GPT-J shows 71–83% accuracy at predicting whether an LLM response is true vs. false [22].              
+
+> arXiv:2606.05680v1 [cs.PL] 4 Jun 2026 .v  code s
+> Instructions
+> Correct (C)
+> Incorrect (I)
+> Attention Map
+> Extraction
+> <EOS>
+> token
+> (C-I)attention map
+> (C-C)attention map
+> KL
+> Divergence
+> Calculate
+> Stage 1.Identifying the functional important heads
+> Difference  and
+> thresholding
+> Keep the  most
+> activated heads
+> Dataset Creation
+> for (C -I) & (C -C)
+> Cand I class
+> Mean Calculation
+> 𝜇 +
+> 𝜇 −
+> Context Vectors
+> Correctness
+> Subspace
+> Principle
+> Component
+> Analysis
+> (PCA)
+> Linear
+> Discriminant
+> Analysis
+> (LDA)
+> ++
+> Stage 2. Creating the correctness subspace
+> Re -prompting
+> (instruction to LLM)
+> Subspace Context Vectors
+> Context Vector
+> Extractio n
+> important
+> heads
+> Context to
+> subspace
+> Decode Corrected
+> Output
+> Stage 3. Steering the LLM toward correctness
+
+Fig. 1: Overall Framework of the CASS-RTL and difficult to steer, motivating the need to leverage model-internal reasoning signals for correct RTL synthesis. To address this gap, we propose CASS-RTL , Correctness-Aware Subspace Steering for RTL generation , a framework that identifies correctness-relevant latent directions within the model and applies lightweight, geometry-aware interventions at inference time (without additional training) to improve the functional correctness of LLM-generated RTL code. Our main contributions are as follows: 
+
+(i) Correctness-relevant signal exploit. We identify attention heads whose intermediate activations correlate with correct RTL, revealing internal structures that encode correctness. 
+
+(ii) Correctness-aware latent subspace. We construct ageometry-aligned subspace from intermediate activations that captures model-internal signals correlated with correctness. 
+
+(iii) Inference-time steering mechanism. We introduce ageometry-aware steering method that adjusts model activations along the learned subspace, enabling fine-grained control over generation. 
+
+(iv) Extensive empirical validation. On the VerilogEval [32] and CVDP [33] benchmarks, CASS-RTL significantly im-proves functional correctness across diverse RTL tasks, out-performing strong baselines. II. R ELATED WORK 
+
+Several works investigate leveraging internal LLM represen-tations to improve truthfulness and reduce hallucinations [25], [34]. These methods largely target natural language tasks and aim to isolate or manipulate latent components associated with correctness [23], [24], [29], [31]. TruthX [24] disentangles truthfulness from semantics using a contrastive autoencoder, but requires curated truth-labeled pairs and may overlook fine-grained RTL semantics. To avoid labeled data, CCS [29] identifies truth-related directions through contrastive consistency, although its formulation is tailored to binary linguistic tasks and does not naturally extend TABLE I: Steering Methods for Enhancing LLM Correctness.                      
+
+> Method Training Req. Label Dependency Compt. Cost Binary Decisioning
+> ITI [23] Medium Truth Medium No TruthX [24] High Truth / Semantics High No Truth Forest [31] Medium Truth Medium No CCS [29] No None Low Yes
+> CASS-RTL No None Low No
+
+to structured RTL generation. ITI [23] instead ranks atten-tion heads using linear probes and performs inference-time intervention, but still depends on labeled data and assumes linear separability. Building on ITI, Truth Forest (TrFr) [31] employs multi-dimensional probes to capture richer interme-diate features, yet it likewise relies on truth-labeled data and assumptions that may not generalize to domain-specific outputs such as RTL. Table I summarizes key differences. Our method identifies correctness sensitive heads in a structure-aware manner, re-quires no truth/false annotations, and is designed specifically for structured RTL generation where semantics and correctness are tightly coupled. By aggregating divergence signals across diverse functional tasks and constructing a correctness-aware subspace, we enable fine-grained, interpretable, geometry-driven steering suitable for complex hardware design domains. III. CASS-RTL: M ETHODOLOGY 
+
+Rather than treating RTL generation as a purely black-box decoding task, CASS-RTL, as shown in Figure 1 analyzes how the model internally behaves when producing correct versus incorrect RTL implementations. This section shows our methodology for identifying correctness sensitive attention heads in decoder-only LLMs and leveraging their representa-tions to construct a subspace for correctness-aware steering at inference. 
+
+A. Attention Mechanism 
+
+We consider decoder-only transformers with multi-head self-attention (MHSA) at each layer. Given an input of S to-kens with embeddings in Rd, the hidden states are X ∈ RS×d.At layer l and head h, attention is computed as: 
+
+Ql,h = XW Ql,h , Kl,h = XW Kl,h , Vl,h = XW Vl,h , (1) with W Q,K,V l,h ∈ Rd×dh . Scaled dot-product attention and head outputs are: 
+
+Al,h = softmax Ql,h K⊤
+
+> l,h
+
+√dh
+
+!
+
+∈ RS×S , (2) 
+
+Ol,h = Al,h Vl,h ∈ RS×dh . (3) MHSA concatenates head outputs and applies a projection: MHSA l(X) = Concat (Ol, 1, . . . , O l,H )W Ol . (4) Layers             
+
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> D_C -C (Correct || Correct) -Normalized KL Divergence [0,1]
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> Layers
+> Heads
+> 1.0
+> 0.8
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> D_C -I (Correct || Incorrect) -Normalized KL Divergence [0,1]
+> (a) (b) (c) (d) (e)
+> (f) (g) (h) (i)(j)
+
+Fig. 2: KL Divergence Heatmaps for 5 Example Pairs. (a)–(e) show divergence between functionally correct implementations (C–C), while (f)–(j) show divergence between correct and incorrect implementations (C–I). Each heatmap represents layer–head divergence values, with darker shades indicating higher divergence . C–I maps show broader and more pronounced divergence validates the hypothesis that functional correctness influences attention more than stylistic variation. We focus on the final token ( ⟨EOS ⟩) at position j = S − 1.For each head (l, h ), its contextual embedding is: 
+
+ol,h := ol,h,S −1 ∈ Rdh . (5) As the final token attends to all previous tokens, ol,h provides a compact summary of the sequence-level state and is used for correctness analysis. 
+
+B. Identifying Key Heads for Correctness 
+
+Our methodology in CASS-RTL begins by identifying spe-cific attention heads in decoder-only, autoregressive LLMs (the main target model is Qwen2.5-Coder-14B) that are especially sensitive to functional correctness in RTL code generation. These models generate tokens left-to-right, with each token conditioned on the entire preceding sequence. We hypothe-size that attention heads behave differently when processing functionally correct versus incorrect RTL code, even if both are syntactically valid. To capture the model’s final decision behavior, we extract the attention vectors directed toward the 
+
+⟨EOS ⟩, which encapsulate how each head integrates informa-tion across the input when producing the last token. For a given 1        
+
+> 5
+> 10
+> 15
+> 20
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> 55
+> 60
+> 65
+> 70
+> 75
+> 80
+> 85
+> 90
+> 95
+> 100
+> 0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+> Correctness Score
+> Head Number (Top 100 Heads)
+> y = 0.6676e -0.019x
+> Exponential Drop Trendline
+> Higher functional impact: heads with
+> large differential attention and
+> correctness score
+> (top heads drop off exponentially )
+
+Fig. 3: Top-100 Head Correctness Score generation G with sequence length SG, the attention vector from layer l and head h is denoted v(G) 
+
+> l,h
+
+∈ RSG . To investigate functional sensitivity, we curate paired RTL examples across various basic building blocks 4 (e.g., control elements, memory structs, combinatorial and arithmetic modules), categorized as follows: 
+
+(i) Correct vs. Incorrect (C-I). A functionally correct ( C) and an incorrect ( I) design for the same instruction. 
+
+(ii) Correct vs. Correct (C-C). Two structurally different but functionally equivalent implementations ( CA, CB ). We treat each attention vector as a probability distribution over input tokens and compute the Kullback–Leibler (KL) divergence between them as demonstrated in Eq. 6: 
+
+D(Ti) 
+
+> C-I
+
+(l, h ) = DKL (P (C) 
+
+> l,h
+
+∥ P (I) 
+
+> l,h
+
+)
+
+D(Ti) 
+
+> C-C
+
+(l, h ) = DKL (P (CA) 
+
+> l,h
+
+∥ P (CB ) 
+
+> l,h
+
+) (6) Although both divergences reflect differences in attention behavior, the C-I divergence captures the model’s sensitivity to semantic/functional errors, whereas C-C divergence highlights variations due to stylistic/formatting differences that leave functionality unchanged. To isolate functional sensitivity from superficial variation, we compute the difference: 
+
+S(Ti)
+
+> correctness
+
+(l, h ) = D(Ti) 
+
+> C-I
+
+(l, h ) − D(Ti) 
+
+> C-C
+
+(l, h ) (7) This subtraction removes background noise caused by stylistic diversity which demonstrate heads that react specifically to correctness violations rather than just any difference (isolating variation that is more strongly linked to functional semantics). A high value of S(Ti)
+
+> correctness
+
+(l, h ) means that head (l, h ) distin-guishes functional errors more sharply than it does stylistic variation (suggesting that it encodes reliability-critical cues such as dependency mismatches or illegal signal interactions)  
+
+> 4
+
+The basic building blocks of RTL are relatively limited and well-structured, and all RTL designs are ultimately composed of hierarchical combinations of these primitives. which makes it a strong candidate for correctness-aware analy-sis. We aggregate these correctness-oriented differences across 
+
+M samples by averaging: 
+
+Scorrectness (l, h ) = 1
+
+M
+
+> M
+
+X
+
+> i=1
+
+S(Ti)
+
+> correctness
+
+(l, h ) (8) As shown in Figure 2, C-I divergence maps often exhibit stronger and more spatially distributed activation patterns compared to C-C maps. This supports our hypothesis that certain heads attend more distinctly to functional correctness than to surface-level code differences. To quantify this sen-sitivity, we compute a correctness score for each attention head based on its divergence behavior. Figure 3 presents the top-100 correctness scores ( Scorrectness ), demonstrating a long-tailed distribution where only a subset of heads exhibit strong correctness-aware behavior. We then apply a head selection strategy: top-k ranking, where we retain the k heads with the highest positive scores. These selected heads form our steering subspace in the inference-time correction pipeline. 
+
+C. Correctness-Aware Subspace Steering 
+
+Building on the identification of correctness-sensitive at-tention heads, we propose a subspace-based intervention method that steers the LLM during inference toward func-tionally correct RTL code generation. While prior works such as ITI [23] and TruthX [24] demonstrate direction-based interventions for general-purpose tasks, our approach introduces a class-conditional, multi-head subspace specif-ically designed for the structured semantics of RTL. Let 
+
+H = {(l1, h 1), (l2, h 2), . . . , (lNsel , h Nsel )} denote the set of Nsel 
+
+previously identified correctness-aware heads. For each head 
+
+(l, h ) ∈ H and generation G, we extract the value (context) vector at the end-of-sequence ⟨EOS ⟩ token: 
+
+o(G) 
+
+> l,h, eos
+
+∈ RDh . (9) These are concatenated into a unified representation: 
+
+X(G) =
+
+h
+
+o(G) 
+
+> l1,h 1,eos
+
+. . . o(G)  
+
+> lNsel ,h Nsel ,eos
+
+i
+
+∈ RDtotal , (10) where Dtotal = Nsel · Dh. We organize the extracted repre-sentations into two datasets: D+ = {X(G) | G is correct } and 
+
+D− = {X(G) | G is incorrect }. The class means are computed as demonstrated in Eq. 11. We then center each dataset by sub-tracting its class mean, and pool the centered vectors for sub-space construction. To extract a low-dimensional correctness-aware subspace, we apply principal component analysis (PCA) to the pooled matrix. PCA identifies orthogonal directions that capture the dominant modes of variation across both correct and incorrect activations, which are directions that often correspond to latent factors the model uses to encode structural or semantic distinctions. Formally, we solve Eq. 12, where Σ is the empirical covariance matrix, and B ∈ RDtotal ×k
+
+contains the top-k eigenvectors. 
+
+μ+ = 1
+
+|D +|
+
+X
+
+> X∈D +
+
+X, μ− = 1
+
+|D −|
+
+X
+
+> X∈D −
+
+X. (11) Principal Component 1             
+
+> Principal Component 2
+> 100
+> 80
+> 60
+> 40
+> 20
+> 0
+> -20
+> -40
+> -100 -50 050 100
+> Correct (X +)
+> Incorrect (X -)
+> Correct (D +)
+> Incorrect (D -)
+> LDA Discriminant Component
+> -3-2-101234
+> Magnitude
+> 0.40
+> 0.35
+> 0.30
+> 0.25
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> (a) (b)
+
+Fig. 4: (a) PCA projection of multi-head representations. Cor-rect and incorrect samples form separable clusters, showing that functional correctness is embedded in the latent structure; (b) LDA projection of correctness-conditioned head represen-tations. The distributions for correct and incorrect generations show strong separation, indicating that correctness is linearly decodable from the subspace. 
+
+B = arg max 
+
+> B⊤B=I
+
+Tr( B⊤ΣB), (12) This PCA-based subspace filters out noise and captures discriminative structural patterns relevant to correctness. We visualize the distribution of samples in the top-2 PCA com-ponents in Figure 4 (a). Even in this unsupervised projection, correct and incorrect generations form visibly separable clus-ters, highlighting that structural correctness is reflected in the latent space. To further validate separability, we apply linear discriminant analysis (LDA) to project X(G) into a 1D space that maximizes class separation. As shown in Figure 4 (b), correct ( D+) and incorrect ( D−) samples are linearly separable with minimal overlap. This reinforces the effectiveness of direction-based interventions. In terms of inference-time steering, at each decoding step during autoregressive generation, we extract the current multi-head activation vector Xcurrent ∈ RDtotal and project it onto the correctness subspace, shown in Eq. 13. Then, as illustrated in Eq. 14, we compute a correction (differential-based) vector. 
+
+Xproj = BB ⊤Xcurrent , μ+ 
+
+> U
+
+= BB ⊤μ+. (13) 
+
+∆X = μ+ 
+
+> U
+
+− Xproj , (14) This differential-based correction vector is followed by up-dating the representation as shown in Eq. 15, where α > 0
+
+is a tunable steering strength. The updated vector is then reshaped and injected back into the same attention heads at their respective layers. 
+
+Xsteered = Xcurrent + α · ∆X, (15) Unlike ITI, which globally shifts the residual stream, or TruthX, which builds static per-token projection layers, our method preserves per-head semantics and aligns with the model’s architecture. It supports fine-grained, token-wise in-terventions that are especially suited for RTL’s compositional logic. As RTL code correctness is structurally constrained, this makes the internal representations highly reflective of functional outcomes. Our subspace method leverages these structural regularities to guide generation without modifying model weights. By nudging activations toward the correct-class mean, we reliably improve output validity, offering a principled mechanism for correctness-aware decoding. IV. E XPERIMENTS 
+
+We evaluate the effectiveness of correctness-aware steer-ing for RTL generation, focusing on functional correctness via simulation-based verification. We compare CASS-RTL against baseline decoding and state-of-the-art steering meth-ods across multiple model families, including Codellama 7B, QwenCoder-2.5 14B and the fine-tuned CodeV model [5], enabling analysis on both pretrained and domain-adapted models and highlighting orthogonality to approaches such as fine-tuning. All experiments are conducted on VerilogEval [32] and CVDP [33]. We also include causal and representational analyses to better understand the effectiveness of correctness-aware steering and its impact on model behavior. 
+
+A. Comparison to the State-of-the-art 
+
+To evaluate our steering strategy, we reimplemented ITI [23], a standard activation-intervention method. ITI locates attention heads whose internal activations correlate with func-tionally correct outputs and intervenes on those heads during decoding. Our pipeline follows two steps. First, we extracted activation vectors from every attention head at the final token position and labeled them based on whether the generated RTL sample was functionally correct. Binary classifiers were trained per head, and we selected the top k = 30 heads with the highest correctness-predictive accuracy. For each selected head, we computed a direction vector by subtracting the mean activation of incorrect samples from that of correct ones. Second, at inference, these directions were injected to nudge the corresponding head activations toward the “correct” side without modifying model weights or requiring retraining. Table II reports functional correctness across models and top-k decoding on VerilogEval and CVDP. CASS-RTL ( α =40              
+
+> 30
+> 20
+> 10
+> 5
+> # of Ablated (Masked) Heads
+> 39.0% 40.0% 41.0% 42.0% 43.0% 44.0% 45.0% 46.0% 47.0% 48.0%
+> Functional Accuracy (%)
+> Baseline Accuracy
+> w/o Ablation (No Masking)
+> Important Head Ablated (Masked)
+> Random Head Ablated (Masked )
+> *1
+> *1A reduction in functional accuracy upon ablation indicates that the masked heads
+> were functionally important ; conversely, minimal degradation from random ablations
+> suggests those heads contributed less to functional correctness.
+
+Fig. 5: Effect of ablating different sets of heads on functional correctness. Ablating important heads causes a larger drop in RTL accuracy compared to random ablation. TABLE II: RTL functional correctness (Func@ k) across mod-els.                                                                                
+
+> Dataset Method CodeLlama 7B QwenCoder 14B CodeV [5] (Pre-trained) (Pre-trained) (RTL Fine-tuned)
+> @1 @5 @10 @1 @5 @10 @1 @5 @10
+> VerilogEval
+> Base 18.2 22.7 24.3 37.1 44.8 50.6 53.2 65.1 68.5 ITI 24.3 26.9 27.5 44.8 46.7 51.2 57.6 67.3 70.0
+> CASS-RTL 28.8 30.1 31.4 48.7 52.5 56.4 62.8 70.0 73.7 CVDP
+> Base 3.8 3.8 3.8 10.2 11.5 14.1 5.1 6.4 6.4 ITI 3.8 3.8 5.1 12.8 14.1 14.1 7.6 8.9 8.9
+> CASS-RTL 5.1 6.4 6.4 16.6 19.2 20.5 8.9 8.9 10.2 0.35
+> 0.30
+> 0.25
+> 0.20
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> 510 20 30 40
+> Number of Selected Heads (k)
+> Mean Logit Shift ( 𝚫ℓ )
+> 𝛼 = 0.1
+> 𝛼 =0.2
+> 𝛼 =0.3
+> 𝛼 =0.4
+
+Fig. 6: Effect of steering strength α on mean logit shift ∆ℓ.Increasing α consistently boosts model confidence in tokens. 
+
+0.3) consistently outperforms both base models and ITI across all settings. While ITI provides moderate gains via iterative decoding optimization, it remains less effective than our subspace-driven approach, which directly targets correctness-sensitive directions in internal representations. Im-provements are larger on stronger models, suggesting that richer correctness-oriented structure is better exploited. CASS-RTL requires no auxiliary classifiers, is geometry-aware, and generalizes across model sizes and decoding settings, yielding a more robust and scalable alternative to direction-based interventions. 
+
+B. Causal Intervention via Targeted Head Mask 
+
+Although our divergence-based metric correlates selected heads with RTL correctness, correlation alone does not imply causation. To test whether these heads are causally important, we perform an ablation study in which their outputs are 2.0             
+
+> 1.5
+> 1.0
+> 0.5
+> 0.0
+> -0.4 -0.2 0.0 0.2 0.4 0.6 0.8 1
+> 𝛼 = 0.1
+> 𝛼 = 0.2
+> 𝛼 = 0.3
+> 𝛼 = 0.4
+> Density
+> Logit Shift ( 𝚫ℓ )
+
+Fig. 7: Distribution of token-level logit shifts ∆ℓ across varying steering strengths α. Higher values of α shift the distribution toward more positive logit gains. 58%           
+
+> 53%
+> 48%
+> 43%
+> 38 %
+> 510 20 30 40 50 60
+> Number of Heads ( Nsel )
+> Pass@k (Success) Ratio
+> Pass@10 Pass@5 Pass@1
+
+Fig. 8: Effect of varying the number of selected heads Nsel 
+
+on Pass@k accuracy using the QwenCoder 2.5 14B model on VerilogEval. Accuracy improves up to Nsel = 30 , after which performance degrades slightly, indicating over-steering. masked during inference and the resulting impact on RTL generation is measured. We evaluate three ablation conditions to assess the causal role of correctness-sensitive heads: 
+
+(i) Baseline. No attention heads are masked. This setting serves as the reference point, reflecting the model’s native generation. 
+
+(ii) Ablation of Important Heads. All Nsel heads with the highest Scorrectness scores are masked at inference. This tests whether the heads identified by our scoring method are 
+
+functionally necessary for correctness; if these heads truly encode correctness-sensitive structure, disabling them should significantly degrade performance. 
+
+(ii) Ablation of Random Heads. Nsel attention heads are randomly selected and masked. This is for the general effect of removing attention capacity, ensuring that any performance drop cannot be attributed merely to reduced model expres-sivity. Functional correctness is evaluated using the same simulation-based verification pipeline on a fixed RTL test set. As shown in Figure 5, masking important heads significantly degrades functional accuracy relative to the baseline, indi-cating a failure to maintain logical consistency and signal behavior. In contrast, masking an equal number of random heads causes only a small drop, suggesting that reduced attention capacity alone does not explain the degradation. This gap demonstrates that the identified heads are causally involved in correct RTL generation, validating our selection strategy based on Scorrectness .
+
+C. Steering Effectiveness: Logit-Based View 
+
+To evaluate the impact of our correctness-aware steering mechanism on the model’s predictive behavior, we examine how steering modifies the model’s confidence in emitting the ground-truth RTL tokens throughout the decoding process. Confidence is reflected directly in the token-level logits, which determine the probability distribution over the vocabulary at each step. For each validation instruction paired with its reference RTL implementation, we therefore generate two decoding trajectories: one using the unmodified model and one using CASS-RTL steering. At each decoding step i, we record the logit assigned to the ground-truth token ti in both settings. Let ℓorig (ti) and ℓsteered (ti) denote the logits before and after steering, respectively. We define the logit shift as: 
+
+∆ℓ(ti) = ℓsteered (ti) − ℓorig (ti) (16) A positive value of ∆ℓ(ti) indicates that steering increased the model’s confidence in the correct token. To summarize the overall effect, we compute the mean logit shift over the sequence via Eq. 17, where T is the total number of ground-truth tokens. 
+
+∆ℓ = 1
+
+T
+
+> T
+
+X
+
+> i=1
+
+∆ℓ(ti) (17) Figure 6 shows how the average logit shift increases with stronger steering parameters α, supporting our hypothesis that steering improves alignment with correct generations. To ana-lyze steering effects at a finer granularity, Figure 7 illustrates the distribution of token-level logit shifts for different α values. As α increases, the distributions shift rightward, indicating that a greater proportion of tokens benefit from steering. This analysis further validates the efficacy of our subspace-based intervention in enhancing functional correctness during RTL code generation. 
+
+D. Impact of Heads on Pass@k Accuracy 
+
+We analyze CASS-RTL sensitivity to the number of correctness-sensitive heads used for steering. All experiments here use QwenCoder 2.5 14B on VerilogEval, varying the number of selected heads Nsel ∈ {5, 10 , 20 , 30 , 40 } and evaluating Pass@1, Pass@5, and Pass@10. Results are shown in Figure 8. Pass@1 and Pass@5 improve steadily as Nsel 
+
+increases, peaking around Nsel = 30 . Beyond this point, accuracy drops slightly, indicating that adding weaker heads introduces noise into the steering signal. Pass@10 continues to rise and saturates at Nsel ≈ 35 –40 , reflecting greater robustness under wider decoding beams. Overall, the results indicate a clear sweet spot in the number of heads used for intervention and show that overly large selections can dilute correctness information. V. A CKNOWLEDGMENT 
+
+This work was supported in part by AMD University Program (Graduate Research Fellowship). VI. C ONCLUSION 
+
+We proposed CASS-RTL, a correctness-aware subspace steering framework that leverages internal LLM representa-tions to improve RTL generation. By identifying correctness-sensitive heads and constructing a low-dimensional subspace, CASS-RTL enables lightweight, training-free decoding in-terventions. Across models and benchmarks (VerilogEval, CVDP), it achieves substantial functional gains with negligible overhead. These improvements are orthogonal to model scal-ing, dataset specialization, and fine-tuning. Beyond correct-ness, CASS-RTL also improves syntactic validity, increases confidence on ground-truth tokens, and exhibits strong causal alignment. REFERENCES [1] S. Liu, W. Fang, Y. Lu, J. Wang, Q. Zhang, H. Zhang, and Z. Xie, “Rtl-coder: Fully open-source and efficient llm-assisted rtl code generation technique,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 2024. [2] F. Cui, C. Yin, K. Zhou, Y. Xiao, G. Sun, Q. Xu, Q. Guo, Y. Liang, X. Zhang, D. Song et al. , “Origen: Enhancing rtl code generation with code-to-code augmentation and self-reflection,” in Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design ,2024, pp. 1–9. [3] M. Akyash, K. Azar, and H. Kamali, “Rtl++: Graph-enhanced llm for rtl code generation,” in 2025 IEEE International Conference on LLM-Aided Design (ICLAD) . IEEE, 2025, pp. 44–50. [4] M. Liu, Y.-D. Tsai, W. Zhou, and H. Ren, “Craftrtl: High-quality synthetic data generation for verilog code models with correct-by-construction non-textual representations and targeted code repair,” arXiv preprint arXiv:2409.12993 , 2024. [5] Y. Zhao, D. Huang, C. Li, P. Jin, Z. Nan, T. Ma, L. Qi, Y. Pan, Z. Zhang, R. Zhang et al. , “Codev: Empowering llms for verilog generation through multi-level summarization,” arXiv preprint arXiv:2407.10424 ,2024. [6] Y. Zhao, H. Zhang, H. Huang, Z. Yu, and J. Zhao, “Mage: Amulti-agent engine for automated rtl code generation,” arXiv preprint arXiv:2412.07822 , 2024. [7] C. Deng, Y.-D. Tsai, G.-T. Liu, Z. Yu, and H. Ren, “Scalertl: Scaling llms with reasoning data and test-time compute for accurate rtl code generation,” arXiv preprint arXiv:2506.05566 , 2025. [8] Y. Zhu, D. Huang, H. Lyu, X. Zhang, C. Li, W. Shi, Y. Wu, J. Mu, J. Wang, Y. Zhao et al. , “Codev-r1: Reasoning-enhanced verilog gener-ation,” arXiv preprint arXiv:2505.24183 , 2025. [9] M. Akyash and H. Mardani Kamali, “Simeval: Investigating the simi-larity obstacle in llm-based hardware code generation,” in Proceedings of the 30th Asia and South Pacific Design Automation Conference ,ser. ASPDAC ’25. New York, NY, USA: Association for Computing Machinery, 2025, p. 1002–1007. [10] M. Z. S. Khan, N. Mashnoor, M. Akyash, K. Azar, and H. Kamali, “Sage-hls: Syntax-aware ast-guided llm for high-level synthesis code generation,” in 2025 IEEE 43rd International Conference on Computer Design (ICCD) , 2025, pp. 574–581. [11] N. Mashnoor, M. Akyash, H. Kamali, and K. Azar, “Llm-ift: Llm-powered information flow tracking for secure hardware,” in 2025 IEEE 43rd VLSI Test Symposium (VTS) . IEEE, 2025, pp. 1–5. [12] N. Mashnoor, H. Kamali, and K. Azar, “From language to logic: Bridging llms & formal representations for rtl assertion generation,” 
+
+arXiv preprint arXiv:2604.23100 , 2026. [13] M. Akyash, K. Azar, and H. Kamali, “Decortl: A run-time decod-ing framework for rtl code generation with llms,” arXiv preprint arXiv:2507.02226 , 2025. [14] H. Ping, S. Li, P. Zhang, A. Cheng, S. Duan, N. Kanakaris, X. Xiao, W. Yang, S. Nazarian, A. Irimia et al. , “Hdlcore: A training-free framework for mitigating hallucinations in llm-generated hdl,” arXiv preprint arXiv:2503.16528 , 2025. [15] Y. Yang, F. Teng, P. Liu, M. Qi, C. Lv, J. Li, X. Zhang, and Z. He, “Haven: Hallucination-mitigated llm for verilog code generation aligned with hdl engineers,” in 2025 Design, Automation & Test in Europe Conference (DATE) , 2025, pp. 1–7. [16] M. Akyash and H. M. Kamali, “Self-hwdebug: Automation of llm self-instructing for hardware security verification,” in 2024 IEEE Computer Society Annual Symposium on VLSI (ISVLSI) , 2024, pp. 391–396. [17] M. Rezakhani, N. Mashnoor, K. Azar, and H. Kamali, “Safetune: Mitigating data poisoning in llm fine-tuning for rtl code generation,” 2026. [Online]. Available: https://arxiv.org/abs/2604.27238 [18] J. Li, X. Cheng, X. Zhao, J.-Y. Nie, and J.-R. Wen, “HaluEval: A large-scale hallucination evaluation benchmark for large language models,” in Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , H. Bouamor, J. Pino, and K. Bali, Eds. Singapore: Association for Computational Linguistics, Dec. 2023. [19] K. Shuster, M. Komeili, L. Adolphs, S. Roller, A. Szlam, and J. Weston, “Language models that seek for knowledge: Modular search & genera-tion for dialogue and prompt completion,” in Findings of the Association for Computational Linguistics: EMNLP 2022 , Y. Goldberg, Z. Kozareva, and Y. Zhang, Eds. Association for Computational Linguistics, Dec. [20] Y. Wu, N. Hu, S. Bi, G. Qi, J. Ren, A. Xie, and W. Song, “Retrieve-rewrite-answer: A kg-to-text enhanced llms framework for knowledge graph question answering,” 2023. [Online]. Available: https://arxiv.org/abs/2309.11206 [21] Z. Zhu, Y. Yang, and Z. Sun, “Halueval-wild: Evaluating hallucinations of language models in the wild,” arXiv preprint arXiv:2403.04307 , 2024. [22] A. Azaria and T. Mitchell, “The internal state of an LLM knows when it’s lying,” in Findings of the Association for Computational Linguistics: EMNLP 2023 , H. Bouamor, J. Pino, and K. Bali, Eds. Singapore: Association for Computational Linguistics, Dec. 2023. [23] K. Li, O. Patel, F. Vi´ egas, H. Pfister, and M. Wattenberg, “Inference-time intervention: eliciting truthful answers from a language model,” in 
+
+Proceedings of the 37th International Conference on Neural Information Processing Systems , ser. NIPS ’23. Red Hook, NY, USA: Curran Associates Inc., 2023. [24] S. Zhang, T. Yu, and Y. Feng, “TruthX: Alleviating hallucinations by editing large language models in truthful space,” in Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , L.-W. Ku, A. Martins, and V. Srikumar, Eds. Association for Computational Linguistics, Aug. 2024. [25] K. Meng, D. Bau, A. Andonian, and Y. Belinkov, “Locating and editing factual associations in gpt,” in Proceedings of the 36th International Conference on Neural Information Processing Systems , ser. NIPS ’22. Red Hook, NY, USA: Curran Associates Inc., 2022. [26] X. Zhang, B. Peng, Y. Tian, J. Zhou, L. Jin, L. Song, H. Mi, and H. Meng, “Self-alignment for factuality: Mitigating hallucinations in LLMs via self-evaluation,” in Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , L.-W. Ku, A. Martins, and V. Srikumar, Eds. Bangkok, Thailand: Association for Computational Linguistics, Aug. 2024. [27] A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. Prabhumoye, Y. Yang et al. , “Self-refine: Iter-ative refinement with self-feedback,” Advances in Neural Information Processing Systems , vol. 36, pp. 46 534–46 594, 2023. [28] Z. Ji, T. Yu, Y. Xu, N. Lee, E. Ishii, and P. Fung, “Towards mitigating llm hallucination via self reflection,” in Findings of the Association for Computational Linguistics: EMNLP 2023 , 2023, pp. 1827–1843. [29] C. Burns, H. Ye, D. Klein, and J. Steinhardt, “Discovering latent knowledge in language models without supervision,” arXiv preprint arXiv:2212.03827 , 2022. [30] H. Huang, Z. Lin, Z. Wang, X. Chen, K. Ding, and J. Zhao, “Towards llm-powered verilog rtl assistant: Self-verification and self-correction,” 
+
+arXiv preprint arXiv:2406.00115 , 2024. [31] Z. Chen, X. Sun, X. Jiao, F. Lian, Z. Kang, D. Wang, and C.-Z. Xu, “Truth forest: toward multi-scale truthfulness in large language models through intervention without tuning,” in AAAI , 2024. [32] M. Liu, N. Pinckney, B. Khailany, and H. Ren, “Verilogeval: Evaluating large language models for verilog code generation,” in 2023 IEEE/ACM International Conference on Computer Aided Design (ICCAD) . IEEE, 2023, pp. 1–8. [33] N. Pinckney, C. Deng, C.-T. Ho, Y.-D. Tsai, M. Liu, W. Zhou, B. Khailany, and H. Ren, “Comprehensive verilog design problems: A next-generation benchmark dataset for evaluating large language models and agents on rtl design and verification,” 2025. [Online]. Available: https://arxiv.org/abs/2506.14074 [34] N. Mashnoor, M. Akyash, H. Kamali, and K. Azar, “Meltrtl: Multi-expert llms with inference-time intervention for rtl code generation,” 2026. [Online]. Available: https://arxiv.org/abs/2601.13015
