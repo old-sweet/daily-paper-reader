@@ -6,38 +6,32 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-05
-- 运行时间：2026-06-05 22:01:32 UTC
+- 最新运行日期：2026-06-06
+- 运行时间：2026-06-06 21:22:15 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：1
-- 速读区：5
+- 本次总论文数：4
+- 精读区：3
+- 速读区：1
 
 ### 今日简报（AI）
-今日重点研究了六篇论文，其中精读《Alpha-RTL: Test-Time Training for RTL Hardware Optimization》获得8分，速读《StepPRM-RTL》、《GoldenFloat》与《CASS-RTL》各获7分。最值得关注的方向是Alpha-RTL提出的测试时训练优化硬件方法，以及StepPRM-RTL和CASS-RTL在RTL生成与合成中的过程奖励学习与正确性感知引导技术。建议优先精读Alpha-RTL，再结合StepPRM-RTL的微调策略和CASS-RTL的生成纠偏思路，系统提升RTL设计质量。
-- 详情：[/202606/05/README](/202606/05/README)
+今日推荐4篇论文，其中精读2篇、速读1篇，重点关注可验证规范合成与开源芯片设计基准。最值得看的是9.0分的《TLA-Prover》通过偏好优化实现TLA+规范的可验证合成，以及8.0分的《HighTide》提供的智能体策划开源VLSI基准套件。建议普通读者先速读7.0分的《LEAP》，了解如何用智能体框架提升形式化数学的LLM能力。
+- 详情：[/202606/06/README](/202606/06/README)
 
 ### 精读区论文标签
-1. [Alpha-RTL: Test-Time Training for RTL Hardware Optimization](/202606/05/2606.05253v1-alpha-rtl-test-time-training-for-rtl-hardware-optimization)  
+1. [TLA-Prover: Verifiable TLA+ Specification Synthesis via Preference-Optimized Low-Rank Adaptation](/202606/06/2606.06133v1-tla-prover-verifiable-tla-specification-synthesis-via-preference-optimized-low-rank-adaptation)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：大语言模型用于形式规范合成和模型检查
+2. [HighTide: An Agent-Curated Open-Source VLSI Benchmark Suite](/202606/06/2606.04126v1-hightide-an-agent-curated-open-source-vlsi-benchmark-suite)  
    标签：评分：8.0/10、query:llm-hw-fv
-   evidence：利用LLM和EDA验证反馈进行RTL优化的测试时训练框架
+   evidence：AI辅助的VLSI基准套件，包含RTL编译验证
+3. [Alpha-RTL: Test-Time Training for RTL Hardware Optimization](/202606/06/2606.05253v1-alpha-rtl-test-time-training-for-rtl-hardware-optimization)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：LLM驱动的RTL生成与EDA集成验证闭环
 
 ### 速读区论文标签
-1. [StepPRM-RTL: Stepwise Process-Reward Guided LLM Fine-Tuning for Enhanced RTL Synthesis](/202606/05/2606.04246v1-stepprm-rtl-stepwise-process-reward-guided-llm-fine-tuning-for-enhanced-rtl-synthesis)  
+1. [LEAP: Supercharging LLMs for Formal Mathematics with Agentic Frameworks](/202606/06/2606.03303v2-leap-supercharging-llms-for-formal-mathematics-with-agentic-frameworks)  
    标签：评分：7.0/10、query:llm-hw-fv
-   evidence：使用过程奖励模型微调LLM生成RTL代码，提升正确性
-2. [GoldenFloat: A Phi-Derived Static-Split Floating-Point Family from GF4 to GF256 with a Lucas-Exact Integer Identity](/202606/05/2606.05017v1-goldenfloat-a-phi-derived-static-split-floating-point-family-from-gf4-to-gf256-with-a-lucas-exact-integer-identity)  
-   标签：评分：7.0/10、query:fsh
-   evidence：浮点RTL生成器的硬件验证
-3. [CASS-RTL: Correctness-Aware Subspace Steering for RTL Generation with LLMs](/202606/05/2606.05680v1-cass-rtl-correctness-aware-subspace-steering-for-rtl-generation-with-llms)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：基于LLM的RTL生成，关注正确性，使用外部验证方法，与LLM进行RTL验证相关
-4. [FVSpec: Real-World Property-Based Tests as Lean Challenges](/202606/05/2606.01008v1-fvspec-real-world-property-based-tests-as-lean-challenges)  
-   标签：评分：6.0/10、query:fsh
-   evidence：基于LLM的属性测试到Lean规范的转换，可迁移至硬件形式验证
-5. [Passive Learning of Symbolic Automata over Monotonic Algebras](/202606/05/2606.06050v1-passive-learning-of-symbolic-automata-over-monotonic-algebras)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：符号自动机的被动学习应用于验证
+   evidence：LLM代理框架用于形式化定理证明
 
 
 <div class="dpr-home-promo-card">

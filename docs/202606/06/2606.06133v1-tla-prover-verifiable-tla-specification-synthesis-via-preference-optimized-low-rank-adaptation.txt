@@ -1,0 +1,306 @@
+Title: TLA-Prover: Verifiable TLA+ Specification Synthesis via Preference-Optimized Low-Rank Adaptation
+
+URL Source: https://arxiv.org/pdf/2606.06133v1
+
+Published Time: Fri, 05 Jun 2026 01:10:29 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# TLA-Prover: Verifiable TLA + Specification Synthesis via Preference-Optimized Low-Rank Adaptation 
+
+Eric Spencer, Arslan Bisharat, Brian Ortiz, Khushboo Bhadauria, TaiNing Wang, George K. Thiruvathukal, Konstantin Läufer, Mohammed Abuhamad 
+
+Department of Computer Science, Loyola University Chicago, Chicago, IL 60660, USA {espencer2,marslan,bortiz4,kbhadauria,twang12,gthiruvathukal,klaufer,mabuhamad}@luc.edu 
+
+Keywords: TLA+, Large Language Models, Formal Methods, Specification Synthesis, Verifiable Rewards. Abstract: TLA + is a formal specification language for verifying distributed systems and safety-critical pro-tocols. Large language models (LLMs) frequently produce TLA + specifications that fail the TLC model checker for semantic reasons. Across 25 LLMs, the best public baseline is 26.6% syntactic parse and 8.6% semantic model-check. We present TLA-Prover, a 20-billion-parameter model for TLA + specification synthesis. Training combines supervised fine-tuning (SFT) on verified exam-ples with repair-based group-relative policy optimization (GRPO). In the GRPO stage, the model learns to fix its own rejected specifications. We also train a direct preference optimization (DPO) variant from the same SFT checkpoint as an ablation. TLC provides the reward signal directly, with no learned reward model. Four tiers grade each output: Bronze (parses), Silver (no warn-ings), Gold (passes TLC), and Diamond. To reach Diamond, the model’s correctness property is automatically altered in a small way; TLC must then detect a violation. If TLC still passes, the property was always-true and contributes nothing; the output fails Diamond. TLA-Prover reaches 9/30 (i.e. pass @1= 30% ) at both Gold and Diamond on a held-out 30-problem benchmark. This is roughly 3.5× the 8.6% untuned baseline. The DPO variant reaches 20% at Diamond. Gold and Diamond coincide at every checkpoint; this prevents the trivial-property failure mode. 
+
+# 1 Introduction 
+
+TLA + (Lamport, 2002) (Temporal Logic of Ac-tions) is a formal specification language that lets engineers express safety and liveness properties of concurrent and distributed systems at a level of rigor that admits machine checking. In prac-tice, TLA + has been applied at industrial scale for more than a decade. Amazon Web Services has reported its use since 2011 on high-availability cloud services such as DynamoDB, S3 and Elastic Block Store (Newcombe et al., 2015); Microsoft has doumented its application to the Cosmos DB distributed database (Cirstea et al., 2024). The language combines temporal logic, first-order logic and set theory in a syntactic surface that mainstream code corpora rarely contain, which makes correct TLA + generation a demanding tar-get for general-purpose language models. It pairs with the TLC model checker (Yu et al., 1999), which exhaustively explores the reachable state space and returns concrete counterexample traces on failure. These properties make TLA +
+
+a compelling target for verifiable code generation by large language models (LLMs). The verifier is deterministic, the success criterion is binary and a failing run is informative rather than opaque. Despite this appeal, general-purpose LLMs perform poorly on TLA + generation. The lan-guage is sparsely represented in public pre-training corpora, its syntax is idiosyncratic (tem-poral operators, CHOOSE, set comprehension) and passing the parser is only the first hur-dle. A syntactically valid specification can still fail the model checker if the declared invari-ants do not capture the protocol’s real proper-ties, or if the CONSTANT bindings do not satisfy the type assumptions of Init . Surface-level flu-ency in TLA + syntax does not guarantee model-checkable output. 
+
+> arXiv:2606.06133v1 [cs.SE] 4 Jun 2026
+
+Bisharat et al. (Bisharat et al., 2026) make this gap concrete in their FormaLLM study, reporting 26.6% syntactic parse (measured by SANY, the TLA + parser) and 8.6% TLC model-check averaged across 25 open-weight LLMs at the best single prompting strategy. Fewer than one in ten generation attempts by an untuned model produces a specification the model checker accepts. FormaLLM is a diagnostic study; it maps the baseline but does not close it and its authors explicitly call for task-trained models as the natural next step. The present work is a di-rect response to that call. Training a model for formal verification intro-duces a reward-hacking risk that does not appear in natural-language settings. A model that dis-covers tautological invariants such as TypeOK == TRUE will pass TLC on every prompt while con-veying no useful property of the protocol. To make this concrete: for a counter protocol with bound N , the invariant count ∈ 0..N fails TLC when mutated to count ∈ 1..N . TypeOK == TRUE 
+
+is insensitive to any such mutation. We ad-dress this with a four-tier validation hierarchy whose top tier requires that mutating the invari-ant predicate causes TLC to find a counterexam-ple. This prevents the tautology issue by con-struction. This paper presents TLA-Prover, built on gpt-oss-20b (OpenAI, 2025) (20B parame-ters). Our best checkpoint reaches 9/30 (30%) at the TLC-diamond tier on a held-out 30-problem benchmark, roughly 3.5× the averaged-baseline TLC pass-rate of 8.6%. 
+
+Contributions. We make three contributions. 
+
+• We introduce TLA-Prover with a four-tier val-idation hierarchy (bronze, silver, gold, dia-mond) whose top tier uses mutation testing to rule out tautological invariants and addresses the reward-hacking risk that makes TLC an otherwise exploitable reward signal. 
+
+• We provide insights to TLA-Prover during the two-stage training pipeline that combines SFT on a diamond-tier-curated corpus with repair-based GRPO using TLC as the verifier reward, plus a DPO ablation for comparison. This takes us from 0/30 to 9/30 diamond on the held-out benchmark. 
+
+• We provide an anti-reward-hacking analysis which shows that gold and diamond pass-rates coincide at every checkpoint on our held-out suite. This empirically rules out the ‘ always-true invariant ’ failure mode. To our knowledge, this is the first TLA + tar-geted training study to substantially exceed the FormaLLM baselines. The model, data and eval-uation pipeline will be released on acceptance. The underlying thesis of this paper is di-rect. TLC pass alone is an exploitable re-ward signal. Mutation-sensitive testing is what separates meaningful specifications from triv-ial ones. Verifier-guided training without anti-reward-hacking validation does not solve the problem. 
+
+Organization. Section 2 covers related work. Section 3 describes the training pipeline and eval-uation harness. Section 4 reports results and six observations. Section 5 concludes. 
+
+# 2 Related Work 
+
+LLMs for Formal-Method. The most rele-vant prior work trains LLMs to produce arti-facts accepted by a deterministic formal checker. DeepSeek-Prover (Xin et al., 2024) generates 8M synthetic Lean (Moura and Ullrich, 2021) theorems and uses them to train a 7B model, achieving state-of-the-art results on miniF2F and ProofNet entirely through verifier-graded syn-thetic data. Baldur (First et al., 2023) tar-gets whole-proof generation in Isabelle (Paulson, 1990) with a repair loop. When the prover re-jects a generated proof, the error message is fed back into the model and a fresh attempt is so-licited. Both works share the key design choice we adopt: the deterministic verifier acts directly as the reward signal, avoiding the instability of a learned reward model. Neither targets TLA +.The reward-hacking surface also differs in kind. In Lean or Isabelle, a shortcut proof still requires a non-trivial goal statement. For TLC, the short-cut is an always-true invariant embedded in the specification itself, reachable on every prompt without any such precondition. Baldur’s repair loop and our repair-based GRPO share the same structure. In both, the model reads a rejection message and produces a revised attempt. The dif-ference is the tautology risk: Isabelle proof repair has no tautological escape route. Specification repair does and the diamond tier closes it. 
+
+TLA + Generation and Synthesis. Recent study (Bisharat et al., 2026) provides FormaLLM, the first systematic evaluation of LLM-based TLA + generation, testing 30 models across eight families under four prompting strategies. Their headline finding of 26.6% SANY parse and 8.6% TLC model-check averaged across 25 open-weight models establishes the untuned-LLM floor our work targets. FormaLLM is an evaluation study; no task-specific training is performed and the authors explicitly identify task-trained models as the natural next step. This paper answers their call directly. We use the same benchmark distribution and report what a targeted training pipeline adds on top of the untuned baseline. 
+
+Preference Optimization. Direct preference optimization (DPO) (Rafailov et al., 2023) fits a preference objective on pairs of ranked model outputs without requiring an explicit reward model and has been applied to formal-method tasks to steer generation away from common syntax errors. Group relative policy optimiza-tion (GRPO) (Shao et al., 2024) normalizes advantages within a group of samples from the same prompt; it reduces variance without a critic network and is the RL algorithm of choice for verifier-graded verifier-graded training in DeepSeek-Prover and related work. However, standard GRPO stops learning when rewards are sparse. When all K samples from a prompt fail TLC, every output looks equally bad; the group-relative advantage is zero and no gradient flows. This failure directly motivates the repair-based GRPO shaping we describe in Section 3. 
+
+Reward Hacking in LLM Verification. The reward-hacking literature (Skalse et al., 2022; Gao et al., 2023) documents the failure mode where a model optimizes a proxy signal in a way that diverges from the intended objective. For TLA + with TLC as the reward, the canonical hack is the always-true invariant. A property such as TypeOK == TRUE satisfies TLC on every reachable state while conveying nothing useful about the protocol. Every TLA + prompt admits a specification whose invariant is always satisfied, so an optimizer targeting TLC pass alone reaches this shortcut on every prompt. A DPO or GRPO optimizer targeting TLC pass alone would read-ily learn this hack. Our diamond tier (Section 3) closes that gap by requiring the invariant to be sensitive to mutations. DeepSeek-Prover, Baldur and TLA-Prover are all instances of the same pat-tern. In each, a deterministic verifier replaces a learned reward model. 
+
+Industrial Formal Methods. Industrial adoption of TLA + in distributed systems is well established. Amazon Web Services reported TLA + use in DynamoDB, S3 and Elastic Block Store before 2011 (Newcombe et al., 2015). Mi-crosoft applied it to the Cosmos DB distributed database (Cirstea et al., 2024). TLA+ specifi-cations are written by engineers. Errors caught by TLC during design prevent expensive bugs in deployment. This industrial workflow creates the concrete problem TLA-Prover targets. A model that produces a checkable first-draft specification lowers the barrier for teams new to TLA +.
+
+# 3 Proposed Methods 
+
+Four-Tier Validation Hierarchy. Every model output is graded by a deterministic exter-nal pipeline into exactly one of four tiers, where each tier requires all predicates of the previous tier plus one additional check. 
+
+• Bronze. SANY rejects the output; the TLA +
+
+parser failed and the output is not a valid spec-ification. 
+
+• Silver. SANY passes but TLC does not; the model checker fails to load, times out, or re-jects the specification before exhausting the state space. 
+
+• Gold. Both SANY and TLC pass; the model checker exhausts the reachable state space within budget and all declared invariants hold at every state. 
+
+• Diamond. Gold and the invariant is mutation-sensitive. We apply an automated AST-level mutation to the invariant predicate and rerun TLC on the mutated specification; the mutation must cause a TLC counterexam-ple. Mutations include negating a top-level conjunct, flipping = to ̸ = or ≤ to ≥, or swap-ping a named constant for a random alterna-tive from the same syntactic class. Tautologi-cal invariants such as TypeOK == TRUE fail this check by construction, because no mutation of 
+
+TRUE produces a state TLC would reject. The bronze-to-gold ladder is the standard compile-and-check pipeline; diamond adds one mutation-test step whose sole job is to deny credit for trivial invariants. Figure 1 shows the full vali-dation flow and Section 4 reports how often gold-tier outputs fail the diamond check empirically. 
+
+Training Corpus. We build the training cor-pus from two source pools and curate it strictly to diamond tier, so that only specifications that are both model-checkable and mutation-sensitive enter the final SFT corpus. 
+
+Seed Data. We bootstrap from the TLA +
+
+Foundation specification distribution, the same 205-specification corpus used by Bisharat et Data Curation & Prep.  Training Pipeline  Evaluation       
+
+> Seed Data
+> Source
+> TLA+ Specs
+> Train
+> SFT Corpus
+> LLM Judge
+> & Filtering
+> Ollama Generator LoRA
+> Adapter
+> GPT
+> Model
+> Final Model
+> 1. Bronze:
+> 2. Silver:
+> 3. Gold
+> 4. Diamond
+> SANY Fails
+> SANY Passes, TLC Fails
+> SANY & TLC Passes
+> (State-space exhaust)
+> Gold + Mutation Sensitive
+> Stage 1: Stage 2: Repairing GRPO Loop
+> SFT Model
+> Initial Policy
+> TLC
+> Broken Specs (Data)
+> GRPO Update Deterministic Grading
+> Pipeline
+> Policy
+> Model
+> Generate
+> Specs
+> SANY
+> Tier
+> Grade
+> Takes
+> pre-repaired
+> Broken
+> Spec Grade
+> (Policy
+> Optimization
+> Using
+> Reward)
+> Gold Diamond Silver Bronze
+> Reward Calculation
+> Grade Change Reward
+> (Continuous improvement score based on tier)
+> Repaired
+> post-repaired
+> Spec Grad
+
+Figure 1: End-to-end pipeline for verifiable TLA + specification synthesis and repair using Preference-Optimized Low-Rank Adaptation (LoRA). 
+
+al. (Bisharat et al., 2026), augmented with the 
+
+tlaplus/examples repository. That repository contains 316 modules, of which 129 are TLC-targeted, 34 are targeted at the TLA+ Proof System (TLAPS, a separate deductive verifier), and the remainder are utility libraries or research drafts. 
+
+Curation Pipeline. A trained generator pro-duces candidate specifications from natural-language problem descriptions and each candi-date is graded by the four-tier pipeline. A sep-arate frozen LLM judge rates each candidate on six criteria: correct parsing, successful model-checking, non-trivial invariants, no unused vari-ables, descriptive operator names and clean for-matting. Only diamond-tier survivors enter the SFT corpus, with diamond rows upsampled at 
+
+2×, for a final corpus of 1,053 rows after dedupli-cation. 
+
+Eval Set Carving. We hold out a 30-problem benchmark drawn from the same descriptor dis-tribution as training but with disjoint module names. To measure judge agreement, we man-ually re-grade 60 random rows and observe 93% agreement between the LLM-judge and a human auditor; disagreements concentrate on borderline silver/gold cases where TLC times out rather than passes. 
+
+Training Pipeline. The production pipeline runs in two stages. Stage 1 applies supervised fine-tuning (SFT) on the curated corpus to teach the model the structural vocabulary of TLA +.Stage 2 applies repair-based GRPO with TLC as the verifier reward to push the model toward model-checkable and mutation-sensitive output. We also train a DPO checkpoint from the same SFT base as a same-stage ablation; it under-performs repair-GRPO on diamond pass-rate and is not part of the final pipeline. 
+
+Stage 1. SFT. We train gpt-oss-20b with a LoRA adapter (rank 8, alpha 16, dropout 0) ap-plied to the attention projections q/k/v/o of ev-ery transformer block. The MoE expert weights are not targeted. Each block’s 32 expert FFNs are stored as a 3D packed tensor that standard LoRA cannot decompose and the top-k router is not a Linear module either, so attention is the only trainable surface available without a custom adapter implementation. The base model is de-quantized from MXFP4 to BF16 for training. We use AdamW with lr = 2 ×10 −5 and a cosine sched-ule, sequence length 3072, per-device batch size 1 and gradient-accumulation 8. Training runs for 1 epoch on 2 × NVIDIA RTX 8000 GPUs (48 GB each) via naive pipeline parallelism, with a wall-time of 4–5 hours. 
+
+Stage 2. Repair-Based GRPO. Standard GRPO stops learning when rewards are sparse. When all K samples from a prompt fail TLC, every output looks equally bad; the group-relative advantage is zero and no gradient flows. We address this with repair-based shaping, where the model receives a broken specification harvested from earlier generation attempts and is asked to repair it. These self-repair trajectories are iterative runs in which the model fixes its own prior outputs using TLC error messages as feedback. Trajectories are filtered to the learnable middle ( 0.10 ≤ before-score ≤ 0.80 ); this gives 42 broken/fixed pairs from a pool of 133 collected trajectories. Common failure categories in the broken pool include random SANY-level syntax violations, TLC-violating invariant replacements and operator-name typos; Algorithm 1 Repair-Based GRPO                                                                                                      
+
+> Require: SFT checkpoint πθ; pool B={(˜ p, p ⋆)};grader Grade ;weights wbs =0 .1,wsg =0 .3,
+> wgd =0 .6;N=160 ,K=4 ,βKL =0 .02 ,T=0 .5
+> Ensure: Repair-GRPO checkpoint πθ
+> 1: Let P ← { (br ,si ),(si ,go ),(go ,di )}
+> 2: for t= 1 to Ndo
+> 3: (˜ p, p ⋆)∼ B
+> 4: τin ←Grade (˜ p)
+> 5: for k= 1 to Kdo
+> 6: sk∼πθ(· | ˜p, T )
+> 7: τk←Grade (sk)
+> 8: rk←∑
+> (a,b )∈ P wab ·1[τin < b ≤τk]
+> 9: end for
+> 10: ¯r←1
+> K
+> ∑
+> krk;σr←std( {rk})
+> 11: Ak←(rk−¯r)/(σr+ϵ)
+> 12: L ← − 1
+> K
+> ∑
+> kAklog πθ(sk|˜p)
+> 13: +βKL DKL (πθ∥πSFT )
+> 14: Update θby gradient step on L
+> 15: end for
+> 16: return πθ
+
+the model is asked to repair the broken spec to the highest tier it can reach. The reward is a continuous improvement score from input tier to output tier, weighted 0.1 (bronze to silver), 0.3 (silver to gold) and 0.6 (gold to diamond). This dense reward produces non-zero gradient on every step where any sample improves. We train for 160 steps with K=4 generations per prompt, 
+
+βKL =0 .02 and T =0 .5. The optimizer is AdamW with lr =3 ×10 −6 and a linear-decay schedule. Training completes in approximately 1.7 hours on the same 2 × RTX 8000 hardware. 1 gives the full procedure. 
+
+Stage 2-alt. DPO (ablation). We sample 4 outputs per training prompt from the SFT check-point and label each as winner or loser by tier. A diamond-tier output beats any non-diamond, a gold-tier output beats any non-gold and so on, with ties broken arbitrarily. We use the stan-dard DPO objective (Rafailov et al., 2023) with 
+
+β=0 .1 and the same LoRA architecture as Stage 1. Training runs for 1 epoch on 343 preference pairs, sampled from a pre-curation pool of candi-date specifications that spans the full descriptor distribution so that the SFT baseline’s distribu-tional coverage is preserved. The DPO check-point under-performs repair-GRPO on diamond (see Table 2) and is not used in the final pipeline. 
+
+Evaluation. All evaluations run on the 30-problem held-out suite using the four-tier valida-tion pipeline. We report three inference strategies to separate the contribution of the model from the contribution of the inference procedure. 
+
+Inference Strategy. Headline numbers use single-shot greedy decoding ( T =0 , K=1 , no self-correction). We additionally report best-of-K
+
+(T =0 .5, K=8 ) and the greedy ∪ best-of-K union as an upper-bound estimate of what the model can produce given multiple attempts. 
+
+TLC Configuration. Each held-out spec is paired with a .cfg file that fixes CONSTANT s at small finite sizes (typically N =3 for N -process systems). TLC runs with a 60-second wall-clock budget; timed-out specs are graded silver unless the partial state space already contains a viola-tion, in which case that violation counts as the grading signal. 
+
+Mutation Test Implementation. The muta-tion pass runs after a gold-tier verdict. We select one of three AST mutation operators uniformly at random. The first negates a top-level conjunct; the second flips a relational operator ( = to ̸ =,
+
+≤ to ≥); the third replaces a named constant with a random alternative from the same syn-tactic class. TLC is rerun on the mutated spec-ification. A counterexample means the original invariant passes the diamond check; acceptance means it fails. 
+
+# 4 Experiments and Results 
+
+Held-Out 30-Problem Benchmark. We test our final checkpoint on a 30-problem held-out suite using single-shot greedy decoding and the four-tier validation pipeline throughout. The For-maLLM evaluation (Bisharat et al., 2026) pro-vides the published baseline. Pass-rates averaged across 25 open-weight LLMs on 26 specifications at the best single prompting strategy, for a total of 650 runs per reported cell. Table 1 presents the comparison. The SFT-only row reports the best checkpoint selected from six iterative SFT runs on the diamond-only corpus; internal version la-bels are omitted as they carry no meaning for the reader. Our final checkpoint reaches 9/30 gold and 9/30 diamond on the held-out 30-problem suite, roughly 3.5× the FormaLLM averaged open-weight-LLM TLC baseline of 8.6%. Because the held-out suite contains only 30 problems, each problem swapped in or out moves the headline by 3.3 percentage points; results should be inter-preted with this variance in mind. 
+
+Diamond-Gold Coincidence. Table 2 shows that gold and diamond rates coincide at every stage on the production path. The only gap ap-Table 1: Single-shot greedy results on the 30-problem held-out suite. The FormaLLM row is the averaged open-weight-LLM pass-rate at the best single prompting strategy from (Bisharat et al., 2026) (25 models × 26 specs = 650 runs per cell). TLA-Prover rows are single trained checkpoints tested at T =0 , K=1 . The DPO row is a same-base ablation trained from the SFT checkpoint; it is not part of the final pipeline (see §3). Column interpretation. Bronze = SANY fail rate; Silver = SANY pass rate ( ≥ silver tier); Gold = TLC pass rate ( ≥
+
+gold tier); Diamond = mutation-sensitive pass rate. Bronze and Silver sum to 100%; Gold and Diamond are subsets of Silver. Model Bronze Silver Gold Diamond FormaLLM avg. (untuned) 73.4% 26.6% 8.6% N/A TLA-Prover SFT-only 33.3% 66.7% 13.3% 13.3% TLA-Prover +DPO (ablation) 26.7% 73.3% 23.3% 20.0% 
+
+TLA-Prover +repair-GRPO 20.0% 80.0% 30.0% 30.0% 
+
+Table 2: Per-tier results on the held-out 30-problem suite showing the cumulative production training path. The SFT + DPO row is a same-base ablation; both it and the final repair-GRPO checkpoint use the SFT checkpoint as their base, not each other. ∆(G–D) counts specs that pass Gold but fail Diamond (mutation-insensitive invariants). Stage SANY ≥ silver Gold Diamond ∆(G–D) gpt-oss-20b base (0-shot) 13.3% 0% 0% 0+ SFT (1 epoch) 66.7% 13.3% 13.3% 0SFT + DPO (ablation) 73.3% 23.3% 20.0% 1+ repair-GRPO (160 steps) 80.0% 30.0% 30.0% 0
+
+pears at the DPO ablation checkpoint, where one spec passed TLC but its invariant was mutation-equivalent to TRUE . This is precisely the failure mode the diamond tier was designed to catch and it is absent from the final repair-GRPO check-point. Its absence provides strong empirical ev-idence that the pipeline does not exploit TLC through the trivial-tautology direction. The 10-point gap between DPO and repair-GRPO on diamond (20% vs 30%) reflects the different quality of training signal. DPO learns from static preference pairs sampled offline from the SFT checkpoint, which limits signal diversity as the model improves. Repair-GRPO receives a continuous dense reward on every step where any repaired sample improves in tier; the result is richer gradient signal throughout training. Sub-tler reward hacks remain possible; for example, a model could write non-trivial but meaningless invariants that still pass TLC. The simple always-true invariant hack is ruled out. Figure 2 shows the same progression visually. 
+
+Per-Problem Breakdown. The 30 held-out problems span six application domains. Gold and diamond wins cluster in two categories. The first is invariant-style specifications where a sim-ple TypeOK state predicate suffices and problems where both the descriptor and the canonical solu-tion are small in scope. Problems that resist solv-ing share a common shape; they involve multi-round protocols with phase transitions whose      
+
+> 25%
+> 50%
+> 75%
+> 100%
+> 13%
+> 67%
+> 13%
+> 13%
+> 73%
+> 23% 20%
+> 80%
+> 30%
+> 30%
+> Base +SFT SFT+DPO +GRPO
+> Silver Gold Diamond
+
+Figure 2: Pass-rate progression across training stages on the 30-problem held-out suite. Silver bars show the SANY pass rate; Gold and Diamond bars show cumulative TLC and mutation-test pass rates respec-tively. The DPO checkpoint is a same-base abla-tion; the production path runs: base, SFT, repair-GRPO. The single Gold-Diamond gap at the DPO stage ( ∆=1 ) is the only instance where a tautological invariant is detected across all checkpoints. 
+
+correctness invariants require case-analysis over message types, such as Byzantine broadcast and 3-phase commit. Table 3 gives the per-domain breakdown. Figure 3 illustrates the qualitative differ-ence between a diamond-tier output and a com-mon failure. The diamond output declares a non-trivial TypeOK invariant that constrains the state space; mutating it causes TLC to find a counterexample. The failing output either de-clares TypeOK == TRUE or generates a syntacti-Table 3: Per-domain pass-rates on the 30-problem held-out suite at the final repair-GRPO checkpoint.                                             
+
+> Domain nGold Diamond Communication 300Concurrency 300Consensus 311Data structures 311Memory / caches 311Mutual exclusion 322Puzzles 300Scheduling 322Transactions 300Workflows 322
+> Total 30 99
+> Table 4: Effect of the SFT corpus curation cutoff on Stage-1 (SFT-only) Diamond pass-rate on the held-out suite. SFT corpus tier-cutoff rows Diamond rate silver-and-above 4,210 6.7% (2/30) gold-and-above 1,890 10.0% (3/30)
+> diamond-only 1,053 13.3% (4/30)
+
+cally valid but semantically incoherent Init pred-icate. 
+
+Curation Tier vs. Final Pass-Rate. To measure the value of strict curation, we rebuild the SFT corpus three times with different minimum tier cutoffs and re-train Stage 1 from scratch each time. Table 4 shows the results. Despite being the smallest corpus, diamond-only training data produces the best Stage-1 checkpoint. The result reinforces the dataset quality-over-quantity principle and gives the dia-mond tier a dual role. It is both the anti-reward-hacking criterion and the primary curation filter for the training corpus. 
+
+Best-of-K and Self-Correction. We test two augmented inference strategies on the final check-point to separate the model’s capability from the inference procedure. Table 5 summarises the re-sults. Best-of-8 sampling lifts the diamond rate by two problems and the greedy-plus-best-of-8 union ceiling of 43% indicates that the model can pro-duce correct solutions for 13 of 30 problems given sufficient attempts. The 3-shot TLC-feedback re-pair pattern, however, produces no improvement. On rows where greedy fails, the model reproduces the same wrong proof structure across all retries even with the error message in context. The pat-tern points to a knowledge gap rather than a ran-dom sampling effect. 
+
+Key Observations Across Six Iterations. 
+
+The results above represent the final state of a pipeline that passed through six SFT iterations and two abandoned GRPO recipes. The interme-diate failures are instructive and we report them here in the spirit of negative-result publishing. 
+
+Observation 1. Corpus Labels Lie. Our second-iteration corpus was labeled “TLAPS-targeted” and contained 3,271 rows, but only 66 of those rows were genuinely TLAPS content; the rest were spec-generation material co-located in directories that happened to con-tain proof files. The unintentional 98% spec / 2% proof composition meant the model trained on this corpus learned no prover capability. The root cause was directory-level labeling: every file in a directory associated with proofs inherited the label without any content check. A TLA+ repository commonly stores proof files and spec files side by side, so the label propagated to unrelated files. Content-level auditing is the fix; file paths and directory names are not a substitute for inspecting row contents directly. 
+
+Observation 2. Eval-set Size Matters for Variance. An earlier evaluation harness used a 6-row hold-out, which gives a standard error of roughly 20 percentage points on the reported pass-rate with 
+
+K = 4 greedy decodes. At that resolution we could not distinguish genuine improvement from sampling noise. The arithmetic is direct: with 
+
+n=6 binary pass/fail outcomes, the binomial standard error is √p(1 − p)/n ≈ 0.20 at p=0 .5.A single problem flipping from fail to pass moves the headline by 16.7 percentage points. A lucky random seed is statistically indistinguishable from a meaningful model improvement at that scale. We carved the 30-row diamond suite specifically to bring the per-problem resolution to 3.3 percentage points. A 100-problem holdout would reduce the standard error below 5 per-centage points; we treat that as the minimum for domain-level analysis. 
+
+Observation 3. GRPO Needs Reward Vari-ance; Truncation Kills It. Standard GRPO with K = 4 and a 768-token completion budget hit a hard ceiling because every sampled completion clipped at the budget cap and produced the same floor reward, driving the group-relative advantage to zero. Per-step GRPO with a 384-token budget surfaced the same failure in a different shape. The mecha-Diamond-tier output 
+
+---- MODULE Counter ----EXTENDS Naturals VARIABLE n Init == n = 0 Next == n’ = (n+1) % 3 TypeOK == n \in 0..2 Spec == Init /\ [][Next]_n ==== 
+
+> Common failure (tautology)
+
+---- MODULE Broken ----EXTENDS Naturals VARIABLE v Init == v = 0 Next == v’ = v TypeOK == TRUE Spec == Init /\ [][Next]_v ====                        
+
+> Figure 3: Diamond-tier output (left) versus a common failure mode (right). The diamond output’s invariant
+> TypeOK == n \in 0..2 is mutation-sensitive; mutating the range causes TLC to find a counterexample. The failing output’s invariant TypeOK == TRUE passes TLC vacuously on every reachable state and fails the diamond mutation check. Table 5: Augmented inference strategies on the final checkpoint, 30-problem suite. Inference strategy Diamond Notes Greedy ( T= 0 ,K= 1 )9/30 (30%) headline Best-of-K(T= 0 .5,K= 8 )11/30 (37%) +2 wins Greedy ∪bo-8 union 13/30 (43%) ceiling 3-shot TLC-feedback repair 9/30 (30%) no gain
+
+nism is precise: GRPO normalizes rewards as 
+
+Ak = ( rk − ¯r) / (σr + ϵ). When all K completions clip at the token budget, every output receives an identical bronze-tier reward. The reward standard deviation σr collapses to zero and the normalized advantage is undefined on every training step. The model cannot improve when no sample in the group is better than any other. Repair-based GRPO solves this structurally: the input is always a broken specification, so repair attempts that reach a higher tier produce non-zero variance by construction. Monitor reward variance per step; if σr ≈ 0 persists for more than a few steps, training has stalled regardless of what the loss curve reports. 
+
+Observation 4. Stacking SFT Regresses. Stacking incremental SFT runs on a prior LoRA checkpoint degraded performance monotonically. The diamond pass-rate moved 4/30, 1/30, 0/30, 1/30 across four iterations. The root cause is adapter drift: each new SFT step updates the LoRA weights relative to the current checkpoint, pulling them further from the frozen base model’s parameter prior. After two or three stacked runs, the effective update is a composition of gradients from different data snapshots. The compounding drift corrupts syntactic fluency and semantic precision simultaneously; the model begins gen-erating structurally plausible but type-incorrect specifications. Restarting from the frozen base model at each major corpus revision was the fix. Incremental SFT is acceptable only when the corpus tier distribution and domain mix are stable between runs. 
+
+Observation 5. One Spec Template, Memo-rized. The majority of diamond-tier outputs share the same skeletal structure, declaring a TypeOK invariant as a state predicate and building a sim-ple Init/Next around small finite-state actions. Protocols that require quantifier manipulation or case-analysis over message types consistently produce malformed specifications. The training corpus is dominated by invariant-style specifi-cations with simple state spaces. The model learned a high-reward template: declare TypeOK as a set-membership predicate, write a small Init, write a stuttering-step Next. This template reliably reaches diamond tier on simple domains and therefore scores well throughout training. Harder protocols that require CHOOSE expres-sions, recursive operators, or quantifier-bounded message sets receive no gradient signal because the model never produces a correct example of them. The per-domain data in Table 3 reflects this directly: mutual exclusion, scheduling, and workflows each score 2/3 diamond; consensus, data structures, and memory/caches each score 1/3; communication, concurrency, transactions, and puzzles each score 0/3. Upsampling harder domains during SFT, even at silver tier, may force the model to build a wider syntactic vocabulary. 
+
+Observation 6. Comments in Training Tar-gets Leak into Outputs. Earlier iterations included block-comment preamble inside assistant targets and the model learned to emit verbose commentary before the specification body. With a fixed 512-token completion budget this caused the specification body to be truncated and stripping comments from assistant targets recovered 5 percentage points of SANY parse rate. The mechanism is instruction-tuning style imitation: the model treats the assistant-turn format as a style tem-plate. When assistant targets consistently open with comment preambles, the model learns this as the expected output prefix. Comment tokens consumed budget before the TLA+ module header appeared, leaving many specifications truncated mid-body. Strip all comments from assistant targets, not just most of them. Partial stripping leaves residual patterns that the model still learns. The specification body must begin at the first token of the assistant turn; this applies to any verifier-graded setting where output must be parseable from its very first character. 
+
+Practitioner Guidance. The following guid-ance applies to any team using TLA-Prover or a similar verifier-guided model. 
+
+• Do not treat TLC pass as sufficient. Al-ways run mutation testing. A gold-tier output without mutation sensitivity may still be vac-uous. 
+
+• Use greedy decoding for reproducible evaluation. Use best-of-K sampling ( K ≥ 4)when the goal is a single usable candidate spec-ification. 
+
+• Require human review. Generated specifi-cations are checkable first drafts, not verified designs. 
+
+• Expect domain variation. The model per-forms best on small invariant-style specifica-tions. Multi-round protocols with message-type case analysis are currently out of scope. 
+
+• Prefer diamond-tier training data. 
+
+Smaller corpora curated to diamond tier outperform larger silver- or gold-tier corpora (see Table 4). 
+
+# 5 Conclusion 
+
+TLA-Prover is a trained 20-billion-parameter model that reaches 30% at both Gold and Di-amond on a held-out 30-problem TLA + bench-mark, roughly 3.5× the FormaLLM baseline of 8.6% TLC model-check. Three contributions sup-port this result. First, a four-tier validation hierarchy with a mutation-test top tier blocks always-true invariants from earning credit. Sec-ond, repair-based GRPO outperforms the DPO ablation by 10 percentage points at Diamond; on-line feedback from TLC is a stronger training sig-nal than static preference pairs. Third, gold and diamond pass-rates coincide at every production checkpoint. This rules out the always-true invari-ant reward hack empirically. Table 4 documents six instructive failures covering corpus mislabel-ing, evaluation variance, GRPO reward collapse, SFT stacking regression, template memorization and training-target comment leakage. 
+
+Limitations. The reward signal is deterministic but not free; each TLC run takes 1–60 seconds depending on spec complexity, which limits RL throughput to roughly K=4 samples per train-ing step on a two-GPU setup. The 30-problem holdout is small and each problem swapped in or out shifts the headline by 3.3 percentage points. The current checkpoint specializes in invariant-style specifications and remains weak on protocols that require case-analysis or quantifier manipula-tion over message types. Diamond-tier mutation testing blocks tautology-style reward hacks but does not catch subtler failure modes, such as in-variants that are non-trivial yet miss the proto-col’s interesting behavior. 
+
+Future Work. A larger holdout of 100–200 problems would shrink per-problem variance and allow reliable domain-level breakdowns. Pairing TLC with Apalache’s symbolic model-checker (Konnov et al., 2019) would strengthen verification on specs whose state space exceeds TLC’s enumeration budget. A parallel line of work targets TLAPS proof acceptance as a re-ward signal; that dataset and training pipeline are described in a companion paper in preparation. The current model reuses a narrow specification template for most diamond-tier outputs. Diverse benchmark problems from message-passing and phase-transition protocols would test whether the training recipe generalizes. The diamond tier blocks tautological invariants but not semanti-cally weak ones. Richer mutation operators, such as invariant-strengthening and state-pruning mu-tations, would close that gap. 
+
+Reproducibility. The final adapter, training code, four-tier curation pipeline, held-out bench-mark with its TLC configurations and the full training-data manifest will be released publicly on acceptance. Hosting URLs will be provided in the camera-ready version. 
+
+# REFERENCES 
+
+Bisharat, A., Laufer, K., Spencer, E., Thiruvathukal, G. K., et al. (2026). FormaLLM: A systematic evaluation of large language models for TLA+ specification generation from natural language. In Proceedings of the International Conference on Software Technologies (ICSOFT) .Cirstea, H., Kuppe, M. A., Loillier, B., and Merz, S. (2024). Validating traces of distributed pro-grams against TLA + specifications. In Software Engineering and Formal Methods (SEFM 2024) ,volume 15280 of Lecture Notes in Computer Sci-ence , pages 126–143. Springer. First, E., Rabe, M. N., Ringer, T., and Brun, Y. (2023). Baldur: Whole-proof generation and repair with large language models. In 
+
+Proceedings of the 31st ACM Joint European Software Engineering Conference and Sympo-sium on the Foundations of Software Engineer-ing (ESEC/FSE) , pages 1229–1241. Gao, L., Schulman, J., and Hilton, J. (2023). Scal-ing laws for reward model overoptimization. In 
+
+Proceedings of the 40th International Conference on Machine Learning , ICML’23, pages 10835– 10866. JMLR.org. Konnov, I., Kukovec, J., and Tran, T.-H. (2019). TLA+ model checking made symbolic. Proc. ACM Program. Lang. , 3(OOPSLA). Lamport, L. (2002). Specifying Systems: The TLA+ Language and Tools for Hardware and Software Engineers . Addison-Wesley Longman Publishing Co., Inc. Moura, L. d. and Ullrich, S. (2021). The lean 4 theorem prover and programming language. In 
+
+Automated Deduction CADE 28: 28th Interna-tional Conference on Automated Deduction, Vir-tual Event, July 1215, 2021, Proceedings , page 625635, Berlin, Heidelberg. Springer-Verlag. Newcombe, C., Rath, T., Zhang, F., Munteanu, B., Brooker, M., and Deardeuff, M. (2015). How Amazon web services uses formal methods. 
+
+Communications of the ACM , 58(4):66–73. OpenAI (2025). gpt-oss-120b & gpt-oss-20b model card. https://huggingface.co/openai/ gpt-oss-20b. Paulson, L. C. (1990). Isabelle: The next 700 theorem provers. In Odifreddi, P., editor, Logic and Com-puter Science , pages 361–386. Academic Press. Rafailov, R., Sharma, A., Mitchell, E., Manning, C. D., Ermon, S., and Finn, C. (2023). Direct preference optimization: Your language model is secretly a reward model. Advances in Neural In-formation Processing Systems , 36:53728–53741. Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Bi, X., Zhang, H., Zhang, M., Li, Y., Wu, Y., et al. (2024). DeepSeekMath: Pushing the limits of mathematical reasoning in open language mod-els. arXiv preprint arXiv:2402.03300 .Skalse, J., Howe, N. H. R., Krasheninnikov, D., and Krueger, D. (2022). Defining and characterizing reward hacking. Advances in Neural Information Processing Systems , 35:9460–9471. Xin, H., Guo, D., Shao, Z., Ren, Z., Zhu, Q., Liu, B., Ruan, C., Li, W., and Liang, X. (2024). DeepSeek-Prover: Advancing theorem proving in LLMs through large-scale synthetic data. 
+
+arXiv preprint arXiv:2405.14333 .Yu, Y., Manolios, P., and Lamport, L. (1999). Model checking TLA+ specifications. In Cor-rect Hardware Design and Verification Methods (CHARME) , volume 1703 of Lecture Notes in Computer Science , pages 54–66. Springer.
