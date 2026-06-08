@@ -1,0 +1,498 @@
+Title: Accelerated Fourier SAT (AFSAT): Fully Realising a GPU-based Symmetric Pseudo-Boolean SAT Solver
+
+URL Source: https://arxiv.org/pdf/2606.06641v1
+
+Published Time: Mon, 08 Jun 2026 00:09:38 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Accelerated Fourier SAT: Fully Realising a GPU-based Symmetric Pseudo-Boolean SAT Solver 
+
+## Cody J. Christopher #
+
+School of Computing, Australian National University, Canberra, Australia. 
+
+## Charles Gretton #
+
+School of Computing, Australian National University, Canberra, Australia. 
+
+Abstract 
+
+We present Accelerated Fourier SAT ( AFSAT ), a GPU-accelerated solver for pseudo-Boolean sat-isfiability based on continuous local search (CLS). AFSAT realises the proof-of-concept approach, 
+
+FastFourierSAT , into a fully-engineered solver supporting any heterogeneous mixture of symmetric constraint types and lengths within a single problem instance. Using the JAX compiler, AFSAT lever-ages pure function composition, automatic vectorisation, automatic differentiation, and just-in-time (JIT) compilation to perform massively parallel CLS across batches of candidate assignments. We demonstrate substantially improved numerical stability, runtime performance, and memory efficiency over the proof-of-concept. We achieve this by way of identifying and addressing various limitations that arise from memory latency and floating-point representation, as well as leveraging automatic parallelisation and compact representations. The inherent representational and stability limitations of floating point are partially addressed by a tailored discrete Fourier transform implementation. We achieve near-linear throughput when scaling to multiple accelerators via JAX array sharding. 
+
+2012 ACM Subject Classification Mathematics of computing → Combinatorial optimization; Math-ematics of computing → Solvers; Mathematics of computing → Nonconvex optimization 
+
+Keywords and phrases Satisfiability, pseudo-Boolean, SAT Solver, continuous local search, combin-atorial optimization, hardware acceleration 
+
+Supplementary Material AFSAT implementation with Apache-2.0 /GPL-2.0-or-later licenses: 
+
+Software (Source Code) : https://github.com/cjchristopher/accelerated-fourier-sat 
+
+## 1 Introduction 
+
+Continuous local search (CLS) offers a compelling search paradigm for solving satisfiability (SAT) problems that are expressed using symmetric pseudo-Boolean (PB) constraints. The approach relaxes Boolean problem variables to real-valued variables by way of the Walsh-Fourier transform from Boolean function analysis [ 6]. Revisiting this approach, SAT is reformulated as a bounded continuous optimisation problem amenable to gradient-based search methods. This approach was formalised for the FourierSAT proof-of-concept [ 5]and subsequently extended for parallelised GPU computation in FastFourierSAT [3], which demonstrated that the Walsh-Fourier expansion can be evaluated efficiently using a vectorised Discrete Fourier Transform (DFT) in O∗( log k) time where k is the number of variables (typically also literals) in a constraint (clause), and O∗(·) def 
+
+= Op→∞ (Tp(·)) is idealised parallel execution time with infinite resources. We present Accelerated Fourier SAT ( AFSAT ), a ground-up re-engineered and extended implementation of this CLS approach. AFSAT provides the following improvements and novel contributions as a tool: 
+
+Heterogeneous constraint support. AFSAT is the first CLS implementation to support problems with an arbitrary mix of common PB constraint types of varying lengths within a single problem instance. 
+
+> arXiv:2606.06641v1 [cs.AI] 4 Jun 2026
+
+2 Accelerated Fourier SAT: GPU-based Pseudo-Boolean Solving 
+
+Improved performance and efficiency. We demonstrate better execution times (up to parity in the worst case) with less overhead, substantially reduced GPU memory consumption, and higher peak throughput (evaluations/searches per unit time) compared to FastFourierSAT .
+
+Multi-GPU scaling. We demonstrate near-linear scaling across multiple GPUs using distributed array sharding in JAX [4], in a single-program-multiple-data (SPMD), or compute-follows-data paradigm. 
+
+Numerical stability and precision improvements. We identify and address sources of floating-point errors and representational deviations through a tailored DFT matrix construction with deferred division. This establishes a practical maximum constraint length of approximately 50 variables. 
+
+Partial assignment integration. AFSAT accepts partial variable assignments as input, opening up avenues to use it as a sub-solver within decomposition-based architectures such as Dagster [2], or other portfolio approaches. 
+
+## 2 Background 2.1 Continuous Relaxation via Walsh-Fourier Expansion 
+
+CLS operates on a continuous relaxation of a SAT problem. For a Boolean formula ϕ
+
+over n variables, we seek a relaxation as a polynomial on the Boolean hypercube Qn that preserves satisfiability (i.e. a solution to the relaxed formulation provides a solution for the discrete problem). The (Walsh-)Fourier expansion ( FE ) [ 6] of Boolean functions provides this relaxation, mapping {True , False } to {− 1, 1}:
+
+FE ϕ(X) def 
+
+= ∑
+
+> S∈2X
+
+ˆf (S) ∏
+
+> xi∈S
+
+xi (1) where ˆf (S) are called the Fourier coefficients. For symmetric constraints—those whose truth value depends only on the simple count of true literals—closed-form solutions for the coefficients exist that are computable in polynomial time at worst [ 5]. Symmetric constraints necessarily have idempotent variable weights. 
+
+## 2.1.1 Satisfaction as Optimisation 
+
+Given a formula ϕ in n variables, decomposed into m symmetric constraints C1, . . . , C m, the satisfiability problem is expressed as the bounded minimisation: 
+
+min 
+
+> X
+> m
+
+∑
+
+> k=1
+
+FE Ck (X) subject to X ∈ Q n (2) where an assignment X ∈ [−1, 1] n satisfies ϕ if ∑ 
+
+> k
+
+FE Ck (X) = −m. This formulation is differentiable, non-convex, bounded, and saddle-dense. This motivates the use of projected and/or bounded gradient search methods as the first choice of search algorithms. Observing that FE is differentiable and fast parallelised automatic differentiation is available, we would also consider second- or higher-order methods, should they exist. 
+
+## 2.1.2 DFT-Based Vectorised Evaluation 
+
+A key insight from Cen et al. [ 3] is that the evaluation of the Fourier expansion can be performed using a DFT. We observe that the terms in FE ϕ sharing a coefficient ˆf (S) are all C. J. Christopher and C. Gretton 3
+
+the size |S| combinations of the variables of the clause. These particular sums are well-studied polynomials known as the elementary symmetric polynomials (ESPs). Since the sequence of all length k ESPs up to n variables, enk , can be computed with ( 0-padded) linear convolutions, we can compute the evaluation of a Fourier expanded formula with vectorised operations in the frequency domain by making use of the linear convolution theorem: 
+
+ˆfϕ ≡ [ ˆfϕ(∅), ˆfϕ(1) , . . . , ˆfϕ(n)] 
+
+en ≡ [en 
+
+> 0
+
+, e n 
+
+> 1
+
+, . . . , e nn] = ([ x1, 1, 0, . . . ] ∗ [x2, 1, 0, . . . ] ∗ . . . ∗ [xn, 1, 0, . . . ]) = W ∗W ([ x1, 1, 0, . . . ] ∗ [x2, 1, 0, . . . ] ∗ . . . ∗ [xn, 1, 0, . . . ]) = W ∗ (W ([ x1, 1, 0, . . . ]) · W ([ x2, 1, 0, . . . ]) · . . . · W ([ xn, 1, 0, . . . ])) = W ∗ ([1 + x1, ω + x1, . . . , ω n + x1] · . . . · [1 + xn, . . . , ω n + xn]) = W ∗ ([1, ω, ω 2, . . . , ω n]T + [ x1, x 2, . . . , x n]
+
+)
+
+(Outer addition) 
+
+= W ∗
+
+([ n∏
+
+> i=1
+
+(1 + xi),
+
+> n
+
+∏
+
+> i=1
+
+(ω + xi), . . . , 
+
+> n
+
+∏
+
+> i=1
+
+(ωn + xi)
+
+]) 
+
+= W ∗
+
+[ n∏
+
+> i=1
+
+(ωj + xi)
+
+]nj=0 
+
+
+
+FE ϕ ≡ ∑ ( ˆfϕ · en)
+
+= ∑ ˆfϕW ∗ ·
+
+[ n∏
+
+> i=1
+
+(ωj + xi)
+
+]nj=0 
+
+
+
+Where ∗ is the convolution operator on sequences, · is the Hadamard product (element-wise multiplication), W is the DFT matrix in n + 1 dimensions ( W ∗ the conjugate transpose), and 
+
+ω the primitive (n + 1) th root of unity. By taking the DFT of the ESP sequence convolution, the computation can be expressed as element-wise products and sums. 
+
+## 3 System Design and Implementation 3.1 Architecture 
+
+AFSAT is implemented in Python using the JAX [ 4] and XLA compilers. The architecture comprises: 
+
+(a) Problem ingestion : The specification and parsing of PB-encoded problem instances specified in standard DIMACS or our hybrid variant (Appendix A). 
+
+(b) Fourier coefficient computation : Closed-form computation of coefficients for all supported symmetric constraint types (§3.2). 
+
+(c) DFT precision : Tailored calculation of roots of unity for conjugate symmetry (§3.5.1). 
+
+(d) Compiled solver kernel : JIT-compiled search algorithm with automatic differentiation, vectorised over batches of candidate assignments. 
+
+(e) Multi-GPU distribution : Sharding of batched assignments across available GPUs. The solver kernel is compiled once and executed repeatedly with different random initialisations. Compilation produces an optimised XLA HLO program targeting the available accelerator architecture. AFSAT exposes many additional parameters and heuristic options which can be adjusted to target specific problem types. 4 Accelerated Fourier SAT: GPU-based Pseudo-Boolean Solving 
+
+## 3.2 Supported Constraint Types 
+
+Unlike prior CLS implementations which are restricted to either a single constraint type, or a particular fixed set of constraint types per problem, AFSAT supports heterogeneous problems containing any combination of the following symmetric pseudo-Boolean constraint types:    
+
+> Constraint Type PB Form Coefficient Cost
+> Disjunction ( OR )
+
+∑     
+
+> nxn≥1O(1)
+> At most one ( AMO )
+
+∑     
+
+> nxn≤1O(n)
+> Exactly one ( EO )
+
+∑      
+
+> nxn= 1 O(n)
+> Exactly k(EK )
+
+∑       
+
+> nxn=kO(nlog 2n)
+> Not all equal ( NAE )
+
+∧ {∑  
+
+> nxn< n
+
+∑     
+
+> nxn>0O(1)
+> Exclusive Or ( XOR )
+
+∑      
+
+> nxn≡1 (mod 2) O(n)
+> Cardinality-k(CARD )
+
+∑         
+
+> nxn≥kO(nlog 2n)
+> Table 1 Supported symmetric PB constraint types and asymptotic cost of computing their Walsh-Fourier expansion coefficients ( ˆf(S)).
+
+This heterogeneous support enables AFSAT to handle problems with native PB formulations directly, avoiding the representational blowup of CNF translation. 
+
+## 3.3 Gradient Descent and other search Algorithms 
+
+We follow FastFourierSAT and select Projected Gradient Descent (PGD, Algorithm 1) as a fast baseline search algorithm for AFSAT . We also provide various other algorithms that possess compatible implementations. For any selected search algorithm, we take a vector-map across a batch of B candidate assignments. This is realised by JAX in GPU warps, whereby every candidate assignment has dedicated memory and a streaming processor, and the chosen algorithm executes in lockstep across every candidate in the batch. For the choice of PGD, each descent operates numerically independently: a line search determines the step size, a gradient step is taken, and the result is projected back onto the bounded subspace Qn if we happen to step out. Termination occurs when either a convergence criterion is met (e.g. new location is within ε of the previous location) or given step-limit is reached. The convergence criteria is checked after every step, and some candidates in the batch may converge sooner than others. As parallelism is achieved via warps, the converged candidates execute the equivalent of no-ops until the entire batch finishes. 
+
+## 3.4 Partial Assignment Support 
+
+AFSAT accepts a partial variable assignment as input, fixing specified variables across all batched starting valuations while randomising the remainder. JAX supports gradient masking (zeroing), which forces zero gradient on the relevant variables during the automatic differentiation pass resulting in a zero step length. This feature enables integration into decomposition frameworks where a partial assignment from systematic search is completed by CLS, where some orchestrator may track candidate assignments for solvers in a portfolio C. J. Christopher and C. Gretton 5 
+
+> Algorithm 1 Projected Gradient Descent
+
+Input: Fourier expanded formula FE ϕ, initial valuation X(0) , maximum iterations d,convergence threshold δ, maximum step-size s, bounds Q
+
+Output: Finishing assignment ¯X, evaluation FE ϕ( ¯X), unsatisfied clause count 
+
+# (∑  
+
+> m
+
+1 . FE gm ( ¯X) > 0), iterations t
+
+for t ← 1 to d do 
+
+η ← lineSearch (FE ϕ, ∇(FE ϕ), s ); // Determine step length 
+
+X(t) ← X(t−1) − η · ∇ (FE ϕ(X(t−1) )) ; // Take descent step 
+
+X(t) ← projectToBounds (X(t), Q) ; // Return to bounds 
+
+is _sat ← True if unsat_count (ϕ, X(t)) = 0 else False ;
+
+if η < δ or is _sat then // Converged or SAT 
+
+return X (t), FE ϕ(X(t)), unsat_count (ϕ, X(t)), t ;
+
+end end return X (t), FE ϕ(X(t)), unsat_count (ϕ, X(t)), d ;to improve or advise upon. AFSAT evenly divides up a given batch of candidate assignment amongst multiple partial assignment if they are provided. During clause processing, AFSAT 
+
+will also detect trivial unit literals and either fold them into all provided partial assignments, or convert to a universal partial assignment. 
+
+## 3.5 Floating-Point Limits on Constraint Length 
+
+The DFT-based evaluation for a constraint of length n involves products ∏ni=1 (ωj + xi)
+
+which, for roots ωj ≈ 1 and literal values xi ≈ 1, can reach magnitudes of 2n, while for 
+
+ωj ≈ − 1 these products approach values on the order of εn where |ε| → 0. For IEEE-754 64-bit arithmetic with machine epsilon ϵ = 2 −52 , the dynamic range of these terms exceeds representable precision when n ⪆ 50 , causing catastrophic cancellation in the inverse DFT, producing incorrect and impermissible evaluations |FE ϕ| ≫ 1.We empirically observe degenerate solver behaviour—exploding and vanishing gradients— for constraints of length n ≥ 48 for which many of variables trend toward the same truth value (e.g. all but one variable assignment in an AMO constraint of length 50 will tend to false (1)). This establishes a practical ceiling for CLS on current GPU architectures that lack practical support for extended-precision arithmetic. 
+
+## 3.5.1 Tailored DFT Construction 
+
+Standard DFT implementations (such as those from common scientific processing packages e.g., from SciPy [ 8]) introduce cumulative errors through repeated exponentiation of roots of unity, breaking the conjugate symmetry required for precise cancellation in the inverse DFT. Since AFSAT ’s algebraic foundation is sensitive to these inaccuracies, we implement or own tailored procedures: Forward and inverse DFT matrices are constructed to guarantee exact conjugate symmetry between paired terms. Combinatorial terms for Fourier coefficients are computed using arbitrary-precision integer arithmetic, with division and conversion to float deferred to the latest possible stage. Where algebraic symmetries exist, terms are explicitly mirrored rather than independently computed. 6 Accelerated Fourier SAT: GPU-based Pseudo-Boolean Solving 
+
+## 4 Performance Evaluation 
+
+All experiments were conducted on the Gadi supercomputer (NCI, Australia), using nodes from the Volta GPU partition. Each node provides four NVIDIA Tesla V100 GPUs (32GB HBM2 each, ≈900GB/s bandwidth), Intel Xeon Cascade Lake CPUs (48 cores), and ≈192GB system RAM. 
+
+## 4.1 Comparison with FastFourierSAT 0     
+
+> 100
+> 200
+> 300
+> 400
+> 500
+> Instances Solved
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+> Elapsed Time (s)
+> Random Cardinality Benchmark
+> AFSAT (64 batch) (0.75)
+> AFSAT (max-through batch) (0.93)
+> FastFourierSAT (64 batch) (1.59)
+> 470 480 490 500
+> 2
+> 4
+> 6
+> 80
+> 100
+> 200
+> 300
+> 400
+> 500
+> Instances Solved
+> 1
+> 10
+> 100
+> 120
+> 150
+> Elapsed Time (s)
+> Parity Learning w/Error Benchmark
+> AFSAT (4096 batch) (7.28 (1 timeout))
+> AFSAT (max-through batch) (10.37 (1 timeout))
+> FastFourierSAT (4096 batch) (10.66 (4 timeout))
+> 460 480 500
+> 100
+> 120
+> 150
+
+Figure 1 Replicated benchmarks for random cardinality (Subfig. a) and parity learning (xor) with errors (Subfig. b) as per FastFourierSAT [3 ], with PAR-2 scores and timeouts indicated. We run AFSAT configured as close to possible to FastFourierSAT , replicating the batch size choice as indicated in the original benchmark. We also run AFSAT in max-through mode, where the batch size is selected to target maximum efficiency (see §4.2). 
+
+We replicate the cardinality constraint and parity-learning benchmarks from Cen et al. [ 3 ]. Figure 1 compares cumulative solution times. We apply certain JAX optimisations set for 
+
+AFSAT to FastFourierSAT to provide a more level playing field, and note that the parity learning results shown for FastFourierSAT are better than those presented in their paper due to bugs in the published code we have corrected. Key observations: 
+
+AFSAT achieves equivalent performance in the worst-case, and otherwise universally improves upon FastFourierSAT , demonstrating that our optimisations strictly improved upon the proof-of-concept on comparable benchmarks. 
+
+AFSAT exhibits an obviously lower baseline times than FastFourierSAT , indicating more efficient pre-processing, GPU kernel optimisation/compilation, and general overheads. For fairness, we take the best time of several runs for each to allow for disk latency and compilation caches to be populated. 
+
+AFSAT consumes substantially less GPU memory by storing only minimal auxiliary data (e.g. highly optimised DFT matrices, clause and literal arrays, etc.) and computing closures over this data, enabling the compilers to better optimise which subsequently enables larger batch sizes. 
+
+## 4.2 GPU Memory and Throughput Characteristics 
+
+During testing it was noticed that as total GPU memory utilisation increased (reflecting larger batch sizes), the total number of completed gradient descents decreased both relatively (with respect to the amount of memory consumed) and in some cases absolutely. We investigate the total number of completed searches we can take per unit time, a measure we call throughput ,C. J. Christopher and C. Gretton 7
+
+as a function of GPU memory consumption and GPUs available across several problem domains (Figure 2). We observe clearly that throughput peaks when the memory used is approximately 0.1% –1% of total GPU memory consumed. When exploring this effect across various GPUs, we find this percentage varies, but upon closer inspection the value is more tightly correlated twice the cache memory available on the device. We observe a logarithmic decay (Figure 2b) in throughput beyond this peak, rather than the monotonic increases one might expect when parallelising a problem up to memory saturation. 0.001% 0.010% 0.10% 1.00% 10.00%      
+
+> % of Total GPU Memory Used
+> 0
+> 20
+> 40
+> 60
+> 80
+> Finished Gradient Descents /s
+> (converged or iteration limit) ('000s)
+> Batch Size Tuning Evaluation -- Hard Random 3SAT
+> GPUs: 1
+> GPUs: 2
+> GPUs: 4 0.001% 0.010% 0.10% 1.00% 10.00% 100.00%
+> % of Total GPU Memory Used
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Finished Gradient Descents /s
+> (scaled relative to best)
+> Batch Size Tuning Evaluation -- Combined Benchmarks
+> GPUs: 1
+> GPUs: 2
+> GPUs: 4
+
+Figure 2 Throughput vs measured memory consumption across various problem classes. 
+
+(Subfig. a) shows near linear scaling when parallelising across several accelerators on various hard random 3SAT problems, with the occasional exception due to properties of individual test cases. 
+
+(Subfig. b) shows scaled throughput for various benchmarking problems, confirming the dynamics of throughput vs. batch size (memory consumption). A polynomial trendline peaks between 0.1% and 
+
+1% .
+
+Across various domains we also observe the optimal batch size (and subsequently peak throughput) is governed primarily by maximum constraint length rather than the absolute number of variables or constraints. This is dominated ultimately by the requirement to compute O(k2) DFT matrices for k length clauses. As the size of the DFT grows quadratically it rapidly cuts the amount of memory usable for the remainder of the algorithm, resulting in lower batch sizes. We hypothesise that the throughput peak corresponds to saturation of low-level processing core caches rather than main memory, whereby optimal pipelining is achieved with next to no cache invalidation or page-faulting. Supporting this, the ratio of total cache to total memory on the V100 architecture is on the order of 0.1% —consistent with the observed peak locations. 8 Accelerated Fourier SAT: GPU-based Pseudo-Boolean Solving 
+
+This finding has practical implications: for problems with long constraints, smaller batch sizes yield higher throughput than larger ones that exceed cache capacity. For deployment, 
+
+AFSAT provides batch-size tuning that balances throughput against total search coverage. As indicated in §3.5, long constraints also degrade numerical stability. The combination of both of these effects suggests that future improvements will look to trade-off the compactness of single constraints for the efficiency gains of constraint decompositions. 
+
+JAX ’s sharding mechanism distributes batched valuations across available GPUs in a compute-follows-data paradigm. Since gradient descents are independent across each assignment in the batch, communication overhead is minimal. We observe near-linear scaling in throughput with increasing GPU count across all tested problem domains and Figure 2a demonstrates this for hard random 3SAT problems. The absence of an impacting overhead cost confirms the suitability of CLS for multi-accelerator deployment. 
+
+## 5 Conclusion and Future Work 
+
+AFSAT advances the state of CLS-based SAT solving from proof-of-concept to a practical, extensible tool. By engineering support for heterogeneous pseudo-Boolean constraints, achieving substantial performance improvements over the baseline, and demonstrating scalable multi-GPU execution, AFSAT establishes a foundation for GPU-accelerated SAT solving in accelerator-rich environments. The identification of precision-driven constraint-length limits and cache-driven throughput characteristics provides actionable guidance for deployment. Future development will target adaptive constraint weighting, integration with systematic solvers via decomposition frameworks, and exploitation of emerging higher-precision accelerator arithmetic. 
+
+Constraint length ceiling and memory consumption. 
+
+As established in §3.5 and §4.2, floating-point precision limits constraint length to n ≈ 50 
+
+on 64-bit hardware and dominates memory consumption. Problems with naturally longer constraints (e.g., global cardinality constraints in large graph colouring) can be addressed by decomposing these into shorter equivalent constraints. For all but EK and CARD, there are simple linear decompositions to O(k/ 50) equivalent PB constraints of the same type, preserving some of the benefits of native PB representation. 
+
+Incompleteness. 
+
+AFSAT is an incomplete solver: it cannot prove unsatisfiability, as doing so would require solving the global optimisation problem to certifiable optimality. However, AFSAT functions naturally as a MaxSAT solver, providing best-effort solutions with unsatisfied-constraint counts. Unbounded global optimisation methods are a potential consideration, and methods involving Moreau envelopes [3] or unconstrained formulations with extreme penalties [9]. 
+
+Second-order methods. 
+
+The multi-linear objective is thoroughly populated with saddle points, at which first-order PGD can stall. Bounded second-order methods (e.g., L-BFGS-B) would help escape saddle points, but existing implementations in the JAX ecosystem—notably JAXOpt [ 1 ] and 
+
+Optimistix [7]—do not correctly respect bounds or are not production-ready. Higher order methods will necessarily decrease throughput due to memory required to compute and store higher order gradients. C. J. Christopher and C. Gretton 9
+
+References 
+
+1 Mathieu Blondel, Quentin Berthet, Marco Cuturi, Roy Frostig, Stephan Hoyer, Felipe Llinares-López, Fabian Pedregosa, and Jean-Philippe Vert. Efficient and modular implicit differentiation. 
+
+arXiv preprint arXiv:2105.15183 , 2021. 
+
+2 Mark Alexander Burgess, Charles Gretton, Josh Milthorpe, Luke Croak, Thomas Willingham, and Alwen Tiu. Dagster: Parallel structured search with case studies. In Sankalp Khanna, Jian Cao, Quan Bai, and Guandong Xu, editors, PRICAI 2022: Trends in Artificial Intelligence ,pages 75–89, Cham, 2022. Springer Nature Switzerland. 
+
+3 Yunuo Cen, Zhiwei Zhang, and Xuanyao Fong. Massively parallel continuous local search for hybrid sat solving on gpus. Proceedings of the AAAI Conference on Artificial Intelligence ,39(11):11140–11149, 2025. 
+
+4 DeepMind, Igor Babuschkin, Kate Baumli, Alison Bell, Surya Bhupatiraju, Jake Bruce, Peter Buchlovsky, David Budden, Trevor Cai, Aidan Clark, Ivo Danihelka, Antoine Dedieu, Claudio Fantacci, Jonathan Godwin, Chris Jones, Ross Hemsley, Tom Hennigan, Matteo Hessel, Shaobo Hou, Steven Kapturowski, Thomas Keck, Iurii Kemaev, Michael King, Markus Kunesch, Lena Martens, Hamza Merzic, Vladimir Mikulik, Tamara Norman, George Papamakarios, John Quan, Roman Ring, Francisco Ruiz, Alvaro Sanchez, Laurent Sartran, Rosalia Schneider, Eren Sezener, Stephen Spencer, Srivatsan Srinivasan, Miloš Stanojević, Wojciech Stokowiec, Luyu Wang, Guangyao Zhou, and Fabio Viola. The DeepMind JAX Ecosystem, 2020. URL: 
+
+http://github.com/google-deepmind .
+
+5 Anastasios Kyrillidis, Anshumali Shrivastava, Moshe Y Vardi, and Zhiwei Zhang. Solving hybrid boolean constraints in continuous space via multilinear fourier expansions. Artificial Intelligence , 299:103559, 2021. 
+
+6 Ryan O’Donnell. Analysis of Boolean Functions . Cambridge University Press, 2014. 
+
+7 Jason Rader, Terry Lyons, and Patrick Kidger. Optimistix: modular optimisation in jax and equinox. arXiv:2402.09983 , 2024. 
+
+8 Pauli Virtanen, Ralf Gommers, Travis E. Oliphant, Matt Haberland, Tyler Reddy, David Cournapeau, Evgeni Burovski, Pearu Peterson, Warren Weckesser, Jonathan Bright, Stéfan J. van der Walt, Matthew Brett, Joshua Wilson, K. Jarrod Millman, Nikolay Mayorov, Andrew R. J. Nelson, Eric Jones, Robert Kern, Eric Larson, C J Carey, İlhan Polat, Yu Feng, Eric W. Moore, Jake VanderPlas, Denis Laxalde, Josef Perktold, Robert Cimrman, Ian Henriksen, E. A. Quintero, Charles R. Harris, Anne M. Archibald, Antônio H. Ribeiro, Fabian Pedregosa, Paul van Mulbregt, and SciPy 1.0 Contributors. SciPy 1.0: Fundamental Algorithms for Scientific Computing in Python. Nature Methods , 17:261–272, 2020. doi:10.1038/s41592-019-0686-2 .
+
+9 Zhiwei Zhang, Samy Wu Fung, Anastasios Kyrillidis, Stanley Osher, and Moshe Y. Vardi. Thinking out of the box: Hybrid sat solving by unconstrained continuous optimization, 2025. URL: https://arxiv.org/abs/2506.00674 , arXiv:2506.00674 .10 Accelerated Fourier SAT: GPU-based Pseudo-Boolean Solving 
+
+## A Input Format Specification 
+
+AFSAT accepts problem instances in standard DIMACS CNF or an extended DIMACS-like hybrid format supporting heterogeneous symmetric pseudo-Boolean constraints. 
+
+DIMACS-like PB constraint grammar 
+
+The hybrid PB problem grammar is defined as follows, where tokens are whitespace-separated: 
+
+<file> ::= <line>* <line> ::= <comment> | <problem> | <constraint> <comment> ::= ( 'c' | '*') <text> <problem> ::= 'p' ' cnf ' <posint> <posint> <constraint>::= [<prefix>] <body> '0'
+
+<prefix> ::= 'h'
+
+<body> ::= <cnf> | <typed> | <counted> <cnf> ::= <lit>+ <typed> ::= <type_id> <lit>+ <type_id> ::= 'x' | 'xor ' | 'n' | 'nae '
+
+| 'a' | 'amo ' | 'e' | 'eo '
+
+<counted> ::= <count_id> <lit>+ <count_id> ::= <exactly> | <card> <exactly> ::= ( 'k' | 'ek ') <int> <card> ::= ( 'd' | 'card ') <ineq_op> <posint> <ineq_op> ::= '<' | '<= ' | '>' | '>= '
+
+<lit> ::= <int> \ {0} <int> ::= '-'? [1-9] [0-9]* <posint> ::= [1-9] [0-9]* 
+
+The type identifiers map to constraint semantics as follows: 
+
+Identifiers Type Semantics 
+
+(none) CNF Standard disjunction 
+
+x, xor XOR Odd number of literals true 
+
+n, nae NAE Not all literals equal 
+
+a, amo AMO At most one literal true 
+
+e, eo EO Exactly one literal true 
+
+k, ek EK Exactly k literals true 
+
+d, card CARD Cardinality threshold 
+
+Table 2 Constraint type identifiers and semantics. 
+
+For CARD constraints with a plain integer threshold (no operator): positive k defaults to ≥ k;negative k defaults to < |k|. All CARD constraints are internally normalised to ≥ or < forms. C. J. Christopher and C. Gretton 11 Examples 
+
+c --- Standard DIMACS CNF ---p cnf 4 2 1 -2 3 0 -1 4 0 c --- Hybrid format (mixed constraints) ---p cnf 6 7 h 1 -2 3 0 c CNF: (x1 OR NOT x2 OR x3) h x 1 2 3 0 c XOR: odd parity over {x1,x2,x3} h nae 1 2 3 0 c NAE: not all of {x1,x2,x3} equal (at least one true & false )h amo 1 2 3 0 c AMO: at most one true 
+
+h eo 4 5 6 0 c EO: exactly one true 
+
+h ek 2 1 2 3 0 c EK: exactly 2 of {x1,x2,x3} true 
+
+h d >=2 1 2 3 0 c CARD: at least 2 true 
+
+c --- CARD inequality variants ---card 2 1 2 3 0 c >= 2 true (positive k, default >=) card -3 1 2 3 4 0 c < 3 true (negative k, default <) card >2 1 2 3 4 0 c > 2 true 
+
+card <=2 1 2 3 0 c <= 2 true 
+
+## A.1 Automatic Simplification 
+
+The parser applies the following reductions: Unit EO and CNF constraints are extracted as unit-propagated prefix assignments. Unit AMO constraints are discarded (trivially satisfied). 
+
+CARD -1 constraints are reduced to CNF ; EK -1 to EO .
+
+CARD -n and EK-n (where k equals the number of literals) are converted to unit prefix assignments. 
+
+CARD -0 constraints are discarded (trivially satisfied); EK -0 constraints yield negated prefix assignments. Conflicting unit literals, if detected, immediately raise an unsatisfiability error.
