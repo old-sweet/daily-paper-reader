@@ -1,0 +1,772 @@
+Title: ARTA: Adaptive Reinforcement-Learning-Based Throttling Agent for RowHammer Vulnerabilities
+
+URL Source: https://arxiv.org/pdf/2606.09915v1
+
+Published Time: Wed, 10 Jun 2026 00:03:02 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# ARTA: Adaptive Reinforcement-Learning-Based 
+
+# Throttling Agent for RowHammer Vulnerabilities 
+
+Marco Ho 
+
+British Columbia Institute of Technology 
+
+Burnaby, BC, Canada marco ho@bcit.ca 
+
+Michael Hsiao 
+
+Virginia Tech 
+
+Blacksburg, VA, United States mhsiao@vt.edu 
+
+Jeeho Ryoo 
+
+Fairleigh Dickinson University 
+
+Vancouver, BC, Canada j.ryoo@fdu.edu 
+
+Abstract —RowHammer vulnerability continues to intensify with DRAM scaling, reducing the activation threshold needed to induce bitflips and rendering existing defenses such as TRR, ECC, and refresh-based mechanisms vulnerable to sophisticated multi-bank hammering patterns. This work presents ARTA, a lightweight reinforcement-learning-based throttling mechanism that detects and suppresses RowHammer activity by monitoring fine-grained memory access behavior within the DRAM refresh window ( tREFW ) and dynamically adjusting core throughput using a Q-learning frequency scaling governor. ARTA requires no DRAM-side hardware modification or offline training, using small SRAM structures in the memory controller — a per-core, per-bank FIFO queue (CBF) and a compact Q-table — for imme-diate deployment. Our evaluation shows that ARTA eliminates all bitflips at NBO values down to 64, reduces bitflips up to 22K times at NBO of 20, and improves performance up to 73.6 % over state-of-the-art mitigation mechanisms by limiting preventive action overheads for improved memory bandwidth throughput. These results demonstrate that adaptive RL-based throttling provides robust, scalable, and high-performance RowHammer mitigation for emerging DRAM systems. 
+
+Index Terms —RowHammer, DRAM Security, Reinforcement Learning, Dynamic Frequency Scaling, Memory Controller, DDR5, PRAC 
+
+I. I NTRODUCTION 
+
+Since its discovery in 2014 [1], sustained efforts from the computing community have mitigated RowHammer at-tacks [1]–[4], yet modern variants bypass even the latest DDR5 systems [5]–[8]. RowHammer is a hardware-level read-disturbance mechanism in DRAM that rapidly activates a row (i.e., aggressor) to induce bit flips in neighboring rows (i.e., victims) [1]. RowHammer-induced bit flips require a minimum repeated number of row activations in a short timeframe, referred to as the RowHammer Threshold (N RH ), which has reduced from 139K in DDR3 [1] to 10K in DDR4 and 4.8K in LPDDR4 [2], and is expected to drop below 1K [9]. Non-volatile memory (NVM) technologies have also exhib-ited RowHammer-like disturbance vulnerabilities [10]–[13]. Without effective mitigation techniques, attackers can exploit RowHammer vulnerabilities to compromise data integrity, gain unauthorized access, and escalate privileges. Consequently, research on robust, efficient and scalable RowHammer mit-igation strategies is critical to secure sensitive information, preserve user trust, and ensure the reliability of current and future DRAM-based computing systems [1], [14]–[18]. The computing community has focused on mitigating these attacks by developing various defense strategies [1], [17]–[25]. In commodity DDR4 chips, Target Row Refresh (TRR) is the most widely adopted in-DRAM RowHammer mitigation. TRR tracks frequently activated aggressor rows and proactively refreshes their neighboring victim rows to prevent bit flips, effectively preventing simple patterns such as double-sided hammering (i.e., two aggressor rows sandwiching one victim row). Unfortunately, recent research [16], [26] has shown that non-uniform hammering patterns can bypass TRR in DDR4 devices, which has led to recently prevailing DDR5 devices integrating more sophisticated mitigation mechanisms such as refresh management (RFM). RFM is a command that provides the DRAM chip with a time window to perform preventive refreshes on potential victim rows. As memory systems are subject to naturally occurring faults such as alpha-particle strikes or chip failures, DDR5 DRAM is equipped with On-Die Error Correction Codes (ODECC) to tolerate bit failures [27]–[30]. However, ODECC does not guarantee correction of all possible failure points, which can lead to data loss. In order to track potential rows targeted by hammering patterns, prior works have proposed RowHammer mitigation mechanisms, each posing relative trade-offs in space and time constraints [1], [6]–[8], [17]–[21], [23], [31], [32]. An ideal defense strategy prevents RowHammer attacks by applying clear policies and mechanisms to issue timely preventive refreshes. These strategies are divided into two types, probabilistic and deterministic, based on the degree of protection they offer against RowHammer attacks, with each approach presenting unique challenges. 
+
+Challenge I: Detection Accuracy-Overhead Tradeoff. Prob-abilistic trackers [1], [33]–[35] approximate victim rows with minimal storage, but their inherent randomness issues redun-dant refreshes of non-critical rows. PrIDE [34] and MINT [35] each incur ≈30% activation bandwidth loss at NRH = 250 [6], making them impractical at sub-1K thresholds. 
+
+Challenge II: Scalability of Row Tracking. Counter-based deterministic solutions [17], [19], [20], [23], [31], [36] provide precise tracking but face storage and performance bottlenecks as NRH falls. Shared-counter schemes [19], [20] introduce blind spots exploitable by multi-bank attacks, while Panop-ticon’s FIFO-based tracking [31] cannot prioritize the most critical rows [6], [8]. 
+
+> arXiv:2606.09915v1 [cs.AR] 6 Jun 2026
+
+Challenge III: Software Mitigation Limitations. Software defenses [37]–[41] avoid hardware modifications but lack the fine-grained control needed to track hardware-level attacks and require proprietary DRAM parameters unavailable from vendors. Recent attacks [42], [43] have bypassed most such solutions. 
+
+Toward Adaptive RowHammer Defense. As attacks grow more sophisticated [44], static and fixed-threshold defenses cannot keep pace. Reinforcement learning (RL) offers apromising direction: RL agents learn optimal policies through environment interaction, providing continual adaptability with-out offline training [45]–[47]. To the best of our knowledge, no RL-based approach has been proposed for RowHammer mitigation. 
+
+Goal. To design a scalable, adaptive, and deployable RowHammer defense using a lightweight RL-based algorithm to detect and mitigate emerging hammering patterns, eliminating the need for hardware changes or offline training. 
+
+Key Idea. To dynamically throttle the frequency of memory requests from a hardware thread by approxi-mating repeated and close-proximity memory accesses. 
+
+Key Mechanism. ARTA, a first-of-its-kind lightweight RL-based Dynamic Frequency Scaling (DFS) gover-nor that utilizes Q-learning to detect and mitigate RowHammer in real time through pattern-aware throt-tling. Detection is modeled as a Markov Decision Process (MDP) [48], and a pre-initialized Q-table with Gaussian-like decay removes exploration overhead. Source-level DFS throttles attack-generated memory traffic at its origin by reducing CPU clock frequency, cutting row activations before NBO is reached. We replace the conventional ACPI DFS governor [49], [50] with an RL-based controller that detects RowHammer patterns via second-order differences of per-bank FIFO address queues and selects optimal P-states or the C1 idle state in response. This paper makes the following contributions: 1) Dynamic Pattern Detection : We show repeated, close-proximity memory accesses can be accurately estimated to distinguish RowHammer patterns from benign workloads. 2) Adaptive Throttling : We present the first RL-based RowHammer throttling mechanism that adapts to real-time hammering patterns over changing workload demands. 3) Immediate Deployment : We pre-initialize the Q-table to accelerate policy convergence, achieving 100% precision. 4) Reduced System Overheads : We evaluate ARTA, reducing bitflips by 22 K× with up to 73 .6% speedup. 5) Minimal Chip Area : We present a lightweight, state-of-the-art RowHammer defense that preserves low area overhead ( 1.4KB/core) with decreasing NRH as low as 20 .II. B ACKGROUND 
+
+A. DRAM Organization and Operations 
+
+DRAM memory systems are organized hierarchically as a set of ranks, banks, and cells. The operation of DRAM is initiated by a memory controller in the processor. Memory channel buses transport incoming DRAM memory requests, each defined with specific timing constraints that the mem-ory controller uses to coordinate data transfer with a rank in DRAM. Each rank contains independent DRAM banks operating in lockstep. A part of memory address bits is used to index the rank, the bank in that rank, and the memory array of cells organized by rows and columns in each bank. To access data stored in a DRAM cell, the memory con-troller issues an activation (ACT) command, specifying both the bank address and row address associated with the data address. The data is latched in the row buffer where data is read by supplying a column address. To access another row (i.e., row conflict ), the memory controller must issue a precharge (PRE) command to close the currently open row first. The row must remain open for at least tRAS time before it can be closed for subsequent access to another row. To maintain data integrity, periodic refresh (REF) operations are required to restore the charge for each cell capacitor. These REF operations must occur within a refresh window (tREFW ). To systematically refresh each row at least once within the tREFW window, the memory controller issues a REF command for one row of DRAM cells in all banks at regular refresh intervals ( tREFI ) [51], typically every 7.8 μsfor a 64 ms window, or 3.9 μs for a 32 ms window [52]– [57]. To refresh all cells within tREFW , the memory controller cycles through every row to issue REF commands in a round-robin or interleaved manner, preventing any single row from exceeding the maximum allowable time without a refresh. When a row is refreshed, there is a refresh latency ( tRFC ) that temporarily pauses normal memory access operations in that row to complete the refresh operation. 
+
+B. RowHammer Mechanism 
+
+RowHammer is a security vulnerability in which rapid re-peated activations to an aggressor row induce read disturbance bitflips in nearby victim rows due to electrical interference [1], [2], [14], [15], [22], [58], [59]. This phenomenon, known as read disturbance, is caused by capacitive coupling. Frequently opening (ACT) and closing (PRE) the aggressor row causes charge leakage in storage capacitors of adjacent ( ±1) or even non-adjacent ( ≥ ± 2) rows up to a blast radius (BR) of ±2
+
+to ±4 rows. If a row is activated at least NRH times within 
+
+tREFI , data in nearby rows may be corrupted before they are refreshed. With technology scaling, prior works show NRH has dropped from 139K in DDR3 [1] to 10K in DDR4 and 4.8K in LPDDR4 [2], and is expected to decline below 1K [9]. 
+
+C. Mitigation Approaches 
+
+In DDR4 and DDR5, TRR has been widely adopted as an in-DRAM RowHammer mitigation. TRR tracks frequently Fig. 1: Overview of ABO timing in PRAC. activated aggressor rows and proactively refreshes their neigh-boring victim rows to prevent bit flips. Prior works have proposed read disturbance mitigation mechanisms to prevent bitflips from RowHammer attacks [1], [6]–[8], [17]–[21], [23], [31], [32]. Consequently, memory controller-based solutions complement TRR by extending the tracking and mitigation capabilities beyond what is possible within DRAM chips alone [3]. These solutions rely on probabilistic or deterministic triggers, each offering different trade-offs in terms of storage and timing overheads. 
+
+Probabilistic Mitigation. Probabilistic mechanisms often achieve lower chip area overhead by using approximation techniques such as random sampling or probabilistic row refreshes [1], [33]–[35]. However, their inherent randomness leads to imperfect coverage, resulting in redundant refreshes of non-critical rows. As a result, such approaches do not scale well for lower NRH thresholds, where more precise tracking becomes critical. 
+
+Deterministic Mitigation. In contrast, deterministic solutions maintain accurate access tracking by leveraging activation counters, usually incurring higher storage overhead [3]. To reduce this overhead, many works propose shared counters across groups of rows [17], [19], [20], [23]. However, shared counters struggle to deliver fine-grained tracking, especially as DRAM densities rise and thresholds fall. For instance, in Hydra [20], shared counters are synchronized periodically with individual counters, introducing computational overhead and delayed refresh accuracy. Similar issues arise in DREAM [36], ABACuS [17], CoMeT [23], and Graphene [19], where track-ing is approximate and vulnerable to adversarial patterns such as multi-bank attacks [59]. These patterns can overload shared counters, forcing redundant all-bank refreshes, reducing DRAM bandwidth and increasing slowdown [17], [60]. 
+
+DDR5 PRAC+ABO. To standardize and support accurate row-level tracking in DRAM, the April 2024 JEDEC up-date of the DDR5 specification introduced PRAC [61], a new on-DRAM-die read-disturbance error (RDE) mechanism that maintains an ACT counter for each row to precisely track activations. Illustrated in Fig. 1, when a row’s ACT count reaches a back-off threshold ( NBO ) 1, 1 the DRAM chip asserts an alert back-off (ABO) signal to the MC, 2permitting additional activations (ABO ACT ) within a limited window (e.g., 180 ns), before 3 performing a fixed number of RFM commands (ABO RFM ), and 4 enforcing a minimum activation quota prior to the next ABO event (ABO DELAY ). Table I summarizes PRAC-related parameters.    
+
+> 1NBO can be configured to 70%, 80%, 90%, or 100% of NRH [61]
+
+TABLE I: PRAC Parameters as per DDR5 Specification [61]                
+
+> Parameter Explanation Value
+> NBO Back-Off Threshold NBO ≤NRH
+> ABO ACT Max. ACTs from Alert to RFM 3 (up to 180ns) ABO RFM Max. RFMs on Alert 1, 2, or 4 ABO DELAY Min. ACTs after RFM to Alert Same as ABO RFM (1,2, or 4)
+> tRFM Duration of RFM ab 410ns
+
+Building on TRR, RFM is a DDR5-specified DRAM com-mand that allocates a time window (e.g., tRFM = 410 ns) for the DRAM chip to perform preventive refreshes of potential victim rows. Specifications prior to 2024 (e.g., DDR5 [56]) recommend that the memory controller trigger RFM when total row activations in a bank or logical memory region exceed a threshold (e.g., NBO = 32 [61]). 
+
+D. Variants of RowHammer 
+
+Recent RowHammer attacks on DDR4 and DDR5 have demonstrated that TRR is exploitable using crafted memory access patterns that bypass existing mitigation techniques [1], [2], [14], [15], [22], [58], including single-sided, double-sided, multi-sided, and multi-bank hammering. Sophisticated multi-sided attacks such as Half-Double [62] and BLASTER [63] have been shown to induce bitflips in non-adjacent victim rows (i.e., ±2 - 4 BR). Other sophisticated attacks such as TRRespass [26] and BlackSmith [16] exploit the timing constraints of refresh-based mitigations using complex, non-uniform memory access patterns to induce bitflips. Recent multi-bank attacks such as SledgeHammer [59] further accelerate bit flips on DDR4 by leveraging bank-level parallelism and cache self-eviction techniques. Fig. 2 illustrates a 32-sided, multi-bank RowHammer pattern that interleaves aggressor activations across all banks. During the setup phase, each bank is sequentially hammered in 32 con-secutive aggressor rows, with activations interleaved so that each bank receives its next activation in turn. Every aggressor row is driven up to NBO − 1 activations (ATH). During the attack phase, under PRAC, an ABO event is induced in an ATH row per round, and the resulting ABO ACT and ABO DELAY 
+
+activations distribute across the set of remaining ATH row in multiple rounds to ultimately exceed NRH , inducing bitflips. 0 31 2
+
+tRC tRC tRC ROWS             
+
+> BANK
+> N..32
+> |R| = 32 x B
+> ABCD+1 +1 +1 +1 +32 +32 +32 +32
+> ACT ≥NBO
+
+Fig. 2: Overview of 32-sided Multi-Bank RowHammer Attack. 
+
+E. Reinforcement Learning Fundamentals 
+
+Fundamentally, RL is the algorithmic approach of learning how to select an action in a given situation to maximize a reward 
+
+Rt
+
+state 
+
+St
+
+action 
+
+At
+
+Rt+1 
+
+St+1 
+
+Agent 
+
+Environment Fig. 3: Overview of MDP in Reinforcement Learning. numerical reward signal. A typical RL system is modeled as a Markov Decision Process (MDP) comprising an agent and an environment. The agent is the entity that selects actions by interacting with an environment in discrete timesteps, as shown in Fig. 3. At each timestep t, the agent (1) chooses an action 
+
+at based on the current state st, causing the environment to transition to a new state st+1 and (2) emit an immediate or delayed reward (rt+1 ) at the next state transition. The agent’s objective is to maximize cumulative reward via an optimal policy. The expected cumulative reward for each state-action pair is the Q-value Q(s, a ), stored in a Q-table. Q-values are updated via the Bellman Optimality Equation :         
+
+> Q(st, a t)←Q(st, a t)+α
+> 
+> rt+1 +γmax
+> a′Q(st+1 , a ′)−Q(st, a t)
+> 
+
+Here, α is the learning rate (convergence speed) and γ
+
+the discount factor (balance between immediate and future rewards). To avoid suboptimal greedy policies [48], the ϵ-greedy strat-egy selects a random action with probability ϵ (the exploration rate ), which decays over time to shift from exploration toward exploitation. III. M OTIVATION 
+
+As the physical distance between adjacent DRAM rows shrinks with increasing chip density, susceptibility to RowHammer and related read disturbance errors (RDEs) in-creases due to higher cell-to-cell coupling and accelerated charge leakage. Mitigating these vulnerabilities requires more aggressive refresh rates, which impose prohibitive perfor-mance overheads at decreasing RowHammer thresholds. These refresh-based approaches assume the memory controller can react rapidly enough to prevent critical charge loss. However, as thresholds are expected to decline below 1K activations [9], reliable data retention cannot be guaranteed by current timing guardbands in DRAM, motivating the need for novel detec-tion and mitigation strategies that address these fundamental scaling challenges. These scaling challenges are compounded by the continued evolution of RowHammer attack patterns. Early DDR4 miti-gation mechanisms used coarse-grained tracking with shared counters to identify vulnerable rows [17], [19], [20], [23], which minimized area overheads but introduced blind spots. As attack techniques progressed beyond single- and double-sided hammering to multi-sided and multi-bank patterns, these blind spots became increasingly exploitable. To address these limitations, the latest DDR5 standard introduced PRAC, which 0 1 2 3 4 5 6
+
+> ABO
+> 0
+> 2
+> 4
+> Preventive Actions
+> +1e4
+> +1e5
+> = 1.00
+> 0.5
+> 1.0
+> 1.5
+> RFM Latency (ns)
+> +1e8
+
+Fig. 4: PRAC’s effect on ABOs, preventive actions, and RFM latency in 56 multi-bank attack workloads ( NBO of 128 to 20 ). provides fine-grained tracking with on-die per-row activation counters in each bank. When a counter exceeds NBO , PRAC issues an ABO signal that triggers RFM (§II-C). However, modern RowHammer attacks are increasingly dynamic and sophisticated, continually bypassing heuristic-based mitigation strategies designed to detect known patterns. This adaptability renders static, fixed-threshold defenses, such as current DDR5 refresh mechanisms, insufficient to handle increasingly complex, multi-bank, and dynamic RowHammer attacks [5]. As physical scaling exacerbates RowHammer susceptibility, and empirical evidence shows PRAC’s limita-tions at lowered NBO thresholds [4], [6]–[8], it is clear prior approaches do not fully address the evolving attack landscape. Unfortunately, as NBO reduces, PRAC becomes increas-ingly vulnerable to channel-wide lockouts at sub-1K activation thresholds [2]. Between ABOs, PRAC enforces fixed activa-tions from ABO ACT and ABO DELAY on each refreshed bank, which increment row counters that may trigger subsequent ABOs if the counters reach NBO . The ABO signals lead to issuing all-bank RFM commands, with Fig. 4 illustrating a near linear correlation of ABO and preventive actions (RFM) on cumulative RFM latency. Performing RFM on each bank from ABO increases ABO frequency because PRAC issues fixed activations across refreshed banks on every ABO, which raises the likelihood of RDE bitflips. Given these limitations, an alternative approach is needed to better address the vul-nerabilities introduced by reduced NBO . One such approach is Chronus [7], a PRAC-based mechanism that eliminates ABO ACT and ABO DELAY constraints. 1024     
+
+> 512
+> 256
+> 128
+> 64
+> 32
+> NBO
+> 0
+> 1
+> 10
+> 100
+> Total Bitflips
+> 210
+> MPKI
+> (NBO = 128 )
+> 0
+> 1
+> 10
+> 100
+> LOW MEDIUM HIGH
+> 429.mcf
+> 434.zeusmp
+> 450.soplex
+> 470.lbm
+> 471.omnetpp
+> 483.xalancbmk
+> 519.lbm 401.bzip2
+> 464.h264ref
+> 436.cactusADM
+> 437.leslie3d
+> 482.sphinx3
+> 505.mcf
+> 510.parest
+> tpch2
+> PRAC
+> Chronus
+
+Fig. 5: Bitflips from 56 benign workloads in (a) PRAC across 
+
+NBO (left) and (b) in PRAC and Chronus at NBO = 128 (right). We evaluate the security implications of PRAC and Chronus as NBO decreases from 1024 to 128 . Fig. 5 illustrates the growing number of bitflips in PRAC across decreasing NBO 
+
+thresholds, confirming that refresh alone cannot fully protect benign workloads from RDE vulnerabilities. These results are presented as a box-and-whisker plot 2 across evaluated NBO 
+
+values (a) and as a scatterplot of bitflips at NBO of 128 (b). We make two observations from Fig. 5a. First, bitflips begin manifesting at an NBO of 128, for a total of 193 across all workloads. Second, we observe increased RDE susceptibility in PRAC as NBO decreases, whereas no bitflips were observed in Chronus. As shown in Fig. 5b, PRAC exhibited bitflips in 15 of 56 workloads at NBO of 128, reaching up to 93 
+
+bitflips ( 429.mcf ). These results indicate that PRAC’s ability to mitigate bitflips diminishes as NBO decreases, further empha-sizing the limitations of refresh-based mitigation techniques. Although fixed or hard-coded mitigation policies such as PRAC provide baseline protection, they lack the flexibility to adapt to dynamic workload behaviors and attack patterns. Taken together, these observations reveal that existing de-terministic refresh mechanisms and fixed mitigation policies cannot keep pace with highly sophisticated RowHammer attacks, particularly at low NBO thresholds. The increasing vulnerability to multi-bank attack patterns further complicates the challenge by expanding the attack surface, underscoring the potential for increasingly dynamic and complex RowHam-mer attacks in the future. A mechanism that can adaptively respond to changing attack strategies and workload behavior is therefore essential. To close this gap, we propose ARTA, an adaptive reinforcement-learning-based throttling agent that dynamically adapts to changing workload behavior and attack patterns to mitigate RowHammer attacks more effectively than deterministic mitigation policies. IV. ARTA I MPLEMENTATION DETAILS 
+
+Our RL-guided DFS framework, ARTA, adaptively throttles cores exhibiting RowHammer-like access patterns by replacing the conventional frequency governor with an RL-driven OS-level controller. Processor state transitions are aligned with the DDR5 refresh window ( tREFW = 32 ms) to mask DFS latency. At each window, ARTA observes memory activity, quantifies its severity, selects a P- or C-state action, and receives a delayed reward reflecting the system response. States represent discretized levels of RowHammer-relevant access intensity, derived from per-core address queues. Q-learning updates a compact Q-table to map observed patterns to optimal throttling decisions, enabling real-time attack suppression with minimal performance and energy overhead. 
+
+A. ARTA Architecture 
+
+Fig. 6 shows a high-level overview of ARTA. ARTA consists of two key hardware structures: Q-Table (QT) and per-core, per-bank FIFO queues (CBF). The QT stores Q-values Q(s, a )
+
+for each state-action pair (s, a ). Each CBF maintains a list of per-bank first-in-first-out (FIFO) queues and registers that store three key pieces of information: (1) the current state of     
+
+> 2The box extends from the first quartile (the median of the lower half of the ordered data) to the third quartile (the median of the upper half). The interquartile range ( IQR ), representing the box height, is the difference between these quartiles. Whiskers extend to the most extreme data points within 1.5×IQR from the quartiles.
+
+the core, (2) the action taken, and (3) the clock cycle when throttling occurred. The recorded clock cycle ensures that throttling adheres to the minimum delay required by the ACPI specification, thus preventing the CPU from being throttled earlier than permitted. ARTA CBF Q-Table (QT) 
+
+Fig. 6: Overview of DRAM architecture with ARTA. ARTA adds two hardware structures to the MC: the CBF (per-core, per-bank FIFO, 16 entries × 17-bit row IDs; shown as Row X) and the Q-Table (QT) (11 states × 6 actions; shown as the RL network). PRE requests are indexed by core ID and bank ID to update the CBF, which computes the severity score fed to the QT. The CBF tracks recent memory addresses from PRE re-quests. For each PRE request, the requesting CPU core ID and the corresponding DRAM bank ID are parsed from the request metadata to efficiently index the request to the appropriate CBF. By organizing each request based on the requesting core ID and its associated bank ID, ARTA disentangles inter-core and inter-bank contention, enabling accurate computation of second-order differences for detection of hammering patterns. ARTA employs second-order difference computation of recently accessed memory addresses to detect RowHammer attack patterns. A RowHammer attack pattern exhibits two inherent characteristics: (1) repetition, where aggressor rows are repeatedly activated within a short period of a single DRAM refresh window ( tREFW ) of 32 ms (DDR5 [61]) or 
+
+64 ms (DDR4 [52]), and (2) proximity, where consecutive memory accesses target rows physically adjacent to victim rows. By using the CBF to continuously monitor recent memory access sequences, ARTA captures these temporal and spatial correlations to distinguish hammering patterns from benign patterns. 
+
+B. RL Control Mechanisms 1) Q-table Initialization : The discrete states ( s ∈ [0 , 1] 
+
+with cardinality NS ) represent the severity of the pattern (e.g., 0%, 10%, 20%), quantifying repeated and close-proximity memory accesses; values closer to 1 indicate higher severity. Actions ( a ∈ [0 , 1] with cardinality NA) correspond to discrete processor states, that is, P-states or, for worst-case patterns, an idle C-state (C1) to adjust CPU core clock frequency with DFS in response to changing access patterns. To accelerate convergence, the Q-value of each state-action pair in the QT is pre-initialized using a Gaussian-like linear decay function. Pre-initialization reduces the exploration time and accelerates convergence by mapping actions such as P0 to discretized states (e.g., 0%, 10%, 20%) as shown in Fig. 7. Given each action a, we define a preferred severity interval 
+
+[smin  
+
+> a
+
+, s max  
+
+> a
+
+]. The first (P0) and last (C1) actions are assigned boundary intervals to cover the extremal state values, where 
+
+smin 0 = 0 , smax 0 = smin for P0, and smin  
+
+> 1
+
+= smax , smax  
+
+> 1
+
+= 1 0.0   
+
+> 0.1
+> 0.2
+> 0.3
+> Severity = 0.00
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> Severity = 0.10
+> 0.0
+> 0.1
+> 0.2
+> 0.3 Severity = 0.20
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.30
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.40
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.50
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.60
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.70
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.80
+> 0.0
+> 0.1
+> 0.2
+> Severity = 0.90
+> 0.0
+> 0.1
+> 0.2
+> Severity = 1.00 P0 (throttle=0.00)
+> P1 (throttle=0.20)
+> P2 (throttle=0.40)
+> P3 (throttle=0.60)
+> P4 (throttle=0.80)
+> C1 (throttle=1.00)
+> P-States (Action)
+> Q-Value
+
+Fig. 7: Gaussian-like linear-decay for pre-initializing Q-values. for C1. The remaining interior actions (P1, P2, P3, P4) are assigned equally spaced intervals over [smin , s max ]. The center of each interval, ¯sa = ( smin  
+
+> a
+
++ smax  
+
+> a
+
+)/2, represents the target severity of action a.For a given state s, the initial Q-value Q0(s, a ) for action 
+
+a is calculated based on the distance between s and ¯sa,normalized such that all Q-values for state s sum to 1:                
+
+> Q0(s, a ) = max
+> 
+> 0,1−λ·s−¯sa
+> P
+> a′max
+> 
+> 0,1−λ·s−¯sa′
+> 
+
+Here, λ is a tunable linear decay coefficient that scales Q-values to decrease with distance from the target severity. Actions with target severity closer to a given state receive higher Q-values, while distant actions decay linearly toward 0. The resulting piecewise-linear, Gaussian-like profile over the action space biases the early RL policy toward selecting appropriate processor states given the observed memory access pattern, while enabling Q-learning to dynamically refine the policy according to the standard Bellman update (§II-E). 
+
+2) State-to-Action Policy : On a PRE request, the requesting core ID and DRAM bank ID index to the corresponding CBF. ARTA (1) computes the access pattern severity from the memory addresses tracked by the CBF, (2) uses the resulting severity state ( st+1 ) to index the QT, and (3) select the pro-cessor state ( at+1 ) with the highest Q-value ( Q(s, a )). ARTA computes pattern severity in a specific core as a normalized score. The score is bounded between 0 and 1, calculated as the sum of the absolute second-order difference from the memory addresses tracked by the CBF. Let the FIFO sequence of recent memory addresses tracked by the CBF be F = [ m0, m 1, . . . , m n]. The first-order differ-ences are ∆1[i] = m[i] − m[i − 1] , 1 ≤ i ≤ n − 1 and the second-order differences are ∆2[i] = ∆ 1[i] − ∆1[i − 1] , 1 ≤
+
+i ≤ n−2. Finally, the sum of absolute second-order differences is used to compute the normalized pattern severity score sF :             
+
+> sF= 1 −min 1,
+> Pn−2
+> i=1 |∆2[i]|
+> β·(n−2)
+> !
+> ,s∈[0 ,1] ,
+
+where β is a normalization coefficient representing the fraction of DRAM rows that an attacker can feasibly target 0 1 2 3 4
+
+> N Distance Between Agg. Rows
+> 2
+> 4
+> 6
+> 8
+> 10
+> N Distinct Agg. Rows
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 70
+> 80
+> 90
+> 100
+> 100
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> Second-Order Diff.
+> n 2
+> i = 1
+> | 2[i]|
+
+Fig. 8: Distribution of the sum of absolute second-order dif-ferences in a 16-entry FIFO for N-sided hammering patterns. within one tREFW window. Concretely, for a 128K-row DDR5 bank at NBO = 64 , at most ⌊tREFW /t RC ⌋/64 ≈ 1% of rows can be hammered per window, so β is set accordingly. This prevents benign workloads with naturally large address spreads from being incorrectly classified as attacks. A higher score indicates a more rapid and repeated memory access pattern characteristic of RowHammer attacks. This score, referred to as the observed severity , is adjusted to a relative severity if the core is already throttled. The resulting score maps to a discrete severity state that ARTA uses to select the processor state with the highest Q-value at that timestep. Fig. 8 illustrates the distribution of the sum of absolute second-order differ-ences for multi-sided RowHammer patterns assuming a FIFO containing up to 16 entries. The x-axis shows the distance between aggressor rows, while the y-axis denotes the N-sided pattern. The contour lines represent the sum of second-order differences, with each line indicating a set of points sharing an identical measurement. A value of 0 represents a perfect repeating pattern sequence. Given the newly observed severity state st+1 and previous throttling action at, the relative severity sR is defined as         
+
+> sR=
+> 
+> 1,if at= 1 ,
+> min
+> 
+> 1,st+1
+> 1−at
+> 
+> ,otherwise.
+
+ARTA computes the relative severity by scaling the observed severity to estimate its unthrottled equivalent. This normal-ization corrects for the underestimation that occurs because throttling reduces the observed severity. At the next state transition immediately following a PRE command, ARTA updates the CBF registers. The stored sever-ity state and throttling action are overwritten with the current state and the new action chosen by the RL policy. 
+
+3) Policy Evaluation : Upon updating the CBF registers, ARTA updates the Q-value of the state-action pair Q(st, a t)
+
+corresponding to the overwritten throttling action at. This reward quantifies both the accuracy of the previous processor state and the effectiveness of mitigating high-severity memory access patterns. Integration of normalized action and state metrics simultaneously encourage the selection of processor states that (1) minimize the deviation from the optimal throt-tling action (i.e., highest Q-value) and (2) reduce pattern severity. As a result, the reward function generates an equally constrained range of negative and positive rewards rt+1 , as shown in Fig. 9. In the following, we describe in detail ARTA’s reward function algorithm. Let S = {s0, s 1, . . . , s NS } be the discrete set of severity states with cardinality NS , and let A = {a0, a 1, . . . , a NA } be the set of available DFS operating points (P- and C-states) with cardinality NA. Each continuous severity measurement is quantized by mapping the current state st to the nearest discrete bin ˆst ∈ S , where ˆst = min  NS , max  0, ⌊st×NS ⌋ .Each action ai ∈ A corresponds to a DFS operating point. 1.0 0.5 0.0 0.5 1.0             
+
+> State Difference ( ds=stst+ 1 )
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> Action Distance
+> da = |at a*(st)|
+> NA
+> rt+ 1 =wr(0.5 da+ds)
+> zero reward 1
+> 0
+> 1
+> Reward ( rt + 1 )
+
+Fig. 9: Rewards distribution of selected actions in given states. Given the current state st, the optimal action a∗(ˆ st) is defined as    
+
+> a∗(ˆ st) = arg min
+> ai∈A |ai−ˆst|,
+
+which minimizes the absolute deviation between the target system severity and the throttling level of the chosen processor state. To reduce exploitation bias, ARTA allows selection from the top-K actions closest to the optimal action a∗(ˆ st) during exploration, promoting more diverse action sampling while still prioritizing reward-maximizing throttling decisions. The normalized distance da between the selected action at
+
+and the optimal action a∗(ˆ st) is defined as         
+
+> da=|at−a∗(ˆ st)|
+> NA
+> ,da∈[0 ,1] ,
+
+where values near 0 indicate optimal action selection. The 
+
+normalized difference ds of the state transition is defined as         
+
+> ds=st−st+1 ,ds∈[−1,1]
+
+where values of 0 < d s ≤ 1 indicate an improved state. These normalized metrics quantify the accuracy ( da) and effectiveness ( ds) of action selection at in modifying the severity state st.The reward rt+1 is computed as a weighted sum of the action and state contributions:             
+
+> rt+1 =wr(0 .5−da+ds),−1.5wr≤rt+1 ≤1.5wr
+
+where wr > 0 is a predefined scaling factor. Larger reward magnitudes amplify the learning signal, which can accelerate convergence by improving action differentiation. Thus, tuning 
+
+wr is crucial to avoid excessive rewards that can lead to premature convergence and reduced exploration. The reward function is incorporated into the Q-learning up-date algorithm as defined by the Bellman Optimality Equation 
+
+(§II-E). The reward rt+1 therefore serves as the immediate feedback signal that guides ARTA toward an optimal policy 
+
+π∗, which maximizes cumulative expected reward over time while dynamically adjusting the clock frequency of the mali-cious core in response to detected RowHammer activity. The boundedness, monotonicity, and normalization of the reward ensure stable convergence of the Q-learning algorithm. 
+
+Role of Online Q-Learning. The Gaussian-initialized Q-table captures a near-optimal static mapping at deployment, but online Bellman updates provide meaningful adaptation beyond this baseline. In practice, high-MPKI workloads generate address streams that naturally resemble RowHammer patterns at moderate severity; online updates allow ARTA to distinguish these benign patterns from genuine attacks over time, reducing false positives without offline retraining — the key distinction from a static lookup table. 
+
+C. Technology Compatibility 
+
+ARTA is compatible with all DDR generations by adapting 
+
+TA to match the respective tREFW (64 ms in DDR3/DDR4 and 32 ms in DDR5), and is compatible with existing RowHammer mitigation mechanisms such as TRR (DDR4/DDR5) and RFM (DDR5). However, ARTA does not strictly require integration with existing mitigation mechanisms, allowing standalone op-eration. To finetune ARTA’s runtime operation, two tunable configuration parameters are defined: (1) the CBF size ( NF )and (2) throttling window ( TA), which govern detection accu-racy and throttling rate, respectively. Increased NF enlarges the FIFO sampling window, generally improving detection accuracy, whereas decreased NF may raise false positives. Careful tuning of NF is required to mitigate increased system latency caused by computation of second-order differences or throttling of benign threads. Reducing TA enables more responsive throttling decisions, allowing the system to adapt more quickly to emerging RowHammer threats. V. M ETHODOLOGY 
+
+We evaluate ARTA against BreakHammer and Chronus using Ramulator2 [64], a trace-based cycle-accurate DRAM simulator (4-core x86 out-of-order CPU, 8MB shared LLC, 32GB DDR5). Table II specifies our system configuration. TABLE II: Simulated System Configuration         
+
+> Processor 4 core, 4 GHz, 4 wide, 128 entry reorder buffer
+> DRAM 32GB DDR5, 6400MHz DDR, 1 channel, 1 ranks, 8 bank groups, 4 banks/bank group, 128K rows/bank
+> Memory Controller
+> 64-entry R/W queues, 8 MB LLC, 16ns tRAS , 52ns tRC , 410ns RFM ab ,3.9μstREFI , 32ms tREFW , 410ns tRFC
+
+Workloads: Each core runs 500M instructions across 56 work-loads (SPEC CPU2006/2017, TPC, Hadoop, MediaBench, and YCSB) at NBO values of 128, 64, 32, and 20. We group workloads by row-buffer misses per kilo instructions (MPKI), similar to prior works [17], [32]. These groups are low [0–2), medium [2–10), and high [10+). 
+
+Evaluation: We compare ARTA against Chronus, a state-of-the-art DDR5 RowHammer mitigation mechanism, as well as a baseline system without mitigation, Chronus without throt-tling, and BreakHammer paired with Chronus. BreakHam-mer [32] reduces overheads by identifying threads that fre-quently trigger preventive RowHammer actions using per-thread counters updated within each 32 ms refresh-aligned 90   
+
+> 95
+> 100
+> 105
+> Speedup (%)
+> GMEAN
+> Chronus Chronus+BH Chronus+AA
+> 511.povray
+> 538.imagick
+> 541.leela
+> 481.wrf
+> 444.namd
+> 447.dealII
+> h264_encode
+> 544.nab
+> 464.h264ref
+> 403.gcc
+> 526.blender
+> 508.namd
+> 435.gromacs
+> 525.x264
+> 531.deepsjeng
+> 445.gobmk
+> 458.sjeng
+> ycsb_abgsave
+> 502.gcc
+> 523.xalancbmk
+> tpch6
+> 401.bzip2
+> ycsb_dserver
+> ycsb_cserver
+> 500.perlbench
+> ycsb_bserver
+> ycsb_eserver
+> grep_map0
+> jp2_encode
+> ycsb_aserver
+> tpcc64
+> wc_map0
+> wc_8443
+> jp2_decode
+> 557.xz
+> 507.cactuBSSN
+> tpch17
+> 505.mcf
+> 482.sphinx3
+> 436.cactusADM
+> 510.parest
+> 462.libquantum
+> tpch2
+> 437.leslie3d
+> 473.astar
+> 483.xalancbmk
+> 520.omnetpp
+> 471.omnetpp
+> 450.soplex
+> 433.milc
+> 459.GemsFDTD
+> 549.fotonik3d
+> 434.zeusmp
+> 519.lbm
+> 470.lbm
+> 429.mcf
+> SPEC2K6
+> SPEC2K17
+> TPC
+> Hadoop
+> MediaBench
+> YCSB
+> All 0
+> 0.2
+> 0.4
+> 0.6
+> ABO per tREFI
+> AMEAN HIGH MEDIUM LOW
+
+Fig. 10: (a) Normalized performance (top) and (b) total ABO per tREFI (bottom) across per-trace workloads at NBO = 64 .window, throttling a thread’s memory requests when its activ-ity is disproportionately high. Chronus [7] extends the PRAC framework by enabling on-demand refresh through JEDEC-specification changes and dynamically adjusting preventive refreshes based on aggressor activity; each bank tracks its top four aggressor rows in an ATT, and Chronus refreshes the highest-priority row during each targeted RFM to minimize unnecessary refreshes while preventing RowHammer. 
+
+Baseline Scope. Pre-DDR5 mechanisms (PARA, Graphene, Hydra, Aqua) are excluded because they do not model the ABO/RFM timing framework of the DDR5 PRAC specifi-cation [61] within which ARTA operates; cross-generation comparison would require misleading assumptions. Chronus is the state-of-the-art within the DDR5 PRAC framework and is our primary comparison. 
+
+ACPI Overhead and Overhead Inclusion. DFS P-state transitions via Intel Speed Shift complete in ∼1–2 μs; with at most one transition per 32 ms tREFW window, amortized overhead is <0.007% of execution cycles. This penalty is modeled as a fixed cycle cost in Ramulator2. All reported speedup, ABO, preventive action, RFM latency, and energy figures include ARTA’s full runtime overhead (CBF updates, Q-table lookups, severity computation, and DFS transitions). VI. E VALUATION 
+
+ARTA’s RL-based pattern detection enables precise throt-tling of malicious threads, effectively eliminating RowHam-mer attacks and enhancing system performance. In the fol-lowing, we evaluate ARTA’s performance based on system throughput, ABO frequency, and runtime overhead. 
+
+A. Performance Improvement 
+
+Fig. 10a shows system performance measured by weighted speedup (%) for workloads with MPKI in the range [2 , 10+] 
+
+at NBO of 64 under a multi-bank RowHammer attack from one malicious thread. Values less than 100% indicate reduced system throughput. We make two observations. First, ARTA improves system throughput by a average of 1.0% over baseline across all workloads with no performance degradation observed in any workload. We attribute this to ARTA’s timely suppression of RowHammer patterns that would otherwise exceed the NBO threshold, thereby avoiding the memory band-width loss caused by additional preventive actions. Second, ARTA outperforms BreakHammer and Chronus by a average (maximum) of 1.6% , improving by up to 4.2% (462.libquan-tum ). Conversely, BreakHammer and Chronus exhibit perfor-mance degradation of up to 3.7% (ycsb abgsave ). Our results show that the 32-sided multi-bank attack evades BreakHammer by distributing activations across all DRAM banks, thereby keeping the attacker thread’s RowHammer-preventive score close to the average score of the three benign threads. This strategy prevents the malicious thread from being identified as a statistical outlier, thus avoiding BreakHammer’s mitigation. Consequently, the attack causes no observable performance difference relative to Chronus without BreakHammer. In con-trast, ARTA leverages memory address tracking for RowHam-mer detection, enabling reliable identification of attacks by monitoring activations at fine granularity within the row cycle time ( tRC ), rather than the coarser refresh cycle time ( tRFC )granularity used by BreakHammer within throttling windows (32 ms ). Fig. 11 shows weighted speedup (%) for each MPKI cate-gory across all evaluated NBO values from 128 to 20 . We make three observations from Fig. 11. All reported performance gains are relative to BreakHammer and Chronus. First, across all workloads, ARTA achieves average (maximum) gains of 
+
+2.7% (11 .9% ) at NBO of 20 . Second, as NBO decreases (i.e., DRAM chips more susceptible to RDE bitflips), ARTA’s maximum gains increase, ranging from 0.9% at NBO of 128 to 
+
+9.2% at NBO of 32 . Third, the largest gains occur in low-MPKI workloads at NBO of 20 (12% ) and 32 (9.2% ), benefiting from ARTA’s pattern detection to prevent memory controller saturation. Medium- and high-MPKI workloads show smaller improvements, peaking at NBO of 32 with gains of 5.4% and 
+
+5.0% , respectively, as memory-bound execution limits ARTA’s frequency scaling benefits. Across all workloads at NBO of 
+
+128 , performance remains largely unaffected ( 0.9% ), con-firming that DFS is selectively activated only under detected threats. Under benign-only workloads with no attacker present, ARTA incurs zero performance degradation, as DFS throttling is never triggered when memory access patterns remain below the severity threshold. 128 64 32 20            
+
+> 98
+> 100
+> Speedup (%)  MPKI Low
+> 128 64 32 20
+> 100
+> 102
+> MPKI Medium
+> 128 64 32 20
+> 98
+> 100
+> MPKI High
+> 128 64 32 20
+> 98
+> 100
+> MPKI All
+> Back-Off Threshold ( NBO )
+> Chronus Chronus+BH Chronus+AA
+
+Fig. 11: Per-MPKI speedup across 56 workloads by NBO .
+
+B. ABO Frequency 
+
+Fig. 10b shows the ABO rate per tREFI at NBO = 64 . In all 
+
+workloads, ARTA reduces ABO rates to near-zero ( <0.001), a 5400 × improvement over BreakHammer and Chronus (av-erage 16.8%, max 49.0%). ARTA achieves 0% ABO in 37 of 56 workloads and reduces rates to 0% in all high-MPKI and 15 of 17 medium-MPKI workloads, preventing bandwidth loss from preventive actions that saturate the memory controller. 128 64 32 20      
+
+> 1.00
+> 1.25
+> 1.50
+> 1.75
+> Preventive Actions
+> 128 64 32 20
+> 0
+> 1K
+> 10K
+> 100K
+> 1M
+> 10M
+> RFM Latency (ns)
+> Back-Off Threshold ( NBO )
+> Chronus Chronus+BH Chronus+AA
+
+Fig. 12: (a) Preventive actions (left) and (b) RFM latency (right) across 56 workloads by NBO .
+
+C. Performance Overhead 
+
+Fig. 12 shows preventive actions and RFM latency from 
+
+NBO = 128 to 20 . ARTA reduces preventive actions by 17 ×
+
+(61 × max) and cumulative RFM latency by 325 × (6600 ×
+
+max) over BreakHammer and Chronus. At NBO = 128 , ARTA achieves zero RFM latency; at NBO = 64 , it issues at most two RFM commands in 19 of 56 workloads, versus avg 109 μs(524 μs max) for competitors. 128 64 32 20            
+
+> 100
+> 102
+> Energy Use (%)  MPKI Low
+> 128 64 32 20
+> 99
+> 100
+> 101
+> MPKI Medium
+> 128 64 32 20
+> 100
+> 102
+> MPKI High
+> 128 64 32 20
+> 99
+> 100
+> 101
+> MPKI All
+> Back-Off Threshold ( NBO )
+> Chronus Chronus+BH Chronus+AA
+
+Fig. 13: Per-MPKI energy consumption across 56 workloads by NBO .
+
+D. Energy 
+
+Fig. 13 reports normalized DRAM energy across MPKI categories for all NBO values. ARTA reduces energy by an average (max) of 1.43% (5.6% ) over BreakHammer and Chronus, with peak savings in low-MPKI workloads ( 1.39% L M H All                                                
+
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K NBO =128
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K NBO =64
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K NBO =32
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> LMHAll
+> MPKI
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K NBO =20
+> LMHAll
+> 0
+> 1
+> 10
+> 100
+> 1K
+> 10K
+> 100K
+> Total Bitflips
+> Chronus Chronus+BH Chronus+AA
+
+Fig. 14: Total bit flips from 32-sided Multi-Bank Hammering. avg, 9.4% max) and at NBO = 32 (3.1% ). By throttling ma-licious threads before repeated activations trigger costly RFM operations, ARTA avoids the up to 11 .3% energy increase incurred by BreakHammer and Chronus at low thresholds. VII. S ENSITIVITY STUDY 
+
+A. Security Evaluation 
+
+Fig. 14 shows bitflip counts for ARTA, BreakHammer, and Chronus under a multi-bank RowHammer attack across MPKI categories, shown as a box-and-whisker plot. The rows of subplots show bitflips as NBO decreases from 128 (top) to 20 (bottom). We make three observations from Fig. 14. First, ARTA effectively eliminates bitflips across workloads, achieving an average of 0 for NBO values from 128 down to 32 .In contrast, BreakHammer and Chronus exhibit bitflips at all evaluated thresholds. Second, at the most aggressive threshold (NBO = 20 ), ARTA still limits RowHammer exploitation to at most a single bitflip on average, with only 2 bitflips observed in 6 low- and medium-MPKI workloads. BreakHammer fails to detect and mitigate the multi-bank attack at all evaluated thresholds, producing no distinguishable differences of bitflip counts observed in Chronus. As a result, both schemes lead to system compromise, with average (maximum) bitflip counts of 8K ( 18 K) in low-MPKI and 9K ( 19 K) in medium-MPKI workloads. We attribute this vulnerability to the large number of preventive actions at low NBO values, which are delayed by 70     
+
+> 80
+> 90
+> 100
+> 110
+> Speedup (%)
+> ARTA-8 ARTA-16 ARTA-32 ARTA-64 ARTA-128
+
+Fig. 15: Speedup of ARTA (a) with PRAC at NBO = 64 (left) and (b) by itself (right) across 56 multi-bank attack workloads. 
+
+tREFI constraints imposed by periodic refresh scheduling, al-lowing hammering-induced disturbances to accumulate. Third, in high-MPKI workloads, BreakHammer and Chronus exhibit the most bitflips, reaching average (maximum) counts of 22 K(33 K) bitflips at NBO of 20 and 8K ( 12 K) at NBO of 32. ARTA, by contrast, reduces bitflips by 22 K× at NBO of 20, preserving data integrity under heavy memory traffic. 
+
+B. Sensitivity to Configuration Parameters 
+
+ARTA is a lightweight RL-based mitigation scheme that dy-namically adjusts core throughput based on real-time memory access patterns. Unlike BreakHammer, ARTA operates fully independently by directly leveraging recent access behavior rather than monitoring preventive actions to detect and sup-press RowHammer activity. ARTA uses a compact CBF to track temporal locality in memory accesses while reducing interference from inter-core and inter-bank contention. To determine the minimum CBF size ( NF) that avoids false positives while maintaining high detection accuracy, we sweep 
+
+NF from 128 down to 8 entries across 56 multi-bank attack workloads at NBO of 64 . Fig. 15 reports weighted speedup [65] for each configuration, shown as box-and-whisker subplots. We evaluate ARTA both with PRAC (left) and standalone (right) to identify the optimal configuration. We make three observations. First, the 16-entry CBF pro-vides the best balance of performance and security. ARTA improves performance by up to 73 .6% (jp2 encode ), with benefits consistent across all MPKI categories and stable with or without PRAC. Although performance differences between CBF sizes are small, the 16-entry CBF is the most secure, maintaining 100% precision and only 21 bitflips across all workloads, compared to 37 for the 32-entry CBF and up to 145 for the 128-entry CBF. Larger CBFs incur additional memory accesses to update their counters, which delays throt-tling decisions and increases vulnerability windows, resulting in more bitflips. Second, standalone ARTA performs nearly identically to ARTA+PRAC. Performance differences remain below 0.01% , indicating that ARTA alone effectively throttles malicious threads, reduces DRAM contention, and preserves system throughput for benign workloads. Third, the 8-entry CBF performs the worst, with only 52 .7% precision. Its limited sampling capacity restricts coverage of recent memory accesses, resulting in 52 false positives and 52 K bitflips. High-MPKI workloads exhibit the highest false positives due to frequent row-buffer conflicts accessing different rows in the same bank, whereas low-MPKI workloads showed zero false positives. By throttling benign threads, throughput degraded by up to 87 .3% . In all instances, both 8-entry CBF configurations performed the worst. Based on these results, we choose NF = 16 because it provides the strongest security against RowHammer attacks while yielding the best overall performance, independent of underlying DRAM mitigation mechanisms. Table III details the per-core storage breakdown. Each 16-entry CBF stores a 17-bit row ID per entry (272 b/bank), plus 73 b of registers (5-bit state ID, 4-bit action ID, 64-bit clock cycle) per bank. Across 32 banks: (272 + 73) × 32 = 11 ,040 b ≈ 1.38 KB. The Q-Table (11 states × 6 actions × 8-bit Q-values) adds 66 B. The total storage overhead per core is 1.4 KB .TABLE III: ARTA Storage Overhead per Core (32-bank DDR5)               
+
+> Structure Per Bank Total (32 banks)
+> CBF FIFO (16 ×17b row IDs) 272 b 8,704 b Registers (5b state + 4b action + 64b cycle) 73 b 2,336 b CBF Subtotal 345 b 11,040 b (1.38 KB) Q-Table (11 states ×6 actions ×8b) 66 B
+> Grand Total ≈1.4 KB per core
+
+C. Threat Model Limitations 
+
+ARTA has two explicit scope limitations. First, multi-core colluding attacks : ARTA monitors each core independently, so a coordinated attack distributing hammer activations across multiple cores — each individually below ARTA’s severity threshold but collectively exceeding NRH — would not be detected. This threat class is acknowledged by BreakHam-mer [32] in its security analysis; cross-core severity aggrega-tion at the MC is left as future work. Second, adversarial evasion : an attacker aware of the second-order difference metric could inject dummy accesses to inflate the difference sum and suppress the severity score. ARTA’s relative severity normalization partially compensates, but formal guarantees against a fully adaptive attacker require future evaluation. A quantitative fairness analysis of per-thread throughput unfair-ness under multiprogram workloads is also deferred to future work. VIII. R ELATED WORK 
+
+Throttling defenses limit access rates before NRH :BreakHammer [32] tracks per-thread preventive actions but misses coordinated multi-bank attacks [59]; BlockHam-mer [66] operates independently of refresh mechanisms. Deter-ministic counter-based schemes [6], [8], [17], [19], [20], [23] refresh rows precisely but suffer blind spots or excessive all-bank refreshes at low thresholds; Chronus [7] refines PRAC timing yet remains exploitable. Probabilistic approaches [34], [35] reduce storage but incur ∼30% bandwidth loss at NBO =250 [6]. Software defenses [37], [38], [40], [41] lack DRAM parameters; ECC [27], [30] cannot correct multi-bit flips. Prior ML detection [67] requires offline supervised training. ARTA is the first RL-based throttling mechanism: it learns policies online without DRAM-side changes, detects multi-bank attacks missed by heuristic defenses, and reduces refresh demand by suppressing activations before NBO .IX. C ONCLUSION 
+
+ARTA is the first RL-based throttling mechanism for RowHammer mitigation. It adds only 1.4 KB of SRAM per core to the memory controller, learns online without DRAM-side modification, and detects multi-bank attacks that evade existing defenses — eliminating nearly all bitflips down to 
+
+NBO = 64 , reducing RFM latency by 325 ×, and improving performance by up to 73 .6% over Chronus and BreakHam-mer. Cross-core colluding attacks and adversarial evasion via dummy accesses remain open threat model gaps addressed in future work. REFERENCES [1] Y. Kim, R. Daly, J. Kim, C. Fallin, J. H. Lee, D. Lee, C. Wilkerson, K. Lai, and O. Mutlu, “Flipping Bits in Memory Without Accessing Them: An Experimental Study of DRAM Disturbance Errors,” ACM SIGARCH Computer Architecture News , vol. 42, no. 3, pp. 361–372, 2014. [2] J. S. Kim, M. Patel, A. G. Ya˘ glıkc ¸ı, H. Hassan, R. Azizi, L. Orosa, and O. Mutlu, “Revisiting RowHammer: An Experimental Analysis of Mod-ern DRAM Devices and Mitigation Techniques,” in 2020 ACM/IEEE 47th Annual International Symposium on Computer Architecture (ISCA) .IEEE, 2020, pp. 638–651. [3] D. Kim, H. Park, I. Yeo, Y. K. Lee, Y. Kim, H.-M. Lee, and K.-W. Kwon, “Rowhammer Attacks in Dynamic Random-Access Memory and Defense Methods,” Sensors , vol. 24, no. 2, 2024. [4] O. Canpolat, A. G. Ya˘ glıkc ¸ı, G. F. Oliveira, A. Olgun, O. Ergin, and O. Mutlu, “Understanding the security benefits and overheads of emerging industry solutions to dram read disturbance,” arXiv preprint arXiv:2406.19094 , 2024. [5] M. Marazzi, K. Razavi, S. Qazi, D. Meyer, D. Moghimi, and P. Jattke, “Phoenix: Rowhammer attacks on ddr5 with self-correcting synchro-nization,” in IEEE Security & Privacy (S&P) , 2026. [6] J. Woo, S. C. Lin, P. J. Nair, A. Jaleel, and G. Saileshwar, “QPRAC: Towards Secure and Practical PRAC-based Rowhammer Mitigation using Priority Queues,” in 2025 IEEE International Symposium on High Performance Computer Architecture (HPCA) . IEEE, 2025, pp. 1021– 1037. [7] O. Canpolat, A. G. Ya˘ glıkc ¸ı, G. F. Oliveira, A. Olgun, N. Bostancı, I. E. Yuksel, H. Luo, O. Ergin, and O. Mutlu, “Chronus: Understanding and Securing the Cutting-Edge Industry Solutions to DRAM Read Distur-bance,” in 2025 IEEE International Symposium on High Performance Computer Architecture (HPCA) . IEEE, 2025, pp. 887–905. [8] M. Qureshi and S. Qazi, “MOAT: Securely Mitigating Rowhammer with Per-Row Activation Counters,” in Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 , 2025, pp. 698–714. [9] H. Luo, A. Olgun, A. G. Ya˘ glıkc ¸ı, Y. C. Tu˘ grul, S. Rhyner, M. B. Cavlak, J. Lindegger, M. Sadrosadati, and O. Mutlu, “Rowpress: Amplifying read disturbance in modern dram chips,” in Proceedings of the 50th Annual International Symposium on Computer Architecture , 2023, pp. 1–18. [10] S. Agarwal, H. Dixit, D. Datta, M. Tran, D. Houssameddine, D. Shum, and F. Benistant, “Rowhammer for spin torque based memory: Problem or not?” in 2018 IEEE International Magnetics Conference (INTER-MAG) , 2018, pp. 1–1. [11] M. N. I. Khan and S. Ghosh, “Analysis of row hammer attack on sttram,” in 2018 IEEE 36th International Conference on Computer Design (ICCD) , 2018, pp. 75–82. [12] H. Li, H.-Y. Chen, Z. Chen, B. Chen, R. Liu, G. Qiu, P. Huang, F. Zhang, Z. Jiang, B. Gao, L. Liu, X. Liu, S. Yu, H.-S. P. Wong, and J. Kang, “Write disturb analyses on half-selected cells of cross-point rram arrays,” in 2014 IEEE International Reliability Physics Symposium , 2014, pp. MY.3.1–MY.3.4. [13] K. Ni, X. Li, J. A. Smith, M. Jerry, and S. Datta, “Write disturb in ferroelectric fets and its implication for 1t-fefet and memory arrays,” 
+
+IEEE Electron Device Letters , vol. 39, no. 11, pp. 1656–1659, 2018. [14] O. Mutlu, “The RowHammer Problem and Other Issues We May Face as Memory Becomes Denser,” in Design, Automation & Test in Europe Conference & Exhibition (DATE), 2017 . IEEE, 2017, pp. 1116–1121. [15] O. Mutlu and J. S. Kim, “Rowhammer: A Retrospective,” IEEE Trans-actions on Computer-Aided Design of Integrated Circuits and Systems ,vol. 39, no. 8, pp. 1555–1571, 2020. [16] P. Jattke, V. Van Der Veen, P. Frigo, S. Gunter, and K. Razavi, “BLACKSMITH: Scalable Rowhammering in the Frequency Domain,” in 2022 IEEE Symposium on Security and Privacy (SP) . IEEE, 2022, pp. 716–734. [17] A. Olgun, Y. C. Tugrul, N. Bostanci, I. E. Yuksel, H. Luo, S. Rhyner, A. G. Yaglikci, G. F. Oliveira, and O. Mutlu, “ABACuS: All-Bank Activation Counters for Scalable and Low Overhead RowHammer Mitigation,” in 33rd USENIX Security Symposium (USENIX Security 24) , 2024, pp. 1579–1596. [18] P. Jattke, M. Wipfli, F. Solt, M. Marazzi, M. B¨ olcskei, and K. Razavi, “ZenHammer: Rowhammer Attacks on AMD Zen-based Platforms,” in 
+
+33rd USENIX Security Symposium (USENIX Security 24) , 2024, pp. 1615–1633. [19] Y. Park, W. Kwon, E. Lee, T. J. Ham, J. H. Ahn, and J. W. Lee, “Graphene: Strong yet Lightweight Row Hammer Protection,” in 2020 53rd Annual IEEE/ACM International Symposium on Microarchitecture (MICRO) . IEEE, 2020, pp. 1–13. [20] M. Qureshi, A. Rohan, G. Saileshwar, and P. J. Nair, “Hydra: Enabling Low-Overhead Mitigation of Row-Hammer at Ultra-Low Thresholds via Hybrid Tracking,” in Proceedings of the 49th Annual International Symposium on Computer Architecture , 2022, pp. 699–710. [21] M. Marazzi, F. Solt, P. Jattke, K. Takashi, and K. Razavi, “REGA: Scalable Rowhammer Mitigation with Refresh-Generating Activations,” in 2023 IEEE Symposium on Security and Privacy (SP) . IEEE, 2023, pp. 1684–1701. [22] O. Mutlu, A. Olgun, and A. G. Ya˘ glıkcı, “Fundamentally Understanding and Solving RowHammer,” in Proceedings of the 28th Asia and South Pacific Design Automation Conference , 2023, pp. 461–468. [23] F. N. Bostanci, I. E. Y¨ uksel, A. Olgun, K. Kanellopoulos, Y. C. Tu˘ grul, A. G. Ya˘ glic ¸i, M. Sadrosadati, and O. Mutlu, “CoMeT: Count-Min-Sketch-based Row Tracking to Mitigate RowHammer at Low Cost,” in 
+
+2024 IEEE International Symposium on High-Performance Computer Architecture (HPCA) . IEEE, 2024, pp. 593–612. [24] F. Brasser, L. Davi, D. Gens, C. Liebchen, and A.-R. Sadeghi, “CAn’t touch this: Software-only mitigation against rowhammer attacks targeting kernel memory,” in 26th USENIX Security Symposium (USENIX Security 17) . Vancouver, BC: USENIX Association, Aug. 2017, pp. 117–130. [Online]. Available: https://www.usenix.org/ conference/usenixsecurity17/technical-sessions/presentation/brasser [25] H. Gomez, A. Amaya, and E. Roa, “Dram row-hammer attack reduc-tion using dummy cells,” in 2016 IEEE Nordic Circuits and Systems Conference (NORCAS) , 2016, pp. 1–4. [26] P. Frigo, E. Vannacc, H. Hassan, V. Van Der Veen, O. Mutlu, C. Giuf-frida, H. Bos, and K. Razavi, “ {TRRespass }: Exploiting the many sides of target row refresh,” in 2020 IEEE Symposium on Security and Privacy (SP) . IEEE, 2020, pp. 747–762. [27] A. Fakhrzadehgan, Y. N. Patt, P. J. Nair, and M. K. Qureshi, “Safeguard: Reducing the security risk from row-hammer via low-cost integrity pro-tection,” in 2022 IEEE International Symposium on High-Performance Computer Architecture (HPCA) . IEEE, 2022, pp. 373–386. [28] J. Juffinger, L. Lamster, A. Kogler, M. Eichlseder, M. Lipp, and D. Gruss, “Csi:rowhammer – cryptographic security and integrity against rowhammer,” in 2023 IEEE Symposium on Security and Privacy (SP) .IEEE, 2023, pp. 1702–1718. [29] A. Saxena, G. Saileshwar, J. Juffinger, A. Kogler, D. Gruss, and M. Qureshi, “Pt-guard: Integrity-protected page tables to defend against breakthrough rowhammer attacks,” in 2023 53rd Annual IEEE/IFIP International Conference on Dependable Systems and Networks (DSN) .IEEE, 2023, pp. 95–108. [30] M. J. Kim, M. Wi, J. Park, S. Ko, J. Choi, H. Nam, N. S. Kim, J. H. Ahn, and E. Lee, “How to kill the second bird with one ecc: The pursuit of row hammer resilient dram,” in Proceedings of the 56th Annual IEEE/ACM International Symposium on Microarchitecture , 2023, pp. 986–1001. [31] T. Bennett, S. Saroiu, A. Wolman, and L. Cojocar, “Panopticon: A Complete In-DRAM Rowhammer Mitigation,” in Workshop on DRAM Security (DRAMSec) , vol. 22, 2021. [32] O. Canpolat, A. G. Ya˘ glıkc ¸ı, A. Olgun, I. E. Yuksel, Y. C. Tu˘ grul, K. Kanellopoulos, O. Ergin, and O. Mutlu, “BreakHammer: Enhancing RowHammer Mitigations by Carefully Throttling Suspect Threads,” in 
+
+2024 57th IEEE/ACM International Symposium on Microarchitecture (MICRO) . IEEE, 2024, pp. 915–934. [33] A. Saxena, G. Saileshwar, P. J. Nair, and M. Qureshi, “Aqua: Scalable rowhammer mitigation by quarantining aggressor rows at runtime,” in 
+
+2022 55th IEEE/ACM International Symposium on Microarchitecture (Micro) . IEEE, 2022, pp. 108–123. [34] A. Jaleel, G. Saileshwar, S. W. Keckler, and M. Qureshi, “Pride: Achiev-ing secure rowhammer mitigation with low-cost in-dram trackers,” in 
+
+2024 ACM/IEEE 51st Annual International Symposium on Computer Architecture (ISCA) . IEEE, 2024, pp. 1157–1172. [35] M. Qureshi, S. Qazi, and A. Jaleel, “Mint: Securely mitigating rowham-mer with a minimalist in-dram tracker,” in 2024 57th IEEE/ACM International Symposium on Microarchitecture (MICRO) . IEEE, 2024, pp. 899–914. [36] H. Taneja and M. Qureshi, “Dream: Enabling low-overhead rowhammer mitigation via directed refresh management,” in Proceedings of the 52nd Annual International Symposium on Computer Architecture , 2025, pp. 776–792. [37] Z. Zhang, Y. Cheng, M. Wang, W. He, W. Wang, S. Nepal, Y. Gao, K. Li, Z. Wang, and C. Wu, “ {SoftTRR }: Protect page tables against rowhammer attacks using software-only target row refresh,” in 2022 USENIX Annual Technical Conference (USENIX ATC 22) , 2022, pp. 399–414. [38] V. Van der Veen, M. Lindorfer, Y. Fratantonio, H. Padmanabha Pillai, G. Vigna, C. Kruegel, H. Bos, and K. Razavi, “ {GuardION }: Practical mitigation of dma-based rowhammer attacks on arm,” in International Conference on Detection of Intrusions and Malware, and Vulnerability Assessment . Springer, 2018, pp. 92–113. [39] R. K. Konoth, M. Oliverio, A. Tatar, D. Andriesse, H. Bos, C. Giuffrida, and K. Razavi, “ {ZebRAM }: Comprehensive and compatible software protection against rowhammer attacks,” in 13th USENIX Symposium on Operating Systems Design and Implementation (OSDI 18) , 2018, pp. 697–710. [40] Z. B. Aweke, S. F. Yitbarek, R. Qiao, R. Das, M. Hicks, Y. Oren, and T. Austin, “Anvil: Software-based protection against next-generation rowhammer attacks,” ACM SIGPLAN Notices , vol. 51, no. 4, pp. 743– 755, 2016. [41] C. Bock, F. Brasser, D. Gens, C. Liebchen, and A.-R. Sadeghi, “Rip-rh: Preventing rowhammer-based inter-process attacks,” in Proceedings of the 2019 ACM Asia Conference on Computer and Communications Security , 2019, pp. 561–572. [42] D. Gruss, C. Maurice, and S. Mangard, “Rowhammer.js: A remote software-induced fault attack in javascript,” in International conference on detection of intrusions and malware, and vulnerability assessment .Springer, 2016, pp. 300–321. [43] L. Cojocar, K. Razavi, C. Giuffrida, and H. Bos, “Exploiting correcting codes: On the effectiveness of ecc memory against rowhammer attacks,” in 2019 IEEE Symposium on Security and Privacy (SP) . IEEE, 2019, pp. 55–71. [44] C. Fiedler, J. Juffinger, S. R. Neela, M. Heckel, H. Weissteiner, A. G. Ya˘ glıkc ¸ı, F. Adamsky, and D. Gruss, “Memory band-aid: A principled rowhammer defense-in-depth,” in NDSS 2026 , 2026. [45] P. Biswas, A. Rashid, A. Biswas, M. A. A. Nasim, S. Chakraborty, K. D. Gupta, and R. George, “Ai-driven approaches for optimizing power consumption: a comprehensive survey,” Discover Artificial Intelligence ,vol. 4, no. 1, 2024. [46] P. Panda, A. Tripathy, and K. C. Bhuyan, “Reinforcement learning-based dynamic voltage and frequency scaling for energy-efficient computing,” in 2024 Third International Conference on Distributed Computing and Electrical Circuits and Electronics (ICDCECE) . IEEE, 2024, pp. 1–6. [47] S. S. Ojha, C. Moharir, and A. Choudhury, “Adaptive ai techniques for mitigating rowhammer attacks in cloud computing environments,” 
+
+International Journal of Innovative Research in Engineering and Man-agement (IJIREM) , vol. 12, no. 2, pp. 16–21, 2025. [48] R. S. Sutton and A. G. Barto, Reinforcement learning: An introduction .MIT Press Cambridge, 1998, vol. 1, no. 1. [49] ScienceDirect, “Advanced configuration and power interface -an overview,” https://www.sciencedirect.com/topics/computer-science/ advanced-configuration-and-power-interface, Elsevier, 2021, accessed: 2025-10-04. [50] R. Hebbar and A. Milenkovi´ c, “Pmu-events-driven dvfs techniques for improving energy efficiency of modern processors,” ACM Transactions on Modeling and Performance Evaluation of Computing Systems , vol. 7, no. 1, pp. 1–31, 2022. [51] B. Jacob, S. Ng, and D. Wang, Memory Systems: Cache, DRAM, Disk .San Francisco, CA, USA: Morgan Kaufmann Publishers Inc., 2008. [52] JEDEC, “JESD79-4C: DDR4 SDRAM Standard,” 2020. [53] ——, “JESD79-3: DDR3 SDRAM Standard,” 2012. [54] Micron Inc., “SDRAM, 4Gb: x4, x8, x16 DDR4 SDRAM Features,” 2014. [55] JEDEC, “JESD209-4B: Low Power Double Data Rate 4 (LPDDR4) Standard,” 2017. [56] ——, “JESD79-5: DDR5 SDRAM Standard,” 2020. [57] ——, “JESD209-5A: LPDDR5 SDRAM Standard,” 2020. [58] A. Olgun, F. N. Bostancı, ˙ I. E. Y¨ uksel, O. Canpolat, H. Luo, G. F. Oliveira, A. G. Ya˘ glıkc ¸ı, M. Patel, and O. Mutlu, “Variable Read Disturbance: An Experimental Analysis of Temporal Variation in DRAM Read Disturbance,” in 2025 IEEE International Symposium on High Performance Computer Architecture (HPCA) . IEEE, 2025, pp. 849– 866. [59] I. Kang, W. Wang, J. Kim, S. van Schaik, Y. Tobah, D. Genkin, A. Kwong, and Y. Yarom, “ {SledgeHammer }: Amplifying rowham-mer via bank-level parallelism,” in 33rd USENIX Security Symposium (USENIX Security 24) , 2024, pp. 1597–1614. [60] J. Woo and P. J. Nair, “Dapper: A performance-attack-resilient tracker for rowhammer defense,” in 2025 IEEE International Symposium on High Performance Computer Architecture (HPCA) . IEEE, 2025, pp. 1005–1020. [61] JEDEC, “JESD79-5C: DDR5 SDRAM Standard,” 2024. [62] A. Kogler, J. Juffinger, S. Qazi, Y. Kim, M. Lipp, N. Boichat, E. Shiu, M. Nissler, and D. Gruss, “ {Half-Double }: Hammering from the next row over,” in 31st USENIX Security Symposium (USENIX Security 22) ,2022, pp. 3807–3824. [63] Z. Lang, P. Jattke, M. Marazzi, and K. Razavi, “ {BLASTER }: Char-acterizing the blast radius of rowhammer,” in 3rd Workshop on DRAM Security (DRAMSec) co-located with ISCA 2023 . ETH Zurich, 2023. [64] H. Luo, Y. C. Tu˘ grul, F. N. Bostancı, A. Olgun, A. G. Ya˘ glıkc ¸ı, and O. Mutlu, “Ramulator 2.0: A modern, modular, and extensible dram simulator,” IEEE Computer Architecture Letters , vol. 23, no. 1, pp. 112– 116, 2024. [65] S. Eyerman and L. Eeckhout, “System-level performance metrics for multiprogram workloads,” IEEE micro , vol. 28, no. 3, pp. 42–53, 2008. [66] A. G. Ya˘ glikc ¸i, M. Patel, J. S. Kim, R. Azizi, A. Olgun, L. Orosa, H. Hassan, J. Park, K. Kanellopoulos, T. Shahroodi et al. , “Block-hammer: Preventing rowhammer at low cost by blacklisting rapidly-accessed dram rows,” in 2021 IEEE International Symposium on High-Performance Computer Architecture (HPCA) . IEEE, 2021, pp. 345– 358. [67] B. K. Joardar, T. K. Bletsch, and K. Chakrabarty, “Machine learning-based rowhammer mitigation,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 42, no. 5, pp. 1393–1405, 2023.

@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-06-12 <!--dpr-date:20260612-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/12/2606.09915v1-arta-adaptive-reinforcement-learning-based-throttling-agent-for-rowhammer-vulnerabilities" data-sidebar-item="{&quot;title&quot;: &quot;ARTA: Adaptive Reinforcement-Learning-Based Throttling Agent for RowHammer Vulnerabilities&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.09915v1-arta-adaptive-reinforcement-learning-based-throttling-agent-for-rowhammer-vulnerabilities&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ml-verify&quot;}], &quot;evidence&quot;: &quot;基于强化学习的节流机制，用于检测DRAM中的RowHammer漏洞&quot;}">ARTA: Adaptive Reinforcement-Learning-Based Throttling Agent for RowHammer Vulnerabilities</a>
   * 2026-06-10 <!--dpr-date:20260610-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/10/2606.08976v1-rtl-benchls-a-large-scale-benchmark-for-rtl-reasoning-and-generation-with-large-language-models" data-sidebar-item="{&quot;title&quot;: &quot;RTL-BenchLS: A Large-Scale Benchmark for RTL Reasoning and Generation with Large Language Models&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.08976v1-rtl-benchls-a-large-scale-benchmark-for-rtl-reasoning-and-generation-with-large-language-models&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;LLM对RTL推理和生成的基准测试&quot;}">RTL-BenchLS: A Large-Scale Benchmark for RTL Reasoning and Generation with Large Language Models</a>
