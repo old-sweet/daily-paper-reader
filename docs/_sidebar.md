@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-06-13 <!--dpr-date:20260613-->
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/13/2606.10285v1-openrtlset-a-fully-open-source-dataset-for-large-language-model-based-verilog-module-design" data-sidebar-item="{&quot;title&quot;: &quot;OpenRTLSet: A Fully Open-Source Dataset for Large Language Model-based Verilog Module Design&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.10285v1-openrtlset-a-fully-open-source-dataset-for-large-language-model-based-verilog-module-design&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;为基于LLM的Verilog模块设计提供大规模开源数据集，支持RTL代码生成&quot;}">OpenRTLSet: A Fully Open-Source Dataset for Large Language Model-based Verilog Module Design</a>
   * 2026-06-12 <!--dpr-date:20260612-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/12/2606.09915v1-arta-adaptive-reinforcement-learning-based-throttling-agent-for-rowhammer-vulnerabilities" data-sidebar-item="{&quot;title&quot;: &quot;ARTA: Adaptive Reinforcement-Learning-Based Throttling Agent for RowHammer Vulnerabilities&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.09915v1-arta-adaptive-reinforcement-learning-based-throttling-agent-for-rowhammer-vulnerabilities&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ml-verify&quot;}], &quot;evidence&quot;: &quot;基于强化学习的节流机制，用于检测DRAM中的RowHammer漏洞&quot;}">ARTA: Adaptive Reinforcement-Learning-Based Throttling Agent for RowHammer Vulnerabilities</a>

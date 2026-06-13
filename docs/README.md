@@ -6,24 +6,24 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-12
-- 运行时间：2026-06-12 22:07:19 UTC
+- 最新运行日期：2026-06-13
+- 运行时间：2026-06-13 20:22:32 UTC
 - 运行状态：成功
 - 本次总论文数：1
-- 精读区：0
-- 速读区：1
+- 精读区：1
+- 速读区：0
 
 ### 今日简报（AI）
-今日阅读1篇速读论文，聚焦RowHammer漏洞的自适应强化学习节流代理。最值得关注的方向是利用强化学习动态调整内存行锤击防护策略，平衡性能与安全。建议硬件安全研究者关注ARTA的实现细节，评估其在实际系统中的适用性。
-- 详情：[/202606/12/README](/202606/12/README)
+今日精读一篇开源数据集论文，它为LLM设计Verilog模块提供了关键资源。该数据集填补了开源缺口，有望显著提升模型生成Verilog代码的准确性与效率。建议感兴趣的朋友关注数据集使用案例，尝试在小型硬件项目中测试其效果。
+- 详情：[/202606/13/README](/202606/13/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [OpenRTLSet: A Fully Open-Source Dataset for Large Language Model-based Verilog Module Design](/202606/13/2606.10285v1-openrtlset-a-fully-open-source-dataset-for-large-language-model-based-verilog-module-design)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：为基于LLM的Verilog模块设计提供大规模开源数据集，支持RTL代码生成
 
 ### 速读区论文标签
-1. [ARTA: Adaptive Reinforcement-Learning-Based Throttling Agent for RowHammer Vulnerabilities](/202606/12/2606.09915v1-arta-adaptive-reinforcement-learning-based-throttling-agent-for-rowhammer-vulnerabilities)  
-   标签：评分：7.0/10、query:ml-verify
-   evidence：基于强化学习的节流机制，用于检测DRAM中的RowHammer漏洞
+- 本次无速读推荐。
 
 
 <div class="dpr-home-promo-card">
