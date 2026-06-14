@@ -1,0 +1,741 @@
+Title: Specifying Hardware Communication as Programs
+
+URL Source: https://arxiv.org/pdf/2606.13659v1
+
+Published Time: Fri, 12 Jun 2026 01:19:59 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Specifying Hardware Communication as Programs 
+
+## Ernest Ng 
+
+Cornell University Ithaca, NY, USA 
+
+eyn5@cornell.edu 
+
+## Nikil Shyamsunder 
+
+Cornell University Ithaca, NY, USA 
+
+nvs26@cornell.edu 
+
+## Francis Pham 
+
+Cornell University Ithaca, NY, USA 
+
+fdp25@cornell.edu 
+
+## Adrian Sampson 
+
+Cornell University Ithaca, NY, USA 
+
+asampson@cs.cornell.edu 
+
+## Kevin Laeufer 
+
+Cornell University Ithaca, NY, USA 
+
+laeufer@cornell.edu 
+
+## Abstract 
+
+To test and debug hardware modules, it is common to write two programs: a driver, which translates high-level trans-actions into interactions on the module’s input and output signals, and a monitor, which analyzes a signal-level execu-tion trace and recognizes a transaction. These two programs are commonly implemented separately for each hardware protocol, but this separation entails manual effort and risks inconsistencies. We advocate an alternative approach. We present ProtoLang ,a DSL in which users specify hardware communication pro-tocols as succinct imperative programs. Crucially, the same specification can be used to both drive designs and monitor transactions. We present the design of a tool, which given a ProtoLang specification and a waveform, automatically infers a transaction-level trace consistent with the wave-form. We discuss plans to evaluate our DSL on real-world interconnects such as Wishbone and AXI-Stream. 
+
+## 1 Introduction 
+
+Testing and debugging hardware designs at the Register-Transfer Level (RTL) is notoriously challenging. Part of the problem is a mismatch in abstraction levels. Testbenches, tracing, and waveform viewers all operate at the level of individual clock cycles and signals. On the other hand, the desired behavior for a hardware module is best articulated at the level of high-level communication protocols involving multiple signals and multi-cycle transactions. For example, when a hardware module uses a ready-valid interface [ 2] to mediate data exchange between a producer and a consumer, the natural way to specify its behavior is at the level of the data sent across this communication protocol. This mismatch in abstraction levels arises in two main parts of a hardware testing workflow. First, to execute a high-level operation, a driver program translates transac-tions into multi-cycle interactions on the input and output pins of the design under test. Second, to analyze and under-stand execution traces, it is common to write a monitor that recognizes the high-level transactions that occurred during a given execution. These two tools are mirror images of each other: the driver generates transactions to produce a trace, and the monitor analyzes a trace to produce transactions. The common practice is to develop these two tools sepa-rately for each hardware protocol. This separation entails extra engineering work, especially when devising the moni-tor, and it introduces the possibility for inconsistencies. This paper advocates for an alternative approach: for any given hardware protocol, write one program to generate both the driver and the monitor. We propose a domain-specific language (DSL), ProtoLang , for specifying the cycle-level behavior of hardware modules’ communication protocols. We define protocols as any kind of communication pattern between any hardware block over time. We are interested in both simple functional units (e.g., how a processor pipeline invokes its ALU), as well as entire accelerator blocks and memory interfaces. We consider both fine-grained communi-cation, e.g., simple ready-valid handshakes, as well as coarse-grained communication protocols such as Wishbone [ 20 ]. Furthermore, we argue that for debugging hardware mod-ules, it is helpful to separate the communication protocol of the module from the actual contents being communicated. These two aspects are conflated by existing tools such as SystemVerilog Assertions [ 22 ], which make it difficult to dis-entangle transaction-level communication bugs from other bugs. Instead of targeting a fixed set of communication pro-tocols, we allow hardware designers to specify any commu-nication behavior in ProtoLang .We aim for ProtoLang to be accessible to hardware en-gineers. To this end, ProtoLang uses simple imperative semantics inspired by software languages, allowing users to describe the intuitive “forward execution” of a protocol over clock cycles. Moreover, ProtoLang specifications are reusable: the same spec is used to power multiple tools: a driver and an algorithm for inferring transaction traces from waveforms, which we call the reconstructor . The driver in-terprets ProtoLang specifications for a module and checks if the Verilog DUT implementation adheres to the specifi-cation. The reconstructor takes a ProtoLang specification and a waveform representing the module’s execution trace, and infers a sequence of transactions consistent with the waveform. For example, given ProtoLang specifications for       
+
+> 1
+> arXiv:2606.13659v1 [cs.PL] 11 Jun 2026 Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer
+> prot add<DUT: Adder>(a: u32 , b: u32 , s: u32 ) { DUT.a := a; DUT.b := b; // Apply inputs
+> assert_eq (DUT.s, s); // Check output
+> step (); // Finish cycle }
+
+Figure 1. A ProtoLang protocol for a combinational adder. a memory controller and a waveform produced by its im-plementation, the reconstructor will recognize instances of 
+
+read and write transactions from the waveform and infer high-level parameters, such as the addresses and values for reads and writes. Using the reconstructor, users will be able to precisely verify whether their DUT’s behavior reflects their specification as stated in ProtoLang .
+
+## 2 ProtoLang Protocols 
+
+ProtoLang is a DSL for specifying the cycle-level commu-nication behavior of hardware components. Developers ex-press hardware interface protocols in ProtoLang as imper-ative programs that interact with a hardware component to execute a small piece of functionality. We refer to these communication programs as protocols . A transaction is a particular invocation of a protocol, e.g. add(10, 20, 30) ,which represents the I/O behavior of an add protocol with 10 and 20 as its inputs and 30 as its output. Figure 1 contains an add protocol for a combinational 32-bit adder. 
+
+Adder refers to a definition of input and output ports, akin to a module declaration in SystemVerilog. The add protocol is parameterized over any design that implements the Adder 
+
+interface, allowing the specification to be generic over the circuit implementation. The arguments a, b, and c contain the high-level data that is communicated through this pro-tocol. We emphasize that this specification only describes the adder’s communication behavior, not the bit-level cor-rectness of the adder’s output. For instance, the constraint that 𝑎 + 𝑏 = 𝑠 is intentionally not encoded in our DSL. (As discussed in previous sections, the purpose of our DSL is to explicitly separate hardware modules’ communication behavior from the data that they communicate.) The body of a protocol is modeled on how a task in Sys-temVerilog [ 23 ], or a function in Python [ 15 ] or Scala-based [ 27 ]hardware testing frameworks might be implemented. Input ports can be assigned, and the value of output ports can be checked. The step() construct yields execution until the next clock cycle. This is similar to @(posedge ...); in Sys-temVerilog, await ClockCycles(..) in Cocotb or step() 
+
+in ChiselTest. ProtoLang is built for synchronous circuit designs, and thus even a combinational operation must take up at least one clock step. 
+
+Pipelining. Now, suppose we wish to specify a sequential 
+
+adder which produces its output one cycle after its inputs           
+
+> prot add<DUT: Adder>(a: u32 , b: u32 , s: u32 ) { DUT.a := a; DUT.b := b; // Apply inputs
+> step (); // One cycle delay DUT.a := X; DUT.b := X; // Release inputs
+> fork (); // Start next transaction
+> assert_eq (DUT.s, s); // Check output
+> step (); // Finish cycle }
+
+Figure 2. A protocol for a pipedlined adder with a one cycle delay. are supplied. However, the adder circuit is not required to hold its inputs stable for both cycles. To specify that the input ports may hold any arbitrary value after one cycle, we can assign X to these ports to indicate that their value does not affect the module’s I/O behavior from this point in the protocol onwards. (We call these DontCare assignments.) We can improve the performance of this adder even fur-ther by specifying its pipelining behavior. Pipelining is a common optimization which allows hardware modules to process multiple inputs in parallel by overlapping concurrent executions. To support pipelining, ProtoLang provides a 
+
+fork() primitive. When fork() is invoked, any other pro-tocol is allowed to execute concurrently “in the background" from the current clock cycle onwards. Afterwards, the parent protocol continues execution in lock-step with any newly started protocol. Figure 2 contains a for a pipelined adder. The call to fork() 
+
+after the first invocation of step() indicates that Adder is allowed to accept new inputs after one cycle. 
+
+Defining multiple protocols over the same interface. 
+
+ProtoLang supports defining multiple protocols over the same DUT interface. For example, to specify the I/O behav-ior of addition and multiplication operations that are both supported by an Arithmetic Logic Unit (ALU), users can de-fine multiple protocols that are parameterized over the same interface, as shown in Figure 3. This design allows the vary-ing timing behavior of different protocols (e.g., a sequential multiplier requires more cycles than a combinational adder) to be expressed with respect to the same interface. 
+
+2.1 Control flow 
+
+To motivate ProtoLang ’s constructs for control-flow, we discuss how they allow executable specifications to be writ-ten for latency-insensitive (LI) interfaces [ 12 ], a common abstraction in hardware design. LI interfaces use explicit synchronization signals to indicate when a module has pro-duced an output or is ready to accept an input. One such example is the ready-valid handshake [ 4 ], which synchro-nizes a sender and a receiver. The sender uses a valid bit to indicate that a separate data signal is meaningful, and         
+
+> 2Specifying Hardware Communication as Programs
+> prot add<DUT: ALU>(a: u32 , b: u32 , s: u32 ) { DUT.op := 0; ...
+> fork (); // Starts a concurrent transaction ... }
+> prot mult<DUT: ALU>(a: u32 , b: u32 , s: u32 ) { DUT.op := 1; ... }
+
+Figure 3. Multiple protocols defined over the same ALU. the receiver uses a ready bit to indicate that it is ready to consume data . The payload data is only transmitted during a clock cycle when ready and valid are both high. There are several rules associated with the ready-valid handshake, typically stated in prose (e.g., in the AXI-Stream specification [3]): 
+
+• Independence : The sender cannot wait for ready to become high before asserting valid , i.e. ready and 
+
+valid are independent signals. 
+
+• Stability : Once valid becomes high, the valid and 
+
+data signals must remain stable (unchanged) until the data transfer has happened. In other words, once the sender asserts valid , the sender must commit to the validity of the data and cannot renege. We now discuss how a ProtoLang specification for a ready-valid interface (Figure 4) encodes these properties. To motivate features of our DSL, the protocol is written from the receiver’s perspective, although although a symmetric protocol written from the sender’s perspective would also be appropriate. The recv protocol takes two arguments, the first argu-ment being the data to be received. To motivate the second parameter, we observe that the receiver has the ability to exert backpressure . That is, the receiver can set ready := 0 
+
+when it is not ready to accept data, blocking the data transfer. To model different durations of backpressure, the recv pro-tocol takes an additional argument num_cycles of type uint 
+
+(an unbounded non-negative integer), which specifies the no. of cycles for which the receiver should exert backpressure. In recv , the receiver first waits for the valid signal to become high by repeatedly calling step() in a while -loop (this advances the clock cycle so long as valid ≠ 1.). Then, via the assertion assert_eq(DUT.data, data) , the receiver checks that output field DUT.data does indeed contain the specified payload data .
+
+ProtoLang contains a repeat -loop construct, which ex-ecutes its body for a specified number of iterations. To exert backpressure for num_cycles clock cycles, the receiver first sets ready := 0 , then uses a repeat -loop that executes for         
+
+> prot recv<DUT: RV>(data: u8 , n: uint ) { // Wait for source
+> while (DUT.valid != 1) { step () }
+> assert_eq (D.data, data); // check data // Apply backpressure for n cycles DUT.ready := 0;
+> repeat niterations {
+> step (); // While ready is low, valid must remain // high and data may not change value
+> assert_eq (DUT.valid, 1);
+> assert_eq (DUT.data, data); }DUT.ready := 1; // Accept data
+> step (); }
+
+Figure 4. A recv (receive) protocol for the ready-valid handshake, parameterized over receiver components that implement the RV (ready-valid) interface. exactly num_cycles iterations. Observe that each iteration of the loop body corresponds to a clock cycle, as evidenced by the presence of step() . Furthermore, assignments in 
+
+ProtoLang persist over clock cycles until they are over-written (similar to software languages), so ready remains 0 throughout the entirety of the repeat -loop, modelling how the receiver exerts backpressure across multiple cy-cles. The body of the loop checks that valid remains high and DUT.data still contains data . This loop ensures that the 
+
+valid and data signals remain stable (unchanged) across 
+
+num_cycles clock cycles. After the loop, the receiver sets ready to 1 to indicate that it is ready to receive data , and we advance the clock cycle to perform the actual data transfer. Observe that this protocol can describe various scenarios corresponding to the waveforms in Figure 5. A receiver that is always ready (left waveform) corresponds to the recv pro-tocol with num_cycles = 0 . In this scenario, the body of the 
+
+repeat -loop never executes and the assignment DUT.ready := 1 overwrites the previous assignment to DUT.ready , en-suring that the receiver’s ready signal always remains high. On the other hand, a receiver that exerts backpressure for one cycles before receiving data corresponds to the right waveform in figure 5 with num_cycles = 1 .
+
+## 3 Interpreter 
+
+Having presented the key features of the ProtoLang DSL, we now present the design of an interpreter for the language. In this section, we first discuss how the interpreter handles assignments ( §3.1) and assertions ( §3.2). We then explain how the interpreter ensures deterministic execution by ana-lyzing combinational dependencies between DUT ports ( §3.3),       
+
+> 3Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer 012
+> clock
+> data 5
+> valid
+> ready 012
+> clock
+> data 5
+> valid
+> ready
+
+Figure 5. Two waveforms describing different scenarios that may occur during data transfer over a ready-valid interface. Left: receiver always asserts ready . Right: receiver exerts backpressure for one cycle. 
+
+Figure 6. The ProtoLang interpreter takes as input multi-ple user-defined protocols, a Verilog DUT implementation and a list of transactions to be executed, producing a wave-form (signal-level execution trace) as output. controlling how step() and fork() interact with other lan-guage features ( §3.4, 3.5, 3.7) and detecting conflicting as-signments between concurrent protocols ( §3.6). As shown in figure 6, the interpreter is driven by three user-supplied inputs, namely one or more ProtoLang pro-tocols, a Verilog DUT implementation, and a transaction trace they wish to execute over the DUT (where a transac-tion is an invocation of an individual protocol). For instance, for the ALU example in Section 2, a user-supplied transac-tion trace might be add(1, 2, 3); sub(5, 4, 1) . The interpreter drives a hardware simulator to execute the trans-actions, with the simulator producing an output waveform. The interpreter emits appropriate error messages if it detects a discrepancy between the specification and the implemen-tation. 
+
+3.1 Assignments 
+
+As discussed in §2, the interpreter drives values onto DUT input ports. We now present in detail how assignments in 
+
+ProtoLang protocols are related to this behavior. 
+
+Well-formedness. To reflect how ProtoLang protocols are consumed by drivers , in ProtoLang , an assignment LHS := RHS is only considered well-formed if the left-hand side 
+
+LHS is a DUT input port, e.g. DUT.a , and the right hand-side is a constant, an argument to the protocol, or a bit-slice thereof. In other words, users are not allowed to assign to DUT out-put ports (the values on output ports are determined by the DUT implementation), and only constants and protocol parameters may be assigned to DUT input ports. Moreover, no DUT ports may appear on the RHS of an assignment. All values are driven to the input ports of the underlying hardware module in parallel, so the value of one port cannot be assigned to another port. The ProtoLang interpreter performs this well-formedness check statically when type-checking a protocol (we elide the description of the type-checker as it performs standard checks such as tracking bit-widths). 
+
+DontCare assignments. To explicitly indicate that a DUT input port can take on any arbitrary value, the user may as-sign X to it, e.g., DUT.a := X . When the interpreter encoun-ters such an assignment, it picks a value uniformly at random from the set of all values of the same type as DUT.a , driving the randomly chosen value onto the DUT input port. We call such assignments DontCare assignments, as the particular value on the port does not affect the I/O communication behavior of the underlying hardware module. Notably, before executing any statements in a protocol, the interpreter drives random values onto all DUT input ports, i.e. all input ports begin in a DontCare state. Subsequent concrete (i.e. non-X) assignments to input ports overwrite the initial random values on port. The reason for this design is that if there are no assignments to an input port, e.g., 
+
+DUT.b , the interpreter assigns a random value to it, akin to a DontCare assignment DUT.b := X. The reason for this design decision is that an input port on a hardware module must always contain a value: if the user does not specify a concrete value for an input port DUT.b in the protocol body, the value of DUT.b is not essential for the I/O communication behavior of the module, so driving a random value onto 
+
+DUT.b is sufficient for hardware simulation purposes. 
+
+Persistence until overwriting. Similar to the behavior of existing testbenches (e.g., SystemVerilog, Cocotb, Chisel-Test), an assignment in ProtoLang persists over clock cycles unless there is an assignment to the same DUT input port. For example, in the program snippet DUT.a := 5; step() ,assuming there are no subsequent assignments to DUT.a , the value of DUT.a remains 5 in all future clock cycles. 
+
+> 4Specifying Hardware Communication as Programs
+
+However, assignments to the same DUT input port may be overwritten. That is, a protocol is allowed to first assign 
+
+DUT.a := 5 and later assign DUT.a := X , with the second assignment overwriting the value of DUT.a with a randomly generated value which is driven to DUT.a .
+
+3.2 Assertions 
+
+As discussed in §2, ProtoLang comes equipped with equal-ity assertions of the form assert_eq(e1, e2) . Since DUT output ports are read-only (a driver cannot directly drive values onto a circuit’s output wires), assertions are intended to be the primary way of checking whether output ports contain expected values. For instance, in the adder example in §2, we use assert_eq(DUT.s, s) to check that the adder module’s output port DUT.s contains the same value as the expected output s.Assertions are also subject to similar well-formedness conditions: the arguments to assert_eq must either be a DUT output port, a protocol parameter, or bit-slices thereof. These conditions reflect how assertions are meant to be a way to observe the values of outputs (as opposed to assignments, which are meant as a mechanism to drive values onto input ports). An assertion error occurs when an assert_eq statement fails. These errors indicate that either the DUT implemen-tation does not conform to the communication behavior specified in the ProtoLang protocol, or that the expected value supplied to the assertion is wrong. In this regard, asser-tions in ProtoLang serve a similar role to their counterparts in existing testbenches. 
+
+3.3 Combinational Dependency Tracking 
+
+A key goal of the ProtoLang interpreter is for execution to appear deterministic to the user. To achieve this goal, the interpreter enforces the invariant that within a given cycle, all observations of a DUT output port DUT.out must produce the same value. (Here, an observation refers to an occurrence of DUT.out in an expression or a statement.) This property is desirable, since if two observations of DUT.out within the same clock cycle produced different values, the value of 
+
+DUT.out would be ill-defined. To maintain this invariant, the interpreter tracks combina-tional dependencies between DUT ports, which govern how a protocol may assign to input ports and observe output ports within the same cycle, independent of other concurrently executing protocols. Specifically, port 𝐴 combinationally de-pends on port 𝐵 when an assignment to 𝐵 affects the value of 𝐴 within the same clock cycle. The combinational cone of influence (or combinational cone henceforth) of 𝐴 is the set of all ports that 𝐴 is combinationally dependent on. The in-terpreter enforces three rules when tracking combinational dependencies: 
+
+• Observation requires concrete assignments : A protocol may only observe an output port DUT.out if it has performed concrete assignments (i.e. not X) to all input ports in DUT.out ’s combinational cone. 
+
+• DontCare relinquishes right to observe : If a pro-tocol performs a DontCare assignment to an input port DUT.in (i.e. assigns DUT.in := X ), the protocol cannot observe any output in DUT.in ’s combinational cone. 
+
+• Observation freezes inputs : Once a protocol ob-serves an output port, it may not modify (reassign) any input port in that output’s combinational cone in the current clock cycle. The first two rules ensure that the values produced by observing an output port are determined solely by the ob-serving protocol’s own assignments. The third rule ensures that at the end of each clock cycle, the values observed on output ports remain consistent with the values of input ports. Together, these three rules ensure that all observations of DUT output ports remains the same within a clock cycle. 
+
+3.4 Structured Concurrency 
+
+We have seen in §2 how ProtoLang allows concurrent pro-tocol execution over multiple clock cycles via the step() and 
+
+fork() primitives. In this section, we detail how ProtoLang 
+
+permits a structured form of concurrency. Specifically, we dis-cuss various well-formedness restrictions that govern how 
+
+step() and fork() interact with other language features in order to make concurrent protocol execution tractable. 
+
+Invariant: At most one protocol starts per cycle. The 
+
+ProtoLang interpreter maintains the invariant that at any clock cycle, at most one protocol begins execution in that cycle. A corollary of this invariant is that every protocol has a unique start time, i.e. all transactions (protocol invocations) can be strictly ordered by their start time. Without this prop-erty, equality of transaction traces would be ill-defined, as the interpreter could arbitrarily permute transactions that start in the same cycle, causing execution to be non-deterministic, violating our goal that execution should appear determinis-tic. 
+
+Rule: step() must precede fork() . To maintain this in-variant, the interpreter enforces the following rule: a protocol must have previously called step() when it invokes fork() .To understand this rule, recall that fork() allows any arbi-trary protocol to begin execution immediately within the current clock cycle, concurrent with the protocol that called 
+
+fork() . Without this rule (i.e. if protocols were allowed to 
+
+fork() without previously calling step() ), we could have arbitrarily many protocols starting within the same cycle, violating the invariant that only one protocol begins at each cycle.             
+
+> 5Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer
+> tx1:
+> tx2:
+> a := 1 b := 2
+> (tx2 not yet started)
+> step()
+> a := X b := X fork() assert_eq(s, 3)
+> a := 3 b := 4
+> step()
+> (tx1 finished)
+> a := X b := X fork() assert_eq(s, 7)
+> step()
+> cycle 1 cycle 2 cycle 3
+
+Figure 7. The ProtoLang interpreter’s concurrent execution model, illustrated on the pipelined adder protocol (Figure 2) with the transactions tx1: add(1, 2, 3); tx2: add(3, 4, 7) .For example, consider an Adder struct in ProtoLang and an ill-formed add protocol (Figure 8), which calls fork() 
+
+immediately in its body without previously invoking step() .When the interpreter first encounters this fork() statement, it executes another instance of the add protocol within the current cycle, which spawns another instance due to its 
+
+fork() , and so on. Taken to the extreme, this ill-formed protocol could result in the interpreter running infinitely many transactions within the same cycle, without the clock ever advancing! For this reason, well-formed protocols must call step() before invoking fork() . 
+
+> prot add<DUT: ...>(...) {
+> fork (); // fork called before step ... }
+
+Figure 8. An ill-formed protocol which invokes fork() with-out previously calling step() .
+
+Rule: Protocols can fork() at most once. Another well-formedness restriction governing the use of fork() is that a protocol can invoke fork() at most once in its body. If the same protocol were to call fork() twice within the same cycle, (i.e. fork(); fork(); ... ), we would have two pro-tocols beginning at the same time, violating the invariant above. 
+
+3.5 Executing concurrent protocols 
+
+So far, we’ve discussed various well-formedness restrictions that govern where fork() and step() may be invoked from within a protocol. But how does the interpreter actually 
+
+run concurrent protocols? We answer this question in this section. Each transaction (a particular invocation of a protocol) cor-responds to a logical thread . For example, in the Ready-Valid interface in §2, recv(3) and recv(4) would correspond to two logical threads. (We use the term logical thread to refer to execution of a particular protocol instance and to distin-guish them OS threads.) When the interpreter encounters a 
+
+fork() statement, it spawns a new thread corresponding to the next transaction in the user-supplied transaction trace that is scheduled to run in the current cycle. The step() primitive acts as a thread barrier : when a thread reaches a step() statement, its execution is sus-pended until all other threads have also reached a step() 
+
+statement. In other words, the interpreter synchronizes thread execution at step() boundaries, ensuring that all threads can be run within the same clock cycle. Notably, step() is the only language construct in ProtoLang which allows for preemption: a thread always gets to execute all statements in a protocol that are in-between two calls to step() . In other words, the interpreter does not interleave threads when they are executing statements in-between successive invocations of step() . This design allows the interpreter to model how the underlying hardware module performs assignments in parallel. 
+
+3.6 Detecting conflicting assignments 
+
+In hardware, all DUT inputs are driven concurrently: inputs are driven onto wires, combinational logic evaluates, and outputs are sampled at each clock edge. Within the same clock cycle, there is no notion of sequential ordering; only the input values at the end of the clock cycle matter. Thus, a correct interpreter must avoid introducing artificial ordering dependencies and ensure that each transaction observes the same values it would observe if the DUT were evaluated directly on the input state at the end of a cycle. By design, threads are not allowed to communicate with each other in ProtoLang . Since concurrent threads share access to the same DUT, this restriction means that threads are not allowed to communicate with each other via assign-ments to DUT ports, i.e. one thread cannot depend on another thread’s assignments. In other words, in each clock cycle, all threads must maintain a consistent view of the value of all DUT input ports. A conflicting assignment occurs when two threads assign different concrete values to the same DUT input port. If one thread assigns a concrete value 𝑣 to a port, all other threads must either assign the same value 𝑣 or X to the same port. Conversely, if all threads assign X to the same port, a random value can be assigned to the port without affecting the outcome of any transaction. The interpreter checks for 
+
+> 6Specifying Hardware Communication as Programs
+
+conflicting assignments at the end of each clock cycle (when all threads have reached a step() statement, per §3.5). If any conflicting assignments do exist, the interpreter terminates with an error message. 
+
+3.7 Well-formedness restrictions on step() 
+
+Lastly, we discuss some well-formedness restrictions per-taining to the use of step() , which govern how protocols terminate. 
+
+Rule: while -loops must call step() at least once. A
+
+ProtoLang protocol represents an executable specification for an RTL module, and it is desirable for protocol execution to terminate . Since the only source of unbounded execution in ProtoLang is while -loops, ProtoLang imposes a well-formed conditions on such loops. Specifically, the body of a 
+
+while loop must contain at least one call to step() . In other words, the loop body must advance the clock by at least one cycle. From §3.3, we know that all observations of DUT output ports produce the same outcome within the same cycle. In other words, the value of DUT output port do not change within the same cycle. As a result, if the loop body did not take at least one cycle, the values of DUT ports would remain the same, i.e. the loop guard would always evaluate to the same Boolean value, resulting in a non-terminating loop. Thus, this well-formedness condition prevents ProtoLang 
+
+protocols from containing “trivially infinite” while -loops, in which the values of all DUT output ports remain unchanged across each loop iteration, causing the loop to not terminate. (Note that this rule only prevents these degenerate loops from occuring, and that a protocol execution may still be non-terminating due to implementation details of the underlying RTL module.) 
+
+Rule: Protocols must terminate with step() . All well-formed protocols are required to have step() as the last statement in the protocol body. Intuitively, the last step() 
+
+in a protocol represents the cycle boundary at which the protocol execution finishes. After executing this final step() 
+
+statement, the interpreter sets all DUT ports to DontCare to prevent DUT ports from influencing subsequent protocols. Requiring protocols to terminate with step() ensures that protocols end at cycle boundaries, i.e. the end of a protocol aligns with the end of a clock cycle. Without this requirement, a protocol could finish before the end of a clock cycle, and the value of DUT ports in the “remainder” of the cycle would become ill-defined. 
+
+## 4 Reconstructor 
+
+4.1 Motivation 
+
+Hardware designers often use waveforms (also known as 
+
+timing diagrams ) produced by hardware simulators to in-spect the cycle-level behavior of their designs. A waveform 0 1 2 3 4                   
+
+> clock
+> ready
+> valid
+> data 45send(4); // cycle 1-2
+> send(5); // cycle 2-3
+> prot send <DUT :RV >(data :u8 ) { … } Reconstructor output: 01234
+> clock
+> ready
+> valid
+> data 12Error:  no matching  transactions
+> prot send <DUT :RV >(data :u8 ) { … } Reconstructor output:
+> ready and valid are never both
+> high during the same cycle
+> (i.e. data transfer never occurs)
+
+Figure 9. Given an input ProtoLang specification and wave-form for data transfer over a ready-valid interface, the re-constructor infers a transaction trace consistent with the waveform. On waveforms that cannot be realized by the user-supplied specifications, the reconstructor reports an error. records the value of monitored signals at every clock cycle. These signals are visualized via waveform viewers , such as GTKWave [ 19 ] and Surfer [ 41 ]. Such tools allow users to zoom and pan through time-steps in their user interfaces. Waveforms allow designers to catch bugs in their designs, and as a result, many HDLs drive hardware simulators to generate waveforms [5, 37, 38]. However, waveform debugging is a tedious and highly manual process [ 8, 25 , 43 ]. The only notion of a time step in a waveform is a clock cycle, as opposed to a logical program step, making it challenging for developers to locate bugs [ 8 ]. To address this issue, we have developed a reconstruc-tor for the ProtoLang DSL, which takes as inputs (i) the 
+
+ProtoLang specification of a hardware protocol, (ii) a con-crete waveform, and reconstructs a transaction trace (i.e. a sequence of ProtoLang protocol invocations) that are con-sistent with the waveform. Using the reconstructor, users will be able to learn precisely how the waveform data corre-sponds to the behavior of their DUT implementation, and thus be able to determine whether the waveform accurately reflects their intended specification. In the following section, we detail the precise problem statement for the monitor. 
+
+4.2 Problem statement 
+
+The goal of the reconstructor is thus: given a finite set 𝑃 of protocols and a waveform trace 𝜏 as inputs, infer a transac-tion trace 𝜋 1 (𝑥 1, . . . , 𝑥 𝑛 ); . . . ; 𝜋 𝑛 (𝑦 1, . . . , 𝑦 𝑛 ) where each pro-tocol 𝜋 𝑖 ∈ 𝑃 and all protocol arguments are concrete values. 
+
+> 7Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer
+
+Crucially, the transaction trace 𝑇 produced by the monitor should be consistent with the input waveform 𝜏 . That is, when the interpreter executes 𝑇 , the interpreter should generate the same waveform 𝜏 (modulo randomized values that arise due to DontCare assignments). There are two correctness criteria for the reconstructor: 
+
+• Completeness : Given a waveform trace 𝜏 , the recon-structor reports all transaction traces that, when exe-cuted with the interpreter, would have resulted in the same waveform 𝜏 .
+
+• Soundness : Each transaction traces reported by the reconstructor on an input waveform 𝜏 produces the same waveform when executed with the interpreter. In particular, as the interpreter drives random values onto a port DUT.a when it encounters a DontCare assignment 
+
+DUT.a := X , we emphasize that we only consider waveform equality modulo these randomized values when inspecting the reconstructor output. As a concrete example, consider Figure 10, which contains the ProtoLang specification and waveform for a pipelined ALU (Arithmetic Logic Unit) with a one cycle latency. The ALU supports two operations, add and sub , which are en-abled when the input pin op is set to 0 and 1 respectively. Figure 10 illustrates how the reconstructor infers a trans-action trace based on the aforementioned waveform. If no transactions could have resulted in the waveform trace based on the input protocol definitions, the reconstructor informs the user via an error message. 
+
+4.3 Dynamic Symbolic Execution (DSE) 
+
+The methodology through which the reconstructor produces a transaction trace consistent with the waveform is via a vari-ant of dynamic symbolic execution (DSE) [ 7 , 10 , 18 ] tailored for the ProtoLang language. In this section, we provide a brief overview of symbolic execution and DSE, discuss how various well-formedness restrictions in our DSL make the reconstructor’s job of inferring transaction traces tractable, without any use of automated solvers. 
+
+Symbolic execution [ 14 , 24 ] is a program analysis tech-nique that explores the set of control-flow paths through a program, with inputs to the program represented as symbolic 
+
+variables, as opposed to concrete values. During execution, the symbolic execution engine maintains a path condition 
+
+𝜑 , a Boolean formula that describes the conditions satisfied by the branches taken along the control-flow path, along with a symbolic program store , which maps program vari-ables to symbolic expressions consisting of symbolic vari-ables and constants. Traditional symbolic execution relies on automated constraint solvers, such as Satisfiability Modulo Theories (SMT) solvers, in order to determine whether the path condition 𝜑 is satisfiable, i.e. if 𝜑 can be satisfied via some assignment of concrete values to symbolic variables. Dynamic Symbolic Execution (DSE) is a variant of sym-bolic execution in which the execution engine simultane-ously maintains both symbolic and concrete stores, with branches taken via concrete execution updating the sym-bolic store and path condition [ 6 ]. DSE has been shown to successfully simplify constraints produced during symbolic execution, especially in situations when automated solvers are unable to find satisfying assignments [40]. 
+
+4.4 Inferring Transaction Traces via DSE 
+
+We now discuss how the process in which the ProtoLang 
+
+reconstructor infers a transaction trace consistent with the waveform is akin to DSE. To infer a transaction trace that is consistent with the input waveform, the reconstructor performs a breadth-first 
+
+exploration over the space of all possible transaction traces. Specifically, when the reconstructor is initialized, it spawns a logical thread for each user-supplied protocol, with all protocol parameters left abstract as symbolic variables. For each thread, the reconstructor attempts to execute each state-ment in the corresponding protocol, resolving all control-flow decisions concretely, until a step() is reached. Like the interpreter ( §3.5), step() also acts as a thread barrier in the reconstructor. When a thread reaches step() , its execu-tion is suspended until all other threads have also reached a 
+
+step() statement. When all threads have reached a step() ,the reconstructor advances to the next clock cycle in the waveform, ensuring that all threads have a synchronized view of the waveform signals. When executing each protocol, the reconstructor infers concrete values for the protocol’s parameters based on as-signments, assertions and the concrete values that DUT ports take on during execution (obtained via the waveform trace). Assignments and assertions in the protocol body are treated as constraints that must be maintained in order for a candi-date protocol to be present in the final inferred trace, and if the waveform data is inconsistent with these constraints, the corresponding thread is deemed to fail as its protocol can-not give rise to the waveform data. The failure of individual threads allows the reconstructor to prune candidate trans-action traces that are inconsistent with the waveform. (We discuss this process in greater detail in subsequent sections.) 
+
+Key differences from standard DSE. Although the de-sign of our reconstructor shares some similarities with DSE, there are some methodological differences due to the partic-ular use-case of the reconstructor. Firstly, traditional symbolic execution is concerned with finding all execution paths and inputs that cause assertion failures in software programs [ 6 , 11 ]. A corollary of this ob-jective is that DSE aims to explore all non-buggy paths in a program. However, when our reconstructor infers a transac-tion trace, it aims to find a witness that answers the question: “do there exist control-flow paths where no constraints fail?"  
+
+> 8Specifying Hardware Communication as Programs
+> 1
+
+prot add(a, b, s) {  
+
+> 2
+
+DUT.a := a; DUT.b := b;  
+
+> 3
+
+DUT.op := 0;  
+
+> 4
+
+step ();  
+
+> 5
+
+DUT.a := X; DUT.b := X; 
+
+> 6
+
+DUT.op := X; 
+
+> 7
+
+fork ();  
+
+> 8
+
+step ();  
+
+> 9
+
+assert_eq (DUT.s, s);  
+
+> 10
+
+}
+
+prot sub(a, b, d) { DUT.a := a; DUT.b := b; DUT.op := 1; 
+
+step (); DUT.a := X; DUT.b := X;DUT.op := X;
+
+fork (); 
+
+step (); 
+
+assert_eq (DUT.s, d); }0 1 2 3
+
+clock 
+
+a a = 1 a = 7 
+
+b b = 2 b = 4 
+
+op op = 0 op = 1 
+
+s s = 3 s = 3 
+
+> Upon reconstructor initialization:
+> ∅
+
+sub (𝑎, 𝑏, 𝑑 ){} 
+
+add (𝑎, 𝑏, 𝑠 ){} 
+
+(a) The reconstructor begins by exploring one execution path per protocol with no constraints. 
+
+> After line 4 ( step() , end of cycle 0):
+> ∅
+
+sub ×  
+
+> op =1≠0
+
+add (1,2, 𝑠 ) 
+
+> {𝑎 =1, 𝑏 =2,op =0}
+
+(b) The reconstructor checks constraints when it reaches step() .The sub transaction’s DUT.op := 1 assignment is inconsistent with cycle 0 in the waveform (where op = 0 ), so it is pruned. 
+
+> After line 7 ( fork() , cycle 1):
+> ∅
+
+sub ×
+
+add (1,2, 𝑠 )released 
+
+add (𝑎, 𝑏, 𝑠 )
+
+sub (𝑎, 𝑏, 𝑑 )
+
+> fork
+
+(c) DontCare assignments remove con-straints. fork() spawns one new execution path per protocol. 
+
+> After line 8 ( step() , end of cycle 1):
+> ∅
+
+sub ×
+
+add (1,2,3) ✓
+
+add ×
+
+> op ≠1
+
+sub (7,4, 𝑑 )
+
+> {𝑎 =7, 𝑏 =4}
+> fork
+
+(d) The first add completes with s=3 . The new 
+
+add transaction is pruned, as the DUT.op := 1 assignment is inconsistent with cycle 1 in the waveform, where op = 0 .
+
+> After line 9 ( assert_eq , end of cycle 2):
+> ∅
+
+sub ×
+
+add (1,2,3) ✓
+
+add ×
+
+sub (7,4,3) ✓
+
+> fork
+
+(e) The reconstructor terminates, with the final inferred transaction trace being 
+
+add(1,2,3); sub(7,4,3) .
+
+Figure 10. Example ProtoLang protocol specifications (top left) and waveform (top right) for a pipelined ALU. The different assignments for the op input port are highlighted in red. (Type annotations in the ProtoLang protocols are omitted for space.) Panels (a)–(e) illustrate how the reconstructor infers a transaction trace on this waveform. The resultant trace inferred by the reconstructor satisfies all constraints that are built up when exploring different trans-action traces. In other words, the reconstructor does not need to explore all paths through the space of possible transaction traces: it suffices for the reconstructor to find traces that are consistent with the particular waveform supplied by the user. Additionally, our reconstructor also processes assignments differently from standard symbolic execution engines. In var-ious flavors of DSE, an assignment statement of the form x := e extends the symbolic (resp. concrete) store, associating the program variable 𝑥 with result of evaluating the expression 
+
+𝑒 . In other words, the LHS of an assignment is unknown, while the RHS of the assignment is known. However, in 
+
+ProtoLang , assignments in are all of the form DUT.input := a, where DUT.input is an input port of the DUT and 
+
+a is a protocol argument. Since DUT.input is a DUT port, its value at any given time can be accessed by the recon-structor by just inspecting the waveform. However, the RHS of the assignment a is unknown: it is the reconstructor’s job to infer the value of a based on the waveform data for 
+
+DUT.input . In other words, the direction of information flow in assignments in the reconstructor is the inverse of those in traditional DSE engines. This difference is one of the rea-sons why existing DSE engines cannot be applied directly to ProtoLang protocols, motivating the need for a bespoke solution. 
+
+> 9Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer
+
+4.5 Language-level optimizations for DSE 
+
+So far, we have discussed how the reconstructor infers trans-action traces in a manner reminiscent of DSE. It turns out that by including various well-formedness restrictions in the design of the ProtoLang language, we can optimize the re-constructor’s performance and ensure that the reconstructor can still infer a transaction trace without relying on external automated solvers. 
+
+4.5.1 Equality constraints. Traditional symbolic execu-tion engines have to handle complex constraints including non-linear arithmetic and uninterpreted functions, some of which cannot be efficiently solved by automated solvers [ 11 ], as the satisfiability problem is well-known to be NP-hard [16, 17]. On the other hand, the grammar of ProtoLang is care-fully designed such that all constraints are equality con-straints of the form 𝑥 == 𝑛 or 𝑥 ≠ 𝑛 , where 𝑥 is a vari-able and 𝑛 is a concrete bit-vector literal. This is because in straight-line protocols (i.e. protocols that do not use perform any branching), the only language features that give rise to constraints are concrete (non-X) assignments and assertions. At a high level, a concrete assignment DUT.input := RHS 
+
+gives rise to the equality constraint RHS == trace(DUT.input) ,where trace(DUT.input) refers to the waveform value for the port DUT.input at the cycle during which the assignment was evaluated. To determine if this assignment is consistent with the waveform, the reconstructor checks if the constraint 
+
+RHS == trace(DUT.input) holds based on the waveform data. If not, the corresponding thread is deemed to fail , as the protocol is inconsistent with the waveform data. For example, suppose a protocol assigns DUT.a := 2,resulting in the constraint 2 == trace(DUT.a) . However, suppose the waveform indicates that port a had value 3 dur-ing the cycle of interest, i.e. trace(DUT.a) = 3 . In this case, the corresponding thread would fail since trace(DUT.a) ≠
+
+2 and the constraint does not hold. But what if the RHS of an assignment is an identifier k,such as in the assignment DUT.a := k ? By well-formedness of assignments ( §3.1), k must be an argument to the protocol. If no equality constraint currently exists for k (i.e. this is the first occurrence of k in the protocol), the reconstructor estab-lishes a new constraint k == trace(DUT.a) , inferring that 
+
+𝑘 must be equal to the concrete waveform value for DUT.a at the current cycle. On the other hand, if a constraint already exists for k, e.g. k == n , where n is some concrete integer, then the reconstructor checks whether trace(DUT.a) == n. In other words, the reconstructor checks if DUT.a has the same waveform value as the previous inferred value for k. If yes, the constraint holds and the protocol is consistent with the waveform. Otherwise, the corresponding thread fails. Like assignments, assertions assert_eq(DUT.output, e) 
+
+give rise to equality constraints e == trace(DUT.output) .(Since assert_eq is symmetric in its arguments and equality is also symmetric, there is no distinction between the left and right arguments to an assertion, unlike assignments.) This design ensures that automated solvers are not neces-sary for the reconstructor to find satisfying assignments for the path condition: the reconstructor always has sufficient concrete data to determine whether a particular protocol is consistent with the waveform, simply by checking bit-vector equality. As a result, the reconstructor does not need to rely on any automated solvers to solve constraints, allowing transaction traces to be inferred more efficiently. 
+
+4.5.2 Immutability and the absence of local state. By design, all parameters to a protocol are immutable . Immutabil-ity ensures that once a protocol parameter a appears in an equality constraint (e.g., if a appears on the RHS of an as-signment), the constraint always holds for a unless the user explicitly removes the constraint via a DontCare assignment (§3.1), as a’s value cannot change thereafter. Furthermore, observe that ProtoLang protocols do not contain any local variable definitions (i.e., there are no let -bindings). The absence of local variables, along with im-mutability of parameters, frees the monitor from needing to reason about aliasing, scoping or variable substitution, drastically simplifying the reconstructor’s internal logic. 
+
+4.5.3 Removing constraints via DontCare assignments. 
+
+So far, we’ve discussed how concrete assignments give rise to equality constraints in the reconstructor. We now dis-cuss how the reconstructor handles DontCare assignments, which remove an existing constraint for a DUT port. Recall from §3.1 that from the interpreter’s perspective, a DontCare assignment DUT.a := X indicates that any ar-bitrary value can be driven onto DUT.a , without affecting the I/O communication behavior of the DUT. From the re-constructor’s perspective, the same DontCare assignment 
+
+DUT.a := X indicates that no equality constraint holds for 
+
+DUT.a . Specifically, DUT.a can take on any arbitrary value in the waveform, and the reconstructor no longer checks the waveform value for DUT.a when determining if a protocol is consistent with the waveform. 
+
+4.5.4 Replacing constraints due to overwriting assign-ments. Recall from §3.1 that assignments to the same DUT input port can be overwritten, with the DUT port taking on the value in the latest assignment. In this section, we discuss how overwriting assignments induce the reconstructor to 
+
+replace existing constraints, ensuring that the reconstructor and the interpreter implement the same overwriting seman-tics for assignments in ProtoLang .Suppose a concrete assignment is overwritten by another concrete assignment to the same port, e.g., in DUT.a := 2; ...; DUT.a := 3. The first assignment gives rise to the constraint trace(DUT.a) == 2 . However, when the re-constructor encounters the second assignment to DUT.a , it replaces the constraint with a new constraint trace(DUT.a) 
+
+> 10 Specifying Hardware Communication as Programs
+
+== 3 . This replacement reflects how the value 3 overwrites the previous value of 2 in DUT.a , and ensures that the con-straints maintained by the reconstructor are kept in sync with successive assignments in the protocol. Now, suppose a concrete assignment is overwritten by a 
+
+DontCare assignment to the same port, e.g., in DUT.a := 2; ...; DUT.a := X . Like the previous example, the first assign-ment results in the constraint trace(DUT.a) == 2 . However, when the reconstructor encounters the second DontCare as-signment, the reconstructor removes the equality constraint that arose from the first assignment. The removal of this constraint reflects how the second DontCare assignment indicates that the value of DUT.a is no longer relevant to the DUT’s I/O communication behavior, as indicated by the 
+
+DontCare assignment. As an optimization, the reconstructor updates constraints as appropriate when it detects overwriting assignments, but it defers checking these constraints until the thread reaches a step() statement and its execution is suspended (recall from §4.4 that step() acts as a thread barrier). This deferred check ensures that the reconstructor only needs to check the constraints that remain at the end of a cycle and allows the overwriting semantics of assignments to be accurately reflected in the constraints maintained by the reconstructor. 
+
+4.6 Concrete control-flow paths 
+
+ProtoLang ’s well-formedness restrictions dictate that guards for if and while -statements must be in the form of an equal-ity (or inequality) comparison of a DUT port with a constant. This restriction implies that parameters to protocols are not permitted to appear in guards. Since the value of DUT ports is always known (they are available directly from the waveform), this restriction en-sures that at any given point in time, the reconstructor is always able determine whether a guard evaluates to true or false. In other words, guards always evaluate to concrete Boolean values, i.e. the control-flow paths taken by the re-constructor are always concrete. Since the waveform data determines how guards evaluate, the reconstructor no longer needs to explore all possible control-flow paths to determine whether a particular transaction trace is possible: it only needs to explore paths whose guards evaluate to true based on the waveform data. 
+
+4.7 Structured non-determinism 
+
+Symbolic execution engines often have to contend with the 
+
+path explosion problem, in which the number of possible control-flow paths through a program becomes exponential in the number of (static) branches in its source code [ 6 , 11 , 39 ]. A key contributor to path explosion is non-deterministic be-havior in programs, which drastically increases the number of possible states that could result from executing the pro-gram. In the context of the ProtoLang reconstructor, non-deterministic behavior manifests itself when the reconstructor must ex-plore multiple control-flow paths concurrently. As discussed in §3.4, ProtoLang is carefully designed so that non-determinism only arises in a structured manner from two language con-structs, namely fork() and repeat -loops. 
+
+Handling fork() . When the reconstructor encounters a 
+
+fork() statement in a protocol, it spawns one new execu-tion path for each user-supplied protocol, scheduling them to be run during the current clock cycle. In other words, the reconstructor performs a breadth-first exploration over all possible transaction traces. This behavior is a key difference between how the interpreter and reconstructor spawn new threads when they encounter a fork() statement: The in-terpreter runs exactly one execution path, namely the next user-supplied transaction, whereas the reconstructor spawns a new execution path for each user-supplied protocol. Specifi-cally, the reconstructor must explore different possible trans-action traces that are consistent with the waveform, so it must spawn new execution paths to perform this exploration in a breadth-first manner. Since individual execution paths fail at cycle boundaries when an assignment or assertion is found to be inconsistent with the waveform, this behavior allows the reconstructor to quickly prune candidate traces that cannot give rise to the waveform. Moreover, performing this search in a breadth-first manner also obviates the need for the reconstructor to backtrack if a candidate trace was found to be impossible (which the reconstructor would have to do if it instead performed a depth-first search). 
+
+Handling repeat loops. Recall from §2 that a repeat 
+
+loop executes the loop body exactly 𝑛 ≥ 0 times, where 𝑛 
+
+must be supplied to the protocol as an argument. Like any other protocol argument, the reconstructor must infer the correct value of 𝑛 from the waveform, i.e. it must determine from the waveform data the no. of loop iterations that exe-cuted in the protocol. Thus, repeat loops serve as a source of non-determinism for the reconstructor, since it must explore different candidate values for 𝑛 , where each value for 𝑛 cor-responds to a different concrete control-flow path through the protocol. Figure 11 illustrates how the reconstructor infers the num-ber of iterations for repeat loops. When the reconstructor first encounters a repeat loop, it spawns two execution paths, one which exits the loop immediately with 𝑛 = 0 and one which executes the loop for one iteration. When the lat-ter path finishes executing the loop body, it spawns another two execution paths, one which exits the loop with 𝑛 = 1
+
+and one which executes another loop iteration. This pro-cess is repeated for each loop iteration. As the reconstructor proceeds through the waveform, many of these execution paths will fail (specifically at the cycle boundary in which an assignment or assertion inconsistent with the waveform 
+
+> 11 Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer
+
+prot recv<DUT: RV>(data: u8 , n: uint ) { ... DUT.ready := 0; // Exert backpressure 
+
+repeat n iterations {
+
+step (); // While ready is low, valid must // remain high and data cannot change 
+
+assert_eq (DUT.valid, 1); 
+
+assert_eq (DUT.data, data); }DUT.ready := 1; // Accept data 
+
+step (); }0 1 2 3
+
+clock 
+
+valid 
+
+ready 
+
+data 5 
+
+> End of cycle 0:
+> ∅
+> Exit loop ( 𝑛 =0)×
+> Iterate
+> repeat
+
+(a) A repeat loop causes the reconstructor to spawn two execution paths: one which exits the loop and infers 𝑛 =0, and one which exe-cutes the loop body for one iteration. The path with 𝑛 =0 encounters the assignment 
+
+DUT.ready:=1 but the waveform indicates 
+
+ready=0 in cycle 0, so this path is pruned.   
+
+> End of cycle 1:
+> ∅
+> Exit loop ( 𝑛 =0)×
+> (pruned in cycle 0)
+> Iterate
+> Exit loop ( 𝑛 =1)×
+> Iterate
+
+(b) After one iteration, the reconstructor spawns two execution paths again. The path exiting the loop with 𝑛 =1 encounters the as-signment DUT.ready:=1 , but the waveform indicates ready=0 in cycle 1, so this path is pruned.    
+
+> End of cycle 2:
+> ∅
+> Exit loop ( 𝑛 =0)×
+> (pruned in cycle 0)
+> Iterate
+> Exit loop ( 𝑛 =1)×
+> (pruned in cycle 1)
+> 𝑛 =2✓
+
+(c) The execution path that exits the loop with 𝑛 =2 is consistent with the waveform (since ready becomes high at cycle 2), and the reconstructor infers the trace recv(5, 2). 
+
+Figure 11. Example ProtoLang protocol (top left, abridged from Figure 4) and waveform (top right) for a ready/valid handshake. Panels (a)–(c) illustrate how the reconstructor infers the value of the loop parameter 𝑛 .is detected), allowing the monitor to eventually determine a value of 𝑛 consistent with the waveform. 
+
+## 5 Case studies (Work-in-progress) 
+
+In this section, we report on our in-progress work applying 
+
+ProtoLang to both drive designs and infer transactions for real-world hardware communication protocols. 
+
+5.1 Wishbone 
+
+Wishbone is an open-source specification for on-chip inter-connects, used across multiple projects in the OpenCores ini-tiative [ 20 ]. To examine whether our language is sufficiently expressive to express the communication behavior detailed in the Wishbone specification, we obtained waveforms and RTL implementations of an SRAM module implementing the Wishbone interface, taken from a benchmark suite main-tained by the embedded software company Antmicro [1]. We hand-wrote protocols for Wishbone classic mode (i.e. non-burst mode) read and write transactions, and found that we were able to both drive the design with the inter-preter and infer transactions from waveforms using the re-constructor. Specifically, we performed a round-trip test in-volving the driver and reconstructor. The interpreter was first supplied with ProtoLang protocol specifications, the Verilog implementation of the SRAM module, and a list of transactions to execute. For the purposes of this experiment, the interpreter was given a sequence of write transactions to consecutive word addresses, followed by an equal number of read transactions to the same addresses. After running the interpreter and obtaining a waveform, we then ran the re-constructor on the waveform and found that the transaction trace inferred by the reconstructor was equal to the original input list of transactions. This indicates that our language is at least sufficiently expressive for both driving and inferring transactions for the subset of Wishbone consisting of single reads and writes. At time of writing, we are working on extending our DSL to handle a greater subset of the Wishbone specification, such as burst mode , which involves writing a sequence of data elements in one single operation. These burst operations 
+
+> 12 Specifying Hardware Communication as Programs
+
+involve the DUT updating the destination address when individual elements are transferred, and we anticipate that we will need to extend our DSL with the ability to iterate over a sequence datatype in order to describe this behavior. Moreover, we will also need to support different ways of incrementing and wrapping addresses, as described in the Wishbone specification for burst mode [20]. 
+
+5.2 Uncovering communication bugs 
+
+In this section, we discuss how the reconstructor can be used to surface communication bugs by inferring high-level trans-action traces from waveforms, thereby facilitating waveform debugging. We are currently examining a subset of Ma et al . ’s benchmark suite of bugs in open-source FPGA designs, pub-lished in prior work [ 28 ]. Specifically, we are focusing on the protocol violation bugs in this dataset, for example violations of the AXI-Stream specification for stream-based on-chip communication [ 3 ]. Each bug in this dataset corresponds to a defective and a fixed version of the same Verilog module, along with the testbench needed to reproduce the bug. For each bug, we used the testbenches in this artifact to obtain two waveforms corresponding to defective and cor-rect implementations of the same module under the same workload. We then ran the reconstructor on these two wave-forms and hand-written ProtoLang specifications for the modules. We now discuss in detail one bug for which the recon-structor successfully inferred a transaction trace for the fixed waveform and reported an error indicating that defective waveform was inconsistent with the provided ProtoLang 
+
+specifications. In an AXI-Stream FIFO queue implementation, the ready 
+
+signal is erroneously set to 1 even after reset transactions have occurred, causing the FIFO to erroneously accept data post-reset . To model this protocol, we hand-wrote specifi-cations in our DSL for push, pop, reset and idle trans-actions based on the AXI-Stream specification. On the fixed waveform, the reconstructor infers that a reset transaction is followed by an idle transaction. However, on the defective waveform (Figure 12), at cycle 1, the reset signal becomes 0, indicating the absence of a reset transaction, and we also have ready = 1 and valid = 0 , indicating the absence of a data transfer (i.e. no push nor pop transactions). As a result, on the defective waveform, reconstructor reports an error indicating that no transactions match the waveform. As ongoing work, we are examining other communication bugs in this dataset and investigating whether one proto-col specification in our DSL can be used to both drive RTL designs and reveal protocol specification violations in wave-forms for defective implementations. Some of the other bugs in Ma et al . ’s dataset pertain to violations of the AXI-Lite and AXI protocols for on-chips communication [ 3 , 4 ]. These protocols describe communication across multiple channels AXI-Stream FIFO Bug 
+
+0 1 2
+
+clock 
+
+reset 
+
+ready 
+
+valid 
+
+Figure 12. Simplified waveform illustrating the bug in the AXI-Stream FIFO implementation from Ma et al . ’s dataset [28]. (e.g., separate channels for the data payload and target ad-dress for reads and writes), and will require us to extend our language to describe dependencies between transactions on different channels. 
+
+## 6 Related Work 
+
+SystemVerilog Assertions and UVM. SystemVerilog As-sertions (SVA) [ 23 ] are a declarative specification language based on temporal logic [ 35 ] for specifying the behavior of hardware modules. However, SVAs can only be used to mon-itor interactions between a module and its environment. As a result, engineers must manually re-implement the logic from SVAs when performing tests. Our work avoids this du-plication of logic by providing a unified specification that can be used to both drive designs and infer transactions. The Universal Verification Metholodgy (UVM) [ 21 ] is an industry-standard set of SystemVerilog APIs that can be used to develop testbenches for RTL designs. However, no open-source hardware simulator supports sufficiently many SystemVerilog features for running UVM testbenches [ 26 ]. Moreover, both SystemVerilog and UVM have steep learning curves and are inherently verbose. For instance, the Sys-temVerilog standard [ 23 ] is over a thousand pages long, and simple UVM testbenches can easily exceed 800 lines of code [ 27 ]. In contrast, specifying a communication protocol in 
+
+ProtoLang should require significantly less effort than man-ually writing a testbench: after the protocol is specified, the 
+
+ProtoLang interpreter can be used directly to run concrete tests. 
+
+Inferring transactions from signals. Existing hardware testing frameworks such as UVM [ 21 ] and Cocotb [ 15 ] al-low users to write monitors that track signal values and determines the high-level transactions that occurred dur-ing a workload. WAL (Waveform Analysis Language) [ 25 ]is a DSL for waveform debugging in which users write pro-grams that analyze waveform traces by directly iterating 
+
+> 13 Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer
+
+over signal values in the waveform. These existing frame-works require users to manually implement monitors for each individual protocol, whereas our work automatically derives a reconstructor from the protocol’s cycle-level speci-fication, obviating the need for users to hand-write monitor code. 
+
+Augmented waveform viewers. Recent work has explored augmenting the user interface of waveform viewers with auxiliary debugging information. Tywaves [ 29 ] displays the high-level type of signals, while HardCaml [ 37 ] renders waveforms as ASCII strings, allowing users to test whether waveforms match expected visualizations [ 36 ]. However, these tools do not provide transaction-level traces which span multiple cycles and involve various control and data signals. Moreover, they do not inform users of the salient time periods (and signal values therein) within the waveform that correspond to different high-level transaction behavior. Thus, users can struggle to understand when a transaction occurred or how long it took to run. Our work operates at a higher level of abstraction: the ProtoLang reconstruc-tor displays transaction-level traces that inform the user of salient periods in the waveform. Using the reconstructor output (which contains the concrete start and end times of each transaction), users can immediately determine when key high-level events occurred in the waveform without needing to inspect individual signals manually. 
+
+HDLs for safe hardware design. Recent work has ex-plored designing custom HDLs with bespoke type systems that reason about how resources are used over time and prevent resource reuse conflicts, ensuring safe composition of hardware modules. Filament [ 31 , 32 ] encodes timing con-straints in its type system, ensuring that only semantically meaningful values are read from ports. However, Filament’s type system cannot express input-dependent timing behav-iors; it can only reason about latencies that are statically known [ 30 ]. Anvil [ 42 ] also encodes timing constraints in its type system, but it uses a message-passing abstraction where hardware modules communicate via channels. This design allows users to express hardware modules with dy-namic timing behaviors (e.g., caches). However, users are required to express their hardware designs using Anvil’s message-passing abstractions, limiting expressivity. Moreover, in order to take advantage of the formal guaran-tees of these type systems, users must rewrite their hardware designs using these bespoke HDLs. Unlike these languages, 
+
+ProtoLang interoperates with existing hardware designs implemented in industry-standard HDLs such as Verilog: our DSL is only used for specifying the protocols that govern inter-module communication; users can still implement the internal logic of modules using their preferred HDL. Our DSL’s design is HDL-agnostic: our work focuses on reduc-ing the burden of having to maintain separate drivers and monitors for testing and debugging. In the Bluespec family of rule-based HDLs [ 9 , 13 , 33 ], users describe how to manipulate state elements (e.g., registers) using atomic rules that execute within a single clock cycle. Compilers for these rule-based HDLs schedule rule execu-tion such that rules appear to execute sequentially, i.e., one rule at a time [ 9 , 34 ]. These rules facilitate compositional reasoning, but users must express multi-cycle transactions as low-level rules that each take one cycle to execute. Thus, these HDLs provide users with limited support for reasoning about the multi-cycle behavior of communication protocols. In contrast, these protocols are directly expressible in our DSL: users can use assignments and ProtoLang ’s step() 
+
+primitive to describe signal values change over time during a transaction. 
+
+## 7 Conclusion 
+
+Writing separate drivers and monitors to test RTL designs demands significant manual effort and is susceptible to in-consistencies. We advocate for a DSL that can serve double duty. In ProtoLang , the same protocol specification lets us both drive designs and extract high-level transaction traces from waveforms, serving as a single source of truth for the module’s communication behavior. 
+
+## References                           
+
+> [1] Antmicro. 2022. Wishbone Interconnect Burst Mode Bench-mark. https://github.com/antmicro/wishbone-interconnect-burst-mode-benchmark .[2] ARM Limited. 1999. AMBA Specification (Rev 2.0) .ARM Limited.
+> https://developer.arm.com/documentation/ihi0011/latest/
+> [3] Arm Limited. 2021. AMBA AXI-Stream Protocol Specification . Arm Limited. https://developer.arm.com/documentation/ihi0051/latest/
+> Issue B, ID040921. [4] ARM Limited. 2024. AMBA AXI and ACE Protocol Specification . ARM Limited. https://developer.arm.com/documentation/ihi0022/latest/
+> Issue L. [5] Jonathan Bachrach, Huy Vo, Brian Richards, Yunsup Lee, Andrew Waterman, Rimas Avižienis, John Wawrzynek, and Krste Asanović. 2012. Chisel: constructing hardware in a Scala embedded language. In Proceedings of the 49th Annual Design Automation Conference (San Francisco, California) (DAC ’12) . Association for Computing Machin-ery, New York, NY, USA, 1216–1225. doi: 10.1145/2228360.2228584
+> [6] Roberto Baldoni, Emilio Coppa, Daniele Cono D’Elia, Camil Deme-trescu, and Irene Finocchi. 2018. A Survey of Symbolic Execution Techniques. ACM Comput. Surv. 51, 3, Article 50 (2018). [7] Thomas Ball, Jakub Daniel, and Thomas Ball. 2015. Deconstructing Dynamic Symbolic Execution (proceedings of the 2014 marktoberdorf summer school on dependable software systems engineering, the 2014 marktober summer school on deop ed.). Technical Report MSR-TR-2015-95. https://www.microsoft.com/en-us/research/publication/ deconstructing-dynamic-symbolic-execution/ Proceedings of the Sixth Conference on Uncertainty in Artificial Intelligence, Boston, MA. [8] Griffin Berlstein, Rachit Nigam, Christophe Gyurgyik, and Adrian Sampson. 2023. Stepwise Debugging for Hardware Accelerators. In
+> Proceedings of the 28th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS 2023), Volume 2 (Vancouver, BC, Canada). Association for Comput-ing Machinery, New York, NY, USA, 778–790. doi: 10.1145/3575693.
+> 14
+
+Specifying Hardware Communication as Programs 3575717 
+
+[9] Thomas Bourgeat, Clément Pit-Claudel, Adam Chlipala, and Arvind. 2020. The essence of Bluespec: a core language for rule-based hardware design. In Proceedings of the 41st ACM SIGPLAN Conference on Pro-gramming Language Design and Implementation (London, UK) (PLDI 2020) . Association for Computing Machinery, New York, NY, USA, 243–257. doi: 10.1145/3385412.3385965 
+
+[10] Cristian Cadar, Vijay Ganesh, Peter Pawlowski, David Dill, and Daw-son Engler. 2006. EXE: Automatically Generating Inputs of Death. In ACM Conference on Computer and Communications Security (CCS 2006) (Alexandria, VA, USA). 322–335. [11] Cristian Cadar and Koushik Sen. 2013. Symbolic execution for software testing: three decades later. Commun. ACM 56, 2 (Feb. 2013), 82–90. doi: 10.1145/2408776.2408795 
+
+[12] Luca P Carloni, Kenneth L McMillan, and Alberto L Sangiovanni-Vincentelli. 2001. Theory of latency-insensitive design. IEEE Transac-tions on Computer-Aided Design of Integrated Circuits and Systems 20, 9 (2001), 1059–1076. doi: 10.1109/43.945302 
+
+[13] Joonwon Choi, Muralidaran Vijayaraghavan, Benjamin Sherman, Adam Chlipala, and Arvind. 2017. Kami: a platform for high-level parametric hardware specification and its modular verification. In 
+
+Proceedings of the 22nd ACM SIGPLAN International Conference on Functional Programming (ICFP) . Association for Computing Machin-ery, New York, NY, USA, Article 24, 30 pages. doi: 10.1145/3110268 
+
+[14] Lori A. Clarke. 1976. A Program Testing System. In The ACM Annual Conference . doi: 10.1145/800191.805647 
+
+[15] cocotb contributors. 2021. cocotb: A coroutine based cosimulation library for writing VHDL and Verilog testbenches in Python . https: //github.com/cocotb/cocotb Python-based chip (RTL) verification framework. [16] Stephen A. Cook. 1971. The complexity of theorem-proving pro-cedures. In Proceedings of the Third Annual ACM Symposium on Theory of Computing (Shaker Heights, Ohio, USA) (STOC ’71) . As-sociation for Computing Machinery, New York, NY, USA, 151–158. doi: 10.1145/800157.805047 
+
+[17] Leonardo De Moura and Nikolaj Bjørner. 2011. Satisfiability modulo theories: introduction and applications. Commun. ACM 54, 9 (Sept. 2011), 69–77. doi: 10.1145/1995376.1995394 
+
+[18] Patrice Godefroid, Nils Klarlund, and Koushik Sen. 2005. DART: directed automated random testing. In Programming Language De-sign and Implementation (PLDI) (Chicago, IL, USA) (PLDI ’05) . As-sociation for Computing Machinery, New York, NY, USA, 213–223. doi: 10.1145/1065010.1065036 
+
+[19] GTKWave contributors. [n. d.]. GTKWave: A Fully Featured GTK+ Based Wave Viewer . https://gtkwave.sourceforge.net Waveform viewer for Unix, Win32, and Mac OSX supporting LXT, LXT2, VZT, FST, GHW, and Verilog VCD/EVCD files. [20] Richard Herveille. 2010. WISHBONE System-on-Chip (SoC) Inter-connection Architecture for Portable IP Cores . OpenCores. https: //cdn.opencores.org/downloads/wbspec_b4.pdf Revision B.4. [21] IEEE. 2020. IEEE Standard for Universal Verification Methodology Language Reference Manual. IEEE Std 1800.2-2020 (Revision of IEEE Std 1800.2-2017) (2020), 1–458. doi: 10.1109/IEEESTD.2020.9195920 
+
+[22] IEEE. 2024. IEEE Standard for SystemVerilog–Unified Hardware De-sign, Specification, and Verification Language. IEEE Std 1800-2023 (Revision of IEEE Std 1800-2017) (2024), 1–1354. doi: 10.1109/IEEESTD. 2024.10458102 
+
+[23] IEEE. 2024. IEEE Standard for SystemVerilog–Unified Hardware De-sign, Specification, and Verification Language. IEEE Std 1800-2023 (Revision of IEEE Std 1800-2017) (2024), 1–1354. doi: 10.1109/IEEESTD. 2024.10458102 
+
+[24] James C. King. 1976. Symbolic execution and program testing. Com-mun. ACM 19, 7 (July 1976), 385–394. doi: 10.1145/360248.360252 
+
+[25] Lucas Klemmer and Daniel Große. 2022. WAL: A Novel Waveform Analysis Language for Advanced Design Understanding and Debug-ging. In Proceedings of the 27th Asia and South Pacific Design Automa-tion Conference (Taipei, Taiwan) (ASPDAC ’22) . IEEE Press, 358–364. doi: 10.1109/ASP-DAC52403.2022.9712600 
+
+[26] Kevin Laeufer. 2024. Automated Testing, Verification and Repair of RTL Hardware Designs . Ph. D. Dissertation. EECS Department, Uni-versity of California, Berkeley. http://www2.eecs.berkeley.edu/Pubs/ TechRpts/2024/EECS-2024-157.html 
+
+[27] Richard Lin and Kevin Laeufer. 2021. chiseltest: The batteries-included testing and formal verification library for Chisel-based RTL designs. 
+
+https://github.com/ucb-bar/chiseltest 
+
+[28] Jiacheng Ma, Gefei Zuo, Kevin Loughlin, Haoyang Zhang, Andrew Quinn, and Baris Kasikci. 2022. Debugging in the brave new world of reconfigurable hardware. In Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (Lausanne, Switzerland) (ASPLOS ’22) . Association for Computing Machinery, New York, NY, USA, 946–962. doi: 10.1145/ 3503222.3507701 
+
+[29] Raffaele Meloni, H. Peter Hofstee, and Zaid Al-Ars. 2024. In 2024 IEEE Nordic Circuits and Systems Conference (NorCAS) . 1–6. doi: 10.1109/ NorCAS64408.2024.10752465 
+
+[30] Rachit Nigam. 2026. Defining Safe Hardware Design. Workshop on Languages, Tools, and Techniques for Accelerator Design (LATTE). Co-located with ASPLOS ’26.. [31] Rachit Nigam, Pedro Henrique Azevedo de Amorim, and Adrian Sampson. 2023. Modular Hardware Design with Timeline Types. In Proceedings of the 44th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI) , Vol. 7. Association for Computing Machinery, New York, NY, USA, Article 120, 25 pages. doi: 10.1145/3591234 
+
+[32] Rachit Nigam, Ethan Gabizon, Edmund Lam, Carolyn Zech, Jonathan Balkind, and Adrian Sampson. 2026. Parameterized Hardware Design with Latency-Abstract Interfaces. In ASPLOS ’26: 31st ACM Interna-tional Conference on Architectural Support for Programming Languages and Operating Systems . doi: 10.1145/3779212.3790199 
+
+[33] Rishiyur Nikhil. 2004. Bluespec System Verilog: efficient, correct RTL from high level specifications. In Proceedings of the Second ACM/IEEE International Conference on Formal Methods and Models for Co-Design (MEMOCODE ’04) . IEEE Computer Society, USA, 69–70. doi: 10.1109/ MEMCOD.2004.1459818 
+
+[34] Clément Pit-Claudel, Thomas Bourgeat, Stella Lau, Arvind, and Adam Chlipala. 2021. Effective simulation and debugging for a high-level hardware language using software compilers. In Proceedings of the 26th ACM International Conference on Architectural Support for Pro-gramming Languages and Operating Systems (ASPLOS ’21) . Asso-ciation for Computing Machinery, New York, NY, USA, 789–803. doi: 10.1145/3445814.3446720 
+
+[35] Amir Pnueli. 1977. The temporal logic of programs. In 18th Annual Symposium on Foundations of Computer Science (SFCS 1977) . doi: 10. 1109/sfcs.1977.32 
+
+[36] Andrew Ray. 2020. Using ASCII Waveforms to Test Hardware De-signs. https://blog.janestreet.com/using-ascii-waveforms-to-test-hardware-designs/ . Published on the Jane Street Technology Blog. [37] Andy Ray, Benjamin Devlin, Fu Yong Quah, and Rahul Yesantharao. 2024. Hardcaml: An OCaml Hardware Domain-Specific Language for Efficient and Robust Design. In Proceedings of the 2024 ACM/SIGDA International Symposium on Field Programmable Gate Arrays (Mon-terey, CA, USA) (FPGA ’24) . Association for Computing Machinery, New York, NY, USA, 41. doi: 10.1145/3626202.3637586 
+
+[38] Katharina Ruep and Daniel Große. 2022. SpinalFuzz: Coverage-Guided Fuzzing for SpinalHDL Designs. In 2022 IEEE European Test Symposium (ETS) . 1–4. doi: 10.1109/ETS54262.2022.9810421 
+
+15 Ernest Ng, Nikil Shyamsunder, Francis Pham, Adrian Sampson, and Kevin Laeufer 
+
+[39] Daniel Schemmel, Julian Büning, César Rodríguez, David Laprell, and Klaus Wehrle. 2020. Symbolic Partial-Order Execution for Testing Multi-Threaded Programs. In Computer Aided Verification (CAV) 2020 
+
+(Los Angeles, CA, USA). Springer-Verlag, Berlin, Heidelberg, 376–400. doi: 10.1007/978-3-030-53288-8_18 
+
+[40] Koushik Sen and Gul Agha. 2006. CUTE and jCUTE: concolic unit testing and explicit path model-checking tools. In Computer Aided Verification (CAV) (Seattle, WA) (CAV’06) . Springer-Verlag, Berlin, Hei-delberg, 419–423. doi: 10.1007/11817963_38 
+
+[41] Frans Skarman, Lucas Klemmer, Daniel Große, Oscar Gustafsson, and Kevin Laeufer. 2025. Surfer — An Extensible Waveform Viewer. In 
+
+Computer Aided Verification: 37th International Conference, CAV 2025, Zagreb, Croatia, July 23-25, 2025, Proceedings, Part IV (Zagreb, Croatia). Springer-Verlag, Berlin, Heidelberg, 392–404. doi: 10.1007/978-3-031-98685-7_19 
+
+[42] Jason Zhijingcheng Yu, Aditya Ranjan Jha, Umang Mathur, Trevor E. Carlson, and Prateek Saxena. 2026. Anvil: A General-Purpose Timing-Safe Hardware Description Language. In ASPLOS ’26: 31st ACM Interna-tional Conference on Architectural Support for Programming Languages and Operating Systems . doi: 10.1145/3779212.3790125 
+
+[43] Keyi Zhang. 2022. Source-Level Debugging for Hardware Generator Frameworks . Ph. D. Dissertation. Stanford University. 16
