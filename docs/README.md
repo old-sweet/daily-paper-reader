@@ -6,28 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-15
-- 运行时间：2026-06-15 22:58:25 UTC
+- 最新运行日期：2026-06-16
+- 运行时间：2026-06-16 23:21:19 UTC
 - 运行状态：成功
-- 本次总论文数：2
+- 本次总论文数：3
 - 精读区：1
-- 速读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-今日精读满分论文《HierSVA》，聚焦LLM驱动硬件形式验证的数据合成与基准；速读则探究LLM优化模糊测试Oracle。  
-最值得关注的是LLM在硬件形式验证中的突破性应用（精读获10分满分）以及模糊测试增强方向。  
-建议优先阅读精读论文及相关数据集，了解LLM如何提升复杂硬件验证的自动化水平。
-- 详情：[/202606/15/README](/202606/15/README)
+今日三篇论文聚焦形式化验证与硬件安全，神经符号验证获最高评分。最值得关注的是《Neuro-Symbolic Software Verification》，展示了用符号推理增强语言模型实现可扩展验证；另可速览RTL信息流轨迹分析与RISC-V故障注入建模。建议下一步优先精读神经符号论文，并探索其代码安全分析的实际应用。
+- 详情：[/202606/16/README](/202606/16/README)
 
 ### 精读区论文标签
-1. [HierSVA: A Data Synthesis Pipeline, Dataset, and Benchmark for LLM-Driven Hierarchical Hardware Formal Verification](/202606/15/2606.13706v1-hiersva-a-data-synthesis-pipeline-dataset-and-benchmark-for-llm-driven-hierarchical-hardware-formal-verification)  
-   标签：评分：10.0/10、query:llm-hw-fv
-   evidence：LLM驱动的层次化硬件形式验证流程
+1. [Neuro-Symbolic Software Verification: Hyper-charging Local Language Models with Symbolic Reasoning at Scale](/202606/16/2606.16886v1-neuro-symbolic-software-verification-hyper-charging-local-language-models-with-symbolic-reasoning-at-scale)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：LLMs用于软件形式验证，可迁移至硬件
 
 ### 速读区论文标签
-1. [Investigating Metamorphic Fuzz Oracle Enhancement via Large Language Models](/202606/15/2606.14164v1-investigating-metamorphic-fuzz-oracle-enhancement-via-large-language-models)  
+1. [Information Flow Paths from RTL Traces](/202606/16/2606.13860v1-information-flow-paths-from-rtl-traces)  
    标签：评分：7.0/10、query:fsh
-   evidence：基于LLM的蜕变模糊测试预言增强技术
+   evidence：通过RTL轨迹进行硬件安全验证
+2. [InjectV: Modeling Fault Injection Attacks in RISC-V Simulation Environment](/202606/16/2606.12011v1-injectv-modeling-fault-injection-attacks-in-risc-v-simulation-environment)  
+   标签：评分：6.0/10、query:fsh
+   evidence：提出基于gem5的RISC-V故障注入攻击框架，实现系统化的漏洞评估，类似于硬件验证中的模糊测试
 
 
 <div class="dpr-home-promo-card">
