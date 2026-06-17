@@ -6,29 +6,27 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-16
-- 运行时间：2026-06-16 23:21:19 UTC
+- 最新运行日期：2026-06-17
+- 运行时间：2026-06-17 22:15:25 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：1
-- 速读区：2
+- 本次总论文数：2
+- 精读区：2
+- 速读区：0
 
 ### 今日简报（AI）
-今日三篇论文聚焦形式化验证与硬件安全，神经符号验证获最高评分。最值得关注的是《Neuro-Symbolic Software Verification》，展示了用符号推理增强语言模型实现可扩展验证；另可速览RTL信息流轨迹分析与RISC-V故障注入建模。建议下一步优先精读神经符号论文，并探索其代码安全分析的实际应用。
-- 详情：[/202606/16/README](/202606/16/README)
+今日精读两篇高分论文：一篇用知识增强的LLM自动化HLS验证（9.0分），另一篇通过难度感知分解自动证明Rocq定理（8.0分）。最值得关注的是LLM Agent在硬件验证中提升效率的新范式，以及定理证明自动化的实用性突破。建议普通读者关注AI辅助验证工具的发展，未来可能大幅降低芯片设计验证门槛。
+- 详情：[/202606/17/README](/202606/17/README)
 
 ### 精读区论文标签
-1. [Neuro-Symbolic Software Verification: Hyper-charging Local Language Models with Symbolic Reasoning at Scale](/202606/16/2606.16886v1-neuro-symbolic-software-verification-hyper-charging-local-language-models-with-symbolic-reasoning-at-scale)  
+1. [Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent](/202606/17/2606.17128v1-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：使用大语言模型代理进行高级综合功能一致性验证
+2. [Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs](/202606/17/2606.17981v1-planning-to-hammer-difficulty-aware-decomposition-for-automating-rocq-proofs)  
    标签：评分：8.0/10、query:llm-hw-fv
-   evidence：LLMs用于软件形式验证，可迁移至硬件
+   evidence：利用LLM自动化Rocq定理证明，可直接用于硬件形式验证
 
 ### 速读区论文标签
-1. [Information Flow Paths from RTL Traces](/202606/16/2606.13860v1-information-flow-paths-from-rtl-traces)  
-   标签：评分：7.0/10、query:fsh
-   evidence：通过RTL轨迹进行硬件安全验证
-2. [InjectV: Modeling Fault Injection Attacks in RISC-V Simulation Environment](/202606/16/2606.12011v1-injectv-modeling-fault-injection-attacks-in-risc-v-simulation-environment)  
-   标签：评分：6.0/10、query:fsh
-   evidence：提出基于gem5的RISC-V故障注入攻击框架，实现系统化的漏洞评估，类似于硬件验证中的模糊测试
+- 本次无速读推荐。
 
 
 <div class="dpr-home-promo-card">

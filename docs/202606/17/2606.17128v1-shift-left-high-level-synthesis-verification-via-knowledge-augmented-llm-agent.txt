@@ -1,0 +1,868 @@
+Title: Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent
+
+URL Source: https://arxiv.org/pdf/2606.17128v1
+
+Published Time: Wed, 17 Jun 2026 00:02:51 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+> 1
+
+# Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent 
+
+Zhihan Xiao Zhe Zhao Luke Ztz Hu Songping Mai ✉
+
+Abstract —High-Level Synthesis (HLS) enables rapid hardware development by translating C/C++ programs into hardware implementations. Functional consistency verification between golden C specifications and HLS-oriented C implementations is a critical yet labor-intensive task in HLS design flows. While Large Language Models (LLMs) have recently shown promise in auto-mated testbench generation, their stochastic nature often leads to insufficient coverage, inconsistent verification environments, and unreliable equivalence checking results. To address these limitations, we propose a knowledge-augmented, agent-driven shift-left verification framework for automated functional consis-tency checking between golden C and HLS-C implementations before synthesis. The framework introduces a Dual-Tier Consis-tency Checking mechanism that jointly enforces static structural alignment and dynamic behavioral equivalence between paired testbenches, while integrating symbolic execution and coverage-driven refinement to improve verification completeness. Further-more, we construct a heterogeneous HLS Verification Knowledge Graph to provide topology-aware reasoning priors for testbench generation, and design an autonomous verification agent to or-chestrate iterative refinement and failure diagnosis across hetero-geneous toolchains. Experimental results on 107 HLS benchmark pairs demonstrate that the proposed framework achieves 98.26% average coverage and 95.33% dynamic consistency, outperform-ing representative AST-based, retrieval-augmented, and iterative agent-based baselines. https://github.com/cz-5f/HLS-LeVeri.git 
+
+Index Terms —High-Level Synthesis, Shift-Left Verification, Functional Consistency Checking, Knowledge Graph. 
+
+I. I NTRODUCTION 
+
+# WITH the rapid expansion of artificial intelligence, high-performance computing, and embedded systems, hard-ware acceleration via FPGA and ASIC has become indis-pensable [1]–[3]. High-Level Synthesis (HLS) has emerged as a pivotal technology to bridge the software-to-hardware gap, enabling designers to automatically synthesize algorith-mic specifications written in C/C++ into Register Transfer Level (RTL) implementations [3]. While HLS significantly accelerates the design space exploration and reduces time-to-market, verifying the correctness of the synthesized hardware remains a manual, time-consuming, and highly error-prone bottleneck [4]. Traditional HLS verification flows heavily rely on C/RTL co-simulation, which validates the post-synthesis RTL against the HLS-C specification [5]–[7]. However, this paradigm intro-duces a critical verification gap prior to synthesis. In practice, standard algorithmic implementations (Golden C) utilize dy-namic memory allocation, standard libraries, and floating-point                       
+
+> Zhihan Xiao, Zhe Zhao, Luke Ztz Hu, and Songping Mai are with the Shenzhen International Graduate School, Tsinghua Univer-sity, Shenzhen 518055, China (e-mail: xiaozh24@mails.tsinghua.edu.cn; mai.songping@sz.tsinghua.edu.cn).
+
+arithmetic, whereas synthesizable code (HLS-C) mandates hardware constraints such as static memory, hardware pragmas (e.g., unrolling, pipelining), customized interfaces (e.g., AXI4-Stream), and arbitrary-precision data types. Because of these structural and semantic discrepancies [6], the logical equiva-lence between the Golden C and the HLS-C is frequently com-promised. If functional inconsistencies are not isolated early in the design cycle, debugging failures at the cycle-accurate RTL stage becomes prohibitively expensive [8]. Therefore, shifting left the verification process [9], [10], namely validating the functional consistency between Golden C and HLS-C at the source level, is imperative for a reliable HLS design flow. Recently, Large Language Models (LLMs) have demon-strated immense potential in Electronic Design Automation (EDA), particularly in automated code refactoring and test-bench generation [11]–[13]. Benefiting from their strong se-mantic understanding and code synthesis capabilities, LLMs can substantially reduce the manual effort required for ver-ification environment construction, interface adaptation, and stimulus generation, making them highly attractive for shift-left HLS verification. However, directly applying pure LLM-based generators to bit-exact hardware verification still re-veals fundamental limitations [13], [14]. Since LLMs are inherently stochastic, they frequently hallucinate and lack the deterministic mathematical reasoning required to resolve complex algebraic path constraints [15]. Consequently, zero-shot generated testbenches often saturate at low coverage plateaus, failing to trigger deep algorithmic corner cases or adequately explore complex control-data interactions [12], [16], [17]. More critically, existing LLM-driven approaches largely treat these objectives independently, lacking a unified mechanism that integrates deterministic reasoning, coverage-guided refinement, and semantic alignment enforcement within a closed verification loop [18]–[22]. As shown in Fig. 1, unlike previous methods, we propose an automated, closed-loop, shift-left consistency verification framework that systematically validates the functional equiva-lence between a software C specification and its HLS-oriented counterpart prior to synthesis. Due to the substantial structural and semantic discrepancies between Golden C and HLS-C implementations, independently generated testbenches may introduce hidden asymmetries in input stimuli, control-flow logic, or data dependencies [6], [7]. Therefore, an effective shift-left verification framework must simultaneously address two tightly coupled objectives: (i) achieving sufficiently high structural coverage to expose deep corner-case behaviors, and (ii) enforcing strict consistency between the verification environments themselves. Recognizing that program equivalence checking is only    
+
+> arXiv:2606.17128v1 [cs.AR] 15 Jun 2026 2(b)
+> Labor -intensive
+> Difficult to maintain and scale
+> Human errors and omissions
+> HLS -C
+> Golden
+> C/C++ Vitis HLS RTL C/RTL
+> Co -simulation
+> Checking
+> HLS -C-
+> TB
+> Shift -Left
+
+…        
+
+> C/C++
+> TB
+> Checking
+> Deterministic reasoning
+> Structural & behavioral equivalence
+> High coverage guaranteed
+> TB pairs requires:
+> •High structural coverage
+> •Strict consistency
+> (a )
+> HLS -CGolden C/C++
+> HLS -C-TB C/C ++ TB
+> Manual
+> Construction
+> HLS -CGolden C/C++
+> HLS -C-TB C/C ++ TB
+> HLS -CGolden C/C++
+> HLS -C-TB C/C ++ TB
+> LLM
+> (Zero -shot / RAG / Agent)
+> Stochastic & hallucination
+> Lack of unified mechanism
+> Weak corner cases covering
+> LLM
+> (c) (d)
+> KG
+> Agent
+> Retrieve and Augment
+> Coverage / Sematic Prior
+> Static + Dynamic Checking
+> Closed -loop Refinement
+
+Fig. 1. (a) Shift-Left Verification Process. (b) Manual Testbench Construction. (c) Existing LLM-based Testbench Generation. (d) Our Proposed Knowledge-Augmented LLM Agent. 
+
+mathematically sound if the verification environments them-selves are strictly aligned, our framework introduces a Dual-Tier Consistency Checking mechanism. This mechanism first guarantees the static structural isomorphism of the gener-ated testbenches by analyzing input stimuli, Control Flow Graph (CFG), and Data Dependency Graph (DDG) before executing a cycle-accurate dynamic behavioral co-simulation. To orchestrate this, we design an autonomous verification Agent that moves beyond conventional one-shot prompting. To eliminate LLM hallucinations and escape the coverage plateaus typical of stochastic generation, the Agent tightly integrates the LLM with KLEE [23] (a symbolic execution engine) for deterministic path constraint solving and gcov 
+
+for dynamic structural coverage feedback. Furthermore, to guide the LLM’s initial scaffolding and subsequent iterative repairs, we introduce a novel HLS Verification Knowledge Graph (KG). By retrieving verified structural invariants and semantic alignment rules from a purpose-built HLS dataset, the Knowledge Graph provides structural priors that strictly enforce cross-domain testbench consistency, transforming iso-lated code generation into a robust, self-refining hardware ver-ification pipeline. Extensive evaluations demonstrate that our framework outperforms state-of-the-art Retrieval-Augmented Generation (RAG) and iterative agent paradigms. The main contributions are summarized below:  
+
+> •
+
+We propose a Dual-Tier (static and dynamic) consis-tency checking methodology that decouples testbench generation artifacts from genuine hardware design flaws, ensuring rigorous C vs. HLS-C equivalence.  
+
+> •
+
+We design an Verification Agent that forms a closed-loop system. By integrating symbolic execution and execution profiling, the agent deterministically augments stimuli to achieve high-coverage verification sign-off.  
+
+> •
+
+We construct a novel, heterogeneous HLS Verification Knowledge Graph that provides structural priors to the LLM, enforcing cross-domain testbench consistency without relying on superficial code similarity. The following sections elaborate the design details and experimental validation of this work. Section II introduces the fundamental background of high-level synthesis verification. Section III presents the full methodology of the proposed framework. Performance evaluation is presented in Section IV. Finally, Section V concludes this article and discusses potential future research directions. II. B ACKGROUND AND RELATED WORK 
+
+A. Existing HLS Verification Methods 
+
+While commercial tools like Vitis HLS provide robust C/RTL co-simulation, this assumes the HLS-C code is al-ready functionally flawless. In academic research, Karfa et al. [24] proposed a systematic formal verification framework combining model checking and theorem proving to validate the entire HLS flow from algorithmic descriptions to RTL implementations. Pe˜ nalba et al. [25] presented an efficient formal HLS verification methodology that reconstructs the synthesis process within a formal synthesis framework ac-cording to reports generated by external HLS tools, achieving verification overheads of only around 5%. In addition, Xu et al. [12] proposed the HLSTester framework, which introduces execution-profile monitoring to track the behaviors of critical variables and prove the semantic equivalence between two C programs through symbolic execution and static analysis. The integration of LLMs into the EDA toolchain has seen significant traction. Recent frameworks, such as C2HLS [26] and HLSPilot [18], leverage prompt engineering and inter-mediate representations to automatically translate C/C++ to HLS-C. In the domain of functional verification, frameworks like ConfiBench [22] have pioneered the use of LLMs for automated HDL testbench generation, employing execution feedback to iteratively refine the test stimuli. Wang et al. 
+
+[27] proposed the HLSDebugger, constructing 3M labeled HLS error examples to train the model, which is used for automatically locating and fixing logical errors in HLS-Code. Existing LLM-driven generation methods primarily focus on syntactic correctness and synthesis pass rates, often neglecting bit-exact functional equivalence. Additionally, due to the non-deterministic nature of LLMs, the generated testbenches for the Golden C and HLS-C may possess asymmetric stimulus logic, leading to false positives during verification. 
+
+B. Symbolic Execution and Coverage-Driven Verification 
+
+In hardware-oriented verification scenarios, structural cov-erage metrics, including statement coverage, branch coverage, and call coverage, are essential indicators for evaluating verifi-cation completeness [28]. Existing LLM-driven test generation methods [22], [27], [29] primarily rely on randomized or heuristic stimulus synthesis, often failing to activate rare execution branches or deeply nested control flows. Symbolic execution alleviates this limitation by transforming coverage exploration into a constraint-solving problem. Formally, symbolic execution models a program state as a tuple: σ = ⟨ℓ, μ, P C π ⟩, where ℓ denotes the current program counter, μ represents the symbolic memory store, and P C π is the accumulated path constraint over symbolic inputs. During 3
+
+execution, branch instructions fork the symbolic state into mul-tiple feasible execution paths, while satisfiability modulo theo-ries (SMT) [30] solvers are employed to determine whether the associated constraints are satisfiable. If satisfiable, the solver derives concrete assignments that satisfy path constraints and drive execution toward unexplored states. In this field, Cadar et al. [23] proposed KLEE, one of the most widely adopted symbolic execution engines, which sys-tematically explores program paths to generate high-coverage test cases. Sen et al. [31] further introduced concolic testing, which combines concrete execution with symbolic reasoning to improve scalability and path exploration efficiency. While tools like HLSTester [12] have utilized KLEE to compare C and HLS-C behaviors, they lack an autonomous closed-loop refinement mechanism. 
+
+C. Knowledge-Augmented Program Analysis 
+
+To mitigate the hallucination problem in LLMs, RAG has been widely adopted in code generation tasks [32]–[34]. Exist-ing approaches commonly retrieve semantically related code fragments from external repositories using vector similarity or Abstract Syntax Tree (AST) retrieval mechanisms. Recent studies further demonstrate that graph-structured program rep-resentations can substantially improve retrieval precision by modeling higher-order structural dependencies beyond lexical similarity [33], [35]. In program analysis, Knowledge Graph (KG) are typically constructed from syntactic and semantic program entities, including functions, variables, control-flow structures, and compiler directives. Such graphs are commonly represented as collections of relational triplets: G = ⟨V , E, R⟩ , where 
+
+V denotes the set of graph entities, E represents the edges among entities, and R denotes the associated relation types. Compared with flat text retrieval, graph-structured representa-tions preserve topological dependencies and enable multi-hop reasoning across heterogeneous program components [34]. III. M ETHODOLOGY 
+
+A. Architecture Overview 
+
+Given a pair of programs, namely a golden C/C++ specifi-cation Pc and its HLS-oriented counterpart Ph, the objective of this work is to automatically construct a high-coverage and semantically consistent testbench pair (T B c, T B h), such that functional equivalence between Pc and Ph can be rigorously validated. Rather than modifying or repairing the source code, the proposed framework focuses exclusively on verification, aiming to provide reliable evidence of equivalence or to expose concrete counterexamples when discrepancies exist. As illustrated in Fig. 2, we formulate this task as aknowledge-augmented, agent-driven verification pipeline. The workflow integrates a Dual-Tier Consistency Checking mech-anism and a Coverage-driven Testbench Construction module. On this basis, an autonomous agent orchestrates the process in a closed loop, leveraging coverage metrics, trace comparisons, and Knowledge Graph priors to iteratively refine the testbench until coverage and consistency criteria are satisfied or the maximum iteration budget is reached. 
+
+Algorithm 1 Dual-Tier Functional Consistency Checking 
+
+Require: Golden C (Pc), HLS-C (Ph), Testbenches (T B c, T B h), Threshold ( τstatic )
+
+Ensure: Verification Status: EQUIVALENT , DESIGN_BUG ,or TB_BUG  
+
+> 1:
+
+Phase 1: Static Precondition Check  
+
+> 2:
+
+AST c ← Parse (T B c); AST h ← Parse (T B h) 
+
+> 3:
+
+SIO ← ComputeInputSimilarity (AST c, AST h) 
+
+> 4:
+
+SCF G ← ComputeCFGSimilarity (AST c, AST h) 
+
+> 5:
+
+SDDG ← ComputeDDGSimilarity (AST c, AST h) 
+
+> 6:
+
+Sstatic ← αSIO + βSCF G + γSDDG  
+
+> 7:
+
+if Sstatic < τ static then  
+
+> 8:
+
+return TB_BUG (Static Mismatch)  
+
+> 9:
+
+end if  
+
+> 10:
+
+Phase 2: Dynamic Behavioral Check  
+
+> 11:
+
+T races c ← Simulate (Pc, T B c) // {(Ict , Oct )} 
+
+> 12:
+
+T races h ← Simulate (Ph, T B h) // {(Iht , Oht )} 
+
+> 13:
+
+for cycle t = 0 to tmax do  
+
+> 14:
+
+if Ict̸ = Iht then  
+
+> 15:
+
+return TB_BUG (Dynamic Input Divergence)  
+
+> 16:
+
+end if  
+
+> 17:
+
+if Oct̸ = Oht then  
+
+> 18:
+
+return DESIGN_BUG (Source Code Divergence)  
+
+> 19:
+
+end if  
+
+> 20:
+
+end for  
+
+> 21:
+
+return EQUIVALENT 
+
+B. Functional Consistency Verification Objective 1) Problem Definition: Formally, complete functional equivalence requires that for any given input vector x drawn from the entire valid input space X , the outputs of both programs are strictly identical: 
+
+∀x ∈ X , Mc(Pc, x) ≡ M h(Ph, x), (1) where Mc and Mh represent the execution semantics of the respective programs. We approximate the formal proof through a rigorous, bounded test-based verification methodology. The fundamental challenge, however, arises from the reliance on LLMs to generate these testbenches. Since LLMs are non-deterministic, we cannot inherently trust that T B c and T B h
+
+are semantically identical. Thus, we formalize a Dual-Tier Consistency Checking mechanism. 
+
+2) Dual-Tier Consistency Check: Our methodology de-composes consistency checking into two sequential phases: a static structural precondition check and a dynamic behavioral equivalence check. The overall procedure is summarized in Algorithm 1. 
+
+(i) Testbench Consistency (Static Precondition): Before in-voking cycle-accurate simulation, we must ensure that the gen-erated testbenches are functionally isomorphic. We evaluate static consistency across three dimensions by analyzing the AST of T B c and T B h.
+
+① Input Stimulus Consistency ( SIO ): We extract the sub-trees related to data injection (e.g., variable declarations, literals, and array initializations). To measure the syntactic alignment of the input generation, we apply the normalized Levenshtein 4Input 
+
+Golden 
+
+C/C++  HLS C 
+
+Goal: 
+
+with High Coverage c h
+
+P P
+
+Verify c
+
+Ph
+
+P
+
+Agent -Based Verification Orchestration 
+
+Step 1 
+
+Construction & 
+
+Augmentation 
+
+LLM + KLEE 
+
+Generate ,c h
+
+TB TB 
+
+Symbolic + 
+
+Corner Cases 
+
+Step 3 
+
+Static 
+
+Consistency Check 
+
+Calculation Formula 
+
+Input,  CFG,  DDG static static 
+
+?
+
+Step 2 
+
+Coverage Check 
+
+gcov 
+
+Statement, Branch, Call total cov 
+
+?
+
+Step 4 
+
+Dynamic Simulation 
+
+g++, Vitis HLS 
+
+Simulation 
+
+Syntax Errors, 
+
+Runtime Exceptions? 
+
+Step 5 
+
+Dynamic 
+
+Consistency Check 
+
+Compare Traces 
+
+Cycle -by -cycle 
+
+Input: c ht t
+
+I Ic ht t
+
+O O
+
+Output:  ?
+
+Agent -Based Verification Scheduling 
+
+Failure Diagnosis Strategy 
+
+Case 1 
+
+Insufficient Stimulus 
+
+Augment  Simulus 
+
+(LLM + KLEE + KG) cov 
+
+Case 2 
+
+Static Inconsistency 
+
+Repair Testbench 
+
+(LLM + KG) static 
+
+Case 3 
+
+> Dynamic Input Mismatch
+
+Refine TB for Input 
+
+Sync (LLM + KG) _dyn in 
+
+Case 4 
+
+Report Bugs _dyn out 
+
+Target Design Bug  Failure 
+
+State 
+
+State 
+
+Memory     
+
+> •Coverage:
+> •Consistency:
+> •Execution Traces
+> •Error & Failure Logs total static
+
+Reasoning 
+
+& Planning     
+
+> •Decision Making
+> •Failure Diagnosis
+> •Repair Planning
+> •Prompt Generation
+
+Toolchain Interfaces LLM 
+
+T
+
+> Code
+> Generation KLEE
+
+T
+
+> Symbolic
+> Execution gcov
+
+T
+
+> Coverage
+> Profiling gcc
+
+T Compilation Vitis 
+
+T High -level 
+
+> Synthesis
+
+ Feature Extraction   Topological Retrieval   Prompt Assembly 
+
+KG -Augmented Reasoning  Output *
+
+> h
+
+P*
+
+> c
+
+TB *
+
+> h
+
+TB 
+
+Verified & 
+
+High -coverage 
+
+Testbench Pair  
+
+> Verified HLS C
+> C Testbench
+> HLS C Testbench
+> Or FAILURE
+
+, ,, ,
+
+Fig. 2. Overview of the proposed KG-augmented, agent-based verification framework for functional consistency checking between golden C and HLS-C implementations. The framework integrates a coverage-driven verification scheduling strategy with a closed-loop orchestration mechanism. 
+
+distance Dist Lev (·) over the linearized AST node sequences 
+
+Sc and Sh:
+
+SIO = 1 − Dist Lev (Sc, S h)max( |Sc|, |Sh|) , (2) where |Sc| and |Sh| denote the lengths of the respective linearized node sequences. 
+
+② CFG Consistency ( SCF G ): To ensure the testbenches ex-ercise the identical branching logic, we compute a weighted similarity of their CFGs. Let Sim ctrl be the distribution similarity of control nodes (e.g., IfStmt, ForStmt) and Sim nest 
+
+be the normalized difference in maximum nesting depth. The CFG consistency is defined as: 
+
+SCF G = wctrl · Sim ctrl + wnest · Sim nest , (3) where wctrl and wnest are pre-defined weights that balance the importance of control distribution and nesting hierarchy. 
+
+③ DDG Consistency ( SDDG ): To capture semantic equiva-lence, we perform a Reaching Definition analysis to extract the sets of Def-Use chains, denoted as Ec and Eh. The DDG similarity is calculated using the intersection of structural data-flow edges: 
+
+SDDG = |Ec ∩ Eh||Ec ∪ Eh| , (4) where | · | denotes the cardinality of the edge sets. The overall Static Consistency Score ( Sstatic ) is aggregated via a weighted linear combination. A testbench pair is strictly rejected if Sstatic falls below a rigorous threshold τstatic ,preventing invalid simulations. 
+
+Sstatic = ω1SIO + ω2SCF G + ω3SDDG ≥ τstatic , (5) where ω1, ω 2, ω 3 are empirically determined weights. 
+
+(ii) Behavioral Consistency (Runtime Equivalence): Once the testbench pair satisfies the static precondition, we exe-cute a cycle-by-cycle dynamic co-simulation. Each execution produces a time-ordered trace T races = {(It, Ot)}tmax  
+
+> t=0
+
+,capturing the input-output behavior at each cycle. Let Ict and Iht
+
+be the exact input signals injected at cycle t, and Oct and Oht
+
+denote the corresponding outputs recorded in the execution 5
+
+traces T races c and T races h. We define a strict two-step runtime assertion protocol: 
+
+① Input Equivalence Check: ∀t, Ict ≡ Iht . If this condition is violated during runtime despite passing the static checks, the testbench pair contains hidden semantic divergences. We classify this as a testbench bug, triggering a feedback loop to the LLM agent to rectify the testbench generation. 
+
+② Output Equivalence Check: Given condition ① holds, 
+
+∀t, Oct ≡ Oht . If the inputs are strictly aligned but the outputs diverge at any cycle t, we have deterministically isolated a design bug between the golden C and the HLS-C source code. By enforcing this Dual-Tier Consistency Checking mecha-nism, our framework cleanly decouples verification environ-ment errors from actual HLS translation errors, ensuring a highly reliable automated shift-left verification flow. 
+
+C. Coverage-Driven Testbench Construction 
+
+Our framework introduces a closed-loop, symbolic execution-guided construction architecture that systematically orchestrates testbench generation, ensuring high-fidelity stimulus injection and maximum structural coverage. 
+
+1) Symbolic Execution-Guided Stimulus Augmentation: 
+
+To overcome the coverage ceiling of stochastic generation, we integrate KLEE, a robust symbolic execution engine, to systematically augment the verification stimulus. In this architecture, the LLM provides the syntactical prior and the test environment, while KLEE guarantees path completeness and specific numerical injections. Rather than executing Pc with concrete integer or floating-point values, KLEE treats the input parameters as symbolic variables. As it traverses the CFG of the program, KLEE constructs a set of path constraints P C π for each feasible execution path π ∈ Π, where Π denotes the set of all feasible paths. At each branch instruction, the execution state forks, and the corresponding constraints are updated as follows: 
+
+P C πtrue = P C π ∧ cond , P C πfalse = P C π ∧ ¬ cond , (6) where cond denotes the branch predicate. 
+
+2) Closed-Loop Coverage Orchestration: The LLM and symbolic execution engines are bound together by an auto-mated, dynamic profiling loop utilizing gcov . We formalize our verification completeness objective using a composite coverage metric ( Ctotal ), evaluating three critical dimensions of the program’s topology: 
+
+(i) Statement Coverage ( Cstmt ): The ratio of executable lines successfully triggered by the testbench. 
+
+(ii) Branch Coverage (Cbranch ): The ratio of evaluated control-flow edges (both true and false outcomes). 
+
+(iii) Call Coverage ( Ccall ): The ratio of internal sub-functions and module instantiations successfully invoked. The overall coverage score is evaluated as a weighted sum: 
+
+Ctotal = ωstmt Cstmt + ωbranch Cbranch + ωcall Ccall . (7) If Ctotal < τ cov , the framework extracts uncovered state-ments, branches, and function calls identified by gcov . These coverage deficits are converted into targeted prompts, enabling the LLM to augment the existing testbench with additional stimuli and KLEE-derived vectors. The loop iterates until 
+
+Ctotal ≥ τcov or a predefined timeout is reached. 
+
+D. Agent-Based Verification Orchestration 
+
+While the mathematical bounds of consistency (Section III-B) and the mechanisms for stimulus augmentation (Sec-tion III-C) form the theoretical foundation of our framework, executing this heterogeneous pipeline manually is highly error-prone and practically infeasible. A complete verification sign-off requires seamless data passing and semantic alignment across disjoint toolchains, including LLMs, formal constraint solvers (KLEE), coverage profilers ( gcov ), standard compilers (g++), and hardware synthesizers (Vitis HLS). To unify these disparate processes, we design an autonomous verification Agent, acting as a stateful orchestrator. 
+
+1) Stateful Orchestration and Tool Invocation: As illus-trated in Fig. 2, we formally define the Agent as a tuple 
+
+A = ⟨Σ, T , P⟩ . Σ represents the Agent’s dynamic state memory, which continuously tracks the current coverage met-rics Ctotal , consistency scores Sstatic , execution traces, and historical error logs. T represents the integrated toolchain interfaces {TLLM , T KLEE , T gcov , T gcc , T V itis }. The Agent autonomously invokes these tools, parses their raw outputs (e.g., standard error streams, AST JSONs, profiling data), and abstracts them into an internal semantic representation. 
+
+P is the reasoning and planning engine driven by the LLM, responsible for deciding the next state transition based on the current verification status. The overall execution logic and decision-making process of the Agent are formally delineated in Algorithm 2. 
+
+2) Agent-Based Verification Scheduling: Formally, each iteration follows a fixed sequence: (i) coverage evaluation and stimulus augmentation, (ii) static consistency verification, and (iii) dynamic co-simulation and equivalence checking. Any failure detected in later stages triggers a refinement loop that returns to the coverage evaluation stage, ensuring progressive improvement toward both coverage completeness and functional correctness. 
+
+3) Autonomous Failure Diagnosis Strategy: Our Agent employs a deterministic Failure Diagnosis Strategy, classifying anomalies into a strict debug taxonomy to execute targeted, multi-step refinements. Let F denote a failure state detected during the orchestration loop. The Agent evaluates F against four distinct topological cases to dictate its iterative repair strategy: 
+
+Case 1: Insufficient Stimulus (Fcov ). Condition: The coverage profiling indicates Ctotal < τ cov . Agent Action: The Agent identifies this not as a code bug, but as a testbench deficiency. It extracts the unreached branch conditions from 
+
+Tgcov , feeds them into TKLEE for path constraint resolution, and prompts the LLM to structurally append the newly derived corner-case vectors into T B c and T B h.
+
+Case 2: Static Inconsistency ( Fstatic ). Condition: The pre-simulation static consistency score Sstatic < τ static . Agent Action: The Agent intercepts the pipeline before simulation, avoiding wasted compute cycles. The LLM is prompted to strictly realign the anomalous testbench structure to match its counterpart. 6
+
+Algorithm 2 Autonomous Verification Orchestration Agent 
+
+Require: Golden C ( Pc), HLS-C ( Ph), Coverage Threshold (τcov ), Static Threshold ( τstatic ), Max Iterations ( Kmax )
+
+Ensure: Verified Tuple (P ∗ 
+
+> h
+
+, T B ∗ 
+
+> c
+
+, T B ∗
+
+> h
+
+) or FAILURE  
+
+> 1:
+
+Initialize Agent State Σ ← ∅  
+
+> 2:
+
+// Step 1: Initial Testbench Construction  
+
+> 3:
+
+(T B c, T B h) ← A .Invoke ({TLLM , T KLEE }, P c, P h, Σ)  
+
+> 4:
+
+for iteration i = 1 to Nmax do  
+
+> 5:
+
+// Step 2: Coverage Evaluation (Primary Entry)  
+
+> 6:
+
+T races c, Ctotal ← A .Invoke ({Tgcc , T gcov }, P c, T B c) 
+
+> 7:
+
+if Ctotal < τ cov then  
+
+> 8:
+
+Σ ← Σ ∪ { Coverage Deficit Log } 
+
+> 9:
+
+(T B c, T B h) ← A .Refine ({TLLM , T KLEE }, Σ)  
+
+> 10:
+
+continue  
+
+> 11:
+
+end if  
+
+> 12:
+
+// Step 3: Static Consistency Check  
+
+> 13:
+
+Sstatic ← EvaluateStaticConsistency (T B c, T B h) 
+
+> 14:
+
+if Sstatic < τ static then  
+
+> 15:
+
+Σ ← Σ ∪ { Static Inconsistency Log } 
+
+> 16:
+
+(T B c, T B h) ← A .Refine (TLLM , Σ)  
+
+> 17:
+
+continue  
+
+> 18:
+
+end if  
+
+> 19:
+
+// Step 4: Dynamic Co-simulation  
+
+> 20:
+
+T races h ← A .Invoke (TV itis , P h, T B h) 
+
+> 21:
+
+// Step 5: Dynamic Consistency Check  
+
+> 22:
+
+Fstatus ← CheckDynamicTraces (T races c, T races h) 
+
+> 23:
+
+if Fstatus == Fdyn in then  
+
+> 24:
+
+Σ ← Σ ∪ { Semantic TB Bug Log } 
+
+> 25:
+
+(T B c, T B h) ← A .Refine (TLLM , Σ)  
+
+> 26:
+
+continue  
+
+> 27:
+
+else if Fstatus == Fdyn out then  
+
+> 28:
+
+Σ ← Σ ∪ { Design Bug Report (xf ail )} 
+
+> 29:
+
+continue  
+
+> 30:
+
+else  
+
+> 31:
+
+return (Ph, T B c, T B h) 
+
+> 32:
+
+end if  
+
+> 33:
+
+end for  
+
+> 34:
+
+return FAILURE: Max Iterations Reached 
+
+Case 3: Dynamic Input Mismatch ( Fdyn in ). Condition: 
+
+During cycle-by-cycle co-simulation, the input sequences di-verge ( ∃t, Ict̸ = Iht ). Agent Action: The Agent masks the target design Ph, feeds the diverging input trace back to the LLM, and refines the testbench generation logic to enforce bit-exact input synchronization. 
+
+Case 4: Target Design Bug ( Fdyn out ). Condition: Input stimuli are perfectly synchronized ( ∀t, Ict ≡ Iht ), but the output traces diverge ( ∃t, Oct̸ = Oht ). Agent Action: The Agent deterministically isolates a functional discrepancy between Pc
+
+and Ph. It reports the failing cycle t and the corresponding counterexample xf ail to assist downstream debugging or re-pair processes. Additionally, if compilation or simulation fails (e.g., syntax errors, runtime exceptions), the Agent classifies the failure as an execution error and triggers a repair loop by analyzing runtime logs and prompting the LLM to fix the corresponding issues in the testbench or source code. 
+
+E. Knowledge Graph Augmented Verification 
+
+Post-generation feedback incurs significant computational overhead. In a pure trial-and-error paradigm, the Agent lacks a priori knowledge of common verification patterns. To enhance the first-pass construction quality, we augment the Agent with an experience reuse module powered by a novel HLS Verification Knowledge Graph. 
+
+1) Dataset Construction Pipeline: We systematically con-struct a domain-specific corpus based on the Chrysalis-HLS [36] dataset. The original Chrysalis-HLS dataset pro-vides approximately 1,000 foundational hardware-accelerated code modules, and it contains the ground-truth HLS-C im-plementations. To further improve structural diversity, we apply data augmentation techniques, including parameterized array dimensions and varying loop unrolling factors. For each HLS-C module, the Agent constructs a candidate pure C reference model ( Pc), which is subsequently validated through the proposed consistency framework. Subsequently, the Agent utilizes the exhaustive KLEE and gcov loop to generate highly optimized, perfectly aligned testbench pairs ( T B c, T B h). Finally, to ensure high-quality supervision, we perform strict filtering based on the previously defined Dual-Tier Consistency metrics, enforcing both functional equivalence and coverage adequacy. After this verification-driven pruning, 1,597 high-confidence and strictly aligned data 4-tuples are retained, yielding the final dataset: D = {(Pc, P h, T B c, T B h)i}Ni=1 .Overall, the dataset exhibits a balanced coverage across compute-intensive kernels (e.g., machine learning and numer-ical computation) and system-level operators (e.g., streaming, control logic, and memory subsystems), ensuring that the proposed framework is evaluated over a broad spectrum of realistic HLS design patterns. 
+
+2) Knowledge Graph Schema Definition: Instead of storing raw code text, which leads to inefficient semantic retrieval, the dataset D is abstracted into a heterogeneous directed Knowledge Graph, formally defined as G = ⟨V , E, R⟩ . Here, 
+
+V denotes the set of syntactic and semantic entity nodes (e.g., Function, Loop, Pointer, HLSPragma), and E denotes the set of directed edges associated with relation types R (e.g., 
+
+requires input , semantic equivalent to , has hls pragma ). As illustrated in Fig. 3, the graph is logically partitioned into two functionally distinct subgraphs: 
+
+(i) Coverage Knowledge Graph (Gcov ): This subgraph cap-tures the relationship between program structural patterns and the corresponding stimulus strategies required to achieve high coverage. It encodes historical path constraints and corner-case input distributions derived from symbolic execution. 
+
+(ii) Semantics Knowledge Graph (Gsem ): This subgraph models the structural and behavioral alignment rules between paired testbenches ( T B c, T B h) within the same instance. It encodes interface-level and data representation consistency constraints, such as type alignment, data formatting, and synchronization protocols. Formally, for a given instance i,
+
+Gsem encodes the verified alignment relationship between the paired testbenches (T B (i) 
+
+> c
+
+, T B (i) 
+
+> h
+
+).Specifically, the structural patterns of stimulus generation 7cov Coverage Knowledge Graph   
+
+> Function Loop
+> Branch
+> Pointer
+> Variable ……
+> Example
+
+( )c c i
+
+P TB    
+
+> InputConstraint
+> Data Examples
+> AST Nodes
+> HLS -specific Entities
+> Edges with Relation
+> HLS Pragma HLS Type
+
+( )h h i
+
+P TB 
+
+> Example
+
+( )ic
+
+TB ( )h i
+
+TB   
+
+> C TB HLS C TB
+> semantic_equivalent_to
+> behaviorally_aligned_with
+> Semantics Knowledge Graph sem
+> has_hls_interface has_hls_pragma has_hls_ type 1
+
+{( , , , ) } Nc h c h i i
+
+P P TB TB     
+
+> (a) Knowledge Graph Schema Definition
+> (b) Dataset Construction Pipeline (c) Knowledge Graph Augmented Reasoning Workflow
+> Aligned 4 -tuples:
+> JSON Loader C Code Parser
+> KG Builder Embed Cache
+> Cross -Edge Builder
+> KG Database
+
+ Feature Extraction   Topological Retrieval   Prompt Assembly                  
+
+> New Query
+> C Source
+> C Code Parser query
+> Query Subgraph
+> Weighted Score
+> Consistency
+> Enforcement
+> •KG Reasoning Rules
+> •Alignment Strategies
+> •Semantic Info
+> Cosine Similarity
+> Triple -match Ratio
+> Similarity Bonus
+> KG Context Generation
+> Retrieved
+> Top -K Examples
+> •Detected AST Nodes
+> •Structural Invariants
+> •Input Constraints
+> Coverage
+> Enhancement
+> HLS Interface
+
+Fig. 3. Overview of the proposed KG-augmented verification framework. During inference, graph-retrieved reasoning priors guide coverage-driven stimulus generation and enforce cross-domain testbench consistency. 
+
+are isomorphic: 
+
+Φ( T B (i) 
+
+> c
+
+) ∼= Φ( T B (i) 
+
+> h
+
+), (8) where Φ( ·) extracts the input-related AST substructures. 
+
+3) KG-Augmented Reasoning with Structural Priors: The proposed approach extracts abstract reasoning patterns and structural invariants from the Knowledge Graph. Given a new program pair (Pc, P h), the Agent performs the following steps: 
+
+(i) Feature Extraction: The system parses the input pro-grams and constructs a localized query subgraph Gquery ,capturing key interface signatures, data types, and control-flow characteristics. 
+
+(ii) Topological Retrieval: A graph traversal is performed to identify subgraphs in Gcov and Gsem that exhibit high structural similarity to Gquery . For a given query graph Gquery 
+
+and a candidate example node v ∈ V, the retrieval score 
+
+S(query, v ) is formulated as a weighted sum of semantic, topological, and neighborhood bonus features: 
+
+S(query, v ) = wemb · Sim emb (query, v )+ wtopo · Sim topo (query, v )+ wsem · Bonus sem (v),
+
+(9) where Sim emb represents the deep feature cosine similarity, and Sim topo is the normalized triple-match ratio defined as the intersection of identical AST structural edges between the query and candidate v. To encourage the retrieval of highly reliable verification templates, Bonus sem propagates fractional similarity scores from the candidate’s semantically equivalent neighbors. 
+
+(iii) Reasoning Prompt Assembly: Instead of injecting raw code, the retrieved subgraphs are abstracted into determin-istic reasoning rules that guide the LLM during testbench generation. This mechanism serves as a structural prior for both verification objectives, i.e., coverage enhancement and testbench consistency enforcement. By incorporating graph-derived reasoning priors, the frame-work significantly reduces the search space of valid test-benches. The Knowledge Graph provides high-level structural guidance, while the Agent ensure fine-grained correctness and coverage, resulting in a synergistic and efficient verification pipeline. IV. E XPERIMENTAL EVALUATION 
+
+A. Experimental Setup 1) Implementation Details: We implement the proposed framework as an end-to-end automated verification pipeline targeting shift-left HLS verification, where functional correct-ness is validated prior to synthesis. For hardware-oriented validation, we adopt Vitis HLS 2019.1 as the backend to compile and simulate HLS-C designs, enabling cycle-accurate co-simulation and trace extraction. During the offline dataset construction phase, the Agent operates exhaustively without Knowledge Graph priors, with the maximum number of iterative refinement rounds set to 6. During the online inference phase (i.e., the experimental 8
+
+evaluation), we strictly limit the maximum iterations to 3 rounds to evaluate the efficiency of the KG-augmented rea-soning. For non-iterative or zero-shot baseline methods, we adopt a pass@3 evaluation protocol to align the computational budget with our 3-round iterative Agent. Furthermore, the evaluation thresholds are uniformly strictly maintained across both dataset construction and inference phases: the coverage threshold is set to τcov = 0 .95 , and the static consistency threshold is set to τstatic = 0 .75 , where both metrics are normalized to the range [0 , 1] .
+
+2) Baseline Methods: We compare against representative methods from three categories of prior work in testbench generation and HLS-related code intelligence. (i) For AST-based Knowledge Graph Methods, we compare our frame-work with the AST-based Graph-RAG approach proposed by Chinthareddy [19]. (ii) Retrieval-Augmented Generation Methods: SynthAI [21], which retrieve relevant code snippets or examples to guide LLM generation. (iii) Iterative Agent-based Method: ConfiBench [22], which refine generated test-benches through execution feedback. For all baselines, we re-implement or adapt their pipelines to the HLS verification setting to the best extent possible. When full implementations are not publicly available, we faithfully reproduce their core design principles based on published descriptions to ensure a fair comparison. 
+
+3) Evaluation Metrics: We evaluate all methods using four complementary metrics that reflect correctness, coverage, and consistency of the generated testbenches. 
+
+(i) Syntax Correctness. We measure the ratio of testbench pairs that can be successfully compiled and executed without syntax or runtime errors: Syntax Rate = Nvalid 
+
+Ntotal 
+
+× 100% . (10) 
+
+(ii) Coverage Score. Following the formal definition in Section III-C, we evaluate the testbench stimulus quality using the composite coverage metric Ctotal , which aggregates statement, branch, and function call coverage based on the previously established weighting scheme. 
+
+(iii) Static Consistency Score. We evaluate the structural alignment between generated testbench pairs using the static consistency metrics SIO , SCF G , and SDDG defined in Sec-tion III-B. 
+
+(iv) Dynamic Consistency Rate. We measure whether the generated testbench pair produces bit-exact identical execution traces under co-simulation: Dynamic Rate = Nmatch 
+
+Ntotal 
+
+× 100% , (11) where a testbench pair is counted as valid only if ∀t, Ict ≡
+
+Iht . We emphasize that this metric evaluates testbench-level functional consistency without inspecting the source. 
+
+4) Benchmarks: We evaluate our framework on the HLSTrans [11] benchmark, which provides comprehensive paired C and HLS-C programs collected from multiple es-tablished HLS datasets or benchmarks, including HLSFac-tory [37], ForgeBench [38], C2HLS [26], MachSuite [39], PP4FPGA [40], etc.                                    
+
+> TABLE I DATASET COMPARISON AND QUALITY STATISTICS
+> (a) Structural Comparison with Existing Datasets Dataset CHLS-C C-TB HLS-C-TB
+> HLSDataset ×✓×✓
+> HLS-Eval ×✓×✓
+> HLSTrans ✓✓××
+> HLSPilot ✓✓××
+> Ours ✓✓✓✓
+> (b) Dataset Quality Metrics #Samples Syntax (%) Coverage Static Score Dynamic (%)
+> 1597 100 0.9808 0.7998 100
+
+We perform a strict filtering process to extract a subset of functionally independent program pairs. Specifically, we remove duplicated patterns and parameterized variants, and retain 107 distinct program pairs that serve as verification targets . These benchmarks cover a wide spectrum of HLS kernels, including numerical computation, signal processing, and control-intensive designs. Each pair (Pc, P h) is treated as a test instance without assuming prior knowledge of functional equivalence, aligning with our goal of validating testbench correctness and detecting potential inconsistencies in a shift-left verification setting. 
+
+B. Dataset Quality Evaluation 
+
+To validate the quality and completeness of the constructed dataset D, we perform both structural comparison against existing HLS-related datasets and quantitative evaluation based on verification-oriented metrics. Table I (a) compares our dataset with representative HLS datasets and benchmarks, including HLSDataset [41], HLS-Eval [13], HLSTrans [11], HLSPilot [18]. Existing datasets typically provide only partial components of the verification pipeline. In contrast, our dataset is the first to provide a complete 4-tuple structure (Pc, P h, T B c, T B h), enabling end-to-end functional consistency verification. Table I (b) reports aggregate statistics of the constructed dataset. The final dataset demonstrates strong structural align-ment between T B c and T B h. Dynamic consistency is en-forced as a hard filtering condition, and any testbench pair violating runtime input equivalence is discarded. Therefore, the dynamic consistency rate reaches 100%. 
+
+C. Ablation Study 1) Component Analysis: The proposed framework relies on two core synergistic modules: the Knowledge Graph for providing epistemic verification priors, and the closed-loop Agent for execution-based reactive refinement. To isolate and quantify their respective impacts, we configure four experi-mental settings, as shown in Table II: 
+
+(i) Zero-Shot: The LLM generates the testbench pair 
+
+(T B c, T B h) directly from (Pc, P h) without knowledge retrieval or iterative feedback. 9                                                                                                                                                                                        
+
+> TABLE II METHOD ABLATION STUDY AND MODEL ABLATION STUDY
+> Syntax (%) Coverage Functional Consistency Method Ablation TB Statement Branch Call Avg. Input CFG DDG Avg. Dynamic (%) GPT-5-mini (zero-shot) 95.33 0.8877 0.9203 0.8573 0.8884 0.6268 0.5459 0.5588 0.5771 67.29 GPT-5-mini + KG 96.26 0.9152 0.9387 0.8841 0.9127 0.6645 0.6102 0.6214 0.6320 75.70 GPT-5-mini + Agent 100.0 0.9566 0.9756 0.9370 0.9564 0.7138 0.7426 0.7343 0.7302 86.92 GPT-5-mini + KG + Agent 100.0 0.9799 0.9820 0.9789 0.9803 0.7421 0.8035 0.7402 0.7619 94.39
+> Syntax (%) Coverage Functional Consistency Model Ablation TB Statement Branch Call Avg. Input CFG DDG Avg. Dynamic (%) GLM-5 (zero-shot) 71.03 0.6579 0.6591 0.6142 0.6437 0.3486 0.3765 0.3349 0.3534 42.06 GLM-5 + KG + Agent 91.59 0.8183 0.8246 0.8028 0.8153 0.4093 0.4339 0.4500 0.4310 61.68 GPT-5-mini (zero-shot) 95.33 0.8877 0.9203 0.8573 0.8884 0.6268 0.5459 0.5588 0.5771 67.29 GPT-5-mini + KG + Agent 100.0 0.9799 0.9820 0.9789 0.9803 0.7421 0.8035 0.7402 0.7619 94.39 Gemini-3-pro (zero-shot) 100.0 0.9342 0.9423 0.9171 0.9312 0.7467 0.7273 0.7009 0.7250 90.65 Gemini-3-pro + KG + Agent 100.0 0.9793 0.9865 0.9818 0.9826 0.7611 0.7540 0.7299 0.7483 95.33
+> TABLE III COMPARISON WITH REPRESENTATIVE BASELINE PARADIGMS
+> Syntax (%) Coverage Functional Consistency Method TB Statement Branch Call Avg. Input CFG DDG Avg. Dynamic (%) AST-based KG 97.20 0.9186 0.9321 0.9045 0.9184 0.6823 0.7125 0.6339 0.6762 73.83 RAG-based 96.26 0.9141 0.9438 0.9102 0.9227 0.7012 0.7064 0.6675 0.6917 76.64 Iteration-based Agent 99.45 0.9382 0.9695 0.9217 0.9431 0.7084 0.7352 0.7216 0.7217 85.05
+> Ours (Gemini-3-pro) 100.0 0.9793 0.9865 0.9818 0.9826 0.7611 0.7540 0.7299 0.7483 95.33
+
+(ii) KG-Only: The LLM is augmented with Gcov and Gsem ,but no closed-loop refinement is applied. 
+
+(iii) Agent-Only: The system performs iterative refinement via feedback (up to 3 iterations), without KG-based priors. 
+
+(iv) Ours (KG + Agent): The complete framework integrating both KG-guided reasoning and Agent-based refinement. The Zero-Shot baseline already achieves relatively high Syntax correctness and reasonable coverage, but its functional consistency remains limited at 0.5771, with a Dynamic Rate of 67.29%. This indicates that although modern LLMs can pro-duce syntactically valid and partially executable testbenches, they struggle to ensure deeper semantic alignment and robust behavioral correctness without external guidance. Introducing KG brings consistent improvements across all major metrics. These improvements suggest that the structured priors encoded in Gsem and Gcov effectively constrain the gen-eration space, reducing semantic mismatches and improving initial testbench quality. The Agent-Only configuration shifts the performance profile toward execution quality. It achieves perfect Syntax correct-ness and significantly boosts Dynamic Rate to 86.92%. This demonstrates that iterative feedback is highly effective for exploring execution paths and repairing behavioral errors. The complete framework achieves the best overall perfor-mance. Compared to Agent-Only, it shows clear gains in structural alignment, particularly in CFG-based consistency. This confirms that KG provides a more accurate starting point, while the Agent refines residual errors through execution feedback. The combination effectively balances prior-guided generation and runtime correction, leading to consistently superior results. 
+
+2) Model Generalization Analysis: Under the Zero-Shot 
+
+setting, model capacity plays a dominant role. After applying the proposed framework, all models show substantial and con-sistent improvements. A key observation from Table II is that the performance gap between models is noticeably reduced after introducing the framework. The structured priors and feedback-driven refinement process transform the task from open-ended generation into a more controlled and decompos-able reasoning problem. As a result, weaker models benefit disproportionately, while stronger models achieve incremental but consistent gains. 
+
+D. Comparison with Baseline Methods 
+
+We compare our framework with representative baseline paradigms. The results are summarized in Table III. The baseline methods exhibit a clear performance progression from AST-based retrieval to RAG and iterative Agent frameworks. AST-based and RAG-based methods provide reasonable syn-tax correctness and coverage, but their functional consis-tency remains limited due to insufficient semantic alignment. Incorporating execution feedback through iterative Agents substantially improves coverage and dynamic consistency, demonstrating the importance of closed-loop refinement for 10 
+
+verification tasks. However, relying solely on iterative opti-mization is still insufficient to guarantee strong structural and behavioral alignment between generated testbenches. In contrast, the proposed framework consistently outper-forms all baselines across every metric. It achieves perfect Syntax correctness, the highest coverage, and the strongest functional consistency, with a Dynamic Rate of 95.33%. The improvement over the iterative Agent baseline is particularly notable, reflecting the complementary role of the Knowledge Graph in providing precise initialization that reduces the burden on subsequent refinement. V. C ONCLUSION 
+
+This paper presented a knowledge-augmented, agent-driven shift-left verification framework for automated functional con-sistency checking between golden C specifications and HLS-oriented C implementations prior to synthesis. The proposed framework integrates a Dual-Tier Consistency Checking mech-anism, symbolic execution and coverage-driven refinement for high-coverage stimulus generation, an autonomous verification Agent for closed-loop orchestration, and a heterogeneous HLS Verification Knowledge Graph that provides structural and semantic reasoning priors for testbench construction. Exper-imental results on the HLSTrans benchmark demonstrate that the proposed method consistently outperforms representative AST-based, RAG-based, and iterative Agent-based baselines in syntax correctness, coverage, functional consistency, and dynamic equivalence. Future work will extend the frame-work to RTL-level equivalence checking, multi-module system verification, and adaptive verification scheduling based on reinforcement learning. REFERENCES [1] M. Kotari, S. Kanabargi, S. Alori et al. , “A review on ai acceleration with fpga and asics: A comparative study,” in 2025 IEEE 4th International Conference on Data, Decision and Systems (ICDDS) . IEEE, 2025, pp. 212–215. [2] Y. Hu, Y. Liu, and Z. Liu, “A survey on convolutional neural network accelerators: Gpu, fpga and asic,” in 2022 14th International Conference on Computer Research and Development (ICCRD) . IEEE, 2022, pp. 100–107. [3] S. Zheng, Z. Ding, C. Wang, B. Yu, M. Wong, Y. Sun, and J. Cong, “Enhancing asic hls design optimization via knowledge transfer from fpga hls models,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 2026. [4] Y.-k. Choi and J. Cong, “Hls-based optimization and design space explo-ration for applications with variable loop bounds,” in 2018 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) , 2018, pp. 1–8. [5] A. Initiative, “Universal verification methodology (uvm) 1.2 user’s guide,” Accellera Systems Initiative: Elk Grove, CA, USA , 2015. [6] G. Martin and G. Smith, “High-level synthesis: Past, present, and future,” 
+
+IEEE Design & Test of Computers , vol. 26, no. 4, pp. 18–25, 2009. [7] A. Canis, J. Choi, M. Aldham, V. Zhang, A. Kammoona, J. H. An-derson, S. Brown, and T. Czajkowski, “Legup: high-level synthesis for fpga-based processor/accelerator systems,” in Proceedings of the 19th ACM/SIGDA international symposium on Field programmable gate arrays , 2011, pp. 33–36. [8] J. Caba, F. Rinc´ on, J. Barba, J. A. de la Torre, and J. C. L´ opez, “Fpga-based solution for on-board verification of hardware modules using hls,” 
+
+Electronics , vol. 9, no. 12, p. 2024, 2020. [9] H. J. Chakraborty and D. K. Acharya, “A shift-left approach in qualifi-cation of digital ips for socs by applying advanced automation and data analytics,” in 2024 28th International Symposium on VLSI Design and Test (VDAT) . IEEE, 2024, pp. 1–5. [10] A. Jain, D. H. Gupta, S. Jana, and K. Kumar, “Early development of uvm based verification environment of image signal processing designs using tlm reference model of rtl,” arXiv preprint arXiv:1408.1150 , 2014. [11] Q. Zou, N. Chen, Y. Chen, B. He, and W. Wong, “Hlstrans: Dataset for c-to-hls hardware code synthesis,” 2025. [Online]. Available: https://arxiv.org/abs/2507.04315 [12] K. Xu, B. Li, G. L. Zhang, and U. Schlichtmann, “Hlstester: Efficient testing of behavioral discrepancies with llms for high-level synthesis,” in 
+
+2025 IEEE/ACM International Conference On Computer Aided Design (ICCAD) . IEEE, 2025, pp. 1–9. [13] S. Abi-Karam and C. Hao, “Hls-eval: A benchmark and framework for evaluating llms on high-level synthesis design tasks,” in 2025 IEEE International Conference on LLM-Aided Design (ICLAD) . IEEE, Jun. 2025, p. 219–226. [Online]. Available: http://dx.doi.org/10.1109/ ICLAD65226.2025.00021 [14] Y. Lu, S. Liu, Q. Zhang, and Z. Xie, “Rtllm: An open-source benchmark for design rtl generation with large language model,” in 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 2024, pp. 722–727. [15] S. Banerjee, A. Agarwal, and S. Singla, “Llms will always hallucinate, and we need to live with this,” in Intelligent Systems Conference .Springer, 2025, pp. 624–648. [16] Y. Herklotz, J. D. Pollard, N. Ramanathan, and J. Wickerson, “Formal verification of high-level synthesis,” Proceedings of the ACM on Pro-gramming Languages , vol. 5, no. OOPSLA, pp. 1–30, 2021. [17] R. Chouksey and C. Karfa, “Verification of scheduling of conditional behaviors in high-level synthesis,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 28, no. 7, pp. 1638–1651, 2020. [18] C. Xiong, C. Liu, H. Li, and X. Li, “Hlspilot: Llm-based high-level synthesis,” arXiv preprint arXiv:2408.06810 , 2024. [19] M. R. Chinthareddy, “Reliable graph-rag for codebases: Ast-derived graphs vs llm-extracted knowledge graphs,” 2026. [Online]. Available: https://arxiv.org/abs/2601.08773 [20] M. Athale and V. Vaddina, “Knowledge graph based repository-level code generation,” in 2025 IEEE/ACM International Workshop on Large Language Models for Code (LLM4Code) , 2025, pp. 169–176. [21] S. A. Sheikholeslam and A. Ivanov, “Synthai: A multi agent generative ai framework for automated modular hls design generation,” 2024. [Online]. Available: https://arxiv.org/abs/2405.16072 [22] R. Qiu, G. L. Zhang, R. Drechsler, T. Ho, U. Schlichtmann, and B. Li, “Confibench: Automatic testbench generation with confidence-based scenario mask and testbench ensemble using llms for hdl design,” ACM Trans. Des. Autom. Electron. Syst. , Oct. 2025, just Accepted. [Online]. Available: https://doi.org/10.1145/3773087 [23] C. Cadar, D. Dunbar, D. R. Engler et al. , “Klee: unassisted and automatic generation of high-coverage tests for complex systems programs.” in 
+
+OSDI , vol. 8, 2008, pp. 209–224. [24] C. Karfa, C. Mandal, D. Sarkar, S. R. Pentakota, and C. Reade, “A formal verification method of scheduling in high-level synthesis,” in 
+
+7th International Symposium on Quality Electronic Design (ISQED’06) .IEEE, 2006, pp. 6–pp. [25] J. M. Mendias, R. Hermida, and O. Pe˜ nalba, “A study about the effi-ciency of formal high-level synthesis applied to verification,” Integration ,vol. 31, no. 2, pp. 101–131, 2002. [26] L. Collini, S. Garg, and R. Karri, “C2hlsc: Leveraging large language models to bridge the software-to-hardware design gap,” 
+
+ACM Transactions on Design Automation of Electronic Systems ,vol. 30, no. 6, p. 1–24, Oct. 2025. [Online]. Available: http: //dx.doi.org/10.1145/3734524 [27] J. Wang, S. Liu, Y. Lu, and Z. Xie, “Hlsdebugger: Identification and cor-rection of logic bugs in hls code with llm solutions,” in 2025 IEEE/ACM International Conference On Computer Aided Design (ICCAD) . IEEE, 2025, pp. 1–9. [28] H. Zhu, P. A. Hall, and J. H. May, “Software unit test coverage and adequacy,” Acm computing surveys (csur) , vol. 29, no. 4, pp. 366–427, 1997. [29] Z. Zhang, B. Szekely, P. Gimenes, G. Chadwick, H. McNally, J. Cheng, R. Mullins, and Y. Zhao, “Llm4dv: Using large language models for hardware test stimuli generation,” in 2025 IEEE 33rd Annual Interna-tional Symposium on Field-Programmable Custom Computing Machines (FCCM) . IEEE, 2025, pp. 133–137. [30] C. Barrett and C. Tinelli, “Satisfiability modulo theories,” in Handbook of model checking . Springer, 2018, pp. 305–343. [31] K. Sen, D. Marinov, and G. Agha, “Cute: A concolic unit testing engine for c,” ACM SIGSOFT software engineering notes , vol. 30, no. 5, pp. 263–272, 2005. 11 
+
+[32] H. Su, S. Jiang, Y. Lai, H. Wu, B. Shi, C. Liu, Q. Liu, and T. Yu, “Arks: Active retrieval in knowledge soup for code generation,” arXiv preprint arXiv:2402.12317 , 2024. [33] I. Saberi and F. Fard, “Context-augmented code generation using pro-gramming knowledge graphs,” arXiv preprint arXiv:2410.18251 , 2024. [34] X. Zhu, Y. Xie, Y. Liu, Y. Li, and W. Hu, “Knowledge graph-guided retrieval augmented generation,” in Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Compu-tational Linguistics: Human Language Technologies (Volume 1: Long Papers) , 2025, pp. 8912–8924. [35] Y. Zhang, X. Zhao, Z. Z. Wang, C. Yang, J. Wei, and T. Wu, “cast: Enhancing code retrieval-augmented generation with structural chunking via abstract syntax tree,” arXiv preprint arXiv:2506.15655 , 2025. [36] L. J. Wan, H. Ye, J. Wang, M. Jha, and D. Chen, “An iteratively-refined dataset for high-level synthesis functional verification through llm-aided bug injection,” 2024 IEEE LLM Aided Design Workshop (LAD) , pp. 1–6, 2024. [37] S. Abi-Karam, R. Sarkar, A. Seigler, S. Lowe, Z. Wei, H. Chen, N. Rao, L. John, A. Arora, and C. Hao, “HLSFactory: A Framework Empowering High-Level Synthesis Datasets for Machine Learning and Beyond,” in 2024 ACM/IEEE 6th Symposium on Machine Learning for CAD (MLCAD) . Salt Lake City (Snowbird), UT, USA: IEEE, Sep. 2024, pp. 1–9. [38] A. Wanna, H. Chen, and C. Hao, “Forgebench: A machine learning benchmark suite and auto-generation framework for next-generation hls tools,” 2025. [Online]. Available: https://arxiv.org/abs/2504.15185 [39] B. Reagen, R. Adolf, Y. S. Shao, G.-Y. Wei, and D. Brooks, “Machsuite: Benchmarks for accelerator design and customized architectures,” in 
+
+2014 IEEE International Symposium on Workload Characterization (IISWC) , 2014, pp. 110–119. [40] R. Kastner, J. Matai, and S. Neuendorffer, “Parallel programming for fpgas,” 2018. [Online]. Available: https://arxiv.org/abs/1805.03648 [41] Z. Wei, A. Arora, R. Li, and L. John, “Hlsdataset: Open-source dataset for ml-assisted fpga design using high level synthesis,” in 2023 IEEE 34th International Conference on Application-specific Systems, Archi-tectures and Processors (ASAP) , 2023, pp. 197–204.

@@ -1,0 +1,946 @@
+Title: Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs
+
+URL Source: https://arxiv.org/pdf/2606.17981v1
+
+Published Time: Wed, 17 Jun 2026 01:08:08 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 
+
+NING ZHANG, Nanjing University, China 
+
+NONGYU DI, Nanjing University, China 
+
+ZENAN LI, ETH Zürich, Switzerland 
+
+YUAN YAO, Nanjing University, China 
+
+XIAOXING MA, Nanjing University, China As AI-generated code proliferates, formal verification—particularly through interactive theorem provers such as Rocq and Isabelle—becomes increasingly important for ensuring software correctness. However, producing machine-checked proofs in such provers remains a bottleneck. Existing solutions bring complementary strengths to proof automation: large language models (LLMs) can propose high-level proof strategies but lack local rigor; automated tactics such as CoqHammer can reliably discharge many local goals, but lack long-range planning capabilities. To combine the best of both worlds, we present Quarry , a planning-based proof synthesis framework that separates proof planning from proof execution. Specifically, Quarry asks an LLM to actively propose multiple proof decompositions with arbitrary sublemmas, type-checks them in Rocq under temporarily admitted sublemmas, and ranks candidates using a proof-state-based difficulty model estimating hammer solvability. It then recursively proves sublemmas within a bounded budget, effectively turning long proofs into sequences of hammer-solvable obligations. We implement Quarry on top of SerAPI and CoqHammer and evaluate it using multiple frontier LLMs across multiple benchmarks. The experimental results show that planning-based decomposition with solvability-aware ranking substantially improves automation while maintaining predictable cost. Under a uniform 10-minute wall-clock budget, Quarry improves over the strongest baseline by 7%–13% in success rate across three Rocq benchmarks. These results demonstrate that reliable proof automation can be achieved by coordinating neural planning with symbolic execution rather than replacing either. CCS Concepts: • Software and its engineering → Formal software verification ; • Theory of computation 
+
+→ Logic and verification ; • Computing methodologies → Natural language processing. Additional Key Words and Phrases: formal verification, interactive theorem proving, large language models, proof synthesis 
+
+ACM Reference Format: 
+
+Ning Zhang, Nongyu Di, Zenan Li, Yuan Yao, and Xiaoxing Ma. 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs. Proc. ACM Program. Lang. 1, 1 (June 2026), 26 pages. https://doi.org/XXXXXXX.XXXXXXX 
+
+1 Introduction 
+
+Interactive theorem provers (ITPs) such as Rocq (formerly known as Coq) [The Coq Development Team 2017] and Isabelle/HOL [Nipkow et al . 2002] provide a practical route to machine-checkable software assurance, and have been used to verify compilers [Leroy 2009], operating systems [Gu et al . 2016], and other critical artifacts [Chen et al . 2015; Erbsen et al . 2019; İleri et al . 2018; Li et al . 2023; Wilcox et al . 2015]. In the context of program verification, ITPs are used to prove that an implementation meets its formal specification. The proof typically consists of a sequence 
+
+Authors’ Contact Information: Ning Zhang, Nanjing University, Nanjing, China, 522023320204@smail.nju.edu.cn; Nongyu Di, Nanjing University, Nanjing, China, dny@smail.nju.edu.cn; Zenan Li, ETH Zürich, Zurich, Switzerland, zenan.li@inf.ethz.ch; Yuan Yao, Nanjing University, Nanjing, China, y.yao@nju.edu.cn; Xiaoxing Ma, Nanjing University, Nanjing, China, xxm@nju.edu.cn. 2026. ACM 2475-1421/2026/6-ART https://doi.org/XXXXXXX.XXXXXXX Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.  
+
+> arXiv:2606.17981v1 [cs.SE] 16 Jun 2026 2Zhang et al.
+
+of tactics that transform the current proof state until all obligations are discharged; the final proof object is then checked by the ITP kernel for formal assurance. However, producing these proofs remains labor-intensive, as it requires reasoning about interacting program definitions, data-structure invariants, and specification predicates. This demands significant expertise, limiting formal verification’s adoption in current software practice. In this paper, we study automated proof synthesis for program verification in Rocq 1: given a program and its specification (e.g., a theorem about program correctness), along with its surrounding development context (e.g., definitions and auxiliary lemmas), the task is to produce a complete, kernel-checked proof without manual intervention. This problem is challenging because program-verification proofs must coordinate multiple forms of reasoning: unfolding nested definitions, establishing data-structure invariants, performing case analysis or induction over algebraic types, and connecting intermediate facts to specification predicates. A single theorem may require dozens of tactic steps that interleave these reasoning modes, and small errors in any step invalidate the entire proof. Moreover, the proof space is combinatorially large: each proof state admits many candidate tactics, and the search tree grows exponentially with proof length. Existing approaches based on large language models (LLMs) or automated theorem provers (ATPs) each address part of the challenge, but neither alone is sufficient [Li et al . 2024; Yang et al .2026]. LLMs can suggest plausible proof structures but lack reliable local correctness, producing scripts in which small errors can derail the proof. Conversely, hammer-style automation such as CoqHammer [Czajka and Kaliszyk 2018] can discharge many local goals by selecting relevant premises and dispatching them to external ATPs, but it operates on a single goal at a time and struggles when the proof requires long-horizon reasoning, such as multiple intermediate steps, induction, or deep case analysis. 
+
+Running example. We illustrate the gap with a graph-theory lemma from the coq-wigderson project [Phipathananunth 2023], which we revisit throughout the paper. Specifically, the lemma 
+
+max_deg_remove_node states that removing a vertex from a graph preserves the maximum degree, under conditions on the degrees and adjacency of the involved nodes. The proof of this lemma requires coordinating four interacting definitions ( degree , max_deg , remove_node , and adj ) and spans over 25 tactics in the human-written version, including nested case analysis and auxiliary assertions. Neither CoqHammer nor frontier LLMs can solve it directly; we analyze the reasons in detail in Section 3. In contrast, Quarry ’s difficulty-aware planning decomposes it into 12 subgoals and solves it automatically.                                                   
+
+> 1Lemma max_deg_remove_node :
+> 2forall (n :nat ) (g :graph ) (v x:node ) ,
+> 3degree vg=Some n→
+> 4degree xg=Some n→
+> 5max_deg g=n→
+> 6~S. In x( adj gv) →
+> 7x≠v→
+> 8max_deg ( remove_node xg) =n.
+
+Our work. To bridge this gap, we present Quarry , a planning-based framework that separates 
+
+proof planning from proof execution . The core idea is to let an LLM decompose a theorem into multiple sublemmas along with a target proof script that closes the original goal assuming these sublemmas hold. CoqHammer then discharges the sublemmas individually. When a sublemma is too complex for direct automation, the system recursively applies the same decomposition, effectively turning a long proof into a tree of individually manageable obligations.  
+
+> 1While we focus on Rocq in this work, the general idea is applicable to other ITPs. Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 3
+
+The key challenge. An LLM can propose many candidate decompositions for a given goal, but not all decompositions are equally useful. A decomposition is only as easy as its hardest sublemma: if even one sublemma exceeds the automation’s reach, the entire recursive attempt fails and wastes the bounded budget. Because the system must commit to a candidate before recursively solving its sublemmas (each of which involves hammer invocations and potentially further decomposition), the choice of which candidate to try first is critical. A natural approach is to evaluate each candidate by actually running CoqHammer on all of its sublemmas, but this would be prohibitively expensive: with multiple candidates each containing several sublemmas and a 30-second hammer timeout per sublemma, the evaluation cost alone could exhaust the time budget. We therefore need a lightweight difficulty proxy that estimates sublemma solvability from proof-state features alone, without invoking the hammer. 
+
+Our key insight. We observe that in the program-verification setting, the proving difficulty of a sublemma correlates with measurable features of its proof state, including the computational complexity of the referenced definitions and the logical complexity of the proof obligation. By scoring candidate decompositions according to these features, the system can prioritize plans whose sublemmas are predicted to be solvable, spending its limited budget on the most promising proof strategies. Furthermore, this scoring is flexible: by assigning weights to different proof-state features, the difficulty model can adapt to the strengths and limitations of the underlying automation. 
+
+System: Quarry . We operationalize these ideas in Quarry , a system built around a Generate– Rank–Solve loop (Section 4). Given a proof obligation, the LLM proposes multiple candidate decom-positions, which are verified against Rocq’s type-checker, ranked by a learned difficulty model, and recursively solved using CoqHammer as the primary execution engine. The entire process operates within a bounded budget that ensures predictable cost. We evaluate Quarry on benchmarks spanning diverse Rocq developments, graph-theory verifi-cation, and Rust-to-Rocq translations, using multiple LLM backends. Quarry proves 55%, 52%, and 16% of theorems on the three benchmarks respectively, improving over the strongest baseline by 7–13 percentage points in success rate under a uniform 10-minute wall-clock budget. 
+
+Contributions. This paper makes the following contributions: 
+
+• A formulation of Rocq proof synthesis as a planning-then-execution problem, where an LLM pro-poses arbitrary sublemma decompositions and CoqHammer discharges the resulting obligations. 
+
+• Quarry , a Generate–Rank–Solve framework that combines Rocq-side candidate verification, difficulty-aware ranking, and hammer-first recursive solving under a bounded budget. 
+
+• An evaluation across three benchmarks and multiple LLM backends under a uniform 10-minute wall-clock budget, showing 7%–13% improvements over the strongest baseline. 
+
+Roadmap. The rest of the paper provides background knowledge (Section 2) and analyzes a motivating example (Section 3), presents Quarry ’s framework (Section 4) and its difficulty-aware ranking component (Section 5), reports the evaluation results (Section 6), discusses threats to validity and related work (Sections 7–8), and concludes (Section 9). 
+
+2 Background 
+
+This section introduces the basic concepts used throughout the paper. We first describe the Rocq proof assistant as well as its proof language, and then introduce CoqHammer and SerAPI, the two infrastructure components that Quarry builds upon. 
+
+2.1 Rocq and its Proof Language 
+
+Rocq [The Coq Development Team 2017] (historically known as Coq) is an interactive theorem prover based on the Calculus of Inductive Constructions (CIC). It has been used to verify various  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 4Zhang et al.
+
+software artifacts such as the CompCert compiler [Leroy 2009] and the CertiKOS operating system kernel [Gu et al. 2016]. In Rocq, a user can state a theorem (or lemma ) as a logical proposition to be proved. This proof goal can be further decomposed into several subgoals (or proof obligations). Then, a machine-checked 
+
+proof , which is usually written as a sequence of tactics , can be constructed to prove each subgoal. A theorem is proved once all its subgoals have been resolved. 
+
+• Proof state: A proof state consists of a goal (the proposition to be proved) together with a context 
+
+of available hypotheses and previously established facts. We write Γ ⊢ 𝐺 for a proof state with context Γ and goal 𝐺 .
+
+• Tactic: A tactic is a command that transforms the current proof state. Common tactics include: 
+
+– intros , which moves universally quantified variables and hypotheses from the goal into the context. 
+
+– split , destruct , induction , which decompose a goal into multiple subgoals (e.g., splitting a conjunction 𝐴 ∧ 𝐵 yields subgoals 𝐴 and 𝐵 ). 
+
+– apply , rewrite , unfold , which reshape the goal without necessarily creating subgoals (e.g., applying a known lemma or unfolding a definition). 
+
+• Proof script: A proof script is the complete tactic sequence that transforms the initial proof state into one with no remaining subgoals, enclosed between Proof and Qed .
+
+2.2 CoqHammer 
+
+CoqHammer [Czajka and Kaliszyk 2018] bridges Rocq with external automated theorem provers (ATPs) such as satisfiability modulo theories (SMT) solvers. Given a proof obligation, it operates in two phases: (1) Premise selection: analyze the current goal and context to identify a relevant subset of previously established lemmas and definitions. (2) ATP invocation and reconstruction: translate the goal and selected premises into first-order logic, dispatch the problem to external provers (e.g., E, Vampire, Z3), and, if a prover succeeds, reconstruct a Rocq-checkable proof. Since the reconstructed proof is verified by the Rocq kernel, CoqHammer provides the same soundness guarantee as a manually written proof. CoqHammer excels at goals involving equational reasoning, set-theoretic manipulations, or combinations of known facts. However, it struggles with goals that require induction, deep case analysis, or long chains of intermediate steps. In our running example, CoqHammer alone cannot prove max_deg_remove_node , as the proof requires reasoning about multiple interacting definitions and a non-trivial case split. Yet, as we will show, CoqHammer can discharge many of the smaller subgoals that arise once the goal is decomposed. 
+
+2.3 SerAPI 
+
+SerAPI [Gallego Arias 2016] exposes a programmatic interface to the Rocq proof engine, allowing external tools to interact with it directly. Through SerAPI, a client can: 
+
+• Step through proofs by submitting individual tactics and observing the resulting proof state; 
+
+• Inspect goals and hypotheses at each step, including their full abstract syntax trees (ASTs); 
+
+• Collect error feedback when a tactic fails, enabling automated retry or recovery. 
+
+Quarry relies on SerAPI for three purposes: (1) validating candidate decompositions by executing proposed tactic scripts and checking that they type-check, (2) extracting intermediate proof states  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 5
+
+for difficulty estimation (Section 5.4), and (3) recovering from transient failures (e.g., timeouts) during the recursive search. 
+
+3 Motivation 
+
+We use the max_deg_remove_node lemma introduced in Section 1 to illustrate the challenges of automated proof synthesis. This lemma is representative of program-verification theorems that require coordinating multiple definitions and intermediate facts, where neither a single hammer invocation nor a single LLM generation suffices. We first show why existing approaches fail (Sections 3.1–3.2), analyze the gap (Section 3.3), and finally preview the decomposition that Quarry 
+
+finds (Section 3.4). 
+
+3.1 Why a Single Hammer Call Fails 
+
+We invoke CoqHammer on the original goal of the running example:                                                
+
+> 1forall (n :nat ) (g :graph ) (v x:node ) ,
+> 2degree vg=Some n→degree xg=Some n→
+> 3max_deg g=n→~S. In x( adj gv) →
+> 4x≠v→max_deg ( remove_node xg) =n.
+
+After introducing the hypotheses, the proof state contains five hypotheses and a goal involving 
+
+max_deg applied to remove_node . To close this goal, CoqHammer must simultaneously reason about graph structure, degree computation, adjacency sets, and node removal. The proof requires establishing both directions of an equality via antisymmetry ( ≤ and ≥), each of which depends on intermediate properties not directly available as premises. All external ATPs time out: the search space, spanning multiple definitions and their interactions, is too large for a single query. 
+
+3.2 Why a Single LLM Generation Fails 
+
+We ask one of the most advanced LLMs (i.e., GPT-5.2) to generate a complete proof script for the running example. We sampled 8 independent candidates; all were rejected by Rocq. The candidates are remarkably consistent in high-level strategy: all eight candidates split the proof into two directions (upper bound max_deg (remove_node x g) ≤ 𝑛 and lower bound 𝑛 ≤
+
+max_deg (remove_node x g) ) and attempt to close via antisymmetry, matching the structure of the human proof. The LLM thus demonstrates sound high-level planning: it correctly identifies the proof skeleton (antisymmetry, then prove each direction). However, realizing this plan requires ∼10 auxiliary lemmas totaling ∼176 lines of Rocq, and the model cannot expand all of these low-level details coherently within a single Proof. . . Qed block. This gap between correct planning and incomplete execution manifests in three ways: (1) Hallucinated auxiliary lemmas. Each candidate invokes 2–5 non-existent lemmas (for exam-ple, max_deg_non_increasing ). The model identifies what intermediate facts are needed, but cannot define and prove them within a single generation. (2) Incomplete or abandoned subproofs. When the model recognizes that a subgoal exceeds its generation capacity, it resorts to Admitted or leaves holes, producing proof scripts that compile only under trust assumptions and are rejected by the Rocq kernel. (3) Incorrect tactic chains. Even when the model attempts to fill in low-level details, it generates ill-typed tactic sequences. A representative error: in this project, the notation <= resolves to 
+
+Pos.le (positive integers) rather than Nat.le ; seven of eight candidates write max_deg . . . <= max_deg . . . without a %nat scope annotation, triggering an immediate type mismatch.  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 6Zhang et al.
+
+In summary, the LLM can identify the right proof plan, but a single-pass generation cannot simultaneously produce all the auxiliary machinery that plan requires. Generating all required pieces coherently in one LLM call amounts to searching an 𝑂 (𝑏 𝑑 ) space (branching factor 𝑏 , logical depth 𝑑 ) in a single step—a fundamentally intractable task for current models. 
+
+3.3 Analyzing the Gap 
+
+The two approaches fail for complementary reasons: the hammer lacks planning capability, while the LLM lacks execution reliability. The core difficulty is that this theorem has a long proof (over 25 tactics in the human version) involving five interacting definitions , yet the proof structure is not visible from the goal statement alone. We identify four structural requirements for a successful approach: 
+
+Requirement 1: planning, not just execution. The hammer executes but cannot plan: it tries to solve the current goal in one shot. Single-pass LLM generation (as in Section 3.2) produces a full tactic sequence without feedback, so errors compound across steps. Even step-by-step approaches that interact with the prover [Blaauwbroek et al . 2020; Ringer et al . 2021] still operate at the tactic level without an explicit high-level plan. A successful approach should plan the proof structure, breaking the goal into manageable pieces, before attempting to execute each piece. 
+
+Requirement 2: arbitrary intermediate lemmas. Cobblestone [Kasibatla et al . 2026], the state-of-the-art LLM-based proof-repair method, generates whole proof scripts, localizes errors via fail-safe execution, and recursively retries on failing subproofs. Its decomposition is driven by Rocq’s built-in subgoal mechanism: it keeps working subproofs and re-generates only the failing ones, so the sub-obligations it creates are limited to those that arise from tactic execution (e.g., split , induction ). However, this theorem requires an apply Nat.le_antisymm followed by assert calls that introduce custom intermediate lemmas, steps that do not naturally produce subgoals through prefix execution. Cobblestone ’s own analysis (RQ5) confirms this: proofs that make “internal progress” without creating explicit subgoals are a systematic failure mode of its error-driven repair strategy. A successful approach must therefore be able to introduce arbitrary 
+
+intermediate lemmas, not just those that arise from Rocq’s built-in goal-splitting. 
+
+Requirement 3: difficulty-aware selection. Even if a system can propose decompositions, not all decompositions are equally useful. Many plausible-looking decompositions contain a “bottleneck” sublemma that is too hard for automation, causing the entire recursion to fail. A successful approach must be able to evaluate the difficulty of proposed sublemmas and prioritize decompositions where all sublemmas are within the automation’s reach. 
+
+Requirement 4: predictable cost. Proof synthesis is inherently expensive: each LLM call and each hammer invocation consumes time and computational resources. Iterative repair approaches such as Cobblestone can enter long retry loops, where each failure triggers a full re-generation, leading to unpredictable and often excessive wall-clock cost. A successful approach must operate within a bounded budget , ensuring that the total cost remains predictable regardless of whether the proof attempt succeeds or fails. 
+
+3.4 Preview: What a Successful Decomposition Looks Like 
+
+Figure 1 shows the decomposition that Quarry finds for this theorem. The key insight is that the equality max_deg (remove_node x g) = n can be split via antisymmetry into two in-equality directions, each supported by dedicated sublemmas. The root-level decomposition uses 
+
+Nat.le_antisymm to split the equality, then introduces four sublemmas: 
+
+• max_deg_remove_node_le : the max degree of a subgraph does not exceed that of the parent graph (directly solved by CoqHammer);         
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 7
+> max_deg_ remove_node
+> original goal
+> adj_remove_ node_neq
+> find_remove_ node_neq
+> find_remove_neq
+> ✓hammer
+> degree_remove_ node_preserve
+> cardinal_ remove_notin
+> ✓hammer
+> max_deg_ge_ degree
+> list_max_ge_ in_nat
+> ✓induction
+> max_deg_ge_ find_cardinal
+> list_max_ ge_in
+> ✓induction
+> InA. . . In_ elements
+> ✓hammer
+> max_deg_remove_ node_le
+> ✓hammer
+> solved by decomposition solved by automation
+
+Fig. 1. Proof tree for max_deg_remove_node found by Quarry . The tree has depth 3 and 12 nodes. Green leaves are discharged by CoqHammer or simple induction; blue nodes required further decomposition. Each leaf involves only one or two definitions, making it tractable for automation. 
+
+• degree_remove_node_preserve : removing a non-adjacent node preserves the degree of 𝑣 (re-quires one further sublemma about set cardinality); 
+
+• max_deg_ge_degree : the max degree is at least as large as any individual node’s degree (requires two recursive sublemmas about list maxima); 
+
+• adj_remove_node_neq : the adjacency set after node removal can be characterized in terms of the original adjacency set (requires reasoning about map lookups). This decomposition addresses all four requirements: it plans a tree structure before executing any leaf (Req. 1), introduces arbitrary sublemmas beyond Rocq’s built-in subgoal mechanism (Req. 2), selects among candidate decompositions based on estimated sublemma difficulty (Req. 3), and completes within a bounded budget (Req. 4). Crucially, each sublemma involves only one or two definitions—compared to the four interacting definitions in the original goal—reducing the effective search depth per subgoal dramatically (we formalize this reduction in Section 5.1). 
+
+4 Approach 
+
+In this section, we present the proposed Quarry . We start with its overview, and then describe how Quarry systematically generates, evaluates, and selects the decompositions. 
+
+4.1 Overview 
+
+Rather than generating whole proofs and reactively fixing errors, Quarry is a planning-based 
+
+proof synthesis framework that generates candidate decompositions, evaluates their feasibility, and selects the most promising candidate before committing to any sub-proof. Specifically, given a proof state Γ ⊢ 𝐺 , Quarry interacts with Rocq via SerAPI to solve 𝐺 under a fixed computational budget. As illustrated in Fig. 2, Quarry repeatedly applies three phases: (1) Generate : Quarry samples multiple candidate decompositions from an LLM, each proposing a set of sublemmas and a target proof script, and filters out ill-typed or circular candidates via Rocq-side verification (Section 4.2). 
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.
+
+8 Zhang et al. Original 
+
+Goal 
+
+Generate 
+
+LLM + Rocq check 
+
+Rank 
+
+Difficulty estimation 
+
+Solve 
+
+Automation tools       
+
+> •ax _deg _remove _node _le
+> •adj _remove _node _neq
+> •degree _remove _preserve
+> •max _deg _ge _degree
+> 0.12
+> 0.34
+> 0.38
+> 0.51
+> Goal
+> Sub1
+> ✔Sub2 Sub3
+> ✔
+> Sub2.1
+> ✔
+> Sub2.2
+> ✔
+
+Verified 
+
+unsolved subgoals re -enter 
+
+Trace logger 
+
+Record all attempts 
+
+Offline replay 
+
+Learn 𝜃 from traces            
+
+> [LEMMA]
+> Lemma max_deg_remove_node_le :
+> forall x g, max_deg ...
+> [END]
+> [LEMMA]
+> Lemma degree_remove_preserve :
+> forall n g v x, ...
+> [END]
+> [TARGET]
+> Proof. apply Nat.le_antisymm .
+> -apply max_deg_remove ...
+> [END]
+
+Lightweight linear model 
+
+Fig. 2. Quarry workflow. Given a goal, the system enters the Generate–Rank–Solve loop: the LLM proposes 
+
+𝑘 candidate decompositions, which are filtered by Rocq-side verification ( Admitted sublemmas); the diffi-culty model ranks survivors by estimated solvability; and the top-𝐵 candidates are recursively solved using automation tools (e.g., CoqHammer). Unsolved subgoals re-enter the loop (dashed arrow). The bottom row shows the offline learning pipeline: a trace logger records all attempts, and offline replay learns the difficulty model weights 𝜃 .
+
+(2) Rank : The surviving candidates are scored by a proof-state-based difficulty model that esti-mates automation solvability, and ranked by the maximum difficulty among their sublemmas (Section 5). (3) Solve : Quarry recursively proves sublemmas of the top-ranked candidate via the same loop, using the automation backend as a fast path whenever possible (Section 4.3). The Generate–Rank–Solve loop is motivated by a key observation: when the automation backend (e.g., CoqHammer 2) cannot solve a goal directly, the system generates multiple candidate decompo-sitions, but only the selected candidate’s sublemmas enter the recursive solving process . Recursively solving a candidate is expensive—each sublemma triggers its own hammer attempt and potentially further LLM-based decomposition—so the system cannot afford to try all candidates exhaustively. By default, Quarry commits to a single top-ranked candidate per node ( 𝐵 = 1), making candi-date selection a critical decision. Difficulty-aware ranking addresses this by estimating sublemma solvability from lightweight proof-state features before committing to any candidate, directing the budget toward the decomposition most likely to succeed. The remainder of this section details the Generate and Solve phases; Algorithm 1 outlines the complete online search process. Since the ranking component involves its own feature-engineering, model-training, and offline-learning pipeline—distinct in nature from the system-level Generate and Solve machinery—we present it separately in Section 5. 
+
+4.2 Generate: Decomposition and Verification 
+
+Instead of predicting a monolithic proof script, Quarry asks the LLM to propose candidate decom-positions. At a proof node 𝑛 with goal 𝐺 𝑛 , the LLM generates up to 𝑘 raw candidates (controlled by the rollout budget). Each candidate decomposition 𝑐 consists of: 
+
+> 2
+
+The framework is agnostic to the choice of automation backend; we instantiate it with CoqHammer in our implementation and evaluation. Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 9
+
+(1) Sub-lemmas 𝐿 (𝑐 ) = {ℓ1, . . . , ℓ 𝑚 }, where each ℓ𝑖 is a Rocq lemma statement; (2) Target proof 𝑝 (𝑐 ), a tactic script intended to solve 𝐺 𝑛 assuming 𝐿 (𝑐 ) holds. If a candidate is selected and all its sublemmas are recursively proved, the target proof 𝑝 (𝑐 ) is executed to close 𝐺 𝑛 ; otherwise the system moves on to any remaining candidate in the top-𝐵 
+
+set. With the default 𝐵 = 1, this means that no alternative decomposition is tried at that node. In our implementation, the LLM is instructed to emit candidates in a structured, parseable format: a sequence of [LEMMA] /[END] blocks and exactly one [TARGET] /[END] block. Any response that cannot be parsed into this schema is treated as an invalid candidate. To prevent the search space from exploding with ill-formed or unsound decompositions, Quarry 
+
+implements a strict Rocq-based verifier. The parent goal is considered conditionally closed when the candidate proof script type-checks in Rocq assuming the candidate sublemmas are Admitted .A candidate 𝑐 is considered valid if and only if: (a) All sub-lemmas ℓ𝑖 ∈ 𝐿 (𝑐 ) can be parsed and accepted by Rocq using the Admitted vernacular; (b) The proposed target proof 𝑝 (𝑐 ) successfully type-checks and closes the goal 𝐺 𝑛 under the context augmented by the admitted ℓ𝑖 .Candidates failing this semantic check, as well as trivial circularities (e.g., ℓ𝑖 is syntactically identical to 𝐺 𝑛 ), are immediately discarded. The surviving candidates form the valid candidate set 𝑉 .To make the Generate phase concrete, Figure 3 shows how Quarry processes the root goal of our running example. The LLM proposes a decomposition with four sublemmas and a target proof that uses Nat.le_antisymm to split the equality into two inequality directions. The verifier checks that the target proof type-checks when the four sublemmas are Admitted , confirming conditions (a) and (b) above. The difficulty model then scores each sublemma: max_deg_remove_node_le 
+
+receives the lowest difficulty score (it is a direct consequence of the subgraph property), while 
+
+max_deg_ge_degree receives the highest (it requires further decomposition into lemmas about list maxima). Based on this ranking, Quarry prioritizes the decomposition and proceeds to recursively solve each sublemma. 
+
+4.3 Solve: Online Search and Execution 
+
+With the ranked candidates 𝑉 ranked , Quarry performs a depth-first recursive search (Algorithm 1). For each node, it first attempts the automation backend (in our case, CoqHammer) as a cheap, trusted fast path; if it fails, the system generates, verifies, and ranks decompositions as described above. The online solver then commits to the top-𝐵 ranked candidates per node ( 𝐵 = 1 by default). With 𝐵 = 1, each node gets exactly one attempt: if the top-ranked candidate’s sublemmas cannot all be recursively proved, the node is marked as failed without trying alternative decompositions. For each selected candidate 𝑐 , Quarry recursively solves its sub-lemmas in the order generated by the LLM. If all sub-lemmas are proved, the target proof 𝑝 (𝑐 ) is executed to close the parent goal and the node is marked as solved. The runner maintains a shared proven-context of discharged sublemmas: when the same sublemma appears later in the recursive search, Quarry reuses the existing proof instead of proving it again. Importantly, Quarry uses Admitted only inside the verifier to test conditional solvability; a goal is returned as solved only after Rocq has accepted a proof script in which all previously admitted sublemmas have been discharged. Thus, the final output is always a standard Rocq proof object checked by the kernel, and LLM outputs are treated as untrusted suggestions. To gather denser supervision data for offline learning, Quarry supports a dense-supervision mode where it continues to attempt all remaining candidates at each node even after a success, recording every candidate’s recursive outcome in the trace; otherwise, it returns early upon the first successful decomposition. The dense-supervision traces are used for offline replay (Section 5.5) and for the RQ5 evaluation (Section 6.6), as they provide the complete 
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.
+
+10 Zhang et al.                          
+
+> Generate: LLM proposes decomposition for max_deg_remove_node
+> [ LEMMA ]
+> Lemma max_deg_remove_node_le :forall xg , max_deg ( remove_node xg) <= max_deg g. [ END ] [ LEMMA ]
+> Lemma degree_remove_node_preserve :forall ngvx , degree vg=Some n
+
+→ ~ S. In x ( adj g v) → 
+
+> x
+
+≠ v → degree v ( remove_node x g) = Some n. [ END ] [ LEMMA ]             
+
+> Lemma max_deg_ge_degree :forall gvn , degree vg=Some n
+
+→ max_deg g >= n. [ END ] ... (* adj_remove_node_neq omitted for space *) [ TARGET ]                    
+
+> Proof .repeat intro . apply Nat . le_antisymm . -rewrite <-H1 . apply max_deg_remove_node_le . -eapply le_trans . 2: eapply max_deg_ge_degree . eapply degree_remove_node_preserve ; eauto . eauto . [ END ]
+> Verify: Rocq checks target proof with sublemmas Admitted
+> Target proof type-checks:
+
+✓ No circularity detected: ✓ Valid candidate added to 𝑉 . 
+
+> Rank: difficulty model scores sublemmas
+> Sublemma
+
+𝑑 𝜃 (ℓ ) Predicted solvability          
+
+> max_deg_remove_node_le 0.12 CoqHammer (direct)
+> degree_remove_node_preserve 0.38 further decomposition
+> max_deg_ge_degree 0.51 further decomposition
+> adj_remove_node_neq 0.34 further decomposition Candidate score
+
+= max {0.12 , 0.38 , 0.51 , 0.34 } = 0.51 
+
+Fig. 3. How Quarry processes the root goal of the running example through the Generate–Rank pipeline. The LLM produces a structured decomposition; Rocq verification (part of Generate) confirms conditional correctness; the difficulty model estimates sublemma solvability. 
+
+candidate–outcome mapping needed to evaluate alternative ranking policies without new LLM calls. 
+
+5 Difficulty-Aware Ranking and Learning 
+
+Recall that when CoqHammer cannot solve a goal directly, the Generate phase produces a set of valid candidate decompositions, each proposing different sublemmas. Before committing to any candidate and spending the recursive budget on its sublemmas, the system must decide which candidate to try—and with the default 𝐵 = 1, which candidate to try at all . Therefore, discovering a successful decomposition earlier avoids expanding deep, fruitless recursive branches. 
+
+5.1 Decomposition Quality and Search Cost 
+
+In a simplified tactic-level proof-search model, the prover explores a tree of candidate tactics: at each step it faces 𝑏 > 1 alternatives, so a goal requiring 𝐿 steps costs Θ(𝑏 𝐿 ). If the goal is decomposed into 𝑟 independent subgoals with depths 𝐿 1, . . . , 𝐿 𝑟 summing to 𝐿 , the total cost becomes Í𝑖 𝑏 𝐿 𝑖 
+
+rather than 𝑏 𝐿 . By the convexity of 𝑓 (𝑥 ) = 𝑏 𝑥 , this sum is minimized when all subgoals have equal depth 𝐿 𝑖 = 𝐿 /𝑟 , giving Θ(𝑟 · 𝑏 𝐿 /𝑟 ) in this model. Hammer-style solvers such as CoqHammer use a different internal search strategy (translating goals to first-order logic and invoking external ATPs), 
+
+Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 11 
+
+Algorithm 1 Quarry ’s Online Recursive Search. 
+
+Input: Goal 𝐺 ; recursion depth budget ; rollout budget 𝑘 ; top-candidate budget 𝐵 ; global LLM request limit (Section 6.1) 
+
+Output: true if 𝐺 is solved with a kernel-checked Rocq proof, false otherwise  
+
+> 1:
+
+function SolveGoal (𝐺, budget)  
+
+> 2:
+
+// Phase 1: Fast path  
+
+> 3:
+
+if AutoSolver (𝐺 ) then return true ⊲ try automation, e.g., CoqHammer  
+
+> 4:
+
+if budget ≤ 0 then return false  
+
+> 5:
+
+// Phase 2: Generate and rank  
+
+> 6:
+
+𝐶 ← LLM_Generate (𝐺, 𝑘 ) ⊲ sample 𝑘 candidates  
+
+> 7:
+
+𝑉 ← { 𝑐 ∈ 𝐶 | RocqVerify (𝐺, 𝑐 )} ⊲ filter via Admitted  
+
+> 8:
+
+for each 𝑐 ∈ 𝑉 , each ℓ ∈ 𝐿 (𝑐 ) do  
+
+> 9:
+
+𝑑 𝜃 (ℓ) ← 𝜃 ⊤𝜙 (ℓ) ⊲ difficulty estimation  
+
+> 10:
+
+𝑉 ranked ← SortBy (𝑉 , 𝑐 ↦ → max ℓ ∈𝐿 (𝑐 ) 𝑑 𝜃 (ℓ), ascending ) 
+
+> 11:
+
+𝑉 try ← 𝑉 ranked [1..𝐵 ] ⊲ top-𝐵 candidates ( 𝐵 =1 by default)  
+
+> 12:
+
+// Phase 3: Commit and recurse  
+
+> 13:
+
+for each candidate 𝑐 ∈ 𝑉 try do  
+
+> 14:
+
+if ∀ℓ ∈ 𝐿 (𝑐 ) : SolveGoal (ℓ, budget − 1) then  
+
+> 15:
+
+ExecuteProof (𝑝 (𝑐 ), 𝐺 ) ⊲ close 𝐺 in Rocq  
+
+> 16:
+
+return true  
+
+> 17:
+
+return false 
+
+but the same principle applies: their solving cost grows superlinearly with goal complexity, so decomposing a hard goal into simpler pieces reduces total cost even though the precise growth rate differs from 𝑏 𝐿 . In our running example, the root goal requires over 25 tactic steps across five interacting definitions; after decomposition into four sublemmas, each is solvable in 1–5 steps, reducing the effective complexity substantially. Moreover, because the 𝑟 subgoals are logically independent, they can be solved in parallel, further boosting efficiency. This analysis also yields a concrete design principle: the system should prefer decompositions that produce subgoals of roughly equal and individually low difficulty . The remainder of this section describes how Quarry estimates sublemma difficulty from proof-state features and uses this estimate to rank candidate decompositions. 
+
+5.2 Two Dimensions of Proof Difficulty 
+
+In program verification, each theorem or sublemma asserts that a program (or program fragment) satisfies a specification (or program property). The proof must bridge these two worlds: it unfolds program definitions to expose computational behavior, and it manipulates logical formulas to match the specification. Accordingly, the difficulty of automating such a proof is governed by two complementary dimensions: 
+
+• Program-side complexity. Proving a property about a program requires unfolding its definitions until the relevant computational structure is exposed. Sublemmas that reference deeply nested recursive functions, multiple mutually dependent definitions, or complex pattern-matching induce larger proof search spaces. Each unfolding step introduces new terms, case splits, and induction hypotheses that the prover must navigate. Lightweight indicators of this dimension include surface occurrences of match /fix /let , map/set identifiers, and the size of the context that appears after introductions. 
+
+• Specification-side complexity. The specification is ultimately a logical formula, typically in first-order logic. Its structural complexity directly affects proof search: quantifier alternations require Skolemization and increase the clause set that ATPs must explore; disjunctive and conjunctive  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 12 Zhang et al.
+
+branching multiplies the number of proof obligations; and a deeper AST means more rewriting steps before the goal can be closed. Lightweight indicators of this dimension include the size of the normalized goal, residual quantifiers, implications, logical connectives, and comparison operators. This two-dimensional view explains why neither dimension alone suffices. A sublemma with a simple specification but deeply nested program definitions (e.g., a straightforward equality about a recursive function with five nested calls) can be hard because unfolding generates a large search tree. Conversely, a sublemma involving a trivial program but a complex specification (e.g., a quantified invariant with multiple disjunctive branches) can be hard because the logical structure demands extensive case analysis. The difficulty model must account for both. 
+
+5.3 Normalized Proof States as Features 
+
+To estimate difficulty along these two dimensions, we extract features from each candidate sub-lemma. A direct approach is text-level analysis, i.e., extracting features from the raw lemma statement, but this is brittle: syntactically similar statements can have vastly different proof com-plexities depending on how definitions unfold. Instead, Quarry uses SerAPI to step into the proof of each sub-lemma ℓ and executes a short prefix ( Proof. repeat intro. ) to normalize the goal into an “intros-state,” in which all top-level universal quantifiers have been moved into the context. We then extract a feature vector 𝜙 (ℓ) from this normalized state, combining two groups of features: 
+
+• Intros-state features (19 features) are computed from the proof state after repeat intro . They capture the normalized goal, context, and proof-state shape that the automation backend will face; 
+
+• Statement features (9 features) are computed from the raw lemma statement before entering the proof. They preserve declaration-level structure that repeat intro may move into the context or otherwise redistribute. Table 1 lists all 28 features. The normalization step is crucial: by executing repeat intro ,the intros-state features reflect the actual proof state that the automation backend will operate on, rather than the surface syntax of the lemma statement. This makes them robust to cosmetic differences such as variable naming or quantifier ordering. The statement features complement the intros-state features by preserving raw counts of binders, implications, connectives, comparisons, and surface match /fix /let constructs before normalization. 
+
+5.4 Difficulty Model and Candidate Ranking 
+
+The difficulty score is computed using a linear model parameterized by 𝜃 : 𝑑 𝜃 (ℓ) = 𝜃 ⊤𝜙 (ℓ) + 𝛽 . The weights 𝜃 are learned offline from execution traces via a pairwise ranking objective (described below), so that the ranker reflects the actual success behavior of the underlying automation backend. We choose a linear model for two reasons. First, the feature space has 28 dimensions (Table 1), and candidate scoring must be cheap enough to run before recursive search. Second, a linear model is fully interpretable: in our learned weights, goal size and context size receive large positive coefficients, matching the intuition that both the normalized goal and its surrounding hypotheses contribute to automation difficulty. To rank the full candidate 𝑐 , we aggregate the difficulties of its constituent sub-lemmas into a scalar, i.e., Score (𝑐 ) = Agg ({ 𝑑 𝜃 (ℓ) | ℓ ∈ 𝐿 (𝑐 )}) where Agg () is a configurable function ( max , mean ,or sum ). By default, we use max , reflecting a conservative strategy that penalizes decompositions containing any single “bottleneck” sub-lemma. The valid set 𝑉 is sorted by ascending Score (𝑐 )
+
+(easier first) to form 𝑉 ranked . This aggregation directly reflects the cost analysis above: since overall search cost is dominated by the hardest sublemma, ranking by max difficulty preferentially selects 
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.
+
+Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 13 
+
+Table 1. Complete feature set ( |𝜙 | = 28 ). “Intros-state” features are extracted after executing repeat intro ;“Statement” features are extracted from the raw lemma declaration.          
+
+> Group Feature Description
+> Intros-state: proof-state shape
+> num_goals Number of remaining subgoals
+> Intros-state: goal features
+> goal_len Character length of the goal
+> goal_tok_count Token count of the goal
+> goals_total_len Total char length across all goals
+> goals_max_len Max char length among all goals
+> forall_left Residual
+
+∀ quantifiers in goal  
+
+> goal_arrow Implication arrows (
+
+→) in goal  
+
+> goal_logic_ops Logic connectives (
+
+∧, ∨, ¬) in goal  
+
+> cmp_ops Comparison operators (
+
+=, <, ≤, etc.)                   
+
+> is_contra_goal Goal is False or a negation (binary)
+> Intros-state: context features
+> num_hyps Number of hypotheses
+> hyp_total_len Total char length of all hypotheses
+> hyp_len_avg Average hypothesis length
+> hyp_len_max Maximum hypothesis length
+> hyp_tok_count_total Total token count of hypotheses
+> hyp_tok_count_max Max token count among hypotheses
+> hyp_logic_ops_total Logic connectives across hypotheses
+> match_fix_let match /fix /let keywords
+> mapset_tokens Map/set identifiers (e.g., find ,mem )
+> Statement: raw declaration features
+> stmt_len Character length of statement
+> stmt_tok_count Token count of statement
+> stmt_forall
+
+∀ quantifiers in statement  
+
+> stmt_exists
+
+∃ quantifiers in statement        
+
+> stmt_arrow Implication arrows in statement
+> stmt_logic_ops Logic connectives in statement
+> stmt_cmp_ops Comparison operators in statement
+> stmt_match_fix_let match /fix /let in statement
+> stmt_is_eq_goal Statement contains
+
+= or ≠ (binary) 
+
+decompositions where even the hardest piece remains within the automation’s reach. In our running example (Figure 3), the winning decomposition has max difficulty 0.51, while a rejected alternative scored 0.89 due to a sublemma requiring complex inductive reasoning beyond CoqHammer’s reach. Here, “easier” means more tractable for the backend, not logically weaker. A strengthened auxiliary lemma may be logically stronger than the fact needed at the parent goal, yet still receive a favorable score if its normalized proof state matches patterns that CoqHammer can discharge. 
+
+Quarry therefore can use strengthened lemmas when the LLM proposes them; the ranker only estimates whether the resulting obligations are likely to be executable under the current backend. The ranker deliberately avoids expensive semantic analysis such as recursive unfolding. This keeps candidate scoring cheap relative to hammer invocations, but it can miss difficulty hidden behind opaque definitions or relations. Note that the Rocq-side validity filter alone is not sufficient: validity ensures the parent goal 
+
+could close assuming the sublemmas, but ranking ensures the sublemmas are actually executable 
+
+under the available automation. 
+
+5.5 Offline Trace Collection and Learning 
+
+The difficulty model described above requires learned weights 𝜃 that reflect the automation back-end’s actual solving capability. However, evaluating ranking policies online is expensive and noisy due to stochastic LLM sampling, making it hard to attribute improvements to ranking choices rather than generation variance. Quarry addresses this by strictly separating online execution 
+
+Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 14 Zhang et al. 
+
+from offline policy learning. During online search, the system records a deterministic, reproducible trace comprising: 
+
+• nodes.jsonl : Goal statements, depths, and intros-state snapshots; 
+
+• candidates.jsonl : Generated candidates, Rocq verifier errors, difficulty scores, and the binary 
+
+outcome of whether the recursive attempt succeeded. This frozen trace enables offline replay : we can evaluate arbitrary ranking policies (e.g., swapping 
+
+max with sum , or changing 𝜃 ) by re-sorting the recorded candidates and computing end-to-end metrics without issuing new LLM requests. Because the traces are collected in dense-supervision mode (Section 4.3), every candidate at every node has a recorded recursive outcome, so re-ranking produces valid end-to-end results regardless of the original execution order. By decoupling gen-eration from policy evaluation, we can sweep ranking functions and attribute improvements to ranking choices rather than generation variance. We learn the weights 𝜃 from the recorded traces using a pairwise ranking objective: for each node where at least one candidate succeeded and one failed, we minimize a margin-based loss encouraging the model to assign lower difficulty to successful candidates. Because the candidate score is built from sublemma-level difficulties aggregated via Agg () , this training implicitly calibrates the notion of difficulty to the capabilities and timeouts of the underlying automation backend. The difficulty model is trained on a separate dataset of 200 goals randomly sampled from multiple projects in the CoqGym corpus [Yang and Deng 2019], with project-level disjointness from all three evaluation benchmarks: none of the training projects overlap with CoqGym100, Wigderson100, or TransBench58. This separation tests whether the learned weights capture automation-solvability patterns that transfer beyond the training projects. Algorithm 2 summarizes the offline learning pipeline. 
+
+Algorithm 2 Offline Trace Replay and Weight Learning. 
+
+Input: Trace files T = {( nodes , candidates )} from online runs; feature extractor 𝜙 ; aggregation function 
+
+Agg ; regularization 𝜆 
+
+Output: Learned weights 𝜃  
+
+> 1:
+
+// Phase 1: Collect pairwise training data  
+
+> 2:
+
+P ← ∅ ⊲ set of (winner, loser) score pairs  
+
+> 3:
+
+for each node 𝑛 in T with candidates {𝑐 1, . . . , 𝑐 𝑚 } do  
+
+> 4:
+
+for each pair (𝑐 𝑖 , 𝑐 𝑗 ) where 𝑐 𝑖 succeeded and 𝑐 𝑗 failed do  
+
+> 5:
+
+𝑠 𝑖 ← max ℓ ∈𝐿 (𝑐 𝑖 ) 𝜃 ⊤𝜙 (ℓ) ⊲ score of hardest sublemma in 𝑐 𝑖  
+
+> 6:
+
+𝑠 𝑗 ← max ℓ ∈𝐿 (𝑐 𝑗 ) 𝜃 ⊤𝜙 (ℓ) ⊲ score of hardest sublemma in 𝑐 𝑗  
+
+> 7:
+
+P ← P ∪ {( 𝑠 𝑖 , 𝑠 𝑗 )} ⊲ winner ( 𝑐 𝑖 ) should score lower (easier)  
+
+> 8:
+
+// Phase 2: Learn weights via margin ranking loss  
+
+> 9:
+
+Solve 𝜃 ← arg min 𝜃 
+
+Í(𝑠 +,𝑠 − ) ∈ P max  0, 𝜇 − ( 𝑠 − − 𝑠 +)2 + 𝜆 ∥𝜃 ∥2 
+
+> 10:
+
+// Phase 3: Offline replay evaluation  
+
+> 11:
+
+for each candidate ranking policy 𝜋 to evaluate do  
+
+> 12:
+
+Re-sort candidates in T using 𝜋 (𝜃 ) 
+
+> 13:
+
+Compute end-to-end success rate without new LLM calls 
+
+6 Evaluation 
+
+In this section, we present the experimental results. Our experiments are designed to answer the following research questions: 
+
+RQ1 : How effective is Quarry compared to state-of-the-art proof synthesis methods? 
+
+RQ2 : How efficient is Quarry in terms of proving time and LLM cost?  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 15
+
+RQ3 : How does each component (difficulty-based ranking, CoqHammer integration) contribute to 
+
+Quarry ’s performance? 
+
+RQ4 : How sensitive is Quarry to its budget and LLM backend, and what gaps remain? 
+
+RQ5 : How do the learned difficulty model and its design choices affect ranking quality? 
+
+6.1 Experimental Setup 
+
+6.1.1 Benchmarks. We evaluate on three benchmarks. CoqGym100 and Wigderson100 are widely used in prior work on automated Rocq proof synthesis [Blaauwbroek et al . 2020; Kasibatla et al .2026; Sanchez-Stern et al . 2020; Yang and Deng 2019]: CoqGym100 contains 100 theorems randomly sampled from diverse CoqGym [Yang and Deng 2019] projects, while Wigderson100 contains 100 theorems from the coq-wigderson software-verification project [Phipathananunth 2023], following the benchmark selection used by Cobblestone [Kasibatla et al . 2026]. We use Rocq 8.10 for CoqGym100 and Rocq 8.13 for Wigderson100, matching each benchmark’s original environment. We further introduce TransBench58, a benchmark of 58 verification problems translated from Rust/Verus to Rocq, drawn from the benchmark suites of AutoVerus [Yang et al . 2025a] and VeruSAGE [Yang et al . 2025b]. Each problem was translated via an automated pipeline, refined with LLM assistance, and manually reviewed by domain experts; all translated specifications compile under the Rocq type-checker. TransBench58 is substantially harder than the other two benchmarks: the problems involve richer specifications (e.g., sorting invariants, recursive data structures) and are absent from known public Rocq proof corpora, reducing data-leakage concerns. We release TransBench58 as part of our artifact and use Rocq 8.20 for evaluation. 
+
+6.1.2 Baselines. We compare against the following seven systems: 
+
+• CoqHammer [Czajka and Kaliszyk 2018]: the standalone automation that invokes external ATPs/SMT solvers and reconstructs Rocq-checked proofs. 
+
+• Proverbot9001 [Sanchez-Stern et al . 2020]: a neural tactic predictor trained on Rocq proof traces, combined with proof search. 
+
+• Tactician [Blaauwbroek et al . 2020]: a lightweight online learning system that predicts tactics from the current proof state. 
+
+• ChainOfThought [Wei et al . 2022]: an LLM-based baseline that generates complete proof scripts in a single pass with chain-of-thought prompting. 
+
+• PALM [Lu et al . 2024]: a retrieval-augmented LLM prover combining premise retrieval with proof generation. 
+
+• Rango [Thompson et al. 2025]: an LLM-based prover with repair and backtracking capabilities. 
+
+• Cobblestone [Kasibatla et al . 2026]: an LLM-based proof-repair system that generates whole proofs, localizes errors via fail-safe execution, and recursively retries on failing subproofs. All baselines are re-run under our Rocq toolchain and evaluation budget. 
+
+6.1.3 Evaluation metrics. We report success rate (fraction of theorems proven). To quantify comple-mentarity, we report added value following Cobblestone : AV (𝑋 | 𝑌 ) ≜ |S 𝑋 \ S 𝑌 |/|S 𝑌 |, where 
+
+S𝑋 is the set of theorems proved by 𝑋 . We also report LLM token usage and request counts. 
+
+6.1.4 Implementation. We implement Quarry in Python on top of SerAPI. The implementation has three key components. (1) Recursive decomposition runner. The runner maintains a proof context of already proven lemmas and orchestrates the Generate–Rank–Solve loop. It supports depth limits on recursion, an invocation budget for LLM calls, and trace logging for offline evaluation. (2) Difficulty ranking. The difficulty model is implemented as a combination of statement heuristics and intros-state features. The latter requires running a small prefix (e.g., repeat intro. ) to  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 16 Zhang et al.
+
+stabilize the goal shape before feature extraction. We support loading learned weights from a JSON model. (3) Hammer-first proof checking. Quarry uses CoqHammer as a fast path at each recursive node. When CoqHammer succeeds, we record the reconstructed proof script and avoid further LLM sampling for that subgoal. This design keeps the search efficient by focusing LLM effort on proposing decompositions, while relying on the theorem prover to discharge many of the resulting local obligations. All main comparisons (including the baselines that require LLM calls) use GPT-5.2 [OpenAI 2025] as the shared LLM backend, so differences in Table 2 reflect the proof-synthesis framework rather than model capability. We additionally report backend-sensitivity experiments with stronger and alternative LLMs in Section 6.5; these runs are not used as the basis for the main baseline comparison. All backends use the same prompt template (included in our artifact) with temperature 
+
+= 1.0 (following Cobblestone ), top-𝑝 at the provider default, and max output tokens = 4096 . To ensure a fair comparison, we impose a uniform 10-minute wall-clock budget per theorem, with a 30-second per-goal timeout for CoqHammer and a 90-second timeout for LLM requests. Quarry ’s per-theorem LLM budget (60 requests) matches Cobblestone ’s effective budget (10 nodes × 6calls per node). For Quarry , unless otherwise stated, we use rollout budget 𝑘 =8, top-𝐵 =1, and a maximum recursion depth of 5, with a hard global cap of 60 LLM requests per theorem. The difficulty model weights 𝜃 are trained on 200 goals from CoqGym projects disjoint from all three evaluation benchmarks (Section 5.5). 
+
+6.2 RQ1: Effectiveness 
+
+Table 2 summarizes overall success rates and Quarry ’s added value relative to baselines. The results demonstrate that Quarry achieves success rates of 55%, 52%, and 16% on CoqGym100, Wigderson100, and TransBench58 respectively, outperforming all baselines on every benchmark. On TransBench58, this corresponds to 9 proved theorems out of 58, rounded to 16%. The strongest baseline is PALM on CoqGym100 (48%) and Wigderson100 (39%); Quarry improves over PALM by +7, +13, and +13 percentage points. Cobblestone , the state-of-the-art proof-repair system, achieves 38%, 35%, and 2% under the same evaluation conditions. 
+
+Performance on TransBench58. All systems perform substantially worse on TransBench58, and the gap is not unique to Quarry : non-LLM baselines (CoqHammer, Proverbot9001, Tactician) prove 0 theorems, and the strongest LLM baselines (PALM, Cobblestone ) prove only 2–3%. This across-the-board drop reflects two properties of TransBench58 that are by design (Section 6.1). First, the problems involve richer specifications (e.g., sorting invariants, recursive data structures) translated from Rust/Verus, resulting in deeper proof obligations where even individual subgoals after decomposition frequently lie beyond CoqHammer’s reach. Second, because these problems are absent from known public Rocq proof corpora, systems are less likely to rely on memorized proof patterns and must reason from the translated specifications. These two factors compound: when the leaf solver cannot discharge the subgoals produced by decomposition, the planning layer loses its main execution mechanism. Despite this, Quarry ’s +13 percentage point improvement over the strongest baseline on TransBench58 is tied for the largest margin across all three benchmarks (vs. +7 on CoqGym100 and +13 on Wigderson100), indicating that difficulty-aware planning provides strong relative benefit in the out-of-distribution setting where prior approaches struggle. Since Quarry ’s framework is modular, we can replace CoqHammer with Cobblestone as the leaf-goal solver. Because combining two LLM-based systems increases per-theorem cost, we extend the wall-clock budget to 20 minutes for this configuration. Across all three benchmarks (258 theorems), Quarry with CoqHammer proves 116 theorems, while Quarry with Cobblestone 
+
+proves 126—an additional 10 theorems. The additional theorems are distributed as 7 on CoqGym100, 3 on Wigderson100, and 0 on TransBench58. This result suggests that Cobblestone , despite being a  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 17
+
+Table 2. Success rate (%) and added value (AV) on three benchmarks. Quarry outperforms all baselines, with average AV ranging from 33.7% to ∞. Percentages on TransBench58 are rounded over 58 theorems. 
+
+CoqGym100 Wigderson100 TransBench58 Total succ.% AV succ.% AV succ.% AV succ.% AV CoqHammer 19 189.5 22 136.4 0 ∞ 15.9 182.9 Proverbot9001 13 323.1 10 420.0 0 ∞ 8.9 404.3 Tactician N/A N/A 13 300.0 0 ∞ N/A N/A ChainOfThought 45 37.8 31 67.8 2 800.0 29.8 59.7 PALM 48 27.6 39 25.6 3 350.0 34.5 33.7 Rango N/A N/A N/A N/A 2 800.0 N/A N/A 
+
+Cobblestone 38 78.9 35 57.1 2 800.0 28.7 78.4 
+
+Quarry 55 52 16 45.0 1 2 3 5 10         
+
+> Time (min)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Success Rate (%)
+> CoqGym100
+> 123510
+> Time (min)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Wigderson100
+> 123510
+> Time (min)
+> 0
+> 5
+> 10
+> 15
+> TransBench58
+
+Fig. 4. Cumulative success rate vs. wall-clock time. Over 90% of successful proofs complete within 5 minutes; the curve plateaus sharply thereafter, confirming that Quarry ’s hammer-first recursive strategy converges quickly. 
+
+standalone proof system, functions effectively as a more powerful leaf-goal solver within Quarry ’s framework: like CoqHammer, it discharges individual subgoals, but its LLM-based generation can handle goals beyond first-order ATP. Quarry ’s planning layer still decomposes hard theorems into subgoals that neither CoqHammer nor Cobblestone can solve monolithically. 
+
+Takeaway. Quarry outperforms all baselines on every benchmark, improving over the strongest baseline by up to +13 percentage points. Its modular framework further benefits from stronger leaf solvers: replacing CoqHammer with Cobblestone proves 10 additional theorems. 
+
+6.3 RQ2: Efficiency 
+
+Figure 4 shows the cumulative success rate as a function of wall-clock time. The majority of successful proofs complete quickly: on all three benchmarks, over 90% of the eventually proved theorems are solved within 5 minutes, and the median solving time is approximately 1–2 minutes. Beyond the 5-minute mark, almost no new theorems are proved, indicating that Quarry ’s recursive decomposition converges rapidly once a viable proof plan is found. This efficiency stems from the hammer-first design: CoqHammer typically resolves leaf subgoals in seconds, so the dominant cost per proof tree is the small number of LLM calls at non-leaf nodes rather than repeated generation-and-repair cycles. In contrast, Cobblestone ’s iterative repair loops are expensive: under the same 10-minute budget it achieves only 38%, 35%, and 2%, because many of its proofs require multiple repair iterations that exceed the time limit.  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 18 Zhang et al.
+
+Figure 5 reports per-theorem token usage and LLM request counts for Quarry and Cobblestone 
+
+on the three benchmarks. Quarry uses fewer requests per theorem than Cobblestone on all benchmarks (e.g., 7.2 vs. 11.5 on CoqGym100) while proving more theorems, reflecting the efficiency of difficulty-aware ranking in avoiding fruitless decomposition paths. On Wigderson100, Quarry ’s per-theorem token usage is higher (45.6K vs. 40.7K) despite fewer requests (9.8 vs. 14.4), because its structured decomposition prompts include richer context. CoqGym100 Wigderson100 TransBench58   
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> Tokens per theorem (K)
+> 23.9
+> 40.7
+> 34.8
+> 38.5
+> 45.6 46.9
+> Cobblestone Quarry
+
+(a) Token usage per theorem CoqGym100 Wigderson100 TransBench58   
+
+> 0
+> 5
+> 10
+> 15
+> 20
+> Requests per theorem
+> 11.5
+> 14.4
+> 19.3
+> 7.2
+> 9.8
+> 15.3
+> Cobblestone Quarry
+
+(b) Requests per theorem Fig. 5. RQ2: Per-theorem LLM cost. Quarry uses fewer requests per theorem than Cobblestone on all benchmarks despite proving more theorems. 
+
+Takeaway. Over 90% of Quarry ’s successful proofs complete within 5 minutes, with a median solving time of 1–2 minutes. Quarry also uses fewer LLM requests than Cobblestone on all benchmarks. The hammer-first design avoids costly repair loops that dominate Cobblestone ’s execution time. 
+
+6.4 RQ3: Component Contributions 
+
+We ablate the two main design choices—difficulty-based ranking and CoqHammer integration—to understand their individual contributions (Table 3). For ranking, we compare Quarry against Quarry-NoRank , which keeps candidate verification but executes candidates in the default (unranked) order. Ranking improves success from 51% to 55% on CoqGym100 (+4), from 49% to 52% on Wigderson100 (+3), and from 12% to 16% on TransBench58 (+4). Quarry-NoRank also uses more total LLM requests (785 vs. 720 on CoqGym100, 1,030 vs. 975 on Wigderson100), because without ranking it more often pursues decomposition paths that fail deep in the recursion tree. Difficulty-aware ranking thus contributes to both effectiveness and efficiency. For CoqHammer integration, we compare three configurations: Quarry with CoqHammer at every recursive node, Quarry-NoHammer (no hammer calls), and a one-shot union (hammer only on root, then Quarry-NoHammer ). On CoqGym100, removing CoqHammer reduces success from 55% to 41%; a one-shot union recovers to 49%; invoking CoqHammer at every recursive node adds +6 percentage points over one-shot. On Wigderson100, the gap is even more pronounced: 52% vs. 23% vs. 40%. This confirms that CoqHammer’s value compounds with decomposition depth: as 
+
+Quarry creates deeper proof trees, hammer opportunities at leaf nodes accumulate.  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 19
+
+Table 3. Component ablations (success rate, %). Both our difficulty-based ranking and CoqHammer integration contribute to the overall performance. 
+
+Configuration CoqGym100 Wigderson100 TransBench58 Ranking ablation 
+
+Quarry-NoRank 51 49 12 
+
+Quarry (with ranking) 55 52 16 Hammer integration ablation 
+
+CoqHammer only 19 22 0
+
+Quarry-NoHammer 41 23 9
+
+Quarry-NoHammer ∪ CoqHammer 49 40 9
+
+Quarry (hammer at every node) 55 52 16 1 2 4 8 12 16              
+
+> Rollout budget k
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Theorems Proved
+> CoqGym100
+> 124812 16
+> Rollout budget k
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Wigderson100
+> 124812 16
+> Rollout budget k
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> TransBench58
+
+Fig. 6. Effect of rollout budget 𝑘 on the number of proved theorems. The default 𝑘 =8 captures most of the benefit; gains plateau beyond 𝑘 =12 .
+
+Takeaway. Both ranking and deep CoqHammer integration are individually significant. Ranking steers the budget toward hammer-solvable decompositions, while invoking CoqHammer at every node captures leaf-level goals that LLM-only methods miss. 
+
+6.5 RQ4: Budget Sensitivity, LLM Backends, and Remaining Gaps 
+
+Figure 6 shows how the number of proved theorems varies with the rollout budget 𝑘 (candidates sampled per node). At 𝑘 = 1 (single candidate, no selection), Quarry proves 38, 35, and 4 theorems on the three benchmarks. Increasing 𝑘 improves performance up to 𝑘 ≈ 12 , after which gains plateau; the default 𝑘 = 8 already captures most of the benefit (55, 52, and 9 theorems) while keeping the per-theorem LLM budget at 60 requests. Figure 8 reports backend-sensitivity results under identical budgets and prompts. GPT-5.2 is the controlled backend used for the main comparison in Table 2; Quarry improves further with GPT-5.4, reaching 58%, 54%, and 19% on the three benchmarks. Claude Sonnet 4.6 with thinking reaches 51%, 42%, and 5%. MiniMax-M2.5 [MiniMax 2026] and DeepSeek-v3.2 [Liu et al . 2025] provide additional sensitivity points and still outperform standalone CoqHammer on all three benchmarks. The gap between backends is largest on TransBench58, suggesting that the harder benchmark amplifies differences in model capability. The reported main results are single runs. To estimate run-to-run variability, we repeated the MiniMax-M2.5 configuration two additional times because it was the most cost-efficient backend: the three runs achieved 29/31/28% on CoqGym100, 31/33/33% on Wigderson100, and 2/0/2% on TransBench58, corresponding to standard deviations of at most 1.5 percentage points. We therefore 
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.
+
+20 Zhang et al. CoqGym100 Wigderson100 TransBench58   
+
+> 0
+> 20
+> 40
+> 60
+> Theorems Proved
+> 55 52
+> 9
+> 62
+> 55
+> 9
+> Quarry + CoqHammer Quarry + Cobblestone
+
+Fig. 7. Effect of leaf-goal solver. Replacing CoqHam-mer with Cobblestone at leaf nodes proves addi-tional theorems on CoqGym100 and Wigderson100. CoqGym100 Wigderson100 TransBench58     
+
+> 0
+> 20
+> 40
+> 60
+> Success Rate (%)  58 54
+> 19
+> 55 52
+> 16
+> 51
+> 42
+> 5
+> 47 45
+> 3
+> 29 31
+> 2
+> GPT-5.4
+> GPT-5.2
+> Claude 4.6
+> DeepSeek
+> MiniMax
+
+Fig. 8. Sensitivity to LLM backends. The main com-parison uses GPT-5.2; stronger and alternative back-ends are reported only as sensitivity experiments. Table 4. RQ4: decomposition statistics for 116 successfully proved theorems. 
+
+CoqGym100 Wigderson100 TransBench58 Total 
+
+Proved theorems 55 52 9 116 Total nodes 132 164 20 316 Total sublemmas 77 112 11 200 Avg 1.40 2.15 1.22 1.72 Max 11 25 3 25 
+
+keep Table 2 as a single-run controlled comparison and use the repeated MiniMax-M2.5 runs only as a cost-conscious estimate of sampling variability under the same search policy. We also examine the proof trees of the 116 successfully proved theorems (Table 4). Quarry 
+
+generates an average of 1.72 sublemmas per theorem, of which 69% are leaf nodes proved directly by the automation backend. This shows that a single round of decomposition is usually sufficient to reduce goals to the backend’s reach. CoqGym100 theorems require fewer sublemmas on average (1.40, max 11) than Wigderson100 (2.15, max 25), reflecting the greater structural complexity of the software-verification proofs in Wigderson100. The TransBench58 average is lower (1.22) because the solved subset is dominated by tasks where one key translated program invariant suffices; its difficulty lies more in finding that invariant than in building deep decomposition trees. A recurring failure mode is “internal progress” without explicit subgoals: proofs that require long sequences of rewriting or unfolding before any case split introduces new goals. Quarry is less susceptible to this than Cobblestone because it proposes arbitrary sublemmas rather than relying on Rocq’s built-in subgoal creation; however, when even the LLM cannot identify a meaningful decomposition, Quarry still fails. 
+
+Takeaway. Quarry ’s effectiveness scales with rollout budget up to 𝑘 ≈12 and benefits from stronger LLM backends. The hammer-first recursive strategy is the dominant execution mecha-nism at leaf nodes. Inherently sequential proofs without decomposition structure remain the primary failure mode, suggesting that extending the framework to handle “internal progress” is a promising direction. 
+
+Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 21                        
+
+> Table 5. RQ5: effect of feature set and aggregation function on success rate (%), evaluated via offline replay. The difficulty model is trained on 200 CoqGym goals (project-level disjoint from all test sets). Quarry-NoRank
+> (no ranking) achieves 51 / 49 / 12 as reference.
+> Configuration CoqGym100 Wigderson100 TransBench58 Feature set ablation
+> Statement only (9 feat.) 49 51 9Intros-state only (19 feat.) 54 50 14 Full (28 feat., default) 55 52 16 Aggregation function
+> sum 53 51 14
+> mean 50 49 10
+> max (default) 55 52 16
+
+6.6 RQ5: Difficulty Model and Learning Evaluation 
+
+The ranking component involves two key design choices: (1) the feature set used by the difficulty model, and (2) the aggregation function Agg . We evaluate both using offline replay (Algorithm 2), which re-sorts the recorded candidates under different configurations without issuing new LLM requests, ensuring that all comparisons reflect ranking quality rather than generation variance. The difficulty model is trained on 200 goals from CoqGym (disjoint from all test sets) and applied without further tuning to the three benchmarks; CoqGym100 is in-distribution (same corpus, different theorems and projects), while Wigderson100 and TransBench58 are cross-distribution targets. Our feature set combines 19 intros-state features (extracted after repeat intro via SerAPI) with 9 statement-level features (Table 1). We compare three configurations via offline replay: statement features only, intros-state features only, and the full 28-feature set (Table 5, top). Statement-only features (9 feat.) achieve 49%, 51%, and 9%—actually below Quarry-NoRank on CoqGym100 (51%) and TransBench58 (12%), indicating that coarse-grained textual statistics suffer from distribution shift when the target domain diverges from the training set. Intros-state features (19 feat.) achieve 54%, 50%, and 14%, substantially outperforming statement-only on TransBench58 because normal-ized proof-state structure provides more robust cross-distribution signals than raw syntax. The full 28-feature set achieves the best results on all three benchmarks (55%, 52%, 16%): the two feature groups are complementary, as intros-state features provide normalized proof-state signals while statement features preserve raw declaration structure before repeat intro moves or reshapes it into the context. Table 5 (bottom) compares three aggregation functions. max achieves the highest success rate on all benchmarks (55%, 52%, 16%), confirming the bottleneck principle: a decomposition is only as easy as its hardest sublemma. Mean performs worst (50%, 49%, 10%) because averaging can mask a single hard sublemma when the rest are easy. 
+
+Takeaway. Proof-state normalization via SerAPI is an important design choice: intros-state features provide domain-agnostic difficulty signals that transfer across distributions, while statement features alone can even hurt when the target domain diverges from the training set. The full feature set is strictly best, as the two groups provide complementary and partially redundant signals. Among aggregation functions, max is the most effective, validating the bottleneck principle that ranking should target the hardest sublemma in each candidate.  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 22 Zhang et al.
+
+7 Threats to Validity 
+
+We discuss three external validity threats and the inherent limitations of Quarry .
+
+Benchmark leakage. LLM evaluations may be affected by overlap between benchmarks and model training data. We mitigate this by reporting multiple datasets with different origins and by including TransBench58, which contains Rust-to-Rocq translations absent from known public Rocq proof corpora. 
+
+Model and environment dependence. Performance can vary with the LLM backend, prompt template, Rocq version, and ATP configuration. We report all configurations in our artifact and provide scripts to reproduce our runs. We report backend sensitivity across five LLM backends (Section 6.5) to quantify this dependence. 
+
+Budget sensitivity. Our method is budgeted by recursion depth, rollout count, and LLM samples. We report success as a function of the rollout budget 𝑘 (Section 6.5) and include per-benchmark cost metrics to enable fair comparison. 
+
+Limitations. Beyond the threats above, Quarry has several inherent limitations. First, proofs that make “internal progress” without introducing explicit subgoals—e.g., long chains of equational rewrites—lack natural decomposition points, and Quarry provides no benefit over monolithic tactics for such sequential obligations (Section 6.5). Second, Quarry ’s pipeline is one-shot: it cannot use execution feedback to generate new candidates when all 𝑘 pre-generated decompositions fail for the same reason. Third, the overall ceiling is largely determined by CoqHammer’s capabilities, as it discharges the majority of leaf subgoals; goals requiring induction or higher-order reasoning remain difficult even after decomposition. Finally, Quarry ’s implementation is Rocq-specific (SerAPI, CoqHammer); porting to Lean 4 or Isabelle would require reimplementing the proof-state interface and leaf-solver integration. 
+
+8 Related Work 
+
+Several systems discussed below target Isabelle or Lean rather than Rocq; we include them to position our contributions but do not compare experimentally, as cross-prover evaluation involves incompatible proof languages and benchmarks. 
+
+Automated proof search. Hammers such as CoqHammer [Czajka and Kaliszyk 2018] and Sledgehammer [Paulson and Nipkow 2023] combine interactive provers with external ATP/SMT solvers and reconstruct kernel-checked proofs. Premise selection—identifying relevant lemmas to feed to the prover—has been studied extensively using corpus-based, kernel-based, and learned methods [Alama et al . 2014; Alemi et al . 2016; Wang et al . 2017]; more recently, LeanDojo [Yang et al .2023] and Magnushammer [Mikuła et al . 2024] train models to select premises at each proof step, while Rango [Thompson et al . 2025] additionally retrieves similar proof scripts. Thor [Jiang et al .2022] fine-tunes an LLM to decide when to invoke Sledgehammer versus predicting a tactic, integrat-ing hammers with neural search. A separate line of work learns to predict tactics directly from proof states: representative systems include GamePad [Huang et al . 2019], CoqGym/ASTactic [Yang and Deng 2019], Proverbot9001 [Sanchez-Stern et al . 2020], Graph2Tac [Blaauwbroek et al . 2024], and LISA [Jiang et al . 2021], spanning architectures from recurrent networks to GNNs and transformer LLMs [Bansal et al . 2019; First et al . 2020; Ringer et al . 2021]. In the Rocq ecosystem, Proverbot9001 outperforms earlier non-LLM systems (e.g., ASTactic, TacTok, Diva, Passport) [First et al . 2020; Ringer et al . 2021; Sanchez-Stern et al . 2023; Yang and Deng 2019], and Tactician [Blaauwbroek et al .2020] demonstrates that lightweight online learning can be effective. All of these approaches operate at the level of a single goal—selecting premises, predicting one tactic at a time, or deciding whether to invoke a hammer—and do not perform multi-step decomposition or planning. Quarry instead decomposes long-range proof obligations into subproblems, ranks alternative decompositions by  
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 23
+
+estimated solvability, and selects among them under a bounded budget; premise selection methods are complementary and could be integrated into its hammer calls. 
+
+LLM-based proof planning and decomposition. A growing body of work uses LLMs to automate proving; we organize it by how explicitly it plans and evaluates proof structure. (1) Whole-proof generation and unplanned search. The most direct approaches generate or repair a complete proof and check it post-hoc, without explicitly planning the proof structure. PALM [Lu et al . 2024] samples whole proofs and applies retrieval-augmented repair; Baldur [First et al . 2023] fine-tunes an LLM to repair whole Isabelle proofs from error messages; and seL4-prover [He et al . 2026] use a neuro-symbolic tree search to generate proofs for systems-software verification. These methods entangle planning with execution—committing the proof budget to a full script before its structure is known to be sound, or searching without a global plan—so a single wrong turn fails the whole attempt. (2) Planning with limited applicability. A second line first produces a proof skeleton and then fills its gaps, separating how to prove from the proof itself. Draft-Sketch-Prove [Jiang et al . 2023] and its variants [Cao et al . 2026; Varambally et al . 2025] translate an informal proof into a formal sketch whose holes are discharged by Sledgehammer, but it depends on an informal proof that is usually unavailable, and this draft-then-formalize strategy is ineffective for program verification in particular. POETRY [Wang et al . 2024a] fine-tunes an LLM to predict the proof points at which to recurse, generating the sketch level by level, but relies on model fine-tuning. (3) Decomposition with quality estimation. A third line explicitly decomposes a goal into sub-lemmas, and some of these works further assess how good a decomposition is. LEGO [Wang et al . 2024b] prompts an LLM to emit a complete Isabelle theory of helper lemmas and a main proof, accumulating a skill library across problems, but does not estimate whether a given decomposition is easy to solve. Closest in spirit to Quarry is Goedel-Code-Prover [Li et al . 2026], which likewise searches and 
+
+scores candidate decompositions hierarchically, using an AST-based scoring function together with property-based testing to judge decomposition quality—but this requires the verified artifact to be executable code with generatable tests, restricting it to the code-verification setting. The most closely related experimental baseline is Cobblestone [Kasibatla et al . 2026], which couples whole-proof generation with recursive repair: it generates whole proofs, localizes errors via fail-safe execution, keeps the working subproofs, and recursively retries the failing ones; however, its decomposition is driven by Rocq’s built-in subgoal mechanism (e.g., split , induction ), limiting it to subgoals that arise from tactic execution. 
+
+Quarry differs from these systems in three respects. First, it plans before it proves: it generates only the decomposition structure —sub-lemma statements and a target proof—and validates that structure via Rocq type-checking under temporarily Admitted sub-lemmas, before investing any budget in the sub-lemma proofs. Second, it can introduce arbitrary sub-lemmas via standalone Lemma 
+
+declarations, not just the subgoals produced by built-in goal-splitting, which directly addresses the “internal progress” limitation identified in Cobblestone ’s own analysis. Third, it ranks candidate decompositions with a lightweight difficulty model: unlike Goedel-Code-Prover, which relies on AST-based scoring and property-based testing (and thus on executable code and tests), Quarry 
+
+estimates sub-lemma difficulty from proof-state features alone—requiring no execution and applying to general Rocq developments—and tries only the top-ranked candidates under a bounded budget, preventing the failure mode where a recursive prover exhausts its budget on the first plausible but ultimately intractable plan. Finally, unlike Baldur and POETRY, Quarry requires no model fine-tuning, making it straightforward to swap in stronger LLMs as they become available. 
+
+9 Conclusion 
+
+Quarry demonstrates that planning —actively generating, evaluating, and selecting proof decompo-sitions before execution—is a more effective strategy for automated proof synthesis than reactive 
+
+> Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.
+
+24 Zhang et al. 
+
+step-by-step proving. By separating the LLM’s role (proposing verifiable proof plans) from the prover’s role (executing and checking them via CoqHammer), Quarry achieves success rates of 55%, 52%, and 16% on three benchmarks, outperforming all baselines while using fewer LLM requests. Planning-based decomposition, combined with difficulty-aware ranking and deep hammer integration, provides effective levers for scaling automated proof synthesis. We see two main directions for future work. First, closing the loop between planning and execution via an agentic architecture: a proof agent that observes execution failures and revises its decomposition strategy accordingly, enabling recovery from systematic generation errors and dynamic granularity selection for the “internal progress” proofs that the current fixed pipeline cannot handle (Section 6.5). Second, adapting the approach to other ITPs such as Lean 4 or Isabelle to test the generality of the framework beyond the Rocq ecosystem. 
+
+Acknowledgments 
+
+We thank the anonymous reviewers for their constructive feedback. This work is supported by the Fundamental and Interdisciplinary Disciplines Breakthrough Plan of the Ministry of Education of China (No. JYB2025XDXM118), the Frontier Technologies R&D Program of Jiangsu (BF2024059), the National Natural Science Foundation of China (No. 92582201, 62572229), and the “111 Center” (No. B26023). Yuan Yao and Xiaoxing Ma are the corresponding authors. 
+
+Data-Availability Statement 
+
+Our artifact is available at https://github.com/ningZhang-cs/QUARRY. It contains: (1) the complete source code of Quarry , including the recursive decomposition runner, difficulty ranking module, and CoqHammer integration; (2) all three evaluation benchmarks (CoqGym100, Wigderson100, and TransBench58) with their Rocq project environments; (3) the learned difficulty model weights; (4) prompt templates used for all LLM backends; and (5) scripts to reproduce all experiments reported in this paper. 
+
+References 
+
+Jesse Alama, Tom Heskes, Daniel Kühlwein, Evgeni Tsivtsivadze, and Josef Urban. 2014. Premise selection for mathematics by corpus analysis and kernel methods. Journal of Automated Reasoning 52, 2 (2014), 191–213. doi:10.1007/s10817-013-9286-5 Alexander A. Alemi, François Chollet, Niklas Een, Geoffrey Irving, Christian Szegedy, and Josef Urban. 2016. DeepMath -Deep Sequence Models for Premise Selection. In Advances in Neural Information Processing Systems (NeurIPS) . 2235–2243. https://papers.nips.cc/paper/6280-deepmath-deep-sequence-models-for-premise-selection Kshitij Bansal, Christian Szegedy, Markus N Rabe, Sarah M Loos, and Viktor Toman. 2019. Learning to Reason in Large Theories without Imitation. arXiv preprint arXiv:1905.10501 (2019). Lasse Blaauwbroek, Mirek Olšák, Jason Rute, Fidel Ivan Schaposnik Massolo, Jelle Piepenbrock, and Vasily Pestun. 2024. Graph2Tac: Online Representation Learning of Formal Math Concepts. In Forty-first International Conference on Machine Learning .Lasse Blaauwbroek, Josef Urban, and Herman Geuvers. 2020. The Tactician: A Seamless, Interactive Tactic Learner and Prover for Coq. In International Conference on Intelligent Computer Mathematics . 271–277. doi:10.1007/978-3-030-53518-6_17 Chenrui Cao, Liangcheng Song, Zenan Li, Xinyi Le, Xian Zhang, Hui Xue, and Fan Yang. 2026. Reviving DSP for advanced theorem proving in the era of reasoning models. Advances in Neural Information Processing Systems 38 (2026), 74116– 74154. Haogang Chen, Daniel Ziegler, Tej Chajed, Adam Chlipala, M. Frans Kaashoek, and Nickolai Zeldovich. 2015. Using Crash Hoare Logic for Certifying the FSCQ File System. In Proceedings of the 25th ACM Symposium on Operating Systems Principles (SOSP) . ACM, New York, NY, USA, 18–37. doi:10.1145/2815400.2815402 Łukasz Czajka and Cezary Kaliszyk. 2018. Hammer for Coq: Automation for Dependent Type Theory. Journal of Automated Reasoning 61, 1-4 (2018), 423–453. doi:10.1007/s10817-018-9458-4 Andres Erbsen, Jade Philipoom, Jason Gross, Robert Sloan, and Adam Chlipala. 2019. Simple High-Level Code for Crypto-graphic Arithmetic — With Proofs, Without Compromises. In IEEE Symposium on Security and Privacy (S&P) . 1202–1219. doi:10.1109/SP.2019.00005 Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs 25 
+
+Emily First, Yuriy Brun, and Arjun Guha. 2020. TacTok: Semantics-aware proof synthesis. Proceedings of the ACM on Programming Languages 4, OOPSLA (2020), 1–31. Emily First, Markus N. Rabe, Talia Ringer, and Yuriy Brun. 2023. Baldur: Whole-Proof Generation and Repair with Large Language Models. In Proceedings of the 31st ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE ’23), December 3-9, 2023, San Francisco, CA, USA . ACM, New York, NY, USA, 1229–1241. https://doi.org/10.1145/3611643.3616243 Emilio Jesús Gallego Arias. 2016. SerAPI: Machine-Friendly, Data-Centric Serialization for Coq . Technical Report. MINES ParisTech. https://hal-mines-paristech.archives-ouvertes.fr/hal-01384408 Ronghui Gu, Zhong Shao, Hao Chen, Xiongnan Wu, Jieung Kim, Vilhelm Sjöberg, and David Costanzo. 2016. CertiKOS: An Extensible Architecture for Building Certified Concurrent OS Kernels. In 12th USENIX Symposium on Operating Systems Design and Implementation (OSDI 16) . USENIX Association, Savannah, GA, 653–669. https://www.usenix.org/ conference/osdi16/technical-sessions/presentation/gu Baoding He, Zenan Li, Wei Sun, Yuan Yao, Taolue Chen, Xiaoxing Ma, and Zhendong Su. 2026. Neuro-symbolic proof generation for scaling systems software verification. arXiv preprint arXiv:2603.19715 (2026). Daniel Huang, Prafulla Dhariwal, Dawn Song, and Ilya Sutskever. 2019. GamePad: A Learning Environment for Theorem Proving. In International Conference on Learning Representations (ICLR) . https://openreview.net/forum?id=r1xwKoR9Y7 Atalay İleri, Tej Chajed, Adam Chlipala, M. Frans Kaashoek, and Nickolai Zeldovich. 2018. Proving Confidentiality in a File System Using DiskSec . In USENIX Symposium on Operating Systems Design and Implementation (OSDI) . 323–338. https://www.usenix.org/conference/osdi18/presentation/ileri Albert Qiaochu Jiang, Wenda Li, Jesse Michael Han, and Yuhuai Wu. 2021. LISA: Language models of ISAbelle proofs. In 6th Conference on Artificial Intelligence and Theorem Proving .Albert Q. Jiang, Wenda Li, Szymon Tworkowski, Konrad Czechowski, Tomasz Odrzygóźdź, Piotr Miłoś, Yuhuai Wu, and Mateja Jamnik. 2022. Thor: Wielding Hammers to Integrate Language Models and Automated Theorem Provers. In 
+
+Advances in Neural Information Processing Systems . 8360–8373. https://proceedings.neurips.cc/paper_files/paper/2022/ file/377c25312668e48f2e531e2f2c422483-Paper-Conference.pdf Albert Qiaochu Jiang, Sean Welleck, Jin Peng Zhou, Timothee Lacroix, Jiacheng Liu, Wenda Li, Mateja Jamnik, Guillaume Lample, and Yuhuai Wu. 2023. Draft, Sketch, and Prove: Guiding Formal Theorem Provers with Informal Proofs. In The Eleventh International Conference on Learning Representations . https://openreview.net/forum?id=SMa9EAovKMC Saketh Ram Kasibatla, Arpan Agrawal, Yuriy Brun, Sorin Lerner, Talia Lily Ringer, and Emily First. 2026. Cobblestone: A Divide-and-Conquer Approach for Automating Formal Verification. In Proceedings of the 48th IEEE/ACM International Conference on Software Engineering (ICSE) . Rio de Janeiro, Brazil. doi:10.1145/3744916.3773178 Xavier Leroy. 2009. Formal verification of a realistic compiler. Communications of the ACM (CACM) 52, 7 (2009), 107–115. doi:10.1145/1538788.1538814 Xupeng Li, Xuheng Li, Wei Qiang, Ronghui Gu, and Jason Nieh. 2023. Spoq: Scaling {Machine-Checkable } systems verification in coq. In 17th USENIX Symposium on Operating Systems Design and Implementation (OSDI 23) . 851–869. Zhaoyu Li, Jialiang Sun, Logan Murphy, Qidong Su, Zenan Li, Xian Zhang, Kaiyu Yang, and Xujie Si. 2024. A Survey on Deep Learning for Theorem Proving. arXiv preprint arXiv:2404.09939 (2024). Zenan Li, Ziran Yang, Deyuan He, Haoyu Zhao, Andrew Zhao, Shange Tang, Kaiyu Yang, Aarti Gupta, Zhendong Su, and Chi Jin. 2026. Goedel-code-prover: Hierarchical proof search for open state-of-the-art code verification. arXiv preprint arXiv:2603.19329 (2026). Aixin Liu, Aoxue Mei, Bangcai Lin, Bing Xue, Bingxuan Wang, Bingzheng Xu, Bochao Wu, Bowei Zhang, Chaofan Lin, Chen Dong, et al . 2025. Deepseek-v3.2: Pushing the frontier of open large language models. arXiv preprint arXiv:2512.02556 
+
+(2025). Minghai Lu, Benjamin Delaware, and Tianyi Zhang. 2024. Proof Automation with Large Language Models. In 39th IEEE/ACM International Conference on Automated Software Engineering (ASE ’24), October 27-November 1, 2024, Sacramento, CA, USA .ACM, New York, NY, USA, 1509–1520. doi:10.1145/3691620.3695521 Maciej Mikuła, Szymon Tworkowski, Szymon Antoniak, Bartosz Piotrowski, Albert Q. Jiang, Jin Peng Zhou, Christian Szegedy, Łukasz Kuciński, Piotr Miłoś, and Yuhuai Wu. 2024. Magnushammer: A Transformer-Based Approach to Premise Selection. In The Twelfth International Conference on Learning Representations . https://openreview.net/forum?id=oYjPk8mqAV MiniMax. 2026. MiniMax M2.5: Built for Real-World Productivity. Technical Report. https://minimaxi.com/news/minimax-m25 Tobias Nipkow, Markus Wenzel, and Lawrence C Paulson. 2002. Isabelle/HOL: a proof assistant for higher-order logic .Springer. OpenAI. 2025. Introducing GPT-5.2 . Technical Report. https://openai.com/index/introducing-gpt-5-2/ Larry Paulson and Tobias Nipkow. 2023. The Sledgehammer: Let Automatic Theorem Provers write your Isabelle scripts! https://isabelle.in.tum.de/website-Isabelle2009-1/sledgehammer.html. Siraphob Phipathananunth. 2023. Towards the Formal Verification of Wigderson’s Algorithm. In Companion Proceedings of the 2023 ACM SIGPLAN International Conference on Systems, Programming, Languages, and Applications: Software 
+
+Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026. 26 Zhang et al. 
+
+for Humanity (Cascais, Portugal) (SPLASH 2023) . Association for Computing Machinery, New York, NY, USA, 40–42. doi:10.1145/3618305.3623600 Talia Ringer, RanDair Porter, Nathaniel Yazdani, John Leo, and Dan Grossman. 2021. Proof Repair Across Type Equivalences. In Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and Implementation (PLDI ’21), June 20-25, 2021, Virtual, Canada . ACM, New York, NY, USA, 112–127. doi:10.1145/3453483.3454033 Alex Sanchez-Stern, Yousef Alhessi, Lawrence Saul, and Sorin Lerner. 2020. Generating Correctness Proofs with Neural Networks. In Proceedings of the 4th ACM SIGPLAN International Workshop on Machine Learning and Programming Languages (MAPL ’20), June 15, 2020, London, UK . ACM, New York, NY, USA, 1–10. https://doi.org/10.1145/3394450.3397466 Alex Sanchez-Stern, Emily First, Timothy Zhou, Zhanna Kaufman, Yuriy Brun, and Talia Ringer. 2023. Passport: Improving Automated Formal Verification Using Identifiers. ACM Trans. Program. Lang. Syst. 45, 2, Article 12 (2023), 30 pages. https://doi.org/10.1145/3593374 The Coq Development Team. 2017. Coq, v.8.7. https://coq.inria.fr. Kyle Thompson, Nuno Saavedra, Pedro Carrott, Kevin Fisher, Alex Sanchez-Stern, Yuriy Brun, João F Ferreira, Sorin Lerner, and Emily First. 2025. Rango: Adaptive Retrieval-Augmented Proving for Automated Software Verification. In 2025 IEEE/ACM 47th International Conference on Software Engineering (ICSE) . 347–359. Sumanth Varambally, Thomas Voice, Yanchao Sun, Zhifeng Chen, Rose Yu, and Ke Ye. 2025. Hilbert: Recursively building formal proofs with informal reasoning. arXiv preprint arXiv:2509.22819 (2025). Haiming Wang, Huajian Xin, Zhengying Liu, Wenda Li, Yinya Huang, Jianqiao Lu, Zhicheng YANG, Jing Tang, Jian Yin, Zhenguo Li, and Xiaodan Liang. 2024a. Proving Theorems Recursively. In The Thirty-eighth Annual Conference on Neural Information Processing Systems . https://openreview.net/forum?id=yAa5l92TtQ Haiming Wang, Huajian Xin, Chuanyang Zheng, Zhengying Liu, Qingxing Cao, Yinya Huang, Jing Xiong, Han Shi, Enze Xie, Jian Yin, Zhenguo Li, and Xiaodan Liang. 2024b. LEGO-Prover: Neural Theorem Proving with Growing Libraries. In 
+
+The Twelfth International Conference on Learning Representations .Mingzhe Wang, Yihe Tang, Jian Wang, and Jia Deng. 2017. Premise Selection for Theorem Proving by Deep Graph Embedding. In Advances in Neural Information Processing Systems (NeurIPS) . 2786–2796. https://papers.nips.cc/paper/6871-premise-selection-for-theorem-proving-by-deep-graph-embedding Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed Chi, Quoc V Le, and Denny Zhou. 2022. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models. Advances in Neural Information Processing Systems 35 (2022), 24824–24837. James R. Wilcox, Doug Woos, Pavel Panchekha, Zachary Tatlock, Xi Wang, Michael D. Ernst, and Thomas Anderson. 2015. Verdi: A Framework for Implementing and Formally Verifying Distributed Systems. In Proceedings of the 36th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI) . ACM, New York, NY, USA, 357–368. doi:10.1145/2737924.2737958 Chenyuan Yang, Xuheng Li, Md Rakib Hossain Misu, Jianan Yao, Weidong Cui, Yeyun Gong, Chris Hawblitzel, Shuvendu Lahiri, Jacob R. Lorch, Shuai Lu, Fan Yang, Ziqiao Zhou, and Shan Lu. 2025a. AutoVerus: Automated Proof Generation for Rust Code. Proc. ACM Program. Lang. 9, OOPSLA2, Article 396 (Oct. 2025), 29 pages. https://doi.org/10.1145/3763174 Chenyuan Yang, Natalie Neamtu, Chris Hawblitzel, Jacob R. Lorch, and Shan Lu. 2025b. VeruSAGE: A Study of Agent-Based Verification for Rust Systems. arXiv:2512.18436 [cs.OS] https://arxiv.org/abs/2512.18436 Kaiyu Yang and Jia Deng. 2019. Learning to Prove Theorems via Interacting with Proof Assistants. In International Conference on Machine Learning (ICML) . http://proceedings.mlr.press/v97/yang19a/yang19a.pdf Kaiyu Yang, Gabriel Poesia, Jingxuan He, Wenda Li, Kristin Lauter, Swarat Chaudhuri, and Dawn Song. 2026. Formal reasoning meets llms: Toward ai for mathematics and verification. Commun. ACM 69, 3 (2026), 66–73. Kaiyu Yang, Aidan M. Swope, Alex Gu, Rahul Chalamala, Peiyang Song, Shixing Yu, Saad Godil, Ryan Prenger, and Anima Anandkumar. 2023. LeanDojo: Theorem Proving with Retrieval-Augmented Language Models. In Advances in Neural Information Processing Systems , Vol. 36. 21573–21612. Proc. ACM Program. Lang., Vol. 1, No. 1, Article . Publication date: June 2026.
