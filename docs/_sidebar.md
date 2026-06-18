@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-06-18 <!--dpr-date:20260618-->
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/18/2606.17128v2-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent" data-sidebar-item="{&quot;title&quot;: &quot;Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.17128v2-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;知识增强的LLM代理用于HLS功能一致性验证&quot;}">Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent</a>
   * 2026-06-17 <!--dpr-date:20260617-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/17/2606.17128v1-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent" data-sidebar-item="{&quot;title&quot;: &quot;Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.17128v1-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;使用大语言模型代理进行高级综合功能一致性验证&quot;}">Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent</a>

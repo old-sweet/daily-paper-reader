@@ -6,24 +6,23 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-17
-- 运行时间：2026-06-17 22:15:25 UTC
+- 最新运行日期：2026-06-18
+- 运行时间：2026-06-18 22:19:20 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：2
+- 本次总论文数：1
+- 精读区：1
 - 速读区：0
 
 ### 今日简报（AI）
-今日精读两篇高分论文：一篇用知识增强的LLM自动化HLS验证（9.0分），另一篇通过难度感知分解自动证明Rocq定理（8.0分）。最值得关注的是LLM Agent在硬件验证中提升效率的新范式，以及定理证明自动化的实用性突破。建议普通读者关注AI辅助验证工具的发展，未来可能大幅降低芯片设计验证门槛。
-- 详情：[/202606/17/README](/202606/17/README)
+今天精读了一篇高分论文（9.0/10），聚焦“知识增强的LLM代理”如何提前发现高层次综合（HLS）中的设计错误。  
+最值得关注的方向：将领域知识注入LLM，实现HLS验证的“左移”（早期介入），显著缩短迭代周期。  
+建议普通读者深入了解知识图谱与大语言模型结合的具体方法，尝试在自家设计流程中引入类似的自动化验证代理。
+- 详情：[/202606/18/README](/202606/18/README)
 
 ### 精读区论文标签
-1. [Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent](/202606/17/2606.17128v1-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent)  
+1. [Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent](/202606/18/2606.17128v2-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent)  
    标签：评分：9.0/10、query:llm-hw-fv
-   evidence：使用大语言模型代理进行高级综合功能一致性验证
-2. [Planning to Hammer: Difficulty-Aware Decomposition for Automating Rocq Proofs](/202606/17/2606.17981v1-planning-to-hammer-difficulty-aware-decomposition-for-automating-rocq-proofs)  
-   标签：评分：8.0/10、query:llm-hw-fv
-   evidence：利用LLM自动化Rocq定理证明，可直接用于硬件形式验证
+   evidence：知识增强的LLM代理用于HLS功能一致性验证
 
 ### 速读区论文标签
 - 本次无速读推荐。
