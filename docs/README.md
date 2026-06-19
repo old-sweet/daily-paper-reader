@@ -6,26 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-18
-- 运行时间：2026-06-18 22:19:20 UTC
+- 最新运行日期：2026-06-19
+- 运行时间：2026-06-19 22:10:23 UTC
 - 运行状态：成功
-- 本次总论文数：1
+- 本次总论文数：3
 - 精读区：1
-- 速读区：0
+- 速读区：2
 
 ### 今日简报（AI）
-今天精读了一篇高分论文（9.0/10），聚焦“知识增强的LLM代理”如何提前发现高层次综合（HLS）中的设计错误。  
-最值得关注的方向：将领域知识注入LLM，实现HLS验证的“左移”（早期介入），显著缩短迭代周期。  
-建议普通读者深入了解知识图谱与大语言模型结合的具体方法，尝试在自家设计流程中引入类似的自动化验证代理。
-- 详情：[/202606/18/README](/202606/18/README)
+今日精读1篇、速读2篇，重点聚焦LLM在硬件生成与验证中的应用。值得关注《Interpretable and Verifiable Hardware Generation with LLM-Driven Stepwise Refinement》的高分精读，以及《Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent》的速读方向。建议从LLM驱动的硬件设计与验证入手，深入理解可解释性和左移验证方法。
+- 详情：[/202606/19/README](/202606/19/README)
 
 ### 精读区论文标签
-1. [Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent](/202606/18/2606.17128v2-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent)  
+1. [Interpretable and Verifiable Hardware Generation with LLM-Driven Stepwise Refinement](/202606/19/2606.19387v1-interpretable-and-verifiable-hardware-generation-with-llm-driven-stepwise-refinement)  
    标签：评分：9.0/10、query:llm-hw-fv
-   evidence：知识增强的LLM代理用于HLS功能一致性验证
+   evidence：结合形式化逐步精化的LLM硬件生成
 
 ### 速读区论文标签
-- 本次无速读推荐。
+1. [Shift-Left High-Level Synthesis Verification via Knowledge-Augmented LLM Agent](/202606/19/2606.17128v3-shift-left-high-level-synthesis-verification-via-knowledge-augmented-llm-agent)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：基于知识增强LLM代理的HLS功能一致性验证
+2. [Structural Preservation and the Logical Expressiveness of Graph Neural Networks](/202606/19/2606.17882v1-structural-preservation-and-the-logical-expressiveness-of-graph-neural-networks)  
+   标签：评分：6.0/10、query:ml-verify
+   evidence：GNN逻辑表达能力的理论分析，与基于GNN的验证工具选择相关
 
 
 <div class="dpr-home-promo-card">
