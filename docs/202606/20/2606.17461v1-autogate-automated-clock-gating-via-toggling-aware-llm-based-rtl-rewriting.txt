@@ -1,0 +1,532 @@
+Title: AUTOGATE: Automated Clock Gating via Toggling-Aware LLM-based RTL Rewriting
+
+URL Source: https://arxiv.org/pdf/2606.17461v1
+
+Published Time: Wed, 17 Jun 2026 00:27:12 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# AUTO GATE : Automated Clock Gating via Toggling-Aware LLM-based RTL Rewriting 
+
+Yiting Wang ∗† , Chenhui Deng ‡, Chia-Tung Ho ‡, Yanqing Zhang ‡, Zhuo Feng ‡,Cunxi Yu †‡ , Ang Li †, Gang Qu †, Brucek Khailany ‡†University of Maryland, College Park, ‡NVIDIA {ywang144, angliece, gangqu}@umd.edu, {cdeng, chiatungh, yanqingz, zhuof, cunxiy, bkhailany}@nvidia.com 
+
+Abstract —Fine-grain clock gating (FGCG) is among the most effective techniques for reducing dynamic power, yet current FGCG optimization flows remain largely manual. Recent LLM-based RTL optimization approaches remain limited by two key drawbacks: (1) the inability to process long waveform traces spanning millions of cycles, and (2) the difficulty of scaling optimization to large hierarchical codebases while preserving correctness. In this work, we present AUTO GATE , the first agentic framework for industry-grade RTL power optimiza-tion, enabling workload-aware clock-gating optimization across large hierarchical codebases. A UTO GATE introduces a Machine Learning (ML)–LLM co-design that bridges waveform-level analysis and RTL rewriting. Specifically, we design an ML-based clustering algorithm that distills raw toggling traces into compact, structured representations that guide LLM-based RTL rewriting. This enables accurate identification and application of clock-gating opportunities without requiring LLMs to directly process raw waveform data. To enhance scalability, A UTO GATE 
+
+employs a hierarchical multi-agent architecture that decomposes large designs into independently optimizable modules, enabling coordinated optimization across deep design hierarchies. We evaluate A UTO GATE on a diverse set of designs ranging from small RTL designs to large industrial-grade codebases. Experimental results show that A UTO GATE consistently reduces dynamic power relative to baselines. Across the small-design suite, A UTO GATE 
+
+reduces dynamic power by 49.31% on average. On industry-scale designs, it achieves 19.34% and 7.96% dynamic power reductions on NVDLA [1] and BlackParrot [2], respectively, and up to 6.86% on highly optimized proprietary production designs. 
+
+Index Terms —RTL power optimization, clock gating, large language models, agentic framework 
+
+I. I NTRODUCTION 
+
+Power consumption is a first-order design constraint in modern very-large-scale integration (VLSI) systems on a chip. Dynamic power is driven by switching on clock networks, data paths, and interconnects. Fine-grain clock gating (FGCG) gates small groups of flip-flops to reduce dynamic power consumption [3]. Today’s commercial synthesis tools support automatic clock-gating inference at the register transfer level (RTL) by exploiting clock-gating opportunities that are explic-itly exposed by the RTL coding style. Consequently, many workload-dependent FGCG opportunities cannot be discovered by these synthesis tools before RTL restructuring. Such RTL rewriting is overwhelmingly manual, driven by rigid heuristics 
+
+∗This work was conducted during an internship at NVIDIA. 
+
+and the design team’s experience. Workload-aware automated FGCG optimization remains largely unexplored. Recent large language models (LLMs) have demonstrated strong capabilities in RTL code understanding, generation, and optimization [4]–[9], making LLMs promising candidates for automated RTL rewriting to improve FGCG. However, their practical adoption is restricted by the following two limitations. 
+
+First, FGCG requires the analysis of long waveform 
+
+that exceeds the capabilities of current LLMs . Effective FGCG relies on cycle-accurate toggling behavior that is tightly coupled with input stimuli and workload characteristics, requiring analysis of waveform traces spanning millions of clock cycles. Such traces translate into extremely long contexts, far beyond what LLMs can process accurately and reliably, making it difficult to reason and discover the patterns that might lead to dynamic power bottlenecks. Consequently, raw waveform data must first be analyzed and summarized into compact representations before it can be processed in any LLM-based flow. Meanwhile, FGCG clustering algorithms, from coarse toggle-rate-based grouping to sequence-level clustering methods [10]–[12], can identify candidate flip-flop groups, but rewriting/translating these into correct and efficient RTL is challenging because of the need for deep RTL understanding and careful handling of control and data dependencies. This raises an open question: how can LLM-based RTL optimization be effectively integrated with specialized Machine-Learning (ML)-driven waveform analysis to enable accurate clock-gating decisions without requiring LLMs to directly process raw switching traces? 
+
+Second, existing LLM-based RTL optimization ap-proaches do not scale to large and hierarchical industrial-grade designs. Prior LLM-based RTL optimization studies [7]– [9] have primarily focused on small, single-module designs with only a few hundred lines of code, whereas industrial designs consist of deeply hierarchical codebases with many interacting modules and complex cross-module dependencies, as demon-strated in Table I. In such settings, a single-agent, single-context approach does not scale, as effective optimization requires coordinated reasoning across the entire design hierarchy. The challenge is further compounded by large SoC designs typically providing only top-level testbenches. Because FGCG relies on module-level switching activity, practical optimization must also obtain module-level behavior from full-design simulations.             
+
+> arXiv:2606.17461v1 [cs.AR] 16 Jun 2026 Table I. Motivational comparison of small and large RTL designs. Values show dynamic-power change relative to baseline.
+> Design # Files POET [9] ROVER [13] AUTO GATE
+> booth_mult 1↓ − 85.52% ↓ − 79.72% ↓ − 86.21% NVDLA total 135 +0.09% −0.01% ↓ − 19.34%
+
+Our Approach. We present AUTO GATE , a workload-aware power optimization framework for industrial-scale RTL code-bases through hierarchical decomposition, activity-guided opti-mization, formal verification, and automated FGCG rewriting. AUTO GATE rewrites RTL to expose additional gating opportu-nities, enabling synthesis to infer more effective clock gating. AUTO GATE addresses the limitations of LLMs in pro-cessing long waveform traces through an adaptive switching-activity analysis. Specifically, we transform raw simulation traces into a hierarchy of clock-gating candidates using toggle-aware pre-filtering, automatic threshold discovery, and multi-threshold stability clustering. The resulting gating candidates are then distilled into a compact, structured representation that guides LLM-based rewriting, enabling the LLM to expose identified clock-gating opportunities while preserving control and data dependencies, thereby bridging waveform-level activ-ity analysis and RTL optimization. Notably, when improving gating efficiency, the LLM may merge existing clock gates in the original design. As a result, area reduction may occur as a byproduct of clock-gate merging. To scale up to industrial-grade RTL codebases , A UTO -GATE uses a divide-and-conquer strategy that decomposes complex hierarchical designs into independently optimizable modules, enabling scalable and coordinated optimization across the entire design. We use a multi-agent architecture in which an orchestrator LLM automatically identifies the design hierarchy, partitions the codebase into manageable units, and leverages per-module switching activity analysis to guide optimization. This approach enables A UTO GATE to scale effectively to production-level designs while preserving cross-module correctness and optimization consistency. We conduct extensive experiments on 10 designs, spanning small single modules, industrial-grade designs, and highly opti-mized proprietary production designs. Our results demonstrate that AutoGate consistently outperforms competitive baselines in terms of dynamic power reduction. 
+
+Our contributions are as follows :1) We propose AUTO GATE , the first agentic framework for industrial-grade RTL power optimization, enabling workload-aware FGCG across large hierarchical codebases. 2) We address the limitations of LLMs in precisely under-standing long-context waveforms by co-designing an ML-based toggling analysis method to guide LLM decisions. This combines the strengths of ML-based long sequence processing and LLM-based RTL reasoning to improve FGCG effectiveness. 3) We demonstrate that A UTO GATE exposes clock-gating opportunities beyond those identified by a commercial synthesis flow with aggressive automatic clock-gating inference enabled. Across small benchmarks, A UTO GATE 
+
+achieves an average dynamic-power reduction of 49.31% with only 0.15% average area overhead. 4) We overcome the scalability limitations of LLM-based RTL optimization through divide-and-conquer optimiza-tion of large hierarchical codebases with complex cross-module dependencies. On large industrial-grade designs, AUTO GATE achieves average dynamic-power reductions of 19.34% on NVDLA with a 3.46% average area reduction across partitions, 7.96% on BlackParrot with 0.04% area overhead, and up to 6.86% on highly optimized proprietary production designs with at most 1% area overhead. II. B ACKGROUND 
+
+A. Dynamic Power and Clock Gating 
+
+Dynamic power is a dominant component of power con-sumption in modern digital designs. It is commonly modeled as 
+
+Pdyn = α · CL · V 2 
+
+> DD
+
+· fclk ,
+
+where α is the switching activity factor, CL is the load capacitance, VDD is the supply voltage, and fclk is the clock frequency. At the RTL stage, the supply voltage, technology capacitance, and target clock frequency are usually fixed by design constraints. Therefore, reducing unnecessary switching activity is one of the most effective methods for dynamic power optimization. Fine-grain clock gating (FGCG) reduces unnecessary switch-ing by inserting integrated clock-gating (ICG) cells to small groups of flip-flops. When the registers in a group do not need to update, the ICG suppresses the clock, reducing switching in both the clock path and the flip-flops. However, FGCG is not free: each additional ICG introduces area, control logic, and clock-tree overhead. Effective FGCG therefore requires selecting register groups whose idle cycles align well enough to justify the added gating logic. 
+
+B. RTL Coding Style of inserting FGCG 
+
+In standard digital design flows, logic synthesis tools infer FGCG from RTL coding patterns rather than from manually instantiated ICG cells. Fig. 1 compares two common coding styles: the right style exposes an explicit hold condition, while the left style assigns the register on every cycle. In Fig. 1(a), q is assigned every cycle and therefore does not expose a clock-gating opportunity. In contrast, the explicit hold condition in Fig. 1(b) enables synthesis to infer a clock gate, whose hardware implementation is shown in Fig. 1(c). FGCG-oriented RTL rewriting therefore transforms functionally equivalent code into forms that expose register hold behavior and enable clock-gating inference. 
+
+C. Related Work 
+
+Recent LLM-based hardware design methods have demon-strated promising capabilities in Verilog generation [4], [5], chip design assistance [6], and RTL optimization through LLM-guided rewriting [8], e-graph rewriting [14], symbolic reasoning [7], and evolutionary search [9]. However, existing methods neither address the workload-dependent nature of CG not inserted                                                      
+
+> always @(posedge clk) begin if (condition_a) q<= data_a; else q<= data_b; end
+> (a)
+> CG inserted
+> always @(posedge clk) begin if (enable) q<= d; // else: hold qend
+> (b) ICG enable
+> clk gated clk
+> dDQq
+> (c) Fig. 1. RTL coding styles for synthesis-inferred FGCG and the corresponding gated-register schematic. Table II. Comparison of LLM-based RTL optimization methods. Power Aware indicates explicit power optimization, Clock Gating indicates support for clock-gating transformations, Agent Based indicates an agentic workflow, Repo Level indicates support for large, multi-file RTL codebases, and Custom Algo. indicates custom algorithm-guided rewriting.
+> Method Power Aware Clock Gating Agent Based Repo Level Custom Algo.
+> RTLRewriter [8] ✓✗✓✗✗
+> ROVER [13] ✓✓✗✗✓
+> SymRTLO [7] ✓✗✓✗✓
+> ASPEN [14] ✗✗✓✗✓
+> POET [9] ✓✗✓✗✗
+> AUTO GATE (Ours) ✓✓✓✓✓
+
+automated FGCG nor provide a scalable solution for industrial-scale RTL repositories. First, FGCG is workload-dependent and requires processing cycle-level switching activity, while realistic traces can span millions of cycles and exceed practical LLM context limits. Second, most RTL optimization methods target small or single-module designs and do not scale to hierarchical industrial-grade RTL codebases with cross-module dependencies. Non-LLM approaches face similar limitations: rule-based methods [13] rely on predefined rewrite patterns with limited generalization capability, while clustering-based flows [10]–[12] require manual tuning and expert interpretation to translate clustering results into effective RTL rewrites. These limitations motivate a framework that combines workload-aware FGCG analysis with hierarchy-aware LLM-based RTL rewriting. Table II compares the capabilities of existing RTL optimization frameworks with A UTO GATE .
+
+D. Motivational Experiment 
+
+To demonstrate the limitations in existing RTL optimization methods in hierarchical RTL codebases, we have performed a motivational experiment. Table I shows this gap using one single-module benchmark and one large RTL design. On the single module booth multiplier design, both LLM-based method (POET [9]) and non LLM-based method (ROVER [13]) significantly reduce dynamic power. However, when the dynamic power of the reported NVDLA partitions is aggregated under the same workload, both methods provide nearly no improvement. This motivates a scalable, hierarchy-aware optimization flow for large hierarchical RTL codebases. III. M ETHODOLOGY 
+
+AUTO GATE framework consists of four stages as shown in Fig. 2, and we will elaborate each of them next. 
+
+A. Stage 1: Hierarchy Detection and Pre-Profiling 
+
+Large RTL codebases typically exhibit deep and complex design hierarchies with massive code volume, often exceeding the context window of LLMs and making holistic understanding impractical. Furthermore, synthesizing and performing power analysis on the entire codebase is computationally expensive, often requiring hours to days, which makes iterative opti-mization with power feedback very challenging at the full-design level. To address these challenges, A UTO GATE adopts a divide-and-conquer strategy that decomposes the design into modules, identifies power-critical components, and applies targeted optimization to each module independently, as shown in Fig. 2 Stage 1⃝.AUTO GATE begins by constructing an explicit design hier-archy from the RTL source tree, where the orchestrator parses module definitions and instantiations to resolve parent–child relationships and identify independently optimizable modules. It then traverses this hierarchy using depth-first search to perform per-module pre-profiling, recording structural features such as module paths, sequential logic regions, and register counts. To incorporate power information, A UTO GATE maps synthe-sized gate-level instances back to their originating RTL files and source lines, and aggregates gate-level power estimates by RTL region and logic category. This is combined with synthesis and power metrics, including total and dynamic power, clock-gating coverage and efficiency, flop count, and ICG count. The resulting structured power bottleneck report ranks modules by optimization value and captures source-level power attribution, clock-gating headroom, and downstream impact, allowing A UTO GATE to focus only on promising candidates and avoid unnecessary rewriting. By following this divide-and-conquer strategy, A UTO GATE requires full-design synthesis and power analysis only once. FGCG analysis is a key component of clock-gating can-didate selection and requires per-module switching traces. However, large RTL projects typically provide only top-level or subsystem-level testbenches, and manually writing standalone testbenches for every internal module would undermine au-tomation. A UTO GATE addresses this by extracting module-level testbenches directly from full-design simulation traces for each bottleneck module. It parses module interfaces, extracts scoped waveform data, and generates standalone testbenches that replay real workload inputs cycle by cycle. This enables accurate per-module switching analysis while preserving realistic system behavior, avoiding reliance on synthetic stimuli. 
+
+B. Stage 2: Adaptive Stability-Based FGCG Exploration 
+
+Unlike prior FGCG methods that produce a single clustering result, A UTO GATE generates a hierarchy of candidate clus-terings spanning different power-area tradeoffs. As shown in Fig. 2 Stage 2⃝ and detailed in Fig. 3, RTL switching traces from the extracted testbench are processed through four steps: Fig. 2. AUTO GATE framework overview. 1⃝ identifies optimization targets and extracts module-level workloads; 2⃝ generates FGCG candidates from switching activity; 3⃝ performs parallel LLM-guided RTL rewriting; and 4⃝ verifies and selects QoR-improving candidates. 1 Signal Pre -Filter              
+
+> Counter32 (Standard)
+> always @( posedge clk )begin
+> if (reset) begin
+> counter <= 32'b0 ;
+> end else if (enable) begin
+> counter <= counter +32'd1 ;
+> end
+> end
+> LOW
+> (Low Activity)
+> One Gating Group
+
+2 Automatic Clustering Threshold  
+
+> Discovery
+> 4-bit wise Stability Matrix
+
+3 Stability -Based Clustering 
+
+> Signal Switching Activity
+> Clusters
+> Cluster 1
+> bits [0:3]
+> (First 4 bits)
+> Cluster 2
+> bits [4:31]
+> (Last 28 bits)
+
+4 Structured Report + RTL opt                             
+
+> HIGH
+> (High Activity)
+> No Gating Needed
+> MID
+> (Mid Activity)
+> Counter32 (Gated)
+> always @( posedge clk )begin
+> if (reset)
+> counter_low <= 4'b0 ;
+> else if (enable)
+> counter_low <= counter_low +
+> 4'd1 ;
+> end
+> always @( posedge clk )begin
+> if (reset)
+> counter_hi <= 28'b0 ;
+> else if (enable && ( counter_low ==
+> 4'hF ))
+> counter_hi <= counter_hi +28'd1 ;
+> end
+> Group 2:
+> bits: [4, 5, 6, ..., 31]
+> Q/CLK: 0.4 -3.1%
+> Efficiency: 96.9 %
+> Group 1:
+> bits: [0, 1, 2, 3]
+> Q/CLK: 6.2 -49.9%
+> Efficiency: 50.0%
+> Signal Stability Pattern
+> Coarse -Grained Clustering On Q/CLK
+> Ratio
+> LLM Agent Analyze
+
+Fig. 3. Adaptive Stability FGCG clustering flow. 
+
+1 toggle-aware pre-filtering partitions registers into activity bands; 2 switching traces are converted into binary stability patterns and are then assembled into the stability matrix for automatic threshold discovery; 3 stability-based clustering forms candidate FGCG groups; and 4 structured optimization reports are generated for the LLM agents. 
+
+Stability Patterns and Group Efficiency. [12] 
+
+Let R = {r1, . . . , r N } be the register set under analysis, and T be the number of observed clock edges. A candidate gating group G ⊆ R is the set of registers proposed to share one inferred ICG. The stability pattern of register a is a binary sequence SP a ∈ { 0, 1}T , where SP a[k] = 1 indicates that register a remains unchanged at clock edge k, and SP a[k] = 0 otherwise. Since that ICG can be disabled only when all registers in G are stable, the group stability is the element-wise logical AND SP G[k] = V
+
+a∈G SP a[k]. The group gating efficiency E(G) = 1
+
+T
+
+PTk=1 SP G[k] is therefore the fraction of cycles in which the whole group can safely gate its clock. Clustering starts from singleton groups and repeatedly merges the closest pair of current clusters Ci, C j ⊆ R under 
+
+d(Ci, C j ) = ∥SP Ci − SP Cj ∥2, accepting a merged cluster 
+
+M = Ci ∪ Cj only when its ANDed stability vector satisfies 
+
+E(M ) ≥ minE .
+
+1 Toggling-aware Pre-Filter. 
+
+To avoid applying unnecessary clock gating to flops with little optimization benefit, A UTO GATE first filters registers based on their toggle rates. Registers with toggle rates close to 0 or 1 are unlikely to benefit from gating and are therefore excluded. Specifically, before stability clustering, A UTO GATE 
+
+partitions registers in each module into low, middle, and high toggle-rate bands using their measured Q/CLK ratio under the target workload, with thresholds of 3% and 95% for the low and high bands, respectively. Stability clustering is then applied only to the middle band to reduce computational cost and focus on the most promising candidates. If the middle band is empty, a fallback mode is triggered that includes all registers. These threshold values are fixed across all experiments; systematic tuning of these parameters is out of the scope of this work and is left for future work. 
+
+2 Automatic Threshold Selection. The stability-based FGCG clustering algorithm [12] depends on a manually chosen mini-mum group gating-efficiency threshold minE . This threshold is fragile: too low merges unrelated registers into one gate, while too high produces single-register clusters that waste area. A UTO GATE removes this manual tuning by computing a fixed-size group-wise efficiency spectrum .For a candidate group size b, we set b to the minimum clock-gating bit-width. Unless otherwise specified, b = 4 ,matching the default setting of the commercial synthesis tool. The efficiency spectrum evaluates every b-register candidate group: Eb = {E(H) | H ⊆ R , |H| = b}, where E(H) = 
+
+> 1
+> T
+
+PTk=1 min a∈H SP a[k]. R denotes the register set under anal-ysis. The algorithm sorts the  Nb
+
+ group efficiencies, identifies the largest consecutive gaps, and uses the corresponding gap midpoints as candidate minE values. For large register sets, we sample candidate groups to identify the threshold gaps and avoid combinatorial explosion. 
+
+3 Multi-Threshold Clustering. To explore the power-area trade-offs across different clustering granularity and identify the most balanced rewrite options, A UTO GATE runs the clustering algorithm at each detected group gating-efficiency threshold to generate a hierarchy of candidate FGCG assignments. The finest level creates more ICGs and maximizes gating opportunity; coarser levels reduce ICG count and area overhead. An adaptive sweep probes around each threshold with scale-proportional offsets to provide additional actionable multi-register groups, giving the LLM agents a richer set of rewrite options. 
+
+4 Gating-Candidate Report. For every high-impact module, the report lists inefficient ICGs, the registers responsible for wasted toggles, recommended FGCG cluster assignments, and RTL regions where rewrites should be applied. The report is structured to be concise for LLM consumption: it names the relevant signals, ranks them by power impact, and explains the gating pattern that the rewrite should expose. 
+
+C. Stage 3: LLM-Guided Parallel Rewriting 
+
+To enable scalable RTL optimization, A UTO GATE adopts an agentic framework that decomposes rewriting into coordi-nated module-level transformations. Using the hierarchy and clustering reports from Stages 1 and 2, an orchestrator assigns modules to sub-agents and schedules optimization bottom-up through the design hierarchy. Leaf modules are optimized first, parent modules only after child modules optimized, and independent modules are optimized in parallel. Each module is paired with a dedicated rewrite agent that operates only on the target RTL, guided by its power-bottleneck report, gating-candidate clusters under different group gating-efficiency thresholds, and a library of clock-gating rewrite templates. These templates capture common RTL transformation patterns that expose implicit idle behavior and enable synthesis-inferred clock gating. Representative patterns include: (1) enable/hold extraction , which converts                                                         
+
+> Table III. Benchmark design summary. Lines of code, cell counts, and token counts are reported for the original unoptimized RTL design.
+> Design Files Lines Cells Tokens
+> Small designs
+> counter32 117 101 85 booth_mult 181 806 792 divide 1121 757 842 aes_cipher 1932 103,582 11K deframer 20 243 148 2.4K mrisc 71,516 2,039 15K
+> Large designs
+> NVDLA total 135 103,079 1,757,639 1.0M
+> |—-Partition_C 43 54,499 1,654,571 545K
+> |—-Partition_M 12 5,581 14,975 56K
+> |—-Partition_A 16 8,140 14,915 81K
+> |—-Partition_P 64 34,859 73,178 349K BlackParrot 77 1,071,596 1,140,814 30.6M
+
+unconditional assignments into conditional updates to re-veal register hold conditions (e.g., rewriting q <= d; into 
+
+if (en) q <= d; ); (2) value-change-based gating , which guards updates based on data changes (e.g., if (q != d) q <= d; ); (3) control-signal factoring , which lifts shared enable conditions across multiple registers to form a common gating signal; and (4) register decomposition , which splits wide registers into sub-registers with hierarchical enables to increase gating opportunities. Combined with clustering guidance, these templates enable functionally equivalent RTL rewrites that are more amenable to FGCG insertion. For each module, the agent generates fine-, medium-, and coarse-grain variants. Fine-grain variants maximize gating opportunities, medium-grain variants merge nearby clusters to reduce ICG count, and coarse-grain variants retain only the highest-efficiency groups to balance power and area. Only the target module for each rewrite agent is synthesized and evaluated for power, avoiding full-design recompilation. A reflection agent evaluates generated variants, identifies the causes of power improvements or regressions, and distills them into concise lessons stored in shared global and module-specific playbooks. Guided by both power feedback and accumulated playbook knowledge, rewrite agents iteratively refine their transformations to improve optimization quality. 
+
+D. Stage 4: Formal Verification and QoR-Aware Merge 
+
+AUTO GATE validates each candidate through syntax check-ing, simulation, commercial formal equivalence checking, and timing validation. Only candidates that preserve functionality and timing closure proceed to QoR evaluation. Each surviving candidate is synthesized and profiled for dynamic power, area, clock-gating metrics, and timing, yielding a QoR profile containing ∆Pdyn , ∆A, clock-gating coverage and efficiency, ICG count, WNS, and TNS. The final candidate is selected to maximize dynamic-power reduction under predefined area and timing constraints; otherwise, the original module is retained. Accepted patches are merged hierarchically and revalidated at the parent level. IV. E XPERIMENTAL RESULTS 
+
+We evaluate A UTO GATE on six small RTL benchmarks from CVDP [15], OpenCores [16], and OpenTitan [17], two industrial-scale open-source designs from NVDLA [1] and BlackParrot [2], and two highly optimized proprietary Table IV. A UTO GATE results on small benchmark designs. “Base” denotes the original design; “POET” denotes the POET [9] result; “ROVER” denotes the ROVER [13] result; “A UTO GATE ” denotes the optimized design. CG Cov = clock-gating coverage; CG Eff = clock-gating efficiency. 
+
+Design Total Pwr (uW) Dyn Pwr (uW) Dyn ∆ Area (um 2) Area ∆ CG Cov CG Eff ICGs WNS (ns) Timing Pass 
+
+counter32_base 55.76 53.23 — 7.63 — 100% 22.90% 1 0.45 ✓
+
+counter32_POET 52.37 49.02 −7.91% 7.63 0.00% 100% 30.60% 1 0.44 ✓
+
+counter32_ROVER 56.78 54.22 +1.86% 8.17 +7.08% 100% 24.50% 1 0.27 ✓
+
+counter32_A UTO GATE 26.69 23.78 −55.33% 7.75 +1.57% 100% 82.80% 2 0.00 ✓
+
+booth_mult_base 708.90 683.69 — 95.50 — 9.30% 8.30% 1 0.00 ✓
+
+booth_mult_POET 119.20 99.00 −85.52% 62.33 −34.73% 99.40% 86.00% 6 0.00 ✓
+
+booth_mult_ROVER 169.20 138.66 −79.72% 95.99 +0.51% 98.60% 88.00% 5 0.00 ✓
+
+booth_mult_A UTO GATE 114.40 94.30 −86.21% 62.11 −34.96% 97.00% 87.00% 5 0.00 ✓
+
+divide_base 672.80 645.20 — 83.93 — 100% 15.40% 1 0.00 ✓
+
+divide_POET 671.60 644.40 −0.12% 83.13 −0.95% 100% 15.40% 1 0.00 ✓
+
+divide_ROVER 699.00 667.64 +3.48% 100.61 +19.87% 100% 15.40% 1 0.00 ✓
+
+divide_A UTO GATE 302.60 265.40 −58.87% 103.63 +23.47% 96.40% 81.50% 31 0.00 ✓
+
+aes_base 12383.00 8019.00 — 12463.42 — 99.97% 98.31% 361 0.00 ✓
+
+aes_POET 10791.00 6653.00 −17.03% 12467.26 +0.03% 99.96% 98.30% 360 0.00 ✓
+
+aes_ROVER 12418.00 8040.00 +0.26% 12462.21 −0.01% 99.96% 98.30% 360 0.00 ✓
+
+aes_A UTO GATE 10144.00 6056.00 −24.48% 12515.56 +0.42% 99.95% 98.40% 289 0.00 ✓
+
+deframer_base 99.17 93.85 — 13.57 — 100% 49.40% 6 0.00 ✓
+
+deframer_POET 88.03 82.81 −11.76% 13.83 +1.92% 100% 57.00% 8 0.00 ✓
+
+deframer_ROVER 97.18 92.05 −1.92% 13.76 +1.40% 100% 49.40% 6 0.00 ✓
+
+deframer_A UTO GATE 82.31 77.29 −17.65% 13.77 +1.47% 100% 55.80% 7 0.00 ✓
+
+mrisc_base 729.80 664.45 — 184.92 — 84.00% 80.40% 89 0.06 ✓
+
+mrisc_POET 726.60 661.10 −0.50% 185.38 +0.25% 84.00% 80.40% 89 0.07 ✓
+
+mrisc_ROVER 727.90 662.49 −0.29% 184.44 −0.26% 84.30% 80.50% 90 0.00 ✓
+
+mrisc_A UTO GATE 380.80 310.41 −53.28% 201.42 +8.92% 95.10% 90.70% 104 0.06 ✓0 1 2 3 4 5 6 7 8 9 10                                            
+
+> Iteration
+> 15
+> 10
+> 5
+> 0
+> 5
+> 10
+> 15
+> 20
+> Change from Original (%)
+> ACTIVE 809 regs
+> Best R8: 74.63 uW (-17.0%)
+> Power % Area % |P|/|A| ratio
+> 012345678910
+> Iteration
+> 50
+> 40
+> 30
+> 20
+> 10
+> 0
+> 10
+> Change from Original (%)
+> RT_IN 314 regs
+> Best R7: 25.44 uW (-49.6%)
+> Power % Area % |P|/|A| ratio
+> 02345678910
+> Iteration
+> 30
+> 20
+> 10
+> 0
+> 10
+> 20
+> 30
+> 40
+> Change from Original (%)
+> RT_OUT 183 regs
+> Best R8: 22.53 uW (-31.0%)
+> Power % Area % |P|/|A| ratio
+> 012345678910
+> Iteration
+> 50
+> 0
+> 50
+> 100
+> Change from Original (%)
+> CFG 5 regs
+> Best R4/R7: 0.50 uW (-89.2%)
+> Power % Area % |P|/|A| ratio
+> 020 40 60 80 100 120 140
+> |dPower| / |dArea| ratio
+> inf
+> 7.2x 0.3x inf 1.2x 151.3x 69.9x 3.2x 3.2x 3.2x
+> 010 20 30 40
+> |dPower| / |dArea| ratio
+> 8.0x 10.3x 5.3x 3.0x 43.3x 8.1x 5.7x 7.9x 7.9x 7.9x
+> 0246810 12
+> |dPower| / |dArea| ratio
+> 0.4x 1.8x 6.7x 6.7x 6.7x 7.6x 1.5x 11.8x 6.4x
+> 0.0 0.2 0.4 0.6 0.8 1.0 1.2
+> |dPower| / |dArea| ratio
+> 1.1x 1.1x 1.0x 1.0x 1.1x 1.1x
+> inf
+> 0.7x 1.1x
+
+Fig. 4. Power vs. area tradeoff across the four optimized partition M sub-modules. Each point represents a candidate rewrite; the selected variants (star) achieve the best power–area balance. 
+
+production designs. Table III summarizes the characteristics of the open-source designs. We compare A UTO GATE against two recent RTL power-optimization approaches, POET [9] and ROVER [13]. Since publicly available implementations are unavailable, we re-implement their approaches and evaluate them using the same synthesis, simulation, SAIF generation, PrimePower analysis, formal verification, and timing constraints as A UTO GATE . All reported power and area changes are measured relative to the original baseline RTL design. POET and ROVER have primarily been evaluated on small designs and do not provide a repository-scale optimization flow. For comparison on large designs, we apply POET and ROVER to the same modules and partitions selected by A UTO GATE ’s hierarchy analysis. The resulting RTL modifications are then merged and evaluated under the same full-design workloads as A UTO GATE . Both A UTO GATE and the POET baseline use Claude Opus 4.7 with the same token budget. The POET baseline was configured with a population size of N = 10 ,maximum generations G = 10 , offspring L = 10 per generation, and three repair attempts per candidate. All designs were synthesized in a commercial 3 nm-class technology library using the design-specified target clock period (or 1 ns when unspecified), and use the most aggressive automatic clock-gating setting with minimum clock-gating bit-width = 4. Power was evaluated from gate-level SAIF traces and correctness was verified using commercial formal equivalence checking. These settings match the production synthesis flow used in industrial design practice. All reported savings arise solely from RTL rewrites that expose clock-gating opportunities beyond those already inferred by synthesis. 
+
+A. Small Benchmark Results 
+
+Table IV reports results on small benchmarks ranging from single-file datapath blocks to multi-file processor RTL under diverse baseline clock-gating conditions. Since these designs do not provide testbenches, we leverage Claude Opus 4.7 to generate the corresponding synthetic testbenches and ensure that they achieve at least 95% functional coverage with a commercial simulation tool. 
+
+Key Observations. The largest savings occur in designs with limited clock-gating efficiency. For example, booth multiplier (booth_mult), A UTO GATE cuts dynamic power by 86.21% by restructuring register assignments and raising clock-gating efficiency from 8.30% to 87.00%. Counter splitting and enabling refactoring lift clock-gating efficiency from 22.90% to 82.80% for counter32 and from 15.40% to 81.50% for Table V. Combined large benchmark results. The upper portion reports NVDLA partition results under two workloads; the lower portion reports full-design BlackParrot results. Workload-dependent NVDLA columns are shown under each workload, while shared NVDLA columns are shown once. 
+
+NVDLA partition results 
+
+Workload 1: dc_6x8x192 Workload 2: dc_35x22x54 Design Total (uW) Dyn (uW) Dyn ∆ CG Eff Total (uW) Dyn (uW) Dyn ∆ CG Eff Area (um 2) Area ∆ CG Cov ICGs WNS (ns) Timing Pass 
+
+Part_M_base 293.60 89.40 — 96.92% 755.80 547.90 — 69.41% 653.04 — 99.89% 135 0.09 ✓
+
+Part_M_POET 293.60 89.40 0.00% 96.92% 755.80 547.90 0.00% 69.41% 653.04 0.00% 99.89% 135 0.09 ✓
+
+Part_M_ROVER 293.60 89.39 −0.01% 96.92% 755.80 548.00 +0.02% 69.41% 653.04 0.00% 99.89% 135 0.00 ✓
+
+Part_M_A UTO GATE 230.20 46.80 −47.60% 97.83% 646.40 462.50 −15.60% 68.89% 606.77 −7.10% 99.87% 34 0.06 ✓
+
+Part_C_base 1187.00 414.80 — 93.12% 1142.00 371.10 — 93.93% 2432.80 — 96.37% 497 0.00 ✓
+
+Part_C_POET 1188.00 415.40 +0.10% 93.12% 1142.00 371.10 0.00% 93.93% 2433.41 +0.03% 96.37% 497 0.00 ✓
+
+Part_C_ROVER 1188.00 414.70 −0.02% 93.12% 1143.00 371.10 0.00% 93.93% 2433.50 +0.03% 96.37% 497 0.00 ✓
+
+Part_C_A UTO GATE 1040.00 372.60 −10.17% 93.02% 1003.00 336.00 −9.46% 93.82% 2125.25 −12.64% 95.73% 355 0.00 ✓
+
+Part_A_base 842.70 164.70 — 99.24% 1378.00 700.40 — 94.38% 2148.94 — 99.83% 510 0.00 ✓
+
+Part_A_POET 842.70 164.70 0.00% 99.24% 1378.00 700.40 0.00% 94.38% 2148.08 −0.04% 99.83% 510 0.00 ✓
+
+Part_A_ROVER 842.70 164.70 0.00% 99.24% 1378.00 700.40 0.00% 94.38% 2148.94 0.00% 99.83% 510 0.00 ✓
+
+Part_A_A UTO GATE 834.00 114.10 −30.72% 99.73% 1252.30 462.75 −33.93% 95.77% 2276.63 +5.94% 99.83% 524 0.00 ✓
+
+Part_P_base 2695.00 43.52 — 99.73% 2700.00 47.15 — 99.73% 9198.16 — 99.79% 1190 0.00 ✓
+
+Part_P_POET 2695.00 43.53 +0.02% 99.73% 2700.00 47.18 +0.10% 99.73% 9197.98 −0.09% 99.79% 1190 0.00 ✓
+
+Part_P_ROVER 2697.00 43.54 +0.05% 99.73% 2702.00 47.20 +0.11% 99.73% 9205.38 +0.08% 99.79% 1190 0.00 ✓
+
+Part_P_A UTO GATE 2695.00 41.12 −5.52% 99.75% 2700.00 44.71 −5.17% 99.74% 9194.29 −0.04% 99.79% 1191 0.00 ✓
+
+BlackParrot full-design results 
+
+Design Total Pwr (uW) Dyn Pwr (uW) Dyn ∆ Area (um 2) Area ∆ CG Cov CG Eff ICGs WNS (ns) Timing Pass 
+
+BlackParrot base 72,600 28,950 — 129,863.65 — 99.39% 99.25% 46,398 0.00 ✓
+
+BlackParrot POET 72,600 28,955 +0.02% 129,876.60 +0.01% 99.39% 99.25% 46,398 0.00 ✓
+
+BlackParrot ROVER 72,600 28,957 +0.02% 129,830.19 −0.03% 99.39% 99.25% 46,398 0.00 ✓
+
+BlackParrot A UTO GATE 70,000 26,645 −7.96% 129,921.20 +0.04% 99.52% 99.45% 44,291 0.00 ✓
+
+divide. And Mini-risc(mrisc) achieves a 53.28% reduction via multi-file coordination. 
+
+B. Large Benchmark Results 
+
+Table V reports NVDLA partition-level results under two rep-resentative testbench workloads: dc_6x8x192 (Workload 1) and dc_35x22x54 (Workload 2). Optimization is performed under the Workload 1 testbench, while Workload 2 evaluates cross-workload transferability. BlackParrot results are evaluated under the Dhrystone testbench workload. 
+
+a) POET and ROVER results: POET and ROVER remain close to the baseline on both NVDLA and BlackParrot, showing limited scalability to large hierarchical RTL designs. POET is constrained by long waveform traces and repository-scale codebases that exceed practical LLM context limits, while ROVER relies on predefined rewrite rules and lacks workload-aware analysis. Consequently, both achieve limited power improvements. 
+
+b) AUTO GATE results: AUTO GATE overcomes these limitations through switching-aware FGCG analysis algorithm and targeted, hierarchical rewriting. On NVDLA, it reduces dynamic power across all partitions under both workloads, with the largest savings on Partition_M (Workload 1, −47 .60% ) and Partition_A (Workload 2, −33 .93% ). Partition_C shows con-sistent reductions with 12.64% area savings, while Partition_P achieves smaller savings due to already high baseline efficiency (99.73%). Improvements under Workload 2 demonstrate cross-workload transferability. On BlackParrot, A UTO GATE achieves a 7.96% dynamic power reduction with only 0.04% area overhead. Additionally, clustering-guided merging of ICGs can reduce area while improving power. 
+
+C. Module-Level Analysis 
+
+Table VI reports the per-module results for Partition_C under the dc_6x8x192 workload, with indentation indicating module hierarchy. Of the 43 RTL modules in Partition_C, only 7 were selected for optimization based on power-bottleneck analysis. Across these modules, A UTO GATE achieves substantial power reductions with modest area overhead, while non-critical modules are retained at baseline. Figure 4 visualizes the power–area tradeoff across the optimized Partition M submodules across iterations. Each point is a formally verified candidate, and the highlighted selections show how A UTO GATE chooses variants that reduce dynamic power while constraining area growth. 
+
+Table VI. Per-module power and area results for NVDLA Partition_C.                              
+
+> Module Dynamic Power ∆Area ∆
+> Partition_C −10.17% −12.64%
+> |—-CDMA_dc −6.19% +0.05%
+> |—-CDMA_wt −5.65% −1.81%
+> ||—-WT_8ATMM_fifo −9.87% −0.33%
+> |—-CSC_sg −58.70% +1.01%
+> ||—-SG_dat_fifo 0.00% −9.96%
+> |—-CSC_dl −31.39% −0.59%
+> |—-CSC_wl −5.08% −0.57%
+
+D. Ablation Study 
+
+Ablation I: AUTOGATE Components. To quantify the contribution of each major component, we perform an ablation study on the four NVDLA partitions under the dc_6x8x192 workload. We evaluate three ablations: (1) w/o FGCG , where the agent receives no toggle-based clustering report; (2) w/o Pre-Profile , where the agent loses power bottleneck detection and hierarchy guidance; and (3) w/o TB , where synthetic per-module testbenches replace extracted workload-driven stimuli. Fig. 5 reports the resulting dynamic-power improvements in log scale. The full A UTO GATE achieves the best results. Part. M Part. C Part. A Part. P  
+
+> 0.1
+> 0.5
+> 1
+> 5
+> 10
+> 50
+> Dyn. power improv. (%)
+> log scale  3.2%
+> 1.8%
+> 1.3%
+> 0.2%
+> 2.1%
+> 0.3%
+> 0.1% 0.0%
+> 4.0%
+> 0.2%
+> 25.1%
+> 0.0%
+> 47.6%
+> 10.2%
+> 30.7%
+> 5.5%
+> w/o FGCG
+> w/o Pre-Profile
+> w/o TB (synthetic TB)
+> AutoGate
+
+Fig. 5. Ablation study on NVDLA partitions in log scale. 
+
+Ablation II: FGCG Clustering Algorithm. To isolate the impact of the FGCG clustering algorithm, we compare three clustering strategies while keeping the remainder of the A UTO -GATE flow unchanged. Fig. 6 compares the proposed adaptive stability clustering against K-means and fixed-threshold stabil-ity clustering [12]. Adaptive stability clustering consistently achieves the largest dynamic-power reduction, demonstrating the effectiveness of automatic threshold discovery. counter booth deframer divide mrisc aes 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> Dyn. power improv. (%)
+> 43.2%
+> 80.0%
+> 15.0%
+> 0.1%
+> 27.8%
+> 0.1%
+> 55.3%
+> 80.0%
+> 10.2%
+> 55.1%
+> 27.9%
+> -0.8%
+> 55.3%
+> 86.2%
+> 17.6%
+> 58.9%
+> 53.3%
+> 24.5%
+> K-means
+> Fixed Stability
+> Adaptive Stability
+
+Fig. 6. Comparison of dynamic power reduction achieved by K-means, fixed-stability, and Adaptive Stability (ours) on small benchmarks. 
+
+E. Proprietary Production Design Results 
+
+To evaluate generalization beyond open-source benchmarks, we apply A UTO GATE to two highly optimized proprietary production designs that are several times larger than NVDLA and BlackParrot. Table VII reports dynamic-power and area changes across workloads. “Single” indicates that A UTO GATE 
+
+uses only Workload 1 for FGCG optimization, while “Com-bined” indicates that the optimization target includes both Workload 1 and Workload 10, representing two distinct activity patterns. For Design A, single-workload optimization improves 9/13 workloads and achieves a 5.92% average dynamic-power reduction, while combined optimization improves 12/13 workloads and achieves a 6.86% reduction. For Design B, the corresponding results improve from 6/13 workloads and 0.29% average reduction to 12/13 workloads and 0.45% average reduction. Area overhead remains below 1% in all cases. These results indicate that optimizing over more diverse workloads can mitigate potential overfitting to a specific workload. A more detailed discussion is provided in Section V. 
+
+Table VII. Dynamic power and area change on proprietary production designs across all workloads. 
+
+Design A Design B 
+
+Workload Single Combined Workload Single Combined 
+
+Workload 1 −3.72% ↓ −2.83% ↓ Workload 1 −2.01% ↓ −0.36% ↓
+
+Workload 2 −4.39% ↓ −3.63% ↓ Workload 2 −2.85% ↓ −0.97% ↓
+
+Workload 3 −9.29% ↓ −8.67% ↓ Workload 3 +1.36% ↑ −0.16% ↓
+
+Workload 4 −4.50% ↓ −3.68% ↓ Workload 4 +1.24% ↑ −0.17% ↓
+
+Workload 5 −9.49% ↓ −8.81% ↓ Workload 5 −2.93% ↓ −0.26% ↓
+
+Workload 6 −15.16% ↓ −14.92% ↓ Workload 6 −6.50% ↓ −0.47% ↓
+
+Workload 7 −16.49% ↓ −16.23% ↓ Workload 7 −1.38% ↓ −1.09% ↓
+
+Workload 8 −17.95% ↓ −17.66% ↓ Workload 8 +0.10% ↑ 0.00% Workload 9 −12.43% ↓ −12.92% ↓ Workload 9 +3.03% ↑ −0.12% ↓
+
+Workload 10 +1.24% ↑ −2.35% ↓ Workload 10 +3.47% ↑ −0.25% ↓
+
+Workload 11 +1.78% ↑ −2.04% ↓ Workload 11 +2.88% ↑ −0.84% ↓
+
+Workload 12 +2.66% ↑ −1.60% ↓ Workload 12 +0.09% ↑ −0.29% ↓
+
+Workload 13 +10.73% ↑ +6.14% ↑ Workload 13 −0.24% ↓ −0.84% ↓
+
+Average −5.92% −6.86% Average −0.29% −0.45% Area ∆ −0.38% +0.42% Area ∆ +1.00% +0.02% 
+
+V. L IMITATIONS 
+
+AUTOGATE relies on workload-derived switching activity and may therefore overfit to the optimization workload. This workload dependence is especially evident on small designs, where the LLM can analyze the entire RTL design and testbench patterns, enabling workload-specific clock-gating optimizations that achieve up to 86.21% power reduction. On large repository-scale designs, this effect is reduced because the increased design complexity and context size make it more difficult to specialize optimizations to a single workload, although the issue can still exist. As shown in Table VII, optimizing for Workload 1 alone improves dynamic power under that workload, but can degrade results on Workloads 10–13. To mitigate this effect, multiple representative workloads can be incorporated during optimization. Although this may reduce savings on individual workloads, it improves overall power reduction and robustness across diverse workloads. An important direction for future work is the automatic identification of representative workloads that capture typical production use cases. VI. C ONCLUSION 
+
+We presented A UTO GATE , an agentic framework for auto-mated RTL clock-gating optimization. A UTO GATE demon-strates that ML–LLM co-designed RTL rewriting can achieve substantial dynamic-power reductions while scaling to industrial-scale RTL codebases, with marginal area overhead. REFERENCES [1] NVIDIA, “NVDLA,” https://github.com/nvdla/hw, 2018. [2] D. Petrisko et al. , “BlackParrot: An agile open source RISC-V multicore for accelerator SoCs,” IEEE Micro , July/August 2020, special Issue on Agile and Open-Source Hardware. [3] L. Benini et al. , “A survey of design techniques for system-level dynamic power management,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 8, no. 3, pp. 299–316, 2000. [4] C. Deng, Y.-D. Tsai, G.-T. Liu, Z. Yu, and H. Ren, “Scalertl: Scaling llms with reasoning data and test-time compute for accurate rtl code generation,” in 2025 ACM/IEEE 7th Symposium on Machine Learning for CAD (MLCAD) . IEEE, 2025, pp. 1–9. [5] C. Deng, Z. Yu, G.-T. Liu, N. Pinckney, B. Khailany, and H. Ren, “Ace-rtl: When agentic context evolution meets rtl-specialized llms,” NSF Workshop on Agents for Chip Design Automation (Agent4Chip) , 2026. [6] J. Blocklove et al. , “Chip-Chat: Challenges and opportunities in conver-sational hardware design,” in Proceedings of the ACM/IEEE Workshop on Machine Learning for CAD (MLCAD) , 2023. [7] Y. Wang et al. , “Symrtlo: Enhancing rtl code optimization with llms and neuron-inspired symbolic reasoning,” in Advances in Neural Information Processing Systems , vol. 38, 2025, pp. 50 093–50 118. [8] X. Yao et al. , “RTLRewriter: Methodologies for large models aided RTL code optimization,” in Proceedings of the IEEE/ACM International Conference on Computer-Aided Design (ICCAD) , 2024. [9] H. Ping et al. , “POET: Power-oriented evolutionary tuning for LLM-based RTL PPA optimization,” arXiv preprint arXiv:2603.19333 , 2026. [10] D. Gluzer et al. , “Probability-driven multibit flip-flop integration with clock gating,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 25, no. 3, pp. 1173–1177, 2017. [11] S. Park et al. , “Machine learning based flip-flop grouping for toggling driven clock gating,” in 2023 IEEE International Symposium on Circuits and Systems (ISCAS) , 2023, pp. 1–5. [12] B. Le et al. , “Constructing stability-based clock gating with hierarchical clustering,” in 2015 25th International Workshop on Power and Timing Modeling, Optimization and Simulation (PATMOS) , 2015, pp. 97–102. [13] S. Coward et al. , “Combining power and arithmetic optimization via datapath rewriting,” in Proceedings of the ACM/IEEE Design Automation Conference (DAC) , 2024, arXiv:2404.12336. [14] N. Zhang et al. , “ASPEN: LLM-guided E-graph rewriting for RTL datapath optimization,” in Proceedings of the ACM/IEEE Symposium on Machine Learning for CAD (MLCAD) , 2025. [15] N. Pinckney et al. , “Comprehensive verilog design problems: A next-generation benchmark dataset for evaluating large language models and agents on rtl design and verification,” 2025. [16] OpenCores, “OpenCores,” https://opencores.org/. [17] lowRISC, “OpenTitan,” https://github.com/lowrisc/opentitan.

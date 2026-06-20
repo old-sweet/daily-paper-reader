@@ -1,0 +1,2495 @@
+Title: Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams
+
+URL Source: https://arxiv.org/pdf/2606.15043v2
+
+Published Time: Wed, 17 Jun 2026 00:35:57 GMT
+
+Number of Pages: 44
+
+Markdown Content:
+# Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 
+
+DANIEL BASGÖZE, RWTH Aachen University, Germany 
+
+KEVIN BATZ, Cornell University, USA 
+
+SEBASTIAN JUNGES, Radboud University, The Netherlands 
+
+JOOST-PIETER KATOEN, RWTH Aachen University, Germany Weakest pre-expectations are the probabilistic program analogue to weakest preconditions in classical pro-grams. Deductive verification approaches aim to establish bounds on these quantitative expectations. Their automation has been successful in analysing a variety of discrete probabilistic programs. Key routines in that automation require reasoning about (partially unrolled) loops, however, the logical representation of weakest pre-expectations on such unrollings often explodes. In this paper, we develop typed extended decision diagrams (TEDDs), inspired by various extensions to binary decision diagrams. We demonstrate computing WPs represented as TEDDs, SMT-based pruning to further shrink their representation, and we lift some proof rules to operate on TEDDs. Finally, we demonstrate that TEDDs boost the scalability of deductive probabilistic program verification by orders of magnitudes over the state of the art. 
+
+1 Introduction 
+
+Probabilistic programs describe probabilistic models [ 49 ] in a concise, programmatic manner. Applications include implementing randomized algorithms, solving complex Bayesian inference tasks, and modeling network protocols [ 44 , 47 , 48 , 87 – 89 ]. Deductively verifying probabilistic programs means establishing properties of a program’s output distributions by means of logical inference. Approaches come in different flavours. Relational, coupling-based, and assertion-based approaches provide expressive logics for reasoning about probabilistic programs [ 17 , 23 , 25 , 26 , 60 ]. 
+
+Mechanized approaches often target feature-rich higher-order programs [ 3 , 5 , 6 , 50 , 51 , 56 – 58 , 74 ,75 , 78 , 91 ], whereas automated approaches [ 1, 2 , 7– 11 , 15 , 18 , 24 , 27 , 28 , 34 –37 , 52 , 62 , 67 , 69 , 72 , 84 ,86, 92, 93, 97, 98] target first-order programs popular in probabilistic modeling. In this paper, we build upon the weakest pre-expectation ( wp ) calculus for first-order programs, a prominent generalization of Dijkstra’s weakest pre-conditions [ 41 ] to the probabilistic setting. Predicates, i.e., Boolean-valued functions, are replaced by Real-valued functions — “quantitative assertions” — for capturing properties like the probability of terminating in a desired program state. Caesar [ 84 ] is among the state of the art tools in automated reasoning using the wp calculus. However, it suffers from scalability issues: For various seemingly simple programs, the represen-tations of quantitative assertions are prohibitively large. Inspired by the widespread success of decision diagrams (DDs) in formal verification [ 13 , 33 ] , this paper introduces a novel notion of DDs to represent quantitative assertions and operate on them. Our extensive experimental evaluation demonstrates superior scalability when compared to state-of-the-art implementations of the wp 
+
+calculus. We scale, e.g., the verification of a distributed network protocol from 5 to 25 participants and the verification of array routines from 5 to hundreds of entries in the array. 
+
+Large assertions. The state-of-the-art in automated wp -based deductive verification is based on expressing (comparisons on) the quantitative assertions as Satisfiability Modulo Theories (SMT, [ 22 ]) formulas and discharge proving the validity of these formulas with SMT solvers. The representation of quantitative assertions tends to grow exponentially in the number of conditionals and random  
+
+> Authors’ Contact Information: Daniel Basgöze, RWTH Aachen University, Aachen, Germany, daniel.basgoeze@rwth-aachen.de; Kevin Batz, Cornell University, Ithaca, NY, USA, ksb239@cornell.edu; Sebastian Junges, Radboud University, Nijmegen, The Netherlands, sebastian.junges@ru.nl; Joost-Pieter Katoen, RWTH Aachen University, Aachen, Germany, katoen@cs.rwth-aachen.de.
+> arXiv:2606.15043v2 [cs.PL] 16 Jun 2026 2Batz et al.
+
+choices in a program. This leads to challenges when verifying possibly unbounded probabilistic loops .Both Hoare-style invariant-based reasoning principles and fixed point iteration-based principles rely on loop unrolling . This is problematic for the representation of the quantitative assertions, as one essentially glues ever more conditionals and random choices together. 
+
+DD-based reasoning. For verifying finite-state non -probabilistic programs, binary decision diagrams (BDDs) [ 32 ] have a long tradition [ 13 , 33 ] as they concisely represent sets of states and allow for efficient operations on these sets. This success has motivated first-order DDs [ 54 ] and the use of algebraic decision diagrams (ADDs, or MTBDDs) in probabilistic model checking. ADDs concisely map finite sets of states to numbers such as reachability probabilities in Markov chains [ 14 ]. For 
+
+infinite-state probabilistic programs , however, we have to map infinite sets of states to numbers. For that, we take inspiration from probabilistic planning, where value functions of infinite-state Markov decision processes (MDPs) — maps from MDP states to numbers — have to be represented concisely. Towards this end, Sanner et al. have introduced extended algebraic decision diagrams 
+
+(XADDs) [ 83 ] and first-order algebraic decision diagrams (FOADDs) [ 82 ]. XADDs specifically aim to represent value functions with discrete and continuous variables. FOADDs, on the other hand, have been specifically developed to target first-order MDPs, a type of MDP where states are defined by assigning truth values to a set of first-order predicates. 
+
+Our approach. We elevate the ideas of XADDs and FOADDs to the verification of infinite-state probabilistic programs over rich domains such as arrays and unbounded integer variables, proposing 
+
+typed extended decision diagrams (TEDDs). They generalize existing notions of decision diagrams in various ways: First, for generically capturing rich domains, inner nodes are labeled by many-sorted first-order formulae. Second, leafs are labeled by typed expressions , i.e., while BDDs represent functions from propositional interpretations to truth values, a 𝜏 -TEDD for a given type 𝜏 maps 
+
+first-order interpretations to values of type 𝜏 . Third, this formal basis enables theory-aware SMT-based pruning mechanisms for keeping TEDDs small by removing unreachable sub-branches. Fourth, we implement TEDDs on top of the efficient BDD library Sylvan [95 ], which supports effective and safe multithreading. This has a highly beneficial practical impact: Our experiments show that exploiting Sylvan ’s multithreading capabilities regularly leads to a superlinear speedup. 
+
+Contributions. In summary, we contribute the following: (1) We introduce typed extended decision diagrams based on many-sorted first order logic and provide various algorithms on TEDDs. (2) We lift the wp calculus and related proof rules for infinite-state probabilistic loops to TEDDs. (3) We provide a flexible open-source deductive probabilistic program verifier based on TEDDs, supporting verification and exact inference on infinite-state discrete probabilistic programs with conditioning or non-determinism, costs, arrays, and nonlinear expectations, which significantly beats the state-of-the-art tool Caesar on many benchmarks. 
+
+2 Deductive Verification with TEDDs: A Bird’s Eye View 
+
+We illustrate the type of quantitative properties and probabilistic programs studied in this paper and highlight the benefits of our novel TEDD-based techniques by examples. 
+
+2.1 TEDDs: Concise Representations of Expected Outcomes 
+
+Consider the probabilistic array programs 𝐶 𝑁 with interleaved conditionals and probabilistic choices in Fig. 1a. We use 𝑁 ∈ N as a fixed constant. The variables 𝑖 and 𝑥 are of type N and 𝐴 is an N-index array over N. We iterate over 𝑖 from 0 to 𝑁 − 1 and if 𝐴 at index 𝑖 exceeds 0, we flip a fair coin using the probabilistic choice construct { . . . } [ 1/2 ] { . . . }. If the coin lands heads (left branch), we set the variable 𝑥 to 0 and otherwise we do nothing. Verifying properties about this program thus requires reasoning about interleaved conditional and probabilistic choices. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 3
+
+𝑖 := 0 ; 
+
+while ( 𝑖 < 𝑁 ) { 
+
+if ( 𝐴 [𝑖 ] > 0 ) { { 𝑥 := 0 } [ 1/2 ] { skip }} ;
+
+𝑖 := 𝑖 + 1
+
+}
+
+(a) Probabilistic Array Program 𝐶 𝑁 .
+
+
+
+𝑥 ←[ 𝐴 [0] ≤ 0 ∧ 𝐴 [1] ≤ 0 ∧ 𝐴 [2] ≤ 0
+
+> 1
+
+/2 · 𝑥 ←[ 𝐴 [0] ≤ 0 ∧ 𝐴 [1] ≤ 0 ∧ 𝐴 [2] > 0
+
+> 1
+
+/2 · 𝑥 ←[ 𝐴 [0] ≤ 0 ∧ 𝐴 [1] > 0 ∧ 𝐴 [2] ≤ 0
+
+> 1
+
+/2 · 𝑥 ←[ 𝐴 [0] > 0 ∧ 𝐴 [1] ≤ 0 ∧ 𝐴 [2] ≤ 0
+
+> 1
+
+/4 · 𝑥 ←[ 𝐴 [0] ≤ 0 ∧ 𝐴 [1] > 0 ∧ 𝐴 [2] > 0
+
+> 1
+
+/4 · 𝑥 ←[ 𝐴 [0] > 0 ∧ 𝐴 [1] ≤ 0 ∧ 𝐴 [2] > 0
+
+> 1
+
+/4 · 𝑥 ←[ 𝐴 [0] > 0 ∧ 𝐴 [1] > 0 ∧ 𝐴 [2] ≤ 0
+
+> 1
+
+/8 · 𝑥 ←[ 𝐴 [0] > 0 ∧ 𝐴 [1] > 0 ∧ 𝐴 [2] > 0
+
+(b) Case expression for 𝑁 = 3.Fig. 1. Program 𝐶 𝑁 and case expression wp J𝐶 𝑁 K (𝑥 ) for 𝑁 = 3.                
+
+> 𝐴 [0]>0
+> 𝐴 [1]>0𝐴 [1]>0
+> 𝑥 1/2·𝑥 1/4·𝑥
+
+(a) TEDD for 𝑁 = 2.                              
+
+> 𝐴 [0]>0
+> 𝐴 [1]>0𝐴 [1]>0
+> 𝐴 [2]>0𝐴 [2]>0𝐴 [2]>0
+> 𝑥 1/2·𝑥 1/4·𝑥 1/8·𝑥
+
+(b) TEDD for 𝑁 = 3.Fig. 2. TEDDs representing wp J𝐶 𝑁 K (𝑥 ) for the program 𝐶 𝑁 in Figure 1a. 
+
+In this paper, we reason about expected outcomes of probabilistic programs. For 𝐶 𝑁 above, we are interested in the expected final value of 𝑥 obtained upon termination of 𝐶 𝑁 . This expected outcome depends on the initial program state, in particular the value of 𝐴 , as that value determines the control flow. A bit more formal, we are interested in determining the so-called weakest pre-expectation 
+
+wp J𝐶 𝑁 K (𝑥 ) of 𝐶 𝑁 w.r.t. 𝑥 — a function from initial program states to the expected value of 𝑥 upon termination. Details are given in Section 5. For 𝑁 = 1, this weakest pre-expectation is given by 
+
+wp J𝐶 1K (𝑥 ) =
+
+(
+
+𝑥 ←[ 𝐴 [0] ≤ 0
+
+> 1
+
+/2 · 𝑥 ←[ 𝐴 [0] > 0 .
+
+This pre-expectation states that if (initially) 𝐴 [0] ≤ 0, the expected final value of 𝑥 is its initial value, and if 𝐴 [0] > 0, the expected final value of 𝑥 is 1/2 times its initial value. The state-of-the-art implementations of weakest pre-expectations represent wp J𝐶 𝑁 K (𝑥 ) essen-tially via case expressions , i.e., syntactic constructs denoting complete case distinctions on the initial state, just like the example above. Case expressions often grow exponentially in, e.g., the number of conditionals encountered during program execution. Consider 𝐶 𝑁 for increasing 𝑁 : the expected final value of 𝑥 depends on ever more entries of the array 𝐴 , which results in case expressions consisting of 2𝑁 cases. Figure 1b depicts the case expressions for 𝑁 = 3. This is intractable. This paper introduces typed extended decision diagrams (TEDDs ) to mitigate the growth of case expressions, thereby rendering the verification of probabilistic programs more scalable. TEDDs 4 Batz et al. 
+
+while ( 𝑎 < 𝑁 ∧ 𝑏 < 𝑁 ) { { 𝑎 := 𝑎 + 1 } [ 1/2 ] { 𝑏 := 𝑏 + 1 } ;
+
+observe (𝑎 ≤ 𝑏 )}                                      
+
+> 𝑎 <1
+> 1𝑏 <1
+> 1/2
+> (a) A program with conditioning and TEDD X1.
+> 𝑎 <1
+> 1
+> 𝑏 <1
+> 𝑎 +1≤𝑏
+> 𝑎 ≤𝑏 +1𝑎 ≤𝑏 +1
+> 1/20
+> (b) This TEDD X2is equivalent to X1.Fig. 3. A program with conditioning and two equivalent TEDDs, representing the function mapping initial program states to the probability of all observations encountered during execution being satisfied (for 𝑁 =1). The marked area in X2can be pruned to the area marked in X1. Variables 𝑎 and 𝑏 are of type N.
+
+extend classical BDDs [ 32 ], where now inner nodes are labeled by many-sorted first order logic for-mulae and terminal nodes are labelled by some typed expressions. In our case, we use expressions of type R∞≥0 and logical formulae over a signature suitable for reasoning about N-indexed arrays. Such TEDDs express our case expressions, in particular, the TEDD in Figure 2a represents wp J𝐶 2K (𝑥 ),while the TEDD from Figure 2b concisely represents the case expression from Figure 1b: Every path from the root to a terminal node represents one case obtained from conjoining the (negated, if a d successor is taken) formulae encountered along a path from the root to that terminal node. Indeed, while the case expressions grow exponentially, the TEDDs grow quadratically. The reason is that the decision diagram-based structure naturally captures symmetries in the function 
+
+wp J𝐶 𝑁 K (𝑥 ). The TEDD in Figure 2a (for 𝑁 = 2) makes it explicit that the expected final values of 𝑥 
+
+coincide whenever (i) 𝐴 [0] ≤ 0 ∧ 𝐴 [1] > 0 and (ii) 𝐴 [0] > 0 ∧ 𝐴 [1] ≤ 0, which follows as for both cases, the program 𝐶 2 performs exactly one coin flip. As 𝑁 increases, more of these symmetries appear (cf. Figure 2b), resulting in concise TEDDs for huge case expressions. To fully exploit these effects, we develop a weakest pre-expectation calculus operating entirely on TEDDs . We implement this calculus in a novel software tool and demonstrate its superior perfor-mance over state-of-the-art implementations by means of an extensive experimental evaluation. 
+
+2.2 First Order Theory-Aware Pruning: Keeping TEDDs Small 
+
+While TEDDs have the potential to be concise, they may not be. For any fixed theory, a path in the TEDD may not be satisfiable. Using an SMT solver, we can prune these parts of the TEDD to limit their size. We illustrate this by example: The loop 𝐶 shown in Figure 3a tracks the number of heads and tails by a coin flip along with intermediate observations. The observe -statement conditions 
+
+program execution on 𝑎 ≤ 𝑏 after each iteration . With weakest pre-expectations, we can reason about conditional expected outcomes such as the expected final value of variable 𝑎 given that all observations have been satisfied [ 81 ]. Determining conditional probabilities requires computing the probability of all observations being satisfied during program execution, which is a weakest pre-expectation. The TEDD in Figure 3a represents this pre-expectation for 𝑁 = 1: satisfying all observations has probability 1 if 𝑎 ≥ 1 ∨ 𝑏 ≥ 1 (no iterations) and 1/2 otherwise (one iteration). Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 5
+
+The TEDD X1 in Figure 3a and the TEDD X2 in Figure 3b represent the same function. TEDD 
+
+X2 is the one actually obtained when syntactically calculating the weakest pre-expectation of 
+
+𝐶 : It essentially enumerates the possible ways of (un)satisfying the loop guard and the observe -statement. If, however, one takes into account that the formulae are interpreted over the theory of linear arithmetic , one can collapse (or prune ) the marked area in X2 to the one in X1. This is because paths like 𝑎 < 1 ∧ 𝑏 < 1 ∧ 𝑎 + 1 ≤ 𝑏 are unsatisfiable modulo linear arithmetic . We can therefore employ an SMT-based pruning procedure to keep TEDDs small, and this can be essential: For 𝑁 = 40 , the un-pruned TEDD consists of 1 923 612 nodes whereas the pruned TEDD has 1 723 
+
+nodes. Our experiments in Section 12.3 show that pruning is particularly important when using the k-induction principle (Section 10.2), accelerating TEDD-based solving by orders of magnitude. 
+
+3 Many-Sorted First Order Logic 
+
+We briefly introduce a variant of many-sorted first order logic as popularized by the SMT-LIB 
+
+standard [ 21 ]. The formalization is tailored to our application, i.e., to deductive (probabilistic) program verification with built-in theories from SMT solvers such as Z3 [40] and CVC5 [19]. 
+
+3.1 Syntax 
+
+Let Types = {𝜏 1, 𝜏 2, . . . } be a countable set of type (symbols) , containing the standard numeric types 
+
+Bool , Nat , Int , Rat , Real , EUReal , where the latter will be interpreted by the Extended Unsigned reals, that is, the set R∞≥0 = {𝑟 ∈ R | 𝑟 ≥ 0} ∪ {∞} . Let Vars = {𝑥, 𝑦, 𝑧, . . . } be a countably infinite set of typed variables . We write 𝑥 : 𝜏 to indicate that 𝑥 is of type 𝜏 . Let Func = {𝐹 1, 𝐹 2, . . . } be a countable set of (typed) function (symbols) . We write 𝐹 : 𝜏 1 × . . . × 𝜏 𝑛 → 𝜏 to indicate that 𝐹 is of type 𝜏 1 × . . . ×𝜏 𝑛 → 𝜏 , and we call 𝑛 the arity of 𝐹 . If 𝑛 = 0, then 𝐹 is a constant (symbol) . We assume that Func contains symbols for the following standard symbols: (1) the constants true , false : Bool ,all rationals in Q, and ∞, (2) symbols for the logical connectives, i.e., ∧, ∨ : Bool × Bool → Bool 
+
+and ¬ : Bool → Bool , (3) symbols for the arithmetic connectives 1 +, ·, −, and the ¤− connective for the subtraction truncated at 0, (4) symbols for the arithmetic relations <, ≤, ≥, >. We use standard infix- and prefix notations and use parentheses to resolve ambiguities. 
+
+Definition 3.1. The set Terms of terms is given by the grammar 
+
+𝑡, 𝑡 1, . . . , 𝑡 𝑛 −→ 𝑥 | 𝐹 | 𝑡 1 ¤= 𝑡 2 | 𝐺 (𝑡 1, . . . , 𝑡 𝑛 ) | ∀ 𝑦 : 𝜏 . 𝑡 | ∃ 𝑦 : 𝜏 . 𝑡 , 
+
+where 𝑥 ∈ Vars , 𝐹 ∈ Func is a constant symbol, and 𝐺 ∈ Func is a function symbol (with 𝑛 ≥ 1). △
+
+We assume that Terms contains only well-typed terms and write 𝑡 : 𝜏 to indicate that term 𝑡 has type 𝜏 , which is defined in the standard way. In particular, the term 𝑡 appearing in Definition 3.1 is of type Bool so that both ∀𝑦 : 𝜏 . 𝑡 and ∃𝑦 : 𝜏 . 𝑡 are also of type Bool . Similarly, 2 terms 𝑡 1 ¤=𝑡 2 denoting equalities are of type Bool and well-typed iff both 𝑡 1 and 𝑡 2 are of the same type. Terms of type Bool 
+
+are called formulae and the countable set of formulae is denoted by FO . Treating formulae as terms will allow for a uniform treatment in Section 6ff. For all other types 𝜏 , we denote the countable set of all 𝜏 -typed terms by Terms 𝜏 . Similarly to how SMT solvers treat numeric types and to simplify the presentation, we assume implicit sub-typing for the numeric types. Thus, every term of type 
+
+Nat is also of type Real and EUReal .
+
+3.2 Semantics 
+
+We use structures to assign meanings to type- and function symbols: To each 𝜏 ∈ Types , 𝔄 assigns a set J𝜏 K𝔄 of values. Moreover, 𝔄 assigns to each function symbol 𝐹 : 𝜏 1 × . . . ×𝜏 𝑛 → 𝜏 a corresponding                
+
+> 1We do not distinguish between operations for the different numeric types for the sake of simplicity.
+> 2𝑡 1¤=𝑡 2is to be understood as an FO formula whereas 𝑡 1=𝑡 2denotes syntactic equality of 𝑡 1and 𝑡 2.6Batz et al.
+
+function J𝐹 K𝔄 : J𝜏 1K𝔄 × . . . × J𝜏 𝑛 K𝔄 → J𝜏 K𝔄 . In this paper, structures assign the standard meaning to standard symbols. For the extended reals, we define ∞ · 0 = 0 · ∞ = 0 and ∞ · 𝑟 = 𝑟 · ∞ = ∞ as well as 𝑟 ≤ ∞ for all 𝑟 ∈ R∞≥0, as is standard in measure theory [94] and wp-calculi [64]. A (variable) valuation 𝜎 (for 𝔄 ) assigns to each variable 𝑥 : 𝜏 a value 𝜎 (𝑥 ) ∈ J𝜏 K𝔄 . The set of all valuations (for 𝔄 ) is V, where 𝔄 will always be clear from the context. Pairs (𝔄 , 𝜎 ) are called 
+
+interpretations and we denote the class of all interpretations by Intrs . The semantics J𝑡 K(𝔄 ,𝜎 ) ∈ J𝜏 K𝔄 
+
+of terms 𝑡 : 𝜏 is defined in the standard Tarski-style [ 45 ]. For formulae 𝜑 , we write (𝔄 , 𝜎 ) | = 𝜑 
+
+instead of J𝜑 K(𝔄 ,𝜎 ) = true . If 𝜑 is a sentence (i.e., 𝜑 does not contain free variables), we write 𝔄 |= 𝜑 .A theory T is a (possibly infinite) satisfiable set of sentences closed under logical entailment, i.e., if 𝜑 ∈ T and 𝜑 entails 𝜓 , then 𝜓 ∈ T . We write 𝔄 |= T to indicate that 𝔄 |= 𝜑 for all 𝜑 ∈ T ,in which case we call 𝔄 a T -structure. Moreover, we say that (𝔄 , 𝜎 ) is a T -interpretation, if 𝔄 is a T -structure (which is independent of 𝜎 ). We say that 𝜑 ∈ FO is satisfiable modulo T , denoted 
+
+SAT T (𝜑 ), if there is a T -interpretation (𝔄 , 𝜎 ) with (𝔄 , 𝜎 ) | = 𝜑 .
+
+Standard Theories. We exemplify our concepts by means of two concrete theories: We refer to 
+
+LA as the theory of (mixed real- and integer) linear arithmetic, which, via our built-in type-and functions, corresponds to reasoning with FO formulae involving only linear inequalities and Boolean connectives. Satisfiability modulo LA for quantifier-free formulae is decidable [ 68 ]. Moreover, we refer to LA + ARR as the extension of LA by N-indexed arrays with values in N. This theory can be obtained by introducing the type symbol Array , the function symbols store : Array × Nat × Nat →
+
+Array and select : Array × Nat → Nat with the axioms 
+
+∀𝑎 : Array : ∀𝑖, 𝑗 : Nat : select (store (𝑎, 𝑗, 𝑖 ), 𝑗 ) ¤ = 𝑖 
+
+∧ ∀ 𝑎 : Array : ∀𝑖, 𝑗, 𝑘 : Nat : 𝑖 ¤= 𝑗 ∨ select (store (𝑎, 𝑖, 𝑘 ), 𝑗 ) ¤ = select (𝑎, 𝑗 ) .
+
+This theory is the standard theory of arrays over N (without extensionality) [ 20 , 21 ]. We emphasize that our results are compatible with arbitrary first-order theories, including standard theories such as fixed-sized bitvectors and user-defined theories for, e.g., exponential functions [84, Section 5]. 
+
+4 Non-Deterministic Discrete Probabilistic Programs 
+
+We consider an imperative probabilistic programming language à la McIver & Morgan [ 79 ] featuring (i) discrete, (ii) (pure) non-deterministic choices, (iii) modeling costs such as run-time or memory consumption via a designated statement as in [29], and (iv) conditioning [81]. 
+
+Definition 4.1 (The Probabilistic Guarded Command Language). The set pGCL of programs is 
+
+𝐶 −→ skip | 𝑥 := 𝑡 | cost ( 𝑟 ) | observe (𝜑 )| 𝐶 ; 𝐶 | { 𝐶 } [ 𝑝 ] { 𝐶 } | { 𝐶 } □ { 𝐶 } | if ( 𝜑 ) { 𝐶 } else { 𝐶 } | while ( 𝜑 ) { 𝐶 }
+
+where all terms are well-typed and where: (1) 𝑥 is variable of some type 𝜏 and 𝑡 : 𝜏 is a term of type 
+
+𝜏 , (2) 𝑟 ∈ Q≥0 is a non-negative rational cost (often a constant of type Rat ), (3) 𝑝 ∈ [ 0, 1] ∩ Q is a 
+
+rational probability , and (4) 𝜑 ∈ FO is a quantifier-free formula also referred to as a guard . △
+
+Let us now briefly go over each statement. skip does nothing. The assignment 𝑥 := 𝑡 updates the value of 𝑥 by the value of 𝑡 under the current variable valuation. cost ( 𝑟 ) has no effect on the variable valuation but models the incurrence of 𝑟 costs (e.g., 𝑟 units of run-time). observe (𝜑 )
+
+conditions program execution on 𝜑 being true. 𝐶 1 ; 𝐶 2 first executes 𝐶 1 and then 𝐶 2. The probabilistic choice { 𝐶 1 } [ 𝑝 ] { 𝐶 2 } executes 𝐶 1 with probability 𝑝 , and 𝐶 2 with probability 1 − 𝑝 . { 𝐶 1 } □
+
+{ 𝐶 2 } models a purely non-deterministic choice between 𝐶 1 and 𝐶 2. Such a choice may model an adversary aiming at, e.g., minimizing certain success probabilities, or as controllable for, e.g., minimizing the overall incurred costs. The conditional if ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 } executes either Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 7
+
+𝑪 wp 𝔄 J𝑪 K(𝑿 )
+
+skip 𝑋 𝑥 := 𝑡 𝜆𝜎. 𝑋  𝜎 𝑥 ↦ → J𝑡 K(𝔄 ,𝜎 )   
+
+cost ( 𝑟 ) 𝜆𝜎. 𝑟 + 𝑋 (𝜎 )
+
+observe (𝜑 ) 𝜆𝜎. 
+
+(
+
+𝑋 (𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑 
+
+0 if (𝔄 , 𝜎 ) | = ¬𝜑 𝐶 1 ; 𝐶 2 wp 𝔄 J𝐶 1K
+
+
+
+wp 𝔄 J𝐶 2K (𝑋 )
+
+
+
+{ 𝐶 1 } □ { 𝐶 2 } wp 𝔄 J𝐶 1K (𝑋 ) ⊓ wp 𝔄 J𝐶 2K (𝑋 ){ 𝐶 1 } [ 𝑝 ] { 𝐶 2 } 𝜆𝜎. 𝑝 · wp 𝔄 J𝐶 1K (𝑋 ) ( 𝜎 ) + ( 1 − 𝑝 ) · wp 𝔄 J𝐶 2K (𝑋 ) ( 𝜎 )
+
+if ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 } 𝜆𝜎. 
+
+(
+
+wp 𝔄 J𝐶 1K (𝑋 ) ( 𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑 
+
+wp 𝔄 J𝐶 2K (𝑋 ) ( 𝜎 ) if (𝔄 , 𝜎 ) | = ¬𝜑 
+
+while ( 𝜑 ) { 𝐶 ′ } lfp 𝑌 . 𝜆𝜎. 
+
+(
+
+wp 𝔄 J𝐶 ′K (𝑌 ) ( 𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑 𝑋 (𝜎 ) if (𝔄 , 𝜎 ) | = ¬𝜑                       
+
+> Table 1. Recursive definition of the weakest pre-expectation of program 𝐶 w.r.t. post-expectation 𝑋 . Given
+> 𝑥 :𝜏 and 𝑤 ∈J𝜏 K𝔄 , we denote by 𝜎 [𝑥 ↦→𝑤 ]the state obtained from updating the value of 𝑥 in 𝜎 by 𝑤 .
+
+𝐶 1 or 𝐶 2, depending on whether 𝜑 holds in the current variable valuation or not. Finally, the loop 
+
+while ( 𝜑 ) { 𝐶 } keeps executing 𝐶 as long as the guard 𝜑 holds. Furthermore, for arrays, we write 𝑥 [𝑡 ] := 𝑡 ′ instead of 𝑥 := store (𝑥, 𝑡, 𝑡 ′) and 𝑥 [𝑡 ] instead of 
+
+select (𝑥, 𝑡 ) to access array elements. If 𝐶 contains no loops, then we call 𝐶 loop-free . If 𝐶 contains no non-deterministic choice, then we call 𝐶 fully probabilistic .
+
+5 The Weakest Pre-Expectation Calculus 
+
+In this section, we introduce the weakest pre-expectation ( wp ) calculus . We parameterize the calculus by a structure 𝔄 (see Section 3), which we fix throughout this section. Program states for pGCL 
+
+programs then correspond to variable valuations 𝜎 in V.
+
+5.1 Expectations 
+
+The central objects the wp -calculus operates on are so-called expectations — random variables on a program’s state space. The set of expectations (for 𝔄 ) is E𝔄 = {𝑋 | 𝑋 : V → R∞≥0 }. Expectations are denoted by 𝑋, 𝑌, 𝑍 and variations thereof. Expectations are quantitative generalizations of predicates from classic program verification: While classical predicates map program states to Booleans, expectations map program states to quantities in R∞≥0. The tuple (E𝔄 , ⊑) is a complete lattice with the partial order ⊑, defined as 𝑋 ⊑ 𝑌 iff ∀𝜎 ∈ V : 𝑋 (𝜎 ) ≤ 𝑌 (𝜎 ), and state-wise lifted suprema and infima over R∞≥0. Finally, we usually denote pairwise minima d{𝑋, 𝑌 } by 𝑋 ⊓ 𝑌 .
+
+5.2 The Calculus 
+
+We start with the central definition of weakest pre-expectations, lifting weakest pre-conditions. 8 Batz et al. 
+
+Definition 5.1. Let 𝐶 ∈ pGCL and 𝑋 ∈ E𝔄 . The weakest pre-expectation wp 𝔄 J𝐶 K (𝑋 ) ∈ E𝔄 of 𝐶 
+
+w.r.t. (post-expectation) 𝑋 is defined recursively on the structure of 𝐶 as shown in Table 1. △
+
+Let us gain some intuition on the quantities weakest pre-expectations determine. We focus on programs 𝐶 not containing observe . Conditioning is treated at the end of this section. Given a post-expectation 𝑋 , the weakest pre-expectation wp 𝔄 J𝐶 K (𝑋 ) is yet another expectation — a function mapping program states to numbers. The intuition is: 
+
+wp 𝔄 J𝐶 K (𝑋 ) ( 𝜎 ) =
+
+minimal — under all possible resolutions of the non-determinsim — 
+
+expected cost incurred when executing 𝐶 on 𝜎 
+
+and collecting a final cost of 𝑋 (𝜎 ′) upon termination in state 𝜎 ′ .
+
+Hence, in this paper, wp 𝔄 treats the pure non-determinism in a minimizing manner. If 𝐶 is fully probabilistic, we can drop the topmost line from the above explanation since there is no non-determinism to be resolved. The post-expectation 𝑋 can be thought of as a continuation that is taken into account upon termination of 𝐶 . More concretely, the weakest pre-expectation calculus enables us to reason, amongst others, about the following expected outcomes of pGCL programs: (1) If 𝐶 is cost -free and [𝜑 ] is the indicator function of 𝜑 ∈ FO , then wp 𝔄 J𝐶 K ([ 𝜑 ]) ( 𝜎 ) is the (minimal) probability of terminating in a state satisfying 𝜑 when executing 𝐶 on 𝜎 .(2) If 𝐶 is cost -free and 𝑥 is a variable of type N, then wp 𝔄 J𝐶 K (𝜆𝜎. 𝜎 (𝑥 )) ( 𝜎 ) is the (minimal) expected final value of 𝑥 when executing 𝐶 on the initial state 𝜎 .(3) For 𝐶 possibly containing cost , wp 𝔄 J𝐶 K (0) ( 𝜎 ) is the (minimal) expected cost incurred (as determined by the cost statements in 𝐶 ) when executing 𝐶 on the initial state 𝜎 .
+
+Example 5.2. Let 𝔄 be a structure with JArray K𝔄 = N → N, assigning to store and select the obvious functions for manipulating and accessing these functions. Now consider the program 𝐶 
+
+if ( 𝐴 [𝑥 ] ≤ 𝑦 ) { { 𝐴 [𝑥 ] := 𝑦 + 2 } [ 1/2 ] { 𝐴 [𝑥 ] := 𝑦 + 4 } } else { skip } ,
+
+where 𝐴 : Array and 𝑥, 𝑦 : Nat , and fix the post-expectation 𝑋 = 𝜆𝜎. J𝐴 K(𝔄 ,𝜎 ) (𝜎 (𝑥 )) , evaluating to the value of 𝐴 at index 𝜎 (𝑥 ) under every state 𝜎 . Using the rules in Table 1, we calculate: 
+
+wp 𝔄 J𝐶 K (𝑋 ) = 𝜆𝜎. 
+
+(
+
+𝜎 (𝑦 ) + 3 if (𝔄 , 𝜎 ) | = 𝐴 [𝑥 ] ≤ 𝑦 
+
+J𝐴 K(𝔄 ,𝜎 ) (𝜎 (𝑥 )) if (𝔄 , 𝜎 )̸ | = 𝐴 [𝑥 ] ≤ 𝑦 , 
+
+i.e., if initially 𝐴 [𝑥 ] ≤ 𝑦 then the expected final value of 𝐴 [𝑥 ] is 𝑦 ’s initial value plus 3. Otherwise, the expected final value of 𝐴 [𝑥 ] is its initial value. △
+
+Let us now go over the rules from Table 1. Since skip does nothing, wp 𝔄 Jskip K (𝑋 ) is just 𝑋 .For assignments, wp 𝔄 J𝑥 := 𝑡 K (𝑋 ), intuitively, simply replaces 𝑥 by 𝑡 in 𝑋 . Since, for now, we treat expectations as semantic rather than syntactic objects, this substitution process is formalized semantically. wp 𝔄 Jcost ( 𝑟 )K (𝑋 ) adds the cost 𝑟 state-wise to the post-expectation. The rule for sequential composition suggests that weakest pre-expectations are — analogously to Dijkstra’s weakest pre-conditions [ 41 ] — determined in a backward-moving fashion: We first determine 
+
+wp 𝔄 J𝐶 2K (𝑋 ) as an intermediate expectation, which is then plugged into wp 𝔄 J𝐶 1K (·) , yielding the weakest pre-expectation of 𝐶 1 ; 𝐶 2 w.r.t. 𝑋 . The weakest pre-expectation of a non-deterministic choice { 𝐶 1 } □ { 𝐶 2 } is the state-wise minimum of the weakest pre-expectations of the two branches, which reflects that non-determinism is treated in a minimizing fashion. For conciseness, we omit the straightforward adaptions for resolving the non-determinisism in a maximizing manner. The weakest pre-expectation of a probabilistic choice { 𝐶 1 } [ 𝑝 ] { 𝐶 2 } is the 𝑝 -weighted convex sum of the pre-expectations of the respective branches. The wp of a conditional evaluates to either of the two branches, depending on whether the current state satisfies the guard or not. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 9
+
+It is evident that, for the loop-free constructs, determining wp boils down to recursing on the program structure and is hence a rather syntactic process. Reasoning about wp ’s of loops is more involved as it requires a least fixed-point construction, which we detail next. Given a loop 𝐶 = while ( 𝜑 ) { 𝐶 ′ } and a post-expectation 𝑋 , we call 3
+
+Φ𝑋 : E𝔄 → E𝔄 , Φ𝑋 (𝑌 ) = 𝜆𝜎. 
+
+(
+
+wp 𝔄 J𝐶 ′K (𝑌 ) ( 𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑 𝑋 (𝜎 ) if (𝔄 , 𝜎 ) | = ¬𝜑 
+
+the characteristic function of 𝐶 w.r.t. 𝑋 . By Kleene’s fixed point theorem, we have 
+
+wp 𝔄 Jwhile ( 𝜑 ) { 𝐶 ′ }K (𝑋 ) = lfp Φ𝑋 =
+
+Ä
+
+> 𝑛 ∈N
+
+Φ𝑛 𝑋 (0) , (see [64]) where 0 denotes the constantly-0-expectation and Φ𝑛 𝑋 (0) is the 𝑛 -fold application of Φ𝑋 to 0.Intuitively, Φ𝑛 𝑋 (0) is the weakest pre-expectation of 𝐶 w.r.t. 𝑋 when aborting 𝐶 after at most 𝑛 
+
+iterations. Thus, iterating Φ𝑋 — so to speak — ad infinitum on 𝑋 on 0 yields the precise wp .
+
+Remark (Conditioning) . This presentation of wp -calculus treats conditioning as in [ 81 ]. That is, for fully probabilistic programs 𝐶 not containing cost -statements but possibly containing observe ,
+
+wp 𝔄 J𝐶 K (𝑋 ) maps each initial program state to the expected final of 𝑋 when excluding all runs not satisfying all encountered observations. The conditional expected final value of 𝑋 given that all observations are satisfied is then given by the function 4
+
+𝜆𝜎. 
+
+( wp 𝔄 J𝐶 K(𝑋 ) ( 𝜎 )     
+
+> wp 𝔄 J𝐶 K(𝜆𝜎 ′.1) ( 𝜎 )
+
+if wp 𝔄 J𝐶 K (𝜆𝜎 ′. 1) ( 𝜎 ) > 0, and undefined otherwise . △
+
+6 Case Expressions 
+
+We now introduce (typed) case expressions — the semantic basis of TEDDs. Section 6.1 introduces their syntax and semantics of case expressions, and Section 6.2 treats important operations. 
+
+6.1 Syntax and Semantics 
+
+Towards defining the syntax of case expressions, we introduce the following notions. Let AT ⊆ FO 
+
+be the set of Boolean atoms , i.e., formulae whose outermost constructor is none of the Boolean connectives ∧, ∨, ¬. Notice that formulae starting with a quantifier such as ∃𝑥 : Nat : 𝑥 ≠ 0 are considered Boolean atoms here. A propositional interpretation is a valuation 𝜂 : AT → { 0, 1} with 
+
+𝜂 (true ) = 1 and 𝜂 (false ) = 0. We extend 𝜂 homomorphically to Boolean combinations of atoms by 
+
+𝜂 (𝜓 1 ∧ 𝜓 2) = min {𝜂 (𝜓 1) , 𝜂 (𝜓 2)} 
+
+𝜂 (𝜓 1 ∨ 𝜓 2) = max {𝜂 (𝜓 1) , 𝜂 (𝜓 2)} 
+
+𝜂 (¬ 𝜓 ) = 1 − 𝜂 (𝜓 ) .
+
+We call 𝜂 (𝜑 ) the propositional truth value of 𝜑 w.r.t. 𝜂 . Formulae of the form 𝜑 = Ó𝑖 𝜓 𝑖 with 𝜓 𝑖 ∈ FO 
+
+are called cubes . We call 𝑛 ≥ 1 cubes 𝜑 1, . . . , 𝜑 𝑛 propositionally partitioning , if for all propositional interpretations 𝜂 there is exactly one 𝑖 ∈ { 1, . . . , 𝑛 } with 𝜂 (𝜑 𝑖 ) = 1.         
+
+> 3We omit 𝔄 from Φto avoid clutter as it will always be clear from the context.
+> 4This characterization assumes 𝐶 to be almost-surely terminating, which can be avoided by taking weakest liberal pre-expectations in the denominator, as adopted by our implementation. 10 Batz et al.
+
+Definition 6.1. Let 𝜏 ∈ Types . A 𝜏 -case expression e is a syntactic construct of the form 
+
+e =
+
+
+
+𝑡 1 ←[ 𝜑 1
+
+...𝑡 𝑛 ←[ 𝜑 𝑛 ,
+
+where 𝑛 ≥ 1, 𝑡 1, . . . , 𝑡 𝑛 : 𝜏 are terms, and 𝜑 1, . . . , 𝜑 𝑛 are propositionally partitioning cubes. △
+
+We denote the set of all 𝜏 -case expressions by CaseExp 𝜏 . For Bool -case expressions in the set 
+
+CaseExp Bool , we impose the additional restriction that all left-hand side’s terms are one of the Boolean constants true or false , and we define the canonical Bool -case expression of 𝜑 ∈ FO as 
+
+e𝜑 =
+
+(
+
+true ←[ 𝜑 
+
+false ←[ ¬𝜑 . 
+
+A 𝜏 -case expression e represents functions from interpretations I ∈ Intrs to terms of type 𝜏 . The 
+
+term selected by e under I is 
+
+e (I) =
+
+
+
+𝑡 1 if I | = 𝜑 1
+
+...𝑡 𝑛 if I | = 𝜑 𝑛 .
+
+The value of e under I is Je (I) KI , written JeKI . Well-definedness is ensured as 𝜑 1, . . . , 𝜑 𝑛 are propositionally partitioning: For every I ∈ Intrs , there is a unique 𝑖 with I | = 𝜑 𝑖 . The property is generally undecidable, thus, we impose this property by its decidable propositional variant. 
+
+Example 6.2. EUReal -case expressions provide us with a syntactic means to specify (classes of) expectations. Let 𝑥, 𝑦 : Nat and consider the EUReal -case expression 
+
+e =
+
+
+
+𝑦 ←[ 𝑥 ¤= 0
+
+𝑦 + 1 ←[ 𝑥 ¤≠ 0 ∧ 𝑥 ¤= 1
+
+𝑦 + 2 ←[ 𝑥 ¤≠ 0 ∧ 𝑥 ¤≠ 1 ∧ 𝑥 ¤= 2
+
+𝑦 + 3 ←[ 𝑥 ¤≠ 0 ∧ 𝑥 ¤≠ 1 ∧ 𝑥 ¤≠ 2 .
+
+We have JeK(𝔄 ,𝜎 ) ∈ R∞≥0 for all interpretations (𝔄 , 𝜎 ). Consequently, we have 𝜆𝜎. JeK(𝔄 ,𝜎 ) ∈ E𝔄 for every structure 𝔄 . Here, 𝔄 is irrelevant since e only involves standard arithmetic. △
+
+6.2 Operations on Case Expressions 
+
+Next, we introduce two operations on case expressions central to our approach: Operations induced by operators on terms and substitutions of variables by terms. 
+
+Definition 6.3. Let 𝑛 ≥ 1, let 𝜏 1, . . . , 𝜏 𝑛 , 𝜏 ∈ Types , and let F : Terms 𝜏 1 × . . . × Terms 𝜏 𝑛 → Terms 𝜏 
+
+be an operator on terms. We lift F to an operator on case expressions: 
+
+op [F ] : CaseExp 𝜏 1 × . . . × CaseExp 𝜏 𝑛 → CaseExp 𝜏 ,
+
+op [F ] 
+
+ 
+
+𝑡 1,1 ←[ 𝜑 1,1
+
+...𝑡 1,𝑚 1 ←[ 𝜑 1,𝑚 1
+
+, . . . , 
+
+
+
+𝑡 𝑛, 1 ←[ 𝜑 𝑛, 1
+
+...𝑡 𝑛,𝑚 𝑛 ←[ 𝜑 𝑛,𝑚 𝑛 
+
+
+
+=  F ( 𝑡 1,𝑖 1 , . . . , 𝑡 𝑛,𝑖 𝑛 ) ←[ Ó𝑛 𝑗 =1 𝜑 𝑗,𝑖 𝑗     
+
+> for each (𝑖 1,...,𝑖 𝑛 ) ∈ { 1,...,𝑚 1}× ... ×{ 1,...,𝑚 𝑛 }
+
+.
+
+△Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 11                   
+
+> 𝑥 =0
+> 𝑥 =1
+> 𝑥 =2𝑥 =2
+> 𝑦 𝑦 +1𝑦 +2𝑦 +3
+
+(a) This TEDD is not pruned modulo LA .             
+
+> 𝑥 =0
+> 𝑦
+> 𝑥 =1
+> 𝑦 +1
+> 𝑥 =2
+> 𝑦 +2𝑦 +3
+
+(b) This TEDD is pruned modulo LA .Fig. 4. Two EUReal -TEDDs, which are equivalent modulo LA . All variables are of type Nat .
+
+This operator satisfies Jop [F ] ( e1, . . . , e𝑛 )KI = JF ( e1 (I) , . . . , e𝑛 (I)) KI , i.e., applying op [F ] 
+
+to e1, . . . , e𝑛 is equivalent to applying F to the terms selected by e1, . . . , e𝑛 for every I. If F simply applies some function symbol 𝐹 to its arguments, we often write op [𝐹 ] instead of op [F ] .Our formalization via term operators enables a uniform treatment of various operations on case expressions, which will also generalize to TEDDs. For instance, case distinctions can be implemented via the operator ITE : FO × Terms 𝜏 × Terms 𝜏 → Terms 𝜏 , defined for every type 𝜏 as 
+
+ITE (𝜑, 𝑡 1, 𝑡 2) =
+
+(
+
+𝑡 1 if 𝜑 = true 
+
+𝑡 2 otherwise , so that Jop [ITE ] ( e𝜑 , e1, e2)KI =
+
+(
+
+Je1KI if I | = 𝜑 
+
+Je2KI if I̸ | = 𝜑 . 
+
+Example 6.4. Let e1, e2 be EUReal -case expressions. Using op , we obtain the switching function representing the interpretation-wise addition of e1 and e2 by op [+] ( e1, e2), i.e., 
+
+∀I ∈ Intrs : Jop [+] ( e1, e2)KI = Je1KI + Je2KI . △
+
+Next, we define substitution of variables by terms in case expressions: 
+
+Definition 6.5. Let 𝜏 be a type, e a 𝜏 -case expression and 𝑥 : 𝜏, 𝑡 : 𝜏 a variable and term of type 
+
+𝜏 , respectively. We define e [𝑥 /𝑡 ] to be the case expression obtained from e by replacing every occurrence of 𝑥 by 𝑡 in all terms and formulae in e (in a capture-avoiding manner). △
+
+Naturally, this operator satisfies 
+
+JeK(𝔄 ,𝜎 [𝑥 ↦ →J𝑡 K(𝔄 ,𝜎 ) ]) = Je [𝑥 /𝑡 ]K(𝔄 ,𝜎 ) ,
+
+i.e., syntactically replacing 𝑥 by 𝜏 in e corresponds to semantical substitution. 
+
+7 Typed Extended Decision Diagrams 
+
+In this section, we introduce our typed extended decision diagrams (TEDDs). We introduce syntax and semantics in Section 7.1 and discuss reducedness and canonicity of TEDDs in Section 7.2. 
+
+7.1 Syntax and Semantics 
+
+Fix a linear order ≺ on the countably infinite set of atomic formulae in AT (cf. Section 6.1). 
+
+Definition 7.1. Let 𝜏 ∈ Types be a type. A 𝜏 -typed extended decision diagram ( 𝜏 -TEDD) is a tuple 
+
+X = (𝑉 , 𝑁 , 𝑇 , 𝑣 0, succ 0, succ 1, 𝐿 𝑁 , 𝐿 𝑇 ) ,
+
+where 𝑉 is a finite set of nodes , partitioned into non-terminal nodes 𝑁 and terminal nodes 𝑇 , 𝑣 0 ∈ 𝑉 
+
+is the root node , succ 0, succ 1 : 𝑁 → 𝑉 are successor functions such that all nodes 𝑣 ∈ 𝑉 \ { 𝑣 0 } have at 12 Batz et al.                   
+
+> 𝑥 ¤=𝑥
+> 𝑡 1𝑡 2
+> (a) TEDD X.
+> 𝑦 ¤=𝑦
+> 𝑡 1𝑡 1
+> (b) TEDD Y.Fig. 5. Counterexample to canonicity modulo first-order logical equivalence. Let 𝑥, 𝑦 :Int . The labels 𝑥 ¤=𝑥
+> and 𝑦 ¤=𝑦 are distinct Boolean atoms, so the two reduced TEDDs are not propositionally equivalent. Under first-order semantics, however, both labels are valid in every structure, and therefore both TEDDs represent the same function from first-order interpretations to values.
+
+least one predecessor. We call succ 0 (𝑣 ) and succ 1 (𝑣 ), the false - and true -, successors of 𝑣 , respectively. The functions 𝐿 𝑁 : 𝑁 → AT and 𝐿 𝑇 : 𝑇 → Terms 𝜏 are labelings , where 𝐿 𝑁 is compatible with ≺, i.e., where for any non-terminal successor 𝑣 ′ of 𝑣 , 𝐿 𝑁 (𝑣 ) ≺ 𝐿 𝑁 (𝑣 ′).A 𝜏 -TEDD is thus a labeled acyclic directed graph, where the topology and the labeling of the non-terminal nodes respects the order ≺ on formulae. We denote by X+ and X− the sub-TEDDs of 
+
+X with root succ 1 (𝑣 0) and succ 0 (𝑣 0), resp. X is called terminal if its root is. We require that terminal nodes of a Bool -TEDD are labeled by true or false . The size of X, written |X| , is the number of nodes of X, i.e., |X| = |𝑉 |.A 𝜏 -TEDDs gives rise to a 𝜏 -case expression, where each path from the root to a terminal node determines one case by conjoining the (negated) labels encountered along the path: 
+
+Definition 7.2. Let X be a 𝜏 -TEDD and let 𝑣 ∈ 𝑉 be a node. We define the 𝜏 -case expression e𝑣  
+
+> X
+
+of 
+
+X and 𝑣 recursively on the acyclic topology of X:(1) If 𝑣 ∈ 𝑇 , then e𝑣  
+
+> X
+
+=
+
+n
+
+𝐿 𝑇 (𝑣 ) ←[ true .(2) If 𝑣 ∈ 𝑁 , then e𝑣  
+
+> X
+
+= op [ITE ]
+
+
+
+(e𝐿 𝑁 (𝑣 ) , esucc 1 (𝑣 )X , esucc 0 (𝑣 )X
+
+
+
+. △
+
+We often write eX instead of e𝑣 0 
+
+> X
+
+and JXKI instead of JeX KI .
+
+Example 7.3. The DAG in Figure 4b depicts an EUReal -TEDD X graphically. Solid (resp. dashed) arrows point to true - (resp. false -) successors. Inner nodes are labeled by formulae whereas ter-minal nodes are labeled by terms of type EUReal . The EUReal -case expression of X as defined in Definition 7.2 is the expression from Example 6.2. △
+
+7.2 Reducedness and Canonicity of TEDDs 
+
+Reducedness and canonicity are important aspects of classic BDDs [ 32 ] and ADDs [ 12 ]. Let us now define an appropriate notion of reducedness for TEDDs and investigate in what sense TEDDs are canonical representations of case expressions. Let 𝜏 ∈ Types . Given a 𝜏 -case expression e and a propositional interpretation 𝜂 , denote by 
+
+𝜂 (e) the unique term 𝑡 𝑖 such that 𝜂 (𝜑 𝑖 ) = 1. We call two 𝜏 -case expressions e1, e2 propositionally equivalent , denoted e1 ≡ e2, if 𝜂 (e1) = 𝜂 (e2) for all propositional interpretations 𝜂 .
+
+Definition 7.4. We call a 𝜏 -TEDD X reduced , if for all nodes 𝑣 1, 𝑣 2 ∈ 𝑉 , we have 
+
+e𝑣 1 
+
+> X
+
+≡ e𝑣 2 
+
+> X
+
+implies 𝑣 1 = 𝑣 2 .
+
+Reducedness implies that succ 0 (𝑣 ) ≠ succ 1 (𝑣 ) for all 𝑣 ∈ 𝑁 . From now on we assume all TEDDs to be reduced . With this notion of reducedness, we get the following canonicity property for TEDDs: Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 13 
+
+Theorem 7.5. Fix a linear order ≺ on AT . Then 𝜏 -TEDDs are canoncical representations of 𝜏 -case expressions modulo propositional equivalence ≡, i.e., for every ≡-equivalence class C of 𝜏 -case expressions, there is unique (up to isomorphism) 𝜏 -TEDD X such that eX ∈ C .
+
+Importantly, this canonicity result is propositional and does not identify TEDDs whose labels are merely equivalent under first-order semantics, as illustrated in Figure 5: Both X and Y are reduced, yet X and Y are not isomorphic and JXKI = JYKI for all interpretations I.TEDDs subsume classic BDDs [32] and ADDs [12], as propositional variables are formulae: 
+
+Theorem 7.6. Classic BDDs are Bool -TEDDs where all non-terminal nodes are labeled by propo-sitional variables 𝑥 : Bool and all terminals nodes are labeled with either true or false , while classic ADDs are Rat -TEDDs with the same restriction as above. 
+
+7.3 Theory-Aware Treatment of TEDDs 
+
+Reducedness of TEDDs refers to propositional interpretations, therefore disregarding theory-aware facts such as the unsatisfiability of certain conjunctions of decisions. We now take first-order reasoning into account. Towards this end, we introduce: 
+
+Definition 7.7. Let X be a 𝜏 -TEDD and let T be a theory. A rooted path in X is a sequence 
+
+𝜋 = 𝑢 0
+
+> 𝑏 1
+
+−→ 𝑢 1
+
+> 𝑏 2
+
+−→ · · · 𝑏 𝑘 
+
+−−→ 𝑢 𝑘 
+
+where 𝑢 0 = 𝑣 0, 𝑏 𝑖 ∈ { 0, 1}, and 𝑢 𝑖 = succ 𝑏 𝑖 (𝑢 𝑖 −1). The path condition of 𝜋 is 
+
+pc X (𝜋 ) =
+
+> 𝑘
+
+Û
+
+> 𝑖 =1
+
+(
+
+𝐿 𝑁 (𝑢 𝑖 −1) if 𝑏 𝑖 = 1,
+
+¬𝐿 𝑁 (𝑢 𝑖 −1) if 𝑏 𝑖 = 0.
+
+with the empty conjunction equal to true . For a formula 𝜃 ∈ FO , we say that X is pruned modulo T
+
+under context 𝜃 if 𝜃 ∧ pc X (𝜋 ) is satisfiable modulo T for every rooted path 𝜋 ending in a terminal node. We say that X is pruned modulo T if it is pruned modulo T under context true .Consider the EUReal -TEDD X depicted in Figure 4b. X is pruned modulo LA because every terminal rooted path has a path condition satisfiable modulo LA . The TEDD Y depicted in Figure 4a, on the other hand, is not pruned modulo LA : The path condition 𝑥 ≠ 0 ∧ 𝑥 = 1 ∧ 𝑥 = 2 of the longest path ending in the terminal labeled with 𝑦 is unsatisfiable modulo LA .Finally, given a theory T , we say that two 𝜏 -TEDDs X1, X2 are equivalent modulo T , if JX1KI =
+
+JX2KI for all T -interpretations I. As an example, the two TEDDs depicted in Figures 4a and 4b are equivalent modulo LA . In the next subsection, we present an algorithm that transforms every TEDD into an equivalent pruned one modulo T , assuming decidability of satisfiability modulo T .
+
+8 Operations on Typed Extended Decision Diagrams 
+
+We now provide central algorithms on TEDDs, ultimately enabling TEDD-based deductive verifica-tion. All algorithms produce (reduced) TEDDs, which respect the fixed order ≺ on formulae in AT .Moreover, we equip all algorithms with their formal specifications. These algorithms use an overloaded procedure Obtain . First, given a term 𝑡 : 𝜏 , Obtain (𝑡 )
+
+returns the 1-node 𝜏 -TEDD labelled with 𝑡 . If 𝜏 = Bool , we require that 𝑡 ∈ AT , and Obtain (𝑡 )
+
+returns the natural 3-node Bool -TEDD with root label 𝑡 and terminal label true and false . Second, given 𝜑 ∈ AT and 𝜏 -TEDDs X, Y with 𝜑 ≺ 𝐿 𝑁 (X) (resp. 𝜑 ≺ 𝐿 𝑁 (Y ) if X (resp. Y) is non-terminal, 
+
+Obtain (𝜑, X, Y) returns a 𝜏 -TEDD Z with root label 𝜑 and succ 1 (Z) = X and succ 0 (Z) = Y, i.e., 
+
+∀I ∈ Intrs : eZ (I) =
+
+(
+
+eX (I) if I | = 𝜑 ,
+
+eY (I) if I̸ |= 𝜑 . (1) 14 Batz et al. 
+
+Algorithm 1: Applying Term Operators to TEDDs  
+
+> 1
+
+def Apply( F , X1, . . . , X𝑛 )
+
+Input: A term operator F : Terms 𝜏 1 × . . . × Terms 𝜏 𝑛 → Terms 𝜏 .If 𝜏 = Bool , then F returns only true or false on the terminal labels reached by this call. 
+
+𝜏 1-TEDD X1, . . . , 𝜏 𝑛 -TEDD X𝑛 .
+
+Result: 𝜏 -TEDD X satisfying ∀I ∈ Intrs : JXKI = Jop [F ] ( eX1 , . . . , eX𝑛 )KI . 
+
+> 2
+
+if there is a cache entry X for (F , X1, . . . , X𝑛 ) then  
+
+> 3
+
+return X; 
+
+> 4
+
+end  
+
+> 5
+
+if X1, . . . , X𝑛 are all terminal then  
+
+> 6
+
+𝑡 ← F ( 𝐿 𝑇 (X 1), . . . , 𝐿 𝑇 (X 𝑛 )) ; 
+
+> 7
+
+X ← Obtain( 𝑡 ); 
+
+> 8
+
+else  
+
+> 9
+
+𝜑 ← min ≺ {𝐿 𝑁 (X 𝑖 ) | X 𝑖 is non-terminal and 𝑖 ∈ { 1, . . . , 𝑛 }} ; 
+
+> 10
+
+foreach X𝑖 in X1, . . . , X𝑛 do  
+
+> 11
+
+if X𝑖 is non-terminal and 𝐿 𝑁 (X 𝑖 ) = 𝜑 then  
+
+> 12
+
+Y𝑖 ← X + 
+
+> 𝑖
+
+; Z𝑖 ← X − 
+
+> 𝑖
+
+; 
+
+> 13
+
+else  
+
+> 14
+
+Y𝑖 ← X 𝑖 ; Z𝑖 ← X 𝑖 ; 
+
+> 15
+
+end  
+
+> 16
+
+end  
+
+> 17
+
+Y ← Apply( F , Y1, . . . , Y𝑛 ); Z ← Apply( F , Z1, . . . , Z𝑛 ); 
+
+> 18
+
+X ← Obtain( 𝜑 , Y, Z); 
+
+> 19
+
+end  
+
+> 20
+
+Store X in the cache for (F , X1, . . . , X𝑛 ); 
+
+> 21
+
+return X;We ensure reducedness of Z by returning X in case X = Y, so that (1) is trivially satisfied, and assume that repeated invokations of Obtain (𝑡 ) for the same 𝑡 always return the same node. 
+
+8.1 Applying Term Operators 
+
+Let F : Terms 𝜏 1 ×. . . ×Terms 𝜏 𝑛 → Terms 𝜏 be an operator on terms, such as addition (for 𝜏 = EUReal )or disjunction (for 𝜏 = Bool ). Algorithm 1 gives Apply , a generalization of Bryant’s Apply algorithm [ 32 ] for BDDs to 𝑛 -ary term operators F . Given 𝜏 1-TEDD X1, . . . , 𝜏 𝑛 -TEDD X𝑛 , Apply( F , X1, . . . , X𝑛 )
+
+operates on these TEDDs and yields a 𝜏 -TEDD X representing the 𝜏 -case expression obtained from applying F to the case expressions represented by X1, . . . , X𝑛 , i.e., 
+
+eX = op [F ] ( eX1 , . . . , eX𝑛 ) .
+
+Apply traverses the input TEDDs in a ≺-preserving manner (ll. 10-18) and invokes itself recursively (l. 17) until hitting terminal nodes, in which case F is applied to the labels of the respective leafs (l. 6). As with BDDs, we cache intermediate results from recursive calls (l. 20) to avoid re-computations that may arise due to the DAG-structure of TEDDs. This ensures the following: 
+
+Theorem 8.1. Algorithm 1 is sound and encounters at most |X 1 | · . . . · |X 𝑛 | cache misses. 
+
+Proof. See Appendix A.1. □Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 15 
+
+Algorithm 2: Substitution of Variables by Terms in TEDDs  
+
+> 1
+
+def Substitute( X, 𝑥, 𝑡 )
+
+Input: A 𝜏 -TEDD X, a variable 𝑥 : 𝜏 ′, and a term 𝑡 : 𝜏 ′.
+
+Result: A 𝜏 -TEDD Y satisfying ∀I ∈ Intrs : JYKI = JeX [𝑥 /𝑡 ]KI . 
+
+> 2
+
+if there is a cache entry Y for (X , 𝑥, 𝑡 ) then  
+
+> 3
+
+return Y; 
+
+> 4
+
+end  
+
+> 5
+
+if X is terminal then  
+
+> 6
+
+Y ← Obtain( 𝐿 𝑇 (X) [ 𝑥 /𝑡 ]) 
+
+> 7
+
+else  
+
+> 8
+
+𝜑 ← 𝐿 𝑁 (X) [ 𝑥 /𝑡 ]; 
+
+> 9
+
+Y+ ← Substitute (X +, 𝑥, 𝑡 ); Y− ← Substitute (X −, 𝑥, 𝑡 ); 
+
+> 10
+
+Y ← Apply( ITE , Obtain (𝜑 ), Y+, Y− ) 
+
+> 11
+
+end  
+
+> 12
+
+Store Y in the cache for (X , 𝑥, 𝑡 ); 
+
+> 13
+
+return Y;
+
+Example 8.2. Let Y be a Bool -TEDD and let Y1, Y2 be EUReal -TEDDs. Then 
+
+X = Apply (ITE , Y, Y1, Y2) satisfies ∀I ∈ Intrs : JXKI =
+
+(
+
+JY1KI if JYKI = true 
+
+JY2KI if JYKI = false .
+
+Moreover, 
+
+X = Apply (+ , Y1, Y2) satisfies ∀I ∈ Intrs : JXKI = JY1KI + JY1KI . △
+
+8.2 Substitution 
+
+While substituting variables by terms is — in principle — a rather straightforward operation, we must be careful: Replacing variables by terms modifies the labels so that a naive implementation might violate the order ≺. Algorithm 2 gives Substitute , which remedies this: Substitute( X, 𝑥, 𝑡 )
+
+yields a TEDD Y with eY = eX [𝑥 /𝑡 ] by recursively traversing X. Assuming Y+ (resp. Y− ) are obtained from replacing 𝑥 by 𝑡 in X+ (resp. X− ) (l. 9), we obtain the sought-after TEDD by invoking 
+
+Apply (ITE , Obtain (𝜑 ), Y+, Y− ) in (l. 10). Since Apply preserves ≺, this procedure is sound. Again, we cache intermediate results to prevent unnecessary re-computations (l. 12). 
+
+Theorem 8.3. Algorithm 2 is sound. Moreover, it performs at most |X| recursive calls. 
+
+Proof. See Appendix A.2. □
+
+8.3 Pruning 
+
+Algorithm 3 implements theory-aware pruning of TEDDs in the sense of Definition 7.7. Assuming an oracle — an SMT solver — for checking the satisfiability of FO formulae modulo a given theory 
+
+T , Prune( T , X, true ) is a pruned 𝜏 -TEDD equivalent to the 𝜏 -TEDD X modulo T . The third argument of Prune is the path condition accumulated before the current sub-TEDD. The algorithm traverses X depth-first while conjoining the (negated, depending on the chosen successor) formulae encountered (l. 8). If the so-obtained path condition becomes unsatisfiable, the algorithm deletes the “unreachable” (modulo T ) sub-tree and redirects the edges accordingly. 16 Batz et al. 
+
+Algorithm 3: Pruning of TEDDs Modulo a Theory  
+
+> 1
+
+def Prune( T , X, 𝜃 )
+
+Input: A theory T , a 𝜏 -TEDD X,and 𝜃 ∈ FO satisfiable modulo T .
+
+Result: A 𝜏 -TEDD Y equivalent to X under 𝜃 and pruned modulo T under context 𝜃 . 
+
+> 2
+
+if X is terminal then  
+
+> 3
+
+return X; 
+
+> 4
+
+end  
+
+> 5
+
+if there is a cache entry Y for (T , X, 𝜃 ) then  
+
+> 6
+
+return Y; 
+
+> 7
+
+end  
+
+> 8
+
+𝜃 + ← 𝜃 ∧ 𝐿 𝑁 (X) ; 𝜃 − ← 𝜃 ∧ ¬ 𝐿 𝑁 (X) ; 
+
+> 9
+
+if ¬SAT T (𝜃 +) then  
+
+> 10
+
+Y ← Prune (T , X−, 𝜃 − ); 
+
+> 11
+
+else if ¬SAT T (𝜃 − ) then  
+
+> 12
+
+Y ← Prune (T , X+, 𝜃 +); 
+
+> 13
+
+else  
+
+> 14
+
+Y+ ← Prune (T , X+, 𝜃 +); Y− ← Prune (T , X−, 𝜃 − ); 
+
+> 15
+
+Y ← Obtain (𝐿 𝑁 (X) , Y+, Y− ); 
+
+> 16
+
+end  
+
+> 17
+
+Store Y in the cache for (T , X, 𝜃 ); 
+
+> 18
+
+return Y;                    
+
+> 𝑥 =0
+> 𝑥 =1
+> 𝑥 =2𝑥 =2
+> 𝑦 𝑦 +1𝑦 +2𝑦 +3
+> 𝜑 +𝜑 −
+
+(a) EUReal -TEDD X not pruned modulo LA .             
+
+> 𝑥 =0
+> 𝑦
+> 𝑥 =1
+> 𝑦 +1
+> 𝑥 =2
+> 𝑦 +2𝑦 +3
+
+(b) Result of Prune (LA , X). Fig. 6. Illustration of applying Prune to the TEDD from Figure 4a. 
+
+Example 8.4. Prune is illustrated in Figure 6 for the TEDDs shown in Figure 4: Since 𝑥 ≠ 0 ∧ 𝑥 =
+
+1 ∧ 𝑥 = 2 is unsatisfiable modulo LA , the node labeled by 𝑥 = 2 can be deleted, and the respective edge of the predecessor labeled by 𝑥 = 1 can be redirected to 𝑦 + 1. △
+
+Theorem 8.5. Assume that 𝜃 ∈ FO is satisfiable modulo T . If Prune( T , X, 𝜃 ) (Algorithm 3) returns Y, then Y is equivalent to X under all T -interpretations satisfying 𝜃 and is pruned modulo 
+
+T under context 𝜃 . Moreover, Algorithm 3 performs at most 2𝑚 +1 − 1 recursive calls, where 𝑚 is the maximum number of edges of a directed path from X’s root to a terminal node (cf. Definition A.1). 
+
+Proof. See Appendix A.3. □Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 17 
+
+𝑪 wp J𝑪 K(X) 
+
+skip X
+
+𝑥 := 𝑡 Substitute (X , 𝑥, 𝑡 )
+
+cost ( 𝑟 ) Apply (+ , Obtain (𝑟 ), X) 
+
+observe (𝜑 ) Apply (ITE , X𝜑 , X, Obtain (0)) 
+
+𝐶 1 ; 𝐶 2 wp J𝐶 1K  wp J𝐶 2K (X) 
+
+{ 𝐶 1 } □ { 𝐶 2 } Minimum (wp J𝐶 1K (X) , wp J𝐶 2K (X)) { 𝐶 1 } [ 𝑝 ] { 𝐶 2 } Apply (+ , Apply (· , Obtain (𝑝 ), wp J𝐶 1K (X)) ,
+
+Apply (· , Obtain (1 − 𝑝 ), wp J𝐶 2K (X))) 
+
+if ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 } Apply (ITE , X𝜑 , wp J𝐶 1K (X) , wp J𝐶 2K (X)) 
+
+Table 2. A syntactic variant of the weakest pre-expectation calculus for loop-free programs operating on 
+
+EUReal -TEDDs. Here X𝜑 is the Bool -TEDD obtained from the quantifier-free formula 𝜑 by recursing on the structure of 𝜑 using Apply from Algorithm 1 on the Boolean connectives. 
+
+> select (𝐴, 𝑥 )
+
+(a) An EUReal -TEDD X.           
+
+> select (𝐴, 𝑥 ) ≤ 𝑦
+> 1/2·select (store (𝐴, 𝑥, 𝑦 +2), 𝑥 )+1/2·select (store (𝐴, 𝑥, 𝑦 +4), 𝑥 )select (𝐴, 𝑥 )
+
+(b) The EUReal -TEDD wp J𝐶 K (X) for 𝐶 from Example 5.2. Fig. 7. Exemplification of wp by applying it to the setting from Example 5.2. 
+
+9 Syntactic Weakest Pre-Expectations via TEDDs 
+
+This section marries the WP calculus from Section 5 with the TEDD-based representation of, e.g., expectations, from Section 7. By careful construction, the integration is rather natural. To facilitate the marriage, we introduce wp , a syntactic variant of wp for loop-free programs that operates on EUReal -TEDDs. First recall that every EUReal -TEDD X represents a class of expectations, i.e., given a structure 𝔄 , we have that 𝜆𝜎. JXK(𝔄 ,𝜎 ) ∈ E𝔄 is an expectation. This perspective enables defining wp recursively on the structure of program 𝐶 , using the previously developed operations Apply , Obtain , and Substitute , as well as the Minimum operation introduced below. Given an EUReal -TEDD X, wp J𝐶 K (X) is an EUReal -TEDD as defined in Table 2. The definition constructs this TEDD algorithmically. By construction, the approach is sound: applying 
+
+wp to X is equivalent to applying wp 𝔄 to the expectation represented by X for all structures 𝔄 :
+
+Theorem 9.1. For every loop-free program 𝐶 and every EUReal -TEDD X, we have 
+
+∀ structures 𝔄 : 𝜆𝜎. Jwp J𝐶 K (X) K(𝔄 ,𝜎 ) = wp 𝔄 J𝐶 K
+
+
+
+𝜆𝜎. JXK(𝔄 ,𝜎 ) 
+
+.
+
+Proof. See Appendix A.6. □
+
+The non-deterministic choice requires computing pointwise minima of expectations. Since standard arithmetical theories such as LA do not provide a function symbol for minima, we 18 Batz et al. 
+
+Algorithm 4: Computing Pointwise Minima of EUReal -TEDDs  
+
+> 1
+
+def Minimum( X1, X2)
+
+Input: EUReal -TEDDs X1 and X2.
+
+Result: An EUReal -TEDD Y satisfying 
+
+∀ structures 𝔄 : 𝜆𝜎. JYK(𝔄 ,𝜎 ) = 𝜆𝜎. min {JX1K(𝔄 ,𝜎 ) , JX2K(𝔄 ,𝜎 ) }. 
+
+> 2
+
+if there is a cache entry Y for (X 1, X2) then  
+
+> 3
+
+return Y; 
+
+> 4
+
+end  
+
+> 5
+
+if X1 and X2 are terminal then  
+
+> 6
+
+Y ← Obtain (𝐿 𝑇 (X 1) < 𝐿 𝑇 (X 2), X1, X2); 
+
+> 7
+
+else  
+
+> 8
+
+if X2 is terminal or 𝐿 𝑁 (X 1) ≺ 𝐿 𝑁 (X 2) then  
+
+> 9
+
+𝜑 ← 𝐿 𝑁 (X 1); Y+ ← Minimum (X + 
+
+> 1
+
+, X2); Y− ← Minimum (X − 
+
+> 1
+
+, X2) 
+
+> 10
+
+else if X1 is terminal or 𝐿 𝑁 (X 2) ≺ 𝐿 𝑁 (X 1) then  
+
+> 11
+
+𝜑 ← 𝐿 𝑁 (X 2); Y+ ← Minimum (X 1, X+ 
+
+> 2
+
+); Y− ← Minimum (X 1, X− 
+
+> 2
+
+) 
+
+> 12
+
+else  
+
+> 13
+
+𝜑 ← 𝐿 𝑁 (X 1); Y+ ← Minimum (X + 
+
+> 1
+
+, X+ 
+
+> 2
+
+); Y− ← Minimum (X − 
+
+> 1
+
+, X− 
+
+> 2
+
+) 
+
+> 14
+
+Y ← Apply (ITE , Obtain (𝜑 ), Y+, Y− ); 
+
+> 15
+
+end  
+
+> 16
+
+Store Y in the cache for (X 1, X2); 
+
+> 17
+
+return Y;instead provide a dedicated algorithm for computing pointwise minima of two EUReal -TEDDs in Algorithm 4. Given EUReal -TEDDs X1, X2, Minimum (X 1, X2) returns an EUReal -TEDD representing their point-wise minimum. Similarly to Apply (Algorithm 1), Algorithm 4 traverses both X1 and X2
+
+in a ≺-preserving manner (ll. 7-15). The base case in l. 6 creates a 3-node TEDD representing the pointwise minimum of the respective terminal labels, using that min 𝑟, 𝑟 ′ euquals 𝑟 if 𝑟 < 𝑟 ′, and 𝑟 ′
+
+otherwise. To ensure that the resulting TEDD respects ≺, we invoke Apply in l. 14, which soundly merges the TEDDs obtained from the recursive calls. We get: 
+
+Theorem 9.2. Algorithm 4 is sound and encounters at most |X 1 | · |X 2 | cache misses in Algorithm 4. 
+
+Proof. See Appendix A.4. □
+
+10 Deductive Verification of Probabilistic Loops via TEDDs and SMT Solving 
+
+In this section, we lift proof rules for WP-based reasoning to the TEDD-based representation. In Section 10.1, we recap both fixed-point iteration- and induction-based proof rules from the literature, which reduce reasoning about loops to reasoning about loop-free programs. The sought-after techniques are then obtained in Section 10.2 by combining the results from Sections 9 and 10.1. 
+
+10.1 Proof Rules for Reasoning about Loops 
+
+Whereas determining weakest pre-expectations of loops reduces to syntactic reasoning, reasoning about loops is much more challenging. Therefore, we employ proof rules for loops. Our proof rules target verifying or refuting whether for given loop 𝐶 and 𝑋, 𝑌 ∈ E𝔄 , we have 
+
+wp 𝔄 J𝐶 K (𝑋 ) ⊑ 𝑌 , (†)Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 19 
+
+i.e., whether or not 𝑌 (𝜎 ) soundly upper-bounds the weakest pre-expectation of 𝐶 w.r.t. 𝑋 on initial state 𝜎 for all 𝜎 . We leverage two classes of proof rules for tackling this problem: fixed-point iteration -based rules and state-of-the-art induction-based rules, which we introduce next. Leveraging TEDDs for related proof-rule targeting probabilistic termination, randomized distributed algorithms, and supermartingale principles [4, 43, 71, 76, 77], is left future work. 
+
+Example 10.1. Consider the post-expectation 𝑋 = 𝜆𝜎. 0, the loop 𝐶 given by 
+
+while ( 𝑦 ¤= 0 ) { { 𝑦 := 1 } [ 1/2 ] { cost ( 1 ) } } ,
+
+where 𝑦 : Nat , and let 𝑌 = 𝜆𝜎. 1. The loop 𝐶 keeps flipping a fair coin. If it lands heads, the loop terminates. Otherwise, a cost of 1 is incurred. By proving that wp 𝔄 J𝐶 K (𝑋 ) ⊑ 𝑌 , we verify that, for every initial state, the expected cost when executing 𝐶 is upper-bounded by 1. △
+
+Fixed-Point Iteration-Based Reasoning. This technique is based on loop unrolling and best un-derstood by recalling that the 𝑛 -th iterate Φ𝑛 𝑋 (0) of a loop 𝐶 ’s characteristic function (w.r.t. post-expectation 𝑋 ) corresponds to the weakest pre-expectation of 𝐶 w.r.t. 𝑋 when aborting after at most 𝑛 iterations. With this in mind, consider the following: 
+
+Theorem 10.2 ([27]). Let 𝐶 = while ( 𝜑 ) { 𝐶 ′ }, 𝑋, 𝑌 ∈ E𝔄 , and 𝑛 ∈ N. We have : 
+
+(1) If Φ𝑛 +1 
+
+> 𝑋
+
+(0) ⊑ Φ𝑛 𝑋 (0) and Φ𝑛 𝑋 (0) ⊑ 𝑌 , then wp 𝔄 J𝐶 K (𝑋 ) ⊑ 𝑌 .
+
+(2) If Φ𝑛 𝑋 (0)̸ ⊑ 𝑌 , then wp 𝔄 J𝐶 K (𝑋 )̸ ⊑ 𝑌 .
+
+Theorem 10.2.1 is an immediate consequence of the fact Φ𝑛 +1 
+
+> 𝑋
+
+(0) ⊑ Φ𝑛 𝑋 (0) implies Φ𝑛 𝑋 (0) =
+
+lfp Φ𝑋 = wp 𝔄 J𝐶 K (𝑋 ) and thus suitable for verifying that ( †) holds. Theorem 10.2.2, on the other, is for refuting (†) and an instance of what Batz et al. [27] call latticed bounded model checking : Kleene’s fixed-point theorem implies that if iterating Φ𝑋 on 0 exceeds 𝑌 , then wp 𝔄 J𝐶 K (𝑋 ) exceeds 𝑌 , as well. 
+
+Induction-Based Reasoning. Induction-based reasoning is suitable for verifying (†). We leverage a probabilistic generalization [ 27 ] of the 𝑘 -induction verification technique [ 31 , 42 , 55 , 63 , 85 ]: Given expectations 𝑋, 𝑌 and a loop 𝐶 with characteristic function Φ𝑋 , the 𝑘 -induction operator 
+
+Ψ𝑋 ,𝑌 : E𝔄 → E𝔄 for 𝐶 w.r.t. 𝑋 and 𝑌 is Ψ𝑋 ,𝑌 (𝑍 ) = Φ𝑋 (𝑍 ) ⊓ 𝑌 . 
+
+Theorem 10.3 ([27]). Let 𝐶 = while ( 𝜑 ) { 𝐶 ′ }, let 𝑋, 𝑌 ∈ E𝔄 , and 𝑘 ∈ N. We have: 
+
+Φ𝑋 
+
+ Ψ𝑘 𝑋 ,𝑌 (𝑌 ) ⊑ 𝑌 implies wp 𝔄 J𝐶 K (𝑋 ) ⊑ 𝑌 . 
+
+If the above premise holds, then we say that 𝑌 is (𝑘 + 1)-inductive w.r.t. 𝐶 and 𝑋 . Theorem 10.3 is thus an infinite class of proof rules of increasing strength, i.e, we have a 𝑘 -induction rule for every 𝑘 ∈ N and for all such 𝑘 , 𝑘 -inductivity implies 𝑘 + 1-inductivity but not vice versa. 
+
+Example 10.4. Reconsider Example 10.1. We employ Theorem 10.3 in an iterative fashion: 𝑌 is 
+
+not 1-inductive since Φ𝑋 (𝑌 )̸ ⊑ 𝑌 . However, 𝑌 is 2-inductive, so we conclude wp 𝔄 J𝐶 K (𝑋 ) ⊑ 𝑌 . △
+
+Notice that both Theorems 10.2 and 10.3 only require us to (i) compute wp ’s of the loop body and (ii) checking whether a given expectation is state-wise upper-bounded by another expectation. 
+
+Remark. As expected, due to undecidability of wp 𝔄 J𝐶 K (𝑋 ) ⊑ 𝑌 [ 66 ], the proof rules are incomplete: Regarding Theorem 10.2.1, there are loops for which no suitable 𝑛 exists, which is, e.g., the case for the loop from Example 10.4. Regarding Theorem 10.3, there are 𝐶, 𝑋, 𝑌 such that 𝑌 is not 𝑘 -inductive for any 𝑘 (cf. [ 27 , Example 2]). Theorem 10.2.2 is, however, refutation complete [ 27 , Corollary 2]: If 
+
+wp 𝔄 J𝐶 K (𝑋 )̸ ⊑ 𝑌 , the existence of a suitable 𝑛 witnessing this is guaranteed. △20 Batz et al. 
+
+10.2 Implementing Proof Rules for Loops via TEDDs and SMT Solving 
+
+With the preceding concepts at hand, we tackle a variation of † above: Given a theory T , a loop 𝐶 , EUReal -TEDDs X, Y, decide 
+
+∀ T -structures 𝔄 : wp 𝔄 J𝐶 K
+
+
+
+𝜆𝜎. JXK(𝔄 ,𝜎 )
+
+
+
+⊑ 𝜆𝜎. JYK(𝔄 ,𝜎 ) ?If the above holds, then we say that Y upper-bounds 𝐶 w.r.t. X modulo T . As is standard for many [16 , 27 , 28 , 52 , 67 , 92 ] but not all [ 10 , 11 , 36 , 97 , 98 ] automated probabilistic program verification techniques, we restrict to non-nested loops. Reasoning about nested loops is currently realized by simultaneous loop unrolling [ 30 , Sec. 7.2 and App. B.2] for fixed-point iteration-based reasoning. For induction-based reasoning, nested loops appear rarely in existing benchmark suites and are re-written to a single loop with loop-free body (for now, manually, as has been done in [27, 84]). 
+
+Example 10.5. Let T = LA + ARR , let 𝑘 ∈ N, and consider program 𝐶 , and TEDDs X, Y:
+
+𝐶 = while ( 𝑥 ≤ 𝑘 ) { { 𝑦 := 𝑦 + 𝐴 [𝑥 ] } [ 1/2 ] { skip } ; 𝑥 := 𝑥 + 1 } ,
+
+eX =
+
+n
+
+𝑦 ←[ true , eY =
+
+
+
+𝑦 + 1/2 · ( 𝐴 [0] + . . . + 𝐴 [𝑘 ]) ←[ 𝑥 ¤= 0 ∧ 𝑥 ≤ 𝑘 ...𝑦 + 1/2 · 𝐴 [𝑘 ] ←[ 𝑥 ¤≠ 0 ∧ . . . ∧ 𝑥 ¤≠ 𝑘 − 1 ∧ 𝑥 ¤= 𝑘 ∧ 𝑥 ≤ 𝑘 𝑦 ←[ 𝑥 > 𝑘 . 
+
+By verifying that Y upper-bounds 𝐶 w.r.t. X modulo LA + ARR , we prove that we expect 𝐶 to increments 𝑦 by at most 1/2 times the sum of the values 𝐴 [𝑥 ] , 𝐴 [𝑥 + 1] , . . . , 𝐴 [𝑘 ]. △
+
+Now recall that, given a loop 𝐶 = while ( 𝜑 ) { 𝐶 ′ } and a post-expectation 𝑋, 𝑌 , Φ𝑋 denotes the characteristic function of 𝐶 w.r.t. 𝑋 and Ψ𝑋 ,𝑌 (𝑍 ) denotes the 𝑘 -induction operator for 𝐶 w.r.t. 𝑋 
+
+and 𝑌 . Using wp , we define algorithmic variants of these functionals operating on TEDDs 5:
+
+ΦX (Z) = Apply (ITE , X𝜑 , wp J𝐶 ′K (Z) , X) and ΨX,Y (Z) = Minimum  ΦX (Z) , Y .
+
+This also enables us to compute 𝑛 -th unfoldings Φ𝑛  
+
+> X
+
+(0) (where 0 is the 1-node EUReal -TEDD labeled by 0) and Ψ𝑛  
+
+> X,Y
+
+(Y) , as required by Theorems 10.2 and 10.3, respectively. Given these algorithmic operators, what remains to be done is to check “quantitative ⊑-entailments” between expectations, as in Algorithm 5, which assumes an SMT solver for checking the satisfiability of FO formulae modulo T .
+
+Theorem 10.6. Given a theory T and EUReal -TEDDs X1, X2, we have 
+
+Entails( T , X1, X2) = true iff ∀ T -structures 𝔄 : 𝜆𝜎. JX1K(𝔄 ,𝜎 ) ⊑ 𝜆𝜎. JX2K(𝔄 ,𝜎 ) ,
+
+and Algorithm 5 performs at most 2𝑚 1+𝑚 2+1 − 1 recursive invocations, where 𝑚 1 (resp. 𝑚 2) is the maximum number of edges of a directed path from X1’s (resp. X2’s) root to a terminal node. 
+
+Proof. See Appendix A.5. □
+
+Algorithm 5 traverses X1 and X2 in a ≺-preserving manner, essentially enumerating all pairs of paths from the roots to some terminal node while constructing the paired path condition 𝜑 
+
+(cf. Definition 7.7) in ll. 11-20. When encountering terminal nodes (ll. 3-9), we check whether a counter-example-to-entailment exists by checking whether 𝜓 ← 𝜑 ∧ 𝐿 𝑇 (X 1) > 𝐿 𝑇 (X 2) is satisfiable modulo T in l. 7. If so, Entails returns false . If such a counterexample is never encountered, then the entailment holds and Entails returns true . Satisfiability results are cached. Finally, this enables us to implement the proof rules from Theorems 10.2 and 10.3 as follows:          
+
+> 5Here X𝜑 is the atomic Bool -TEDD obtained from the quantifier-free formula 𝜑 by recursing on 𝜑 using Apply .Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 21
+
+Algorithm 5: Checking Quantitative Entailments for EUReal -TEDDs Modulo a Theory  
+
+> 1
+
+def Entails( T , X1, X2, 𝜑 )
+
+Input: A theory T , EUReal -TEDDs X1, X2, formula 𝜑 ∈ FO (initially true ). 
+
+Result: true iff ∀ T -structures 𝔄 : 𝜆𝜎. JX1K(𝔄 ,𝜎 ) ⊑ 𝜆𝜎. JX2K(𝔄 ,𝜎 ) (for 𝜑 = true ).  
+
+> 2
+
+if X1 is terminal and X2 is terminal then  
+
+> 3
+
+𝜓 ← 𝜑 ∧ 𝐿 𝑇 (X 1) > 𝐿 𝑇 (X 2); 
+
+> 4
+
+if there is a cache entry “result” for 𝜓 then  
+
+> 5
+
+return result ; 
+
+> 6
+
+end  
+
+> 7
+
+result ← ¬ SAT T (𝜓 ); 
+
+> 8
+
+Store “result” in the cache for 𝜓 ; 
+
+> 9
+
+return result ; 
+
+> 10
+
+end  
+
+> 11
+
+𝜓 ← min ≺ {𝐿 𝑁 (X 𝑖 ) | X 𝑖 is non-terminal and 𝑖 ∈ { 1, 2}} ; 
+
+> 12
+
+𝜑 + ← 𝜑 ∧ 𝜓 ; 𝜑 − ← 𝜑 ∧ ¬ 𝜓 ; 
+
+> 13
+
+foreach X𝑖 in X1, X2 do  
+
+> 14
+
+if X𝑖 is non-terminal and 𝐿 𝑁 (X 𝑖 ) = 𝜓 then  
+
+> 15
+
+Y𝑖 ← X + 
+
+> 𝑖
+
+; Z𝑖 ← X − 
+
+> 𝑖
+
+; 
+
+> 16
+
+else  
+
+> 17
+
+Y𝑖 ← X 𝑖 ; Z𝑖 ← X 𝑖 ; 
+
+> 18
+
+end  
+
+> 19
+
+end  
+
+> 20
+
+return Entails (T , Y1, Y2, 𝜑 +) ∧ Entails (T , Z1, Z2, 𝜑 − );
+
+Theorem 10.7. Let 𝐶 be a loop, let X, Y be EUReal -TEDDs, let T be a theory, and 𝑛 ∈ N. Then: 
+
+(1) If Entails (T , ΦX (Ψ𝑛  
+
+> X,Y
+
+(Y)) , Y) , then Y upper-bounds 𝐶 w.r.t. X modulo T .
+
+(2) If ¬Entails (T , Φ𝑛  
+
+> X
+
+(0), Y) , then Y does not upper-bound 𝐶 w.r.t. X modulo T .
+
+(3) If Entails (T , Φ𝑛 +1 
+
+> X
+
+(0), Φ𝑛  
+
+> X
+
+(0)) and Entails (T , Φ𝑛  
+
+> X
+
+(0), Y) , then Y upper-bounds 𝐶 w.r.t. X
+
+modulo T .Remark. Since the checks in Theorem 10.7 involve the theory T , we can invoke Prune from Algorithm 3 on all TEDDs encountered during the involved computations while preserving the claims from Theorem 10.7. We discuss and evaluate our pruning strategies in Section 11. △
+
+11 Implementation 
+
+We have implemented a prototypical probabilistic program verifier, called DdSolve 6, that consists of a highly efficient backend library and a flexible frontend. 
+
+Backend library. We have implemented TEDDs on top of the state-of-the-art BDD library Sylvan [ 95 ]in C++. Sylvan supports multi-threaded BDD operations using a work-stealing framework called 
+
+Lace [96 ]. Operations on TEDDs, including pruning, are also running in parallel, relying on Lace .Pruning (Section 8.3) is implemented modularly and can be instantiated with different SMT solvers; the current implementation supports both Z3 and CVC5 and exploits the abilities of incremental SMT solving to alleviate the computational effort of pruning. As variable reordering is expensive  
+
+> 6https://github.com/dbasgoeze/ddsolve 22 Batz et al.
+
+in Sylvan , we see the benefits of implementing substitution via ITEs (Section 8.2). The leafs and predicates in TEDDs can be represented in various ways. The library currently comes with two representations: (1) Generic expressions using the data structures from the SMT solver CVC5. (2) Multivariate affine expressions with a dedicated list-like data structure and operations. Both data structures support rational numbers and represent them exactly. 
+
+Frontend. The frontend consists of a python-based parser for a simple probabilistic programming language, annotated with verification queries, resembling the front-end of Caesar [84 ]. It supports multiple weakest preexpectation style calculi with minimizing and maximizing non-determinism including: weakest preexpectation (wp, Section 5), weakest liberal preexpectation (wlp, [ 79 ]), con-ditional weakest preexpectation (cwp, [ 81 ]), and expected runtime (ert, [ 65 ]). The flexible frontend also supports parsing probabilistic programs from (a large fragment of) the Dice -language [61]. 
+
+Syntactical equivalence. We support theory-agnostic syntactical equivalence checks on TEDDs. Somewhat surprising, such theory-agnostic syntactical checks are adequate: In the experiments (Sec. 12), the syntactical checks never fail to identify two TEDDs that are semantically identical, while it is easy to construct syntactically different TEDDs expressing the same expectation. 
+
+Normalization, pruning, caching, ordering. Data structures for terms normalize expressions, which may lead to trivial pruning (e.g., when a predicate 𝑥 > 𝑥 + 1 is normalized to be false ). By default, we apply SMT-based pruning after operations that (empirically) lead to potential for pruning, i.e., while sampling from uniform distributions, after every fixpoint or k-induction iteration, and after applying the k-induction operator. SMT-based pruning can also be disabled, see Sec. 12.3. While we have not discussed the use of an operation cache, we cache operations on TEDD nodes. Finally, the effect of variable orderings in BDDs is well-documented, but we currently use an ordering based on the occurrence in the AST of the program, which performs empirically quite well. 
+
+12 Experiments 
+
+We use DdSolve (Section 11) to empirically evaluate the merits of TEDD-based deductive proba-bilistic program analysis. Therefore, we ask the following research questions: 
+
+RQ1 How does a (more explicit) TEDD-based representation of expectations compare with a (more implicit) SMT-based representation in the probabilistic program verifier Caesar [84 ]? 
+
+RQ2 How does an TEDD-based representation compare against an ADD-based representation in the finite-state probabilistic model checker Storm [59]? 
+
+RQ3 What is the effect of respectively (a) SMT-based exhaustive pruning, (b) multi-threading support, and (c) dedicated linear term data structures, during verification? 
+
+Setup. We run DdSolve and the baselines discussed below in a container on a AMD Ryzen TRP 5965WX with 24 physical (and identical) cores and 256 GB RAM. We sometimes limit cores by limiting the threads, as indicated below. Unless specified differently, we measure wall-clock time. 
+
+12.1 Comparison with Caesar (RQ1) 
+
+To compare with SMT-based verification, we compare against (single-threaded) Caesar . The verification tasks contain the two categories ‘fixpoint’ and ‘induction’, matching the proof rules in Section 10.1. The benchmarks also cover ert- and wlp-calculi, see Sec. 11. Caesar and DdSolve 
+
+support both proof rules natively with similar input formats. Note that the approach to the fixpoint benchmarks is slightly different, see below. We use benchmarks from the Caesar verification suite as well as some new benchmarks, which we clarify below. 
+
+12.1.1 Piecewise affine benchmarks. We study verification tasks where expectations 𝑋, 𝑌 and the expressions in program 𝐶 are piecewise affine. These are the majority of existing benchmarks. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 23       
+
+> 10 −210 −110 010 110 2
+> DDSolve [s]
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> Caesar  [s]
+> Caesar-Bench Extended-Bench
+
+(a) Every dot represents a benchmark.        
+
+> 050 100 150 200
+> # Completed Benchmarkss
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> Runtime [s]
+> Caesar -Bench
+> 1-thread DDSolve
+> 4-thread DDSolve
+> 24-thread DDSolve
+> Caesar
+
+(b) Cactus-plot: 𝑥 instances solved in 𝑦 time. Fig. 8. Performance comparison with Caesar on the complete piecewise affine benchmark suite. 
+
+In DdSolve , we use the dedicated data structures for such expectations. We use benchmarks from Caesar [ 84 ] as well as parameterized benchmarks (where we vary, e.g., 𝑛 ), inspired by the benchmarks from [28, 84]. The details of the benchmarks are given in Appendix D. 
+
+Performance. In Fig. 8a, we compare the run time of Caesar and DdSolve (single-threaded). On the original benchmarks, Caesar solves instances within 0.1s, which is below the startup time of 
+
+DdSolve . However, on the eight remaining benchmarks, two are in favour of Caesar , while four are in favour of DdSolve . The two instances where Caesar outperforms DdSolve are induction verification tasks where a few pruning operations cause a massive slow down. On the scalable benchmarks, we see how DdSolve clearly outperforms Caesar for larger instances. The effect is even more pronounced in the cactus plot in Fig. 8b. In that plot, we also see how using 4 or more threads allows DdSolve to solve over twenty additional benchmarks. 
+
+Scalability. To investigate scalability, we considered two benchmarks from [ 84 ] with a scalable parameter. Rabin describes a mutual exclusion protocol with 𝑛 participants [ 70 ], BRP describes network transmission of a file with 𝑛 packets [ 39 ]. Essentially, the varying parameter influences the number of iterations that are necessary to compute the fixpoints. Fig. 9 top row shows that 
+
+Caesar can only handle small problem instances, while DdSolve scales significantly much better. 
+
+Differences for fixpoints. While Caesar requires an 𝑛 ∈ N such that Φ𝑛 (. . . ) is a fixpoint, and compares Φ𝑛 (. . . ) against a bound, DdSolve explicitly and iteratively computes the fixpoint 
+
+Φ𝑛 (. . . ) by computing Φ𝑚 (. . . ) for all 𝑚 ≤ 𝑛 but using a syntactical equivalence check (Section 11). This is a two-sided sword: Computing the expectations for every step is strictly more work, but has the potential to detect a fixpoint already after 𝑚 steps. In the benchmarks, we use the smallest 
+
+𝑛 such that Φ𝑛 (. . . ) is a fixpoint. This selection of 𝑛 is therefore slightly beneficial for Caesar .
+
+12.1.2 Array programs. We study programs with arrays using the built-in support for array logic in SMT solvers. The benchmark families are given in Appendix D. We present some results in Figure 9 (bottom): For most programs, DdSolve clearly outperforms Caesar , with a notable exception for the RShift program, where DdSolve does not manage to prune the TEDD. 
+
+12.1.3 Nonlinear expectations, conditioning, nondeterministic programs. Adding nondeterminism to programs does not notably change the performance comparison, see also Figure 13 in Appendix C. This is not surprising: TEDDs already supported minimization and minimization is also used to 24 Batz et al.                  
+
+> 0510 15 20 25
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> Time [s]
+> Rabin
+> 020 40 60
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> BRP
+> 0200 400
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> Time [s]
+> LShift
+> 0510
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> RShift
+> 0200 400
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> Lossy Sum
+> 1-thread 4-thread 24-thread Caesar
+
+Fig. 9. Scalability comparison with Caesar on two piecewise affine expectations. The benchmarks on top are without arrays, the benchmarks in the bottom row use arrays.              
+
+> 0100 200
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> Time [s]
+> Grid
+> 050 100 150
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> GeoGrid
+> 0100 200
+> Parameter
+> 0
+> 100
+> 200
+> 300
+> UniformGridWalk
+> 1-thread DDSolve
+> 1-thread Storm
+> 4-thread DDSolve
+> 4-thread Storm
+> 24-thread DDSolve
+> 24-thread Storm
+
+Fig. 10. Scalability comparison with Storm (using ADDs) on three benchmark families. 
+
+apply the k-induction operator. Similar observations hold for conditioning (Figure 14). The support for nonlinear expectations works, yet the cost of some pruning operations is often prohibitive. In fact, like for piecewise affine expectations, the total time by DdSolve is often dominated by a few expensive pruning operations. With non-linear expectations, these operations are handled by an SMT-solver for quantifier-free nonlinear integer arithmetic (QF_NIA), which have unpredictable timings. 
+
+12.2 Comparison with Storm (RQ2) 
+
+We compare the verification of probabilistic programs using TEDDs and ADDs. ADDs are funda-mentally restricted to finite state space, but benefit from a canonical representation (for a fixed variable ordering) that is not present in TEDDs. We compare against the probabilistic model checker 
+
+Storm . We configure Storm to use its Sylvan -based ADD engine, including the same support for multi-threading. We compare DdSolve on programs and call Storm on manually translated PRISM files following the principled recipe as in [28]. The programs are given in Appendix D. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 25     
+
+> 10 −110 010 110 2
+> w/o Pruning [s]
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> w/ pruning [s]
+> fixpoints induction
+
+(a) Run time with(out) pruning. Benchmarks split by fixpoints 
+
+and induction tasks.  
+
+> 0.0
+> 1.0
+> 2.5
+> 5.0
+> 7.5
+> 10 .0
+> 12 .5
+> 15 .0
+> Relative Speedup
+> 24-threads 4-threads
+
+(b) Relative speed up (y-axis) on benchmarks (x-axis, sorted by run time) with 4 or 24 threads.    
+
+> 10 −110 010 110 2
+> Dedicated Terms [s]
+> 10 −1
+> 10 0
+> 10 1
+> 10 2
+> DDSolve  [s]
+
+(c) Using or not using dedicated term data structures for piece-wise linear expectations. Fig. 11. Ablation study (RQ3): The influence of pruning, multithreading, and dedicated data structures. 
+
+The results are given in Fig. 10. We observe that on Grid and UniformGridWalk , DdSolve with sufficient number of threads clearly outperforms Storm with the same number of threads. On 
+
+GeoGrid , the situation is less clear, as DdSolve suffers from a performance penalty going from 4 to 
+
+24 threads. Further, the benefit of using multiple threads is completely different between both tools and over benchmarks, despite using same engine. The effect can easily be explained using the size of the different DDs. 
+
+12.3 Ablation study (RQ3) 
+
+To answer this RQ, we compare configurations of DdSolve , with short but dedicated experiments. 
+
+RQ3(a): Pruning. While predicates and leafs are normalized and thereby yield trivial pruning, SMT-based pruning is optional. We study the impact of this pruning in Figure 11a. From this data, we observe that on our benchmarks, SMT-based pruning is essential when applying k-induction, while on fixpoint computations, the overhead often exceeds the benefits somewhat. We conjecture that for k-induction, the applications of meets provides a lot of opportunity for (essential) pruning. 
+
+RQ3(b): Multithreading. DdSolve comes with support for multithreading. We compare a fixed configuration with a varying number of threads (Figure 11b). Beyond the inherent overhead, the work-stealing framework interferes with the incrementality of the SMT solvers. Nevertheless, we see that for 4 threads, we can achieve superlinear speed-ups on the harder instances, and that with 24 threads, we often reach speed-ups between 5x and 16x. 
+
+RQ3(c): Tailored linear terms. For piecewise affine benchmarks (as in Section 12.1.1), we can use specialized data structures for affine terms and predicates or use the generic SMT-based expressions. We study the impact of the specialized data structures on the Caesar -benchmarks, using one thread. The results are given in Figure 11c: Many benchmarks are sufficiently small that it does not matter, but for larger benchmarks, it yields a difference of orders of magnitude. The exception are two instances where the SMT-based pruning dominates the run time. 
+
+13 Conclusion 
+
+In this paper, we have shown that the suitable representation of expectations is key for scalable deductive verification of probabilistic programs: Our new tool DdSolve significantly outperforms the state of the art tool Caesar . We consider the best of both worlds: DDs to exploit regularity and 26 Batz et al. 
+
+SMT solving for pruning and entailment. It is a significant step forward. Nevertheless, (engineering) work regarding pruning and variable orderings, especially for expensive SMT theories, remains open, as is the question to characterize where theory-unaware equivalence checks are sufficient. Beyond the proof rules in this paper, a lot of work focusses on inductive synthesis [ 28 , 38 , 100 ] or abstraction-refinement [ 73 ] and we believe that TEDDs can be integrated in those. It would also be interesting to apply TEDDs to higher-order probabilistic WP, as in [ 99 ], and for inference tasks beyond verification, as in tools like PSI [46], Dice [61] or Roulette [80]. 
+
+References 
+
+[1] Dmitry Chistikov 0001, Rayna Dimitrova, and Rupak Majumdar. Approximate counting in smt and value estimation for probabilistic programs. In TACAS , pages 320–334, 2015. doi: 10.1007/978-3-662-46681-0\_26. URL https: //dblp.org/rec/conf/tacas/ChistikovDM15. [2] Dmitry Chistikov 0001, Rayna Dimitrova, and Rupak Majumdar. Approximate counting in smt and value estimation for probabilistic programs. Acta Informatica , 54(8):729–764, 2017. doi: 10.1007/s00236-017-0297-2. URL https: //dblp.org/rec/journals/acta/ChistikovDM17. [3] Satoshi Kura 0001 and Hiroshi Unno 0001. Automated verification of higher-order probabilistic programs via a dependent refinement type system. Proc. ACM Program. Lang. , 8(ICFP):973–1002, 2024. doi: 10.1145/3674662. URL https://dblp.org/rec/journals/pacmpl/0001024. [4] Satoshi Kura 0001 and Hiroshi Unno 0001. A hierarchy of supermartingales for 𝜔 -regular verification. CoRR ,abs/2512.00270, 2025. doi: 10.48550/arXiv.2512.00270. URL https://dblp.org/rec/journals/corr/abs-2512-00270. [5] Alejandro Aguirre and Lars Birkedal. Step-indexed logical relations for countable nondeterminism and probabilistic choice. Proc. ACM Program. Lang. , 7(POPL):33–60, 2023. doi: 10.1145/3571195. URL https://doi.org/10.1145/3571195. [6] Alejandro Aguirre, Philipp G. Haselwarter, Markus de Medeiros, Kwing Hei Li, Simon Oddershede Gregersen, Joseph Tassarotti, and Lars Birkedal. Error credits: Resourceful reasoning about error bounds for higher-order probabilistic programs. Proc. ACM Program. Lang. , 8(ICFP):284–316, 2024. doi: 10.1145/3674635. URL https://doi.org/10.1145/ 3674635. [7] Aws Albarghouthi and Justin Hsu. Constraint-based synthesis of coupling proofs. In CAV (1) , pages 327–346, 2018. doi: 10.1007/978-3-319-96145-3\_18. URL https://dblp.org/rec/conf/cav/AlbarghouthiH18. [8] Aws Albarghouthi and Justin Hsu. Synthesizing coupling proofs of differential privacy. Proc. ACM Program. Lang. , 2 (POPL):58:1–58:30, 2018. doi: 10.1145/3158146. URL https://dblp.org/rec/journals/pacmpl/AlbarghouthiH18. [9] Martin Avanzini, Michael Schaper, and Georg Moser. Modular runtime complexity analysis of probabilistic while programs. CoRR , abs/1908.11343, 2019. URL https://dblp.org/rec/journals/corr/abs-1908-11343. [10] Martin Avanzini, Georg Moser, and Michael Schaper. A modular cost analysis for probabilistic programs. Proc. ACM Program. Lang. , 4(OOPSLA):172:1–172:30, 2020. doi: 10.1145/3428240. URL https://dblp.org/rec/journals/pacmpl/ AvanziniMS20. [11] Martin Avanzini, Georg Moser, and Michael Schaper. Automated expected value analysis of recursive programs. 
+
+Proc. ACM Program. Lang. , 7(PLDI):1050–1072, 2023. doi: 10.1145/3591263. URL https://dblp.org/rec/journals/pacmpl/ AvanziniMS23. [12] R.I. Bahar, E.A. Frohm, C.M. Gaona, G.D. Hachtel, E. Macii, A. Pardo, and F. Somenzi. Algebraic decision diagrams and their applications. In Proceedings of 1993 International Conference on Computer Aided Design (ICCAD) , pages 188–191, 1993. [13] Christel Baier and Joost-Pieter Katoen. Principles of model checking . MIT Press, 2008. [14] Christel Baier, Edmund M. Clarke, Vasiliki Hartonas-Garmhausen, Marta Z. Kwiatkowska, and Mark Ryan. Symbolic model checking for probabilistic processes. In ICALP , volume 1256 of Lecture Notes in Computer Science , pages 430–440. Springer, 1997. [15] Jialu Bao, Nitesh Trivedi, Drashti Pathak, Justin Hsu, and Subhajit Roy 0001. Data-driven invariant learning for probabilistic programs. In CAV (1) , pages 33–54, 2022. doi: 10.1007/978-3-031-13185-1\_3. URL https://dblp.org/rec/ conf/cav/BaoTPHR22. [16] Jialu Bao, Nitesh Trivedi, Drashti Pathak, Justin Hsu, and Subhajit Roy 0001. Data-driven invariant learning for probabilistic programs (extended abstract). In IJCAI , pages 6415–6419, 2023. doi: 10.24963/ijcai.2023/712. URL https://dblp.org/rec/conf/ijcai/BaoTPH023. [17] Jialu Bao, Emanuele D’Osualdo, and Azadeh Farzan. Bluebell: An alliance of relational lifting and independence for probabilistic reasoning. Proc. ACM Program. Lang. , 9(POPL):1719–1749, 2025. doi: 10.1145/3704894. URL https://dblp.org/rec/journals/pacmpl/BaoDF25. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 27 
+
+[18] Jialu Bao, Nitesh Trivedi, Drashti Pathak, Justin Hsu, and Subhajit Roy 0001. Data-driven invariant learning for probabilistic programs. Formal Methods Syst. Des. , 66(2):278–306, 2025. doi: 10.1007/s10703-024-00466-x. URL https://dblp.org/rec/journals/fmsd/BaoTPHR25. [19] Haniel Barbosa, Clark W. Barrett, Martin Brain, Gereon Kremer, Hanna Lachnitt, Makai Mann, Abdalrhman Mohamed, Mudathir Mohamed, Aina Niemetz, Andres Nötzli, Alex Ozdemir, Mathias Preiner, Andrew Reynolds, Ying Sheng, Cesare Tinelli, and Yoni Zohar. cvc5: A versatile and industrial-strength SMT solver. In TACAS (1) , volume 13243 of 
+
+Lecture Notes in Computer Science , pages 415–442. Springer, 2022. [20] Clark Barrett, Pascal Fontaine, and Cesare Tinelli. The Satisfiability Modulo Theories Library (SMT-LIB). 
+
+www.SMT-LIB.org , 2016. [21] Clark W. Barrett, Aaron Stump, and Cesare Tinelli. The smt-lib standard version 2.0. 2010. URL https://api. semanticscholar.org/CorpusID:7943149. [22] Clark W. Barrett, Roberto Sebastiani, Sanjit A. Seshia, and Cesare Tinelli. Satisfiability modulo theories. In Handbook of Satisfiability , Frontiers in Artificial Intelligence and Applications, pages 1267–1329. IOS Press, 2021. [23] Gilles Barthe, Boris Köpf, Federico Olmedo, and Santiago Zanella-Béguelin. Probabilistic relational reasoning for differential privacy. In POPL , pages 97–110, 2012. doi: 10.1145/2103656.2103670. URL https://dblp.org/rec/conf/popl/ BartheKOB12. [24] Gilles Barthe, Thomas Espitau, Luis María Ferrer Fioriti, and Justin Hsu. Synthesizing probabilistic invariants via doob’s decomposition. In CAV (1) , pages 43–61, 2016. doi: 10.1007/978-3-319-41528-4\_3. URL https://dblp.org/rec/ conf/cav/BartheEFH16. [25] Gilles Barthe, Benjamin Grégoire, Justin Hsu, and Pierre-Yves Strub. Coupling proofs are probabilistic product programs. In POPL , pages 161–174, 2017. doi: 10.1145/3009837.3009896. URL https://dblp.org/rec/conf/popl/ BartheGHS17. [26] Gilles Barthe, Justin Hsu, and Kevin Liao. A probabilistic separation logic. Proc. ACM Program. Lang. , 4(POPL): 55:1–55:30, 2020. [27] Kevin Batz, Mingshuai Chen, Benjamin Lucien Kaminski, Joost-Pieter Katoen, Christoph Matheja, and Philipp Schröer. Latticed k-induction with an application to probabilistic programs. In CAV (2) , volume 12760 of Lecture Notes in Computer Science , pages 524–549. Springer, 2021. [28] Kevin Batz, Mingshuai Chen, Sebastian Junges, Benjamin Lucien Kaminski, Joost-Pieter Katoen, and Christoph Matheja. Probabilistic program verification via inductive synthesis of inductive invariants. In TACAS (2) , volume 13994 of Lecture Notes in Computer Science , pages 410–429. Springer, 2023. [29] Kevin Batz, Benjamin Lucien Kaminski, Joost-Pieter Katoen, Christoph Matheja, and Lena Verscht. A calculus for amortized expected runtimes. Proc. ACM Program. Lang. , 7(POPL):1957–1986, 2023. [30] Kevin Batz, Joost-Pieter Katoen, Francesca Randone, and Tobias Winkler. Foundations for deductive verification of continuous probabilistic programs: From lebesgue to riemann and back. CoRR , abs/2502.19388, 2025. doi: 10.48550/ARXIV.2502.19388. URL https://doi.org/10.48550/arXiv.2502.19388. [31] Dirk Beyer, Matthias Dangl, and Philipp Wendler. Boosting k-induction with continuously-refined invariants. In 
+
+CAV (1) , volume 9206 of Lecture Notes in Computer Science , pages 622–640. Springer, 2015. [32] Randal E. Bryant. Graph-based algorithms for boolean function manipulation. IEEE Trans. Computers , 35(8):677–691, 1986. [33] Jerry R. Burch, Edmund M. Clarke, Kenneth L. McMillan, David L. Dill, and L. J. Hwang. Symbolic model checking: 10ˆ20 states and beyond. Inf. Comput. , 98(2):142–170, 1992. [34] Krishnendu Chatterjee, Hongfei Fu 0001, and Amir Kafshdar Goharshady. Termination analysis of probabilistic programs through positivstellensatz’s. In CAV (1) , pages 3–22, 2016. doi: 10.1007/978-3-319-41528-4\_1. URL https://dblp.org/rec/conf/cav/ChatterjeeFG16. [35] Krishnendu Chatterjee, Amir Kafshdar Goharshady, Tobias Meggendorfer, and Dorde Zikelic. Sound and complete certificates for quantitative termination analysis of probabilistic programs. In CAV (1) , volume 13371 of Lecture Notes in Computer Science , pages 55–78. Springer, 2022. [36] Krishnendu Chatterjee, Amir Kafshdar Goharshady, Tobias Meggendorfer, and Dorde Zikelic. Quantitative bounds on resource usage of probabilistic programs. Proc. ACM Program. Lang. , 8(OOPSLA1):362–391, 2024. doi: 10.1145/3649824. URL https://dblp.org/rec/journals/pacmpl/ChatterjeeGMZ24. [37] Jianhui Chen and Fei He 0001. Proving almost-sure termination by omega-regular decomposition. In PLDI , pages 869–882, 2020. doi: 10.1145/3385412.3386002. URL https://dblp.org/rec/conf/pldi/ChenH20. [38] Yu-Fang Chen, Chih-Duo Hong, Bow-Yaw Wang, and Lijun Zhang. Counterexample-guided polynomial loop invariant generation by lagrange interpolation. In CAV (1) , volume 9206 of Lecture Notes in Computer Science , pages 658–674. Springer, 2015. [39] Pedro R. D’Argenio, Bertrand Jeannet, Henrik Ejersbo Jensen, and Kim Guldstrand Larsen. Reachability analysis of probabilistic systems by successive refinements. In PAPM-PROBMIV , volume 2165 of Lecture Notes in Computer 28 Batz et al. 
+
+Science , pages 39–56. Springer, 2001. [40] Leonardo Mendonça de Moura and Nikolaj S. Bjørner. Z3: an efficient SMT solver. In TACAS , volume 4963 of Lecture Notes in Computer Science , pages 337–340. Springer, 2008. [41] Edsger W. Dijkstra. A Discipline of Programming . Prentice-Hall, 1976. [42] Alastair F. Donaldson, Leopold Haller, Daniel Kroening, and Philipp Rümmer. Software verification using k-induction. In SAS , volume 6887 of Lecture Notes in Computer Science , pages 351–368. Springer, 2011. [43] Constantin Enea, Rupak Majumdar, Harshit Jitendra Motwani, and V. R. Sathiyanarayana. Verifying almost-sure termination for randomized distributed algorithms. Proc. ACM Program. Lang. , 10(POPL):1412–1441, 2026. doi: 10.1145/3776691. URL https://dblp.org/rec/journals/pacmpl/EneaMMS26. [44] Nate Foster, Dexter Kozen, Konstantinos Mamouras, Mark Reitblatt, and Alexandra Silva. Probabilistic netkat. In Peter Thiemann, editor, Programming Languages and Systems - 25th European Symposium on Programming, ESOP 2016, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2016, Eindhoven, The Netherlands, April 2-8, 2016, Proceedings , Lecture Notes in Computer Science, pages 282–309. Springer, 2016. doi: 10.1007/978-3-662-49498-1\_12. URL https://doi.org/10.1007/978-3-662-49498-1_12. [45] Jean H. Gallier. Logic for Computer Science: Foundations of Automatic Theorem Proving . Wiley, 1987. [46] Timon Gehr, Sasa Misailovic, and Martin T. Vechev. PSI: exact symbolic inference for probabilistic programs. In CAV (1) , volume 9779 of Lecture Notes in Computer Science , pages 62–83. Springer, 2016. [47] Timon Gehr, Sasa Misailovic, Petar Tsankov, Laurent Vanbever, Pascal Wiesmann, and Martin T. Vechev. Bayonet: probabilistic inference for networks. In PLDI , pages 586–602. ACM, 2018. [48] Nick Giannarakis, Alexandra Silva, and David Walker. Probnv: probabilistic verification of network control planes. 
+
+Proc. ACM Program. Lang. , 5(ICFP):1–30, 2021. doi: 10.1145/3473595. URL https://doi.org/10.1145/3473595. [49] Andrew D. Gordon, Thomas A. Henzinger, Aditya V. Nori, and Sriram K. Rajamani. Probabilistic programming. In 
+
+FOSE , pages 167–181. ACM, 2014. [50] Simon Oddershede Gregersen, Alejandro Aguirre, Philipp G. Haselwarter, Joseph Tassarotti, and Lars Birkedal. Almost-sure termination by guarded refinement. Proc. ACM Program. Lang. , 8(ICFP):203–233, 2024. doi: 10.1145/3674632. URL https://doi.org/10.1145/3674632. [51] Simon Oddershede Gregersen, Alejandro Aguirre, Philipp G. Haselwarter, Joseph Tassarotti, and Lars Birkedal. Asynchronous probabilistic couplings in higher-order separation logic. Proc. ACM Program. Lang. , 8(POPL):753–784, 2024. [52] Friedrich Gretz, Joost-Pieter Katoen, and Annabelle McIver. Prinsys - on a quest for probabilistic loop invariants. In Kaustubh R. Joshi, Markus Siegle, Mariëlle Stoelinga, and Pedro R. D’Argenio, editors, Quantitative Evaluation of Systems - 10th International Conference, QEST 2013, Buenos Aires, Argentina, August 27-30, 2013. Proceedings ,Lecture Notes in Computer Science, pages 193–208. Springer, 2013. doi: 10.1007/978-3-642-40196-1\_17. URL https://doi.org/10.1007/978-3-642-40196-1_17. [53] Jan Friso Groote and Erik P. de Vink. Problem solving using process algebra considered insightful. In Joost-Pieter Katoen, Rom Langerak, and Arend Rensink, editors, ModelEd, TestEd, TrustEd - Essays Dedicated to Ed Brinksma on the Occasion of His 60th Birthday , volume 10500 of Lecture Notes in Computer Science , pages 48–63. Springer, 2017. doi: 10.1007/978-3-319-68270-9\_3. URL https://doi.org/10.1007/978-3-319-68270-9_3. [54] Jan Friso Groote and Olga Tveretina. Binary decision diagrams for first-order predicate logic. J. Log. Algebraic Methods Program. , 57(1-2):1–22, 2003. [55] Arie Gurfinkel and Alexander Ivrii. K-induction without unrolling. In FMCAD , pages 148–155. IEEE, 2017. [56] Philipp G. Haselwarter, Kwing Hei Li, Markus de Medeiros, Simon Oddershede Gregersen, Alejandro Aguirre, Joseph Tassarotti, and Lars Birkedal. Tachis: Higher-order separation logic with credits for expected costs. Proc. ACM Program. Lang. , 8(OOPSLA2):1189–1218, 2024. doi: 10.1145/3689753. URL https://doi.org/10.1145/3689753. [57] Philipp G. Haselwarter, Kwing Hei Li, Alejandro Aguirre, Simon Oddershede Gregersen, Joseph Tassarotti, and Lars Birkedal. Approximate relational reasoning for higher-order probabilistic programs. Proc. ACM Program. Lang. , 9 (POPL):1196–1226, 2025. doi: 10.1145/3704877. URL https://doi.org/10.1145/3704877. [58] Philipp G. Haselwarter, Alejandro Aguirre, Simon Oddershede Gregersen, Kwing Hei Li, Joseph Tassarotti, and Lars Birkedal. Modular verification of differential privacy in probabilistic higher-order separation logic (extended version). 
+
+CoRR , abs/2604.12713, 2026. doi: 10.48550/ARXIV.2604.12713. URL https://doi.org/10.48550/arXiv.2604.12713. [59] Christian Hensel, Sebastian Junges, Joost-Pieter Katoen, Tim Quatmann, and Matthias Volk. The probabilistic model checker storm. Int. J. Softw. Tools Technol. Transf. , 24(4):589–610, 2022. [60] Shing Hin Ho, Nicolas Wu, and Azalea Raad. Bayesian separation logic: A logical foundation and axiomatic semantics for probabilistic programming. Proc. ACM Program. Lang. , 10(POPL):1557–1585, 2026. doi: 10.1145/3776696. URL https://dblp.org/rec/journals/pacmpl/HoWR26. [61] Steven Holtzen, Guy Van den Broeck, and Todd D. Millstein. Scaling exact inference for discrete probabilistic programs. Proc. ACM Program. Lang. , 4(OOPSLA):140:1–140:31, 2020. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 29 
+
+[62] Mingzhang Huang, Hongfei Fu 0001, Krishnendu Chatterjee, and Amir Kafshdar Goharshady. Modular verification for almost-sure termination of probabilistic programs. Proc. ACM Program. Lang. , 3(OOPSLA):129:1–129:29, 2019. doi: 10.1145/3360555. URL https://dblp.org/rec/journals/pacmpl/Huang0CG19. [63] Dejan Jovanovic and Bruno Dutertre. Property-directed k-induction. In FMCAD , pages 85–92. IEEE, 2016. [64] Benjamin Lucien Kaminski. Advanced Weakest Precondition Calculi for Probabilistic Programs . PhD thesis, RWTH Aachen University, Germany, 2019. [65] Benjamin Lucien Kaminski, Joost-Pieter Katoen, Christoph Matheja, and Federico Olmedo. Weakest precondition reasoning for expected runtimes of randomized algorithms. J. ACM , 65(5):30:1–30:68, 2018. [66] Benjamin Lucien Kaminski, Joost-Pieter Katoen, and Christoph Matheja. On the hardness of analyzing probabilistic programs. Acta Informatica , 56(3):255–285, 2019. [67] Joost-Pieter Katoen, Annabelle McIver, Larissa Meinicke, and Carroll C. Morgan. Linear-invariant generation for probabilistic programs: - automated support for proof-based methods. In Radhia Cousot and Matthieu Martel, editors, Static Analysis - 17th International Symposium, SAS 2010, Perpignan, France, September 14-16, 2010. Proceedings ,Lecture Notes in Computer Science, pages 390–406. Springer, 2010. doi: 10.1007/978-3-642-15769-1\_24. URL https://doi.org/10.1007/978-3-642-15769-1_24. [68] Tim King, Clark W. Barrett, and Cesare Tinelli. Leveraging linear and mixed integer programming for SMT. In 
+
+FMCAD , pages 139–146. IEEE, 2014. [69] Satoshi Kura, Hiroshi Unno, and Takeshi Tsukada. Ranking and invariants for lower-bound inference in quantitative verification of probabilistic programs. CoRR , abs/2504.04132, 2025. [70] Eyal Kushilevitz and Michael O. Rabin. Randomized mutual exclusion algorithms revisited. In PODC , pages 275–283. ACM, 1992. [71] Guanyan Li, Zhilei Han, and Fei He 0001. Probta: A sound and complete proof rule for probabilistic verification. 
+
+CoRR , abs/2203.04422, 2022. doi: 10.48550/arXiv.2203.04422. URL https://dblp.org/rec/journals/corr/abs-2203-04422. [72] Guanyan Li, Juanen Li, Zhilei Han, Peixin Wang, Hongfei Fu 0001, and Fei He 0001. Structural abstraction and refinement for probabilistic programs. Proc. ACM Program. Lang. , 9(OOPSLA2):1809–1836, 2025. doi: 10.1145/3763115. URL https://dblp.org/rec/journals/pacmpl/LiLHW0025. [73] Guanyan Li, Juanen Li, Zhilei Han, Peixin Wang, Hongfei Fu, and Fei He. Structural abstraction and refinement for probabilistic programs. CoRR , abs/2508.12344, 2025. [74] Kwing Hei Li, Alejandro Aguirre, Simon Oddershede Gregersen, Philipp G. Haselwarter, Joseph Tassarotti, and Lars Birkedal. Modular reasoning about error bounds for concurrent probabilistic programs. Proc. ACM Program. Lang. , 9 (ICFP):276–305, 2025. doi: 10.1145/3747514. URL https://doi.org/10.1145/3747514. [75] Kwing Hei Li, Alejandro Aguirre, Joseph Tassarotti, and Lars Birkedal. Contextual refinement of higher-order concurrent probabilistic programs. CoRR , abs/2511.10135, 2025. doi: 10.48550/ARXIV.2511.10135. URL https: //doi.org/10.48550/arXiv.2511.10135. [76] Rupak Majumdar and V. R. Sathiyanarayana. Positive almost-sure termination: Complexity and proof rules. Proc. ACM Program. Lang. , 8(POPL):1089–1117, 2024. doi: 10.1145/3632879. URL https://dblp.org/rec/journals/pacmpl/ MajumdarS24. [77] Rupak Majumdar and V. R. Sathiyanarayana. Sound and complete proof rules for probabilistic termination. Proc. ACM Program. Lang. , 9(POPL):1871–1902, 2025. doi: 10.1145/3704899. URL https://dblp.org/rec/journals/pacmpl/ MajumdarS25. [78] Virgil Marionneau, Félix Sassus Bourda, Alejandro Aguirre, and Lars Birkedal. Modular specifications and implemen-tations of random samplers in higher-order separation logic. In Kathrin Stark, Yannick Zakowski, Nikhil Swamy, and Nicolas Tabareau, editors, Proceedings of the 15th ACM SIGPLAN International Conference on Certified Programs and Proofs, CPP 2026, Rennes, France, January 12-13, 2026 , pages 368–382. ACM, 2026. doi: 10.1145/3779031.3779109. URL https://doi.org/10.1145/3779031.3779109. [79] Annabelle McIver and Carroll Morgan. Abstraction, Refinement and Proof for Probabilistic Systems . Monographs in Computer Science. Springer, 2005. [80] Cameron Moy, Jack Czenszak, John M. Li, Brianna Marshall, and Steven Holtzen. Roulette: A language for expressive, exact, and efficient discrete probabilistic programming. Proc. ACM Program. Lang. , 9(PLDI):2081–2105, 2025. [81] Federico Olmedo, Friedrich Gretz, Nils Jansen, Benjamin Lucien Kaminski, Joost-Pieter Katoen, and Annabelle McIver. Conditioning in probabilistic programming. ACM Trans. Program. Lang. Syst. , 40(1):4:1–4:50, 2018. [82] Scott Sanner and Craig Boutilier. Practical solution techniques for first-order mdps. Artif. Intell. , 173(5-6):748–788, 2009. [83] Scott Sanner, Karina Valdivia Delgado, and Leliane Nunes de Barros. Symbolic dynamic programming for discrete and continuous state mdps. In UAI , pages 643–652. AUAI Press, 2011. [84] Philipp Schröer, Kevin Batz, Benjamin Lucien Kaminski, Joost-Pieter Katoen, and Christoph Matheja. A deductive verification infrastructure for probabilistic programs. Proc. ACM Program. Lang. , 7(OOPSLA2):2052–2082, 2023. 30 Batz et al. 
+
+[85] Mary Sheeran, Satnam Singh, and Gunnar Stålmarck. Checking safety properties using induction and a sat-solver. In 
+
+FMCAD , volume 1954 of Lecture Notes in Computer Science , pages 108–125. Springer, 2000. [86] Calvin Smith, Justin Hsu, and Aws Albarghouthi. Trace abstraction modulo probability. Proc. ACM Program. Lang. , 3 (POPL):39:1–39:31, 2019. doi: 10.1145/3290352. URL https://dblp.org/rec/journals/pacmpl/SmithHA19. [87] Steffen Smolka, David M. Kahn, Praveen Kumar, Nate Foster, Dexter Kozen, and Alexandra Silva. Deciding probabilistic program equivalence in netkat. CoRR , abs/1707.02772, 2017. URL http://arxiv.org/abs/1707.02772. [88] Steffen Smolka, Praveen Kumar, Nate Foster, Dexter Kozen, and Alexandra Silva. Cantor meets scott: semantic foundations for probabilistic networks. In Giuseppe Castagna and Andrew D. Gordon, editors, Proceedings of the 44th ACM SIGPLAN Symposium on Principles of Programming Languages, POPL 2017, Paris, France, January 18-20, 2017 ,pages 557–571. ACM, 2017. doi: 10.1145/3009837.3009843. URL https://doi.org/10.1145/3009837.3009843. [89] Steffen Smolka, Praveen Kumar, David M. Kahn, Nate Foster, Justin Hsu, Dexter Kozen, and Alexandra Silva. Scalable verification of probabilistic networks. In Kathryn S. McKinley and Kathleen Fisher, editors, Proceedings of the 40th ACM SIGPLAN Conference on Programming Language Design and Implementation, PLDI 2019, Phoenix, AZ, USA, June 22-26, 2019 , pages 190–203. ACM, 2019. doi: 10.1145/3314221.3314639. URL https://doi.org/10.1145/3314221.3314639. [90] Jip Spel. Monotonicity in Markov Chains. URL https://fmt.ewi.utwente.nl/media/Thesis-FINAL_Jip_Spel_yIy3I5R.pdf. [91] Philipp Stassen, Rasmus Ejlers Møgelberg, Maaike Zwart, Alejandro Aguirre, and Lars Birkedal. Modelling recursion and probabilistic choice in guarded type theory. Proc. ACM Program. Lang. , 9(POPL):1417–1445, 2025. doi: 10.1145/ 3704884. URL https://doi.org/10.1145/3704884. [92] Yican Sun, Hongfei Fu 0001, Krishnendu Chatterjee, and Amir Kafshdar Goharshady. Automated tail bound analysis for probabilistic recurrence relations. In CAV (3) , pages 16–39, 2023. doi: 10.1007/978-3-031-37709-9\_2. URL https://dblp.org/rec/conf/cav/SunFCG23. [93] Zachary Susag, Sumit Lahiri, Justin Hsu, and Subhajit Roy 0001. Symbolic execution for randomized programs. Proc. ACM Program. Lang. , 6(OOPSLA2):1583–1612, 2022. doi: 10.1145/3563344. URL https://dblp.org/rec/journals/pacmpl/ SusagLHR22. [94] Terence Tao. An Introduction to Measure Theory , volume 126 of Graduate Studies in Mathematics . American Mathematical Society, 2011. [95] Tom van Dijk and Jaco van de Pol. Sylvan: multi-core framework for decision diagrams. Int. J. Softw. Tools Technol. Transf. , 19(6):675–696, 2017. [96] Tom van Dijk and Jaco C. van de Pol. Lace: Non-blocking split deque for work-stealing. In Euro-Par Workshops (2) ,volume 8806 of Lecture Notes in Computer Science , pages 206–217. Springer, 2014. [97] Jinyi Wang, Yican Sun, Hongfei Fu 0001, Krishnendu Chatterjee, and Amir Kafshdar Goharshady. Quantitative analysis of assertion violations in probabilistic programs. In PLDI , pages 1171–1186, 2021. doi: 10.1145/3453483.3454102. URL https://dblp.org/rec/conf/pldi/WangS0CG21. [98] Peixin Wang, Hongfei Fu 0001, Amir Kafshdar Goharshady, Krishnendu Chatterjee, Xudong Qin, and Wenjun Shi. Cost analysis of nondeterministic probabilistic programs. In PLDI , pages 204–220, 2019. doi: 10.1145/3314221.3314581. URL https://dblp.org/rec/conf/pldi/Wang0GCQS19. [99] Kazuki Watanabe, Mayuko Kori, Taro Sekiyama, Satoshi Kura, and Hiroshi Unno. A denotational product construction for temporal verification of effectful higher-order programs. CoRR , abs/2510.11320, 2025. [100] Dorde Zikelic, Mathias Lechner, Thomas A. Henzinger, and Krishnendu Chatterjee. Learning control policies for stochastic systems with reach-avoid guarantees. In AAAI , pages 11926–11935. AAAI Press, 2023. Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 31 
+
+A Additional Proofs 
+
+Recall that |X| denotes the number of nodes of X. The time bounds below distinguish procedure invocations from cache misses. A cache miss is an invocation that is not returned immediately and is therefore fully evaluated. Unless stated otherwise, cache lookups, cache insertions, root-label access, and successor access are counted as unit-cost operations; calls to Obtain , SMT queries, term/formula substitution, and nested calls to other algorithms are accounted for explicitly. 
+
+Definition A.1 (Rank). Let X be a TEDD and let 𝑣 be a node of X. The rank of 𝑣 in X, denoted 
+
+rank X (𝑣 ), is the maximum number of edges of a directed path from 𝑣 to a terminal node. Thus terminal nodes have rank 0. For a tuple of nodes (𝑣 1, . . . , 𝑣 𝑛 ) from TEDDs X1, . . . , X𝑛 , its rank is Í𝑛 𝑖 =1 rank X𝑖 (𝑣 𝑖 ).
+
+A.1 Correctness and Cache Misses of Apply (Algorithm 1) 
+
+The following theorem is equivalent to Theorem 8.1 since we inline the specification of Algorithm 1. 
+
+Theorem A.2. Let F : Terms 𝜏 1 × . . . × Terms 𝜏 𝑛 → Terms 𝜏 be a term operator, and let X1, . . . , X𝑛 
+
+be TEDDs of types 𝜏 1, . . . , 𝜏 𝑛 , respectively. If Apply( F , X1, . . . , X𝑛 ) returns X, then X is a 𝜏 -TEDD and 
+
+∀I ∈ Intrs : JXKI = Jop [F ] ( eX1 , . . . , eX𝑛 )KI .
+
+Moreover, Apply( F , X1, . . . , X𝑛 ) has at most 
+
+|X 1 | · . . . · |X 𝑛 |
+
+cache misses. 
+
+Proof. We first prove correctness and then establish the cache-miss bound. The key idea is the usual product traversal: Apply synchronously splits all current TEDDs on the ≺-least available root formula and applies F only at tuples of terminal nodes. We maintain the cache invariant that each stored result is a well-formed 𝜏 -TEDD with the claimed denotation, making cache hits correct. For correctness, the proof strategy is induction on tuple rank. Rank 0 is the terminal case. For positive rank, let 𝜑 be the chosen least root formula. In both recursive calls, at least one component advances to a proper successor and no component increases in rank, so the induction hypothesis applies. The recursive results therefore denote the two branches of the desired operator application; since all remaining roots are ≺-larger than 𝜑 , the final Obtain call is well formed. Splitting any interpretation according to whether it satisfies 𝜑 gives the required denotation. For the bound, each cache miss is determined by one tuple of nodes (𝑣 1, . . . , 𝑣 𝑛 ) from the input TEDDs and the fixed operator F . After that tuple is fully evaluated it is cached, so it cannot cause another miss. There are at most |X 1 | · . . . · |X 𝑛 | such tuples. □
+
+A.2 Correctness and Cache Misses of Substitute (Algorithm 2) 
+
+The following theorem is equivalent to Theorem 8.3 since we inline the specification of Algorithm 2. 
+
+Theorem A.3. Let X be a 𝜏 -TEDD, let 𝑥 : 𝜏 ′, and let 𝑡 : 𝜏 ′. If Substitute( X, 𝑥, 𝑡 ) returns Y, then 
+
+Y is a 𝜏 -TEDD and 
+
+∀I ∈ Intrs : JYKI = JeX [𝑥 /𝑡 ]KI .
+
+For fixed 𝑥 and 𝑡 , Substitute has at most |X| cache misses. This count is for Substitute itself and excludes the nested Apply calls in line 10. 
+
+Proof. We first prove correctness and then establish the cache-miss bound. The key idea is to substitute recursively and let Apply rebuild the root case distinction, because changing a guard may violate the fixed order. We maintain the cache invariant that every stored triple (X ′, 𝑥, 𝑡 ) denotes 
+
+eX′ [𝑥 /𝑡 ], so cache hits are correct. 32 Batz et al. 
+
+For correctness, the proof strategy is induction on the rank of the current node. At a terminal node, Obtain is called on the substituted terminal label. At a non-terminal node with guard 𝜑 ,the algorithm substitutes the guard to obtain 𝜑 ′, recursively substitutes both successors, and then applies ITE to the guard TEDD for 𝜑 ′ and the two substituted children. The recursive calls have smaller rank, and Theorem A.2 gives a well-formed TEDD denoting exactly the substituted case distinction. For the bound, 𝑥 and 𝑡 are fixed, and each Substitute cache miss is keyed by one input sub-TEDD. Hence there is at most one such miss per node of X, i.e. at most |X| misses; the nested Apply calls are counted separately. □
+
+A.3 Correctness and Invocations of Prune (Algorithm 3) 
+
+The following theorem is equivalent to Theorem 8.5 since we inline the specification of Algorithm 3. 
+
+Theorem A.4 (Prune correctness and invocations). Assume that the initial context 𝜃 is satisfiable modulo T . If Prune( T , X, 𝜃 ) returns Y, then Y is a 𝜏 -TEDD and, for every T -interpretation 
+
+I satisfying 𝜃 ,
+
+JYKI = JXKI .
+
+Moreover, Y is pruned modulo T under context 𝜃 in the sense of Definition 7.7. In particular, the call with 𝜃 = true returns a 𝜏 -TEDD equivalent to X modulo T and pruned modulo T .Let 𝑚 = rank X (𝑣 0) be the rank from Definition A.1. Then Prune makes at most 2𝑚 +1 −1 invocations, counting the initial invocation and cache-hit invocations. 
+
+Proof. We first prove correctness and prunedness and then establish the invocation bound. The key idea is to traverse the TEDD under the accumulated context and delete exactly those branches whose extended context is unsatisfiable modulo T . The cache invariant is that every stored triple 
+
+(T , X′, 𝜃 ′) is well formed, equivalent to X′ under 𝜃 ′, and pruned under 𝜃 ′.For correctness and prunedness, the proof strategy is induction on the rank of the current root, assuming the current context is satisfiable. Terminal nodes are already pruned. At a non-terminal node with guard 𝜓 , the algorithm considers 𝜃 ′ ∧ 𝜓 and 𝜃 ′ ∧ ¬ 𝜓 . If one is unsatisfiable, all models of 𝜃 ′ take the other branch, so returning the recursively pruned reachable successor preserves equivalence and prunedness. If both are satisfiable, the recursively pruned successors are equivalent and pruned under their respective contexts, and Obtain rebuilds a well-formed node; equivalence follows by splitting on 𝜓 , and prunedness follows from the satisfiable path witnesses in the children. The case 𝜃 = true is exactly equivalence modulo T .For the invocation bound, view the run as a recursion tree. Each non-leaf has at most two children, and every recursive edge moves to a proper successor, decreasing rank. Thus the height is at most 
+
+𝑚 = rank X (𝑣 0), giving at most 2𝑚 +1 − 1 invocations. □
+
+A.4 Correctness and Cache Misses of Minimum (Algorithm 4) 
+
+The following theorem is equivalent to Theorem 9.2 since we inline the specification of Algorithm 4. 
+
+Theorem A.5 (Minimum correctness and cache misses). Let X1 and X2 be EUReal -TEDDs. If 
+
+Minimum( X1, X2) returns Y, then Y is an EUReal -TEDD and, for every interpretation I,
+
+JYKI = min {JX1KI, JX2KI }.
+
+Moreover, Minimum has at most |X 1 | · |X 2 | cache misses. This count excludes the nested Apply calls in the final merge line immediately before line 15, which are accounted for by Theorem A.2. 
+
+Proof. We first prove correctness and then establish the cache-miss bound. The key idea is again a product traversal: split the current inputs on the relevant least root label, and compute the Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 33 
+
+actual minimum only when both inputs are terminal. The cache invariant is that every stored pair denotes the pointwise minimum of that pair. For correctness, the proof strategy is induction on tuple rank. At rank 0, the algorithm returns the TEDD that selects X′ 
+
+> 1
+
+iff its terminal label is strictly smaller than that of X′ 
+
+> 2
+
+, which is the pointwise minimum. At positive rank, the algorithm chooses the appropriate split label 𝜑 , recurses on the plus and minus inputs, and each recursive call has smaller tuple rank. The recursive results denote the two branchwise minima; the final Apply call with ITE merges them into the minimum of the original pair by splitting interpretations according to 𝜑 .For the bound, a Minimum cache miss is determined by a pair of nodes from X1 and X2, and each pair is cached after its first full evaluation. Hence there are at most |X 1 | · |X 2 | misses, excluding the nested Apply calls. □
+
+A.5 Correctness and Invocations of Entails (Algorithm 5) 
+
+The following theorem is equivalent to Theorem 10.6 since we inline the specification of Algorithm 5. 
+
+Theorem A.6 (Entails correctness and invocations). For every call Entails( T , X1, X2, 𝜑 ),the returned value is true if and only if every T -interpretation I satisfying 𝜑 satisfies 
+
+JX1KI ≤ JX2KI .
+
+Consequently, the initial call with 𝜑 = true satisfies the specification in Algorithm 5. Let 𝑟 𝑖 be the root of X𝑖 , and let 𝑚 𝑖 = rank X𝑖 (𝑟 𝑖 ) be the root rank from Definition A.1. Then Entails 
+
+makes at most 2𝑚 1+𝑚 2+1 − 1 invocations, counting the initial invocation. This bound is an invocation bound, not a cache-miss bound for recursive subproblems, because Entails caches terminal SMT queries but does not cache recursive triples (T , X1, X2, 𝜑 ).
+
+Proof. We first prove correctness and then establish the invocation bound. The key idea is to enumerate paired paths while carrying the current path condition. At terminal pairs, the SMT query checks whether 𝜑 ′ ∧ 𝐿 𝑇 (X ′ 
+
+> 1
+
+) > 𝐿 𝑇 (X ′ 
+
+> 2
+
+) is satisfiable, i.e. whether a counterexample to the entailment exists. The terminal SMT cache is sound because it stores exactly these query results. Correctness is by induction on the tuple rank of the current TEDD pair. At rank 0, the negated satisfiability result is true exactly when no interpretation satisfying the accumulated context violates the inequality. At positive rank, the algorithm splits on the ≺-least current root label 𝜓 , forming contexts 𝜑 ′ ∧ 𝜓 and 𝜑 ′ ∧ ¬ 𝜓 and the corresponding successor pairs. These two contexts partition the interpretations satisfying 𝜑 ′, and both recursive calls have smaller tuple rank. Therefore their conjunction is true exactly when the inequality holds under the original context. For the invocation bound, the recursion tree is binary, and along each edge at least one TEDD advances to a proper successor. A branch therefore has length at most 𝑚 1 + 𝑚 2, so the tree has at most 2𝑚 1+𝑚 2+1 − 1 invocations. □
+
+A.6 Soundness of Syntactic Weakest Pre-Expectations (Theorem 9.1) 
+
+Proof of Theorem 9.1. Fix a structure 𝔄 . For a EUReal -TEDD X, write 
+
+E𝔄  
+
+> X
+
+= 𝜆𝜎. JXK(𝔄 ,𝜎 ) .
+
+We prove the following statement by structural induction on the loop-free program 𝐶 : for every 
+
+EUReal -TEDD X and every valuation 𝜎 ,
+
+Jwp J𝐶 K (X) K(𝔄 ,𝜎 ) = wp 𝔄 J𝐶 K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ).
+
+For guards, we use the following fact. The Boolean TEDD X𝜑 from Table 2 satisfies 
+
+JX𝜑 K(𝔄 ,𝜎 ) = true iff (𝔄 , 𝜎 ) | = 𝜑. (Table 2, Thm. A.2) 34 Batz et al. 
+
+This follows by induction on 𝜑 from the construction of X𝜑 using Apply on Boolean connectives. 
+
+The case 𝐶 = skip .
+
+Jwp Jskip K (X) K(𝔄 ,𝜎 )
+
+= JXK(𝔄 ,𝜎 ) (Table 2) 
+
+= E𝔄  
+
+> X
+
+(𝜎 ) (def. E) 
+
+= wp 𝔄 Jskip K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+The case 𝐶 = 𝑥 := 𝑡 .
+
+Jwp J𝑥 := 𝑡 K (X) K(𝔄 ,𝜎 )
+
+= JSubstitute (X , 𝑥, 𝑡 )K(𝔄 ,𝜎 ) (Table 2) 
+
+= JeX [𝑥 /𝑡 ]K(𝔄 ,𝜎 ) (Thm. A.3) 
+
+= JXK(𝔄 ,𝜎 [𝑥 ↦ →J𝑡 K(𝔄 ,𝜎 ) ]) (substitution semantics, Section 6) 
+
+= E𝔄 
+
+> X
+
+ 𝜎 𝑥 ↦ → J𝑡 K(𝔄 ,𝜎 )   (def. E) 
+
+= wp 𝔄 J𝑥 := 𝑡 K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+The case 𝐶 = cost ( 𝑟 ).
+
+Jwp Jcost ( 𝑟 )K (X) K(𝔄 ,𝜎 )
+
+= JApply (+ , Obtain (𝑟 ), X) K(𝔄 ,𝜎 ) (Table 2) 
+
+= JObtain (𝑟 )K(𝔄 ,𝜎 ) + JXK(𝔄 ,𝜎 ) (Thm. A.2) 
+
+= 𝑟 + E 𝔄  
+
+> X
+
+(𝜎 ) (Obtain , def. E) 
+
+= wp 𝔄 Jcost ( 𝑟 )K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+The case 𝐶 = observe (𝜑 ).
+
+Jwp Jobserve (𝜑 )K (X) K(𝔄 ,𝜎 )
+
+= JApply (ITE , X𝜑 , X, Obtain (0)) K(𝔄 ,𝜎 ) (Table 2) 
+
+=
+
+(
+
+JXK(𝔄 ,𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑, 
+
+JObtain (0)K(𝔄 ,𝜎 ) if (𝔄 , 𝜎 ) | = ¬𝜑 (guard, Thm. A.2) 
+
+=
+
+(
+
+E𝔄  
+
+> X
+
+(𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑, 
+
+0 if (𝔄 , 𝜎 ) | = ¬𝜑 (Obtain , def. E) 
+
+= wp 𝔄 Jobserve (𝜑 )K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 35 
+
+The case 𝐶 = 𝐶 1 ; 𝐶 2. Assume the induction hypothesis for 𝐶 1 and 𝐶 2.
+
+Jwp J𝐶 1 ; 𝐶 2K (X) K(𝔄 ,𝜎 )
+
+= Jwp J𝐶 1K  wp J𝐶 2K (X) K(𝔄 ,𝜎 ) (Table 2) 
+
+= wp 𝔄 J𝐶 1K
+
+
+
+E𝔄 
+
+> wp J𝐶 2K( X)
+
+
+
+(𝜎 ) (I.H. on C1) 
+
+= wp 𝔄 J𝐶 1K
+
+
+
+wp 𝔄 J𝐶 2K
+
+
+
+E𝔄 
+
+> X
+
+ 
+
+(𝜎 ) (I.H. on C2) 
+
+= wp 𝔄 J𝐶 1 ; 𝐶 2K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+The case 𝐶 = { 𝐶 1 } □ { 𝐶 2 }. Assume the induction hypothesis for 𝐶 1 and 𝐶 2.
+
+Jwp J{ 𝐶 1 } □ { 𝐶 2 }K (X) K(𝔄 ,𝜎 )
+
+= JMinimum (wp J𝐶 1K (X) , wp J𝐶 2K (X)) K(𝔄 ,𝜎 ) (Table 2) 
+
+= min {Jwp J𝐶 1K (X) K(𝔄 ,𝜎 ) , Jwp J𝐶 2K (X) K(𝔄 ,𝜎 ) } (Thm. A.5) 
+
+= min {wp 𝔄 J𝐶 1K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ), wp 𝔄 J𝐶 2K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 )} (I.H. on C1,C2) 
+
+=  wp 𝔄 J𝐶 1K
+
+
+
+E𝔄 
+
+> X
+
+
+
+⊓ wp 𝔄 J𝐶 2K
+
+
+
+E𝔄 
+
+> X
+
+ (𝜎 ) (def. inf) 
+
+= wp 𝔄 J{ 𝐶 1 } □ { 𝐶 2 }K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+The case 𝐶 = { 𝐶 1 } [ 𝑝 ] { 𝐶 2 }. Assume the induction hypothesis for 𝐶 1 and 𝐶 2, and let X′ 
+
+> 1
+
+=
+
+wp J𝐶 1K (X) and X′ 
+
+> 2
+
+= wp J𝐶 2K (X) .
+
+Jwp J𝐶 K (X) K(𝔄 ,𝜎 )
+
+= JApply (+ , Apply (· , Obtain (𝑝 ), X′ 
+
+> 1
+
+), Apply (· , Obtain (1 − 𝑝 ), X′ 
+
+> 2
+
+)) K(𝔄 ,𝜎 ) (Table 2) 
+
+= 𝑝 · JX′ 
+
+> 1
+
+K(𝔄 ,𝜎 ) + ( 1 − 𝑝 ) · JX′ 
+
+> 2
+
+K(𝔄 ,𝜎 ) (Obtain , Thm. A.2) 
+
+= 𝑝 · wp 𝔄 J𝐶 1K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ) + ( 1 − 𝑝 ) · wp 𝔄 J𝐶 2K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ) (I.H. on C1,C2) 
+
+= wp 𝔄 J𝐶 K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+The case 𝐶 = if ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 }. Assume the hypothesis statement for 𝐶 1 and 𝐶 2.
+
+Jwp Jif ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 }K (X) K(𝔄 ,𝜎 )
+
+= JApply (ITE , X𝜑 , wp J𝐶 1K (X) , wp J𝐶 2K (X)) K(𝔄 ,𝜎 ) (Table 2) 
+
+=
+
+(
+
+Jwp J𝐶 1K (X) K(𝔄 ,𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑, 
+
+Jwp J𝐶 2K (X) K(𝔄 ,𝜎 ) if (𝔄 , 𝜎 ) | = ¬𝜑 (guard, Thm. A.2) 
+
+=
+
+
+
+wp 𝔄 J𝐶 1K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ) if (𝔄 , 𝜎 ) | = 𝜑, 
+
+wp 𝔄 J𝐶 2K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ) if (𝔄 , 𝜎 ) | = ¬𝜑 (I.H. on C1,C2) 
+
+= wp 𝔄 Jif ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 }K
+
+
+
+E𝔄 
+
+> X
+
+
+
+(𝜎 ). (Table 1) 
+
+□36 Batz et al. 
+
+B Simultaneous Loop Unrolling 
+
+We briefly recall the simultaneous loop-unrolling construction used by Batz et al. [30 , Sec. 7.2 and App. B.2 ] . Write abort as shorthand for observe (false ), so wp 𝔄 Jabort K (𝑋 ) = 0. For ℓ ∈ N, the 
+
+ℓ-fold simultaneous unrolling 𝐶 ⟨ℓ ⟩ is defined by structural recursion. Atomic commands are left unchanged: 
+
+skip ⟨ℓ ⟩ = skip , (𝑥 := 𝑡 )⟨ℓ ⟩ = 𝑥 := 𝑡, 
+
+(cost ( 𝑟 )) ⟨ℓ ⟩ = cost ( 𝑟 ) , (observe (𝜑 )) ⟨ℓ ⟩ = observe (𝜑 ) .
+
+The non-looping compound constructs commute with unrolling: 
+
+(𝐶 1 ; 𝐶 2)⟨ℓ ⟩ = 𝐶 ⟨ℓ ⟩ 
+
+> 1
+
+; 𝐶 ⟨ℓ ⟩ 
+
+> 2
+
+,
+
+({ 𝐶 1 } [ 𝑝 ] { 𝐶 2 }) ⟨ℓ ⟩ =
+
+n
+
+𝐶 ⟨ℓ ⟩
+
+> 1
+
+o
+
+[ 𝑝 ]
+
+n
+
+𝐶 ⟨ℓ ⟩
+
+> 2
+
+o
+
+,
+
+({ 𝐶 1 } □ { 𝐶 2 }) ⟨ℓ ⟩ =
+
+n
+
+𝐶 ⟨ℓ ⟩
+
+> 1
+
+o
+
+□
+
+n
+
+𝐶 ⟨ℓ ⟩
+
+> 2
+
+o
+
+,
+
+(if ( 𝜑 ) { 𝐶 1 } else { 𝐶 2 }) ⟨ℓ ⟩ = if ( 𝜑 )
+
+n
+
+𝐶 ⟨ℓ ⟩
+
+> 1
+
+o
+
+else 
+
+n
+
+𝐶 ⟨ℓ ⟩
+
+> 2
+
+o
+
+.
+
+For loops, the unrolling budget is consumed globally: 
+
+(while ( 𝜑 ) { 𝐶 }) ⟨0⟩ = abort ,
+
+(while ( 𝜑 ) { 𝐶 }) ⟨ℓ+1⟩ = if (𝜑 ) 𝐶 ⟨ℓ ⟩ ; (while ( 𝜑 ) { 𝐶 }) ⟨ℓ ⟩
+
+else {skip } .
+
+Since the weakest pre-expectation transformer is 𝜔 -continuous, these loop-free approximants converge to the semantics of the original program: 
+
+wp 𝔄 J𝐶 K (𝑋 ) =
+
+Ä 
+
+> ℓ∈N
+
+wp 𝔄 J𝐶 ⟨ℓ ⟩ K (𝑋 ) .
+
+For a single loop with loop-free body, this is exactly the characteristic-function iteration from Section 10.1. For nested loops, the same fixed-point iteration can therefore be implemented by applying the loop-free wp transformer to the simultaneously unrolled program 𝐶 ⟨ℓ ⟩ .Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 37   
+
+> 0510
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+> Time [s]
+
+Coupon Collector 1   
+
+> 0510
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+
+Coupon Collector 2    
+
+> 1-thread 4-thread 24-thread Caesar
+
+Fig. 12. Scalability comparison with Caesar on two more benchmarks that use arrays.   
+
+> 010 20
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+> Time [s]
+
+Non. Det. BRP   
+
+> 050 100
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+
+Non. Det. GeoGrid   
+
+> 0100 200
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+
+Non. Det. Grid    
+
+> 1-thread 4-thread 24-thread Caesar
+
+Fig. 13. Scalability comparison with Caesar on programs utilizing non-determinism.   
+
+> 0100 200
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+> Time [s]
+
+UniformGridWalk Cond.   
+
+> 0200 400
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+
+Refute BRP Cond.   
+
+> 0100 200
+
+Parameter 
+
+> 0
+> 100
+> 200
+> 300
+
+Grid Cond.    
+
+> 1-thread 4-thread 24-thread Caesar
+
+Fig. 14. Scalability comparison with Caesar on programs utilizing conditioning. 
+
+C Additional Benchmark Results 
+
+We present additional benchmark results in Figure 12, Figure 13, and Figure 14. 38 Batz et al. 
+
+D Benchmark Programs 
+
+DDSolve uses two different dialects of PGCL: an untyped variant where every variable is an un-signed integer (listings 1 to 5 and 13 to 18) and a typed variant that supports more features of the un-derlying SMT solver (listings 6 to 12). Both variants use annotations ( @fixpoint , @unroll (bound) ,
+
+@kinduction (invariant) ) on loops to specify the proof rule that should be used. The C++-style comments in the first and last line give the bound on the weakest pre-expectation to verify and the post-expectation, respectively. Listings 1, 6 and 15 sample variables from uniform distributions through the statement x ~= uniform (a,b) where x is uniformly sampled from the half-open in-terval [𝑎, 𝑏 ). All listings but listing 10 define families of programs based on the parameter bnd .Listing 6 has an additional parameter unrbnd . [53] Many of the programs are hand translations of programs from the literature. We list the bench-marks and the source where we got the untranslated version, as well as any changes that we made to that version: 
+
+• We created UniformGridWalk (listing 1) as a generalization of the Grid program (listed below). 
+
+• We took BRP (listing 2) from [ 84 ] and added the parameter bnd . This formulation of BRP is originally from [90, p. 79]. 
+
+• We took Grid (listing 3) from [28] and added the parameter bnd .
+
+• We created GeoGrid (listing 4) as a generalization of the Grid program (listed above). 
+
+• We took Rabin (listing 5) from [84] and added the parameter bnd .
+
+• We took Coupon Collector (listing 6) from [ 65 ] and added the parameter bnd and unrbnd .
+
+• We took Plane (listing 12) from [53]. 
+
+• We created Grid Cond. (listing 13), Refute BRP Cond. (listing 14), and UniformGridWalk Cond. (listing 15) by modifying Grid , BRP , and UniformGridWalk (listed above), respec-tively. 
+
+• We created Non. Det. BRP (listing 16), Non. Det. GeoGrid (listing 17), and Non. Det. Grid (listing 18) by modifying BRP , GeoGrid and Grid (listed above), respectively. 
+
+D.1 Piecewise Linear Programs  
+
+> Listing 1. UniformGridWalk
+
+1 / / wp < bnd 
+
+2 a : = 0 ; b : = 0 ; k : = 0 ; 3 @fixpoint 
+
+4 while ( a < bnd & b < bnd & k < bnd ) {5 { a ~= uniform ( 0 , bnd + 1 ) ; } [ 1 / 2 ] { b ~= uniform ( 0 , bnd + 1 ) ; } ; 6 k : = k + 1 ; 7 }8 / / aScalable Probabilistic Program Verification via Typed Extended Decision Diagrams 39  
+
+> Listing 2. BRP
+
+1 / / wp <= i t e ( t o S e n d <= bnd , t o t a l F a i l e d + 1 0 , ∞ )2 @kinduction ( i t e ( t o S e n d <= bnd , t o t a l F a i l e d + 1 0 , ∞ ) ) 3 while ( f a i l e d < m a x F a i l e d & s e n t < t o S e n d ) { 4 {5 f a i l e d : = 0 ; s e n t : = s e n t + 1 ; 6 } [ 9 / 1 0 ] { 7 f a i l e d : = f a i l e d + 1 ; t o t a l F a i l e d : = t o t a l F a i l e d + 1 ; 8 }9 }10 / / t o t a l F a i l e d  
+
+> Listing 3. Grid
+
+1 / / wp <= bnd 
+
+2 a : = 0 ; b : = 0 ; 3 @fixpoint 
+
+4 while ( a < bnd & b < bnd ) {5 { a : = a + 1 ; } [ 1 / 2 ] { b : = b + 1 ; } 6 }7 / / a 
+
+> Listing 4. GeoGrid
+
+1 / / wp <= bnd 
+
+2 run : = 1 ; a : = 0 ; b : = 0 ; 3 @kinduction ( a+ bnd )4 while ( run > 0 ) {5 { a : = a + 1 ; } [ 1 / 2 ] { b : = b + 1 ; } 6 { } [ 1 / 2 ] { 7 i f ( ! ( a < bnd & b < bnd ) ) {8 run : = 0 ; 9 } e l s e { skip ; } 10 }11 }12 / / a40 Batz et al.  
+
+> Listing 5. Rabin
+
+1 / / wp <= i t e (1 < i & i <4 & p h a s e == 0 , ( 5 / 7 ) + ( 1 / 10 bnd ) , 1 ) 2 @kinduction ( i t e (1 < i & i <4 & p h a s e == 0 , ( 5 / 7 ) + ( 1 / 10 bnd ) , 1 ) ) 3 while (1 < i | p h a s e == 1 ) { 4 i f ( p h a s e == 0 ) { 5 n : = i ; p h a s e : = 1 ; 6 } e l s e {7 i f (0 < n ) { 8 { d : = 0 ; } [ 1 / 2 ] { d : = 1 ; } 9 i : = i −d ; n : = n − 1 ; 10 } e l s e {11 p h a s e : = 0 ; 12 }13 }14 }15 / / i t e ( i == 1 , 1 , 0 ) 
+
+D.2 Array Programs  
+
+> Listing 6. Coupon Collector
+
+1 / / wp <= ( bnd ∗ bnd ) ∗ ( 1 / 2 ) 2 i n t [ ] a ; uint k ; uint z ; uint i ; 3 a [ 0 ] : = 0 ; · · · ; a [ bnd ] : = 0 ; 4 i : = 0 ; z : = 0 ; 5 @fixpoint 
+
+6 while ( z < bnd ) {7 @unroll ( unrbnd )8 while ( a [ i ] ! = 0 ) {9 i ~= uniform ( 0 , bnd ) ; 10 c o s t ( 1 ) ; 11 }12 a [ i ] : = 1 ; z : = z + 1 ; 13 }14 / / 0 
+
+> Listing 7. Lossy Sum
+
+1 / / wp <= 1 / 2 ∗ ( A[ 0 ] + . . . +A[ bnd − 1 ] ) 2 i n t [ ] A ; uint j ; uint x ; 3 x : = 0 ; j : = 0 ; 4 @unroll ( bnd + 1 )5 while ( j < bnd ) {6 { x : = x+A[ j ] ; } [ 1 / 2 ] { } 7 j : = j + 1 ; 8 }9 / / xScalable Probabilistic Program Verification via Typed Extended Decision Diagrams 41  
+
+> Listing 8. LShift
+
+1 / / wp <= i t e ( a [ 0 ] == a [ bnd ] , 2 i t e ( a [ 1 ] == a [ bnd ] , 1 , 1 / 2 ) , 3 i t e ( a [ 1 ] == a [ bnd ] , 1 / 2 , 0 ) ) 4 i n t [ ] a ; uint i ; 5 i : = 0 ; 6 @fixpoint 
+
+7 while ( i < bnd ) {8 { a [ i ] : = a [ i + 1 ] ; } [ 1 / 2 ] { } 9 i : = i + 1 ; 10 }11 / / i t e ( a [ 0 ] == a [ bnd ] , 1 , 0 )  
+
+> Listing 9. RShift
+
+1 / / wp <= i t e ( a [ 0 ] == a [ bnd ] , 1 , 1 / 2 ) 2 i n t [ ] a ; uint i ; 3 i : = 0 ; 4 @fixpoint 
+
+5 while ( i < bnd ) {6 { a [ i + 1 ] : = a [ i ] ; } [ 1 / 2 ] { } 7 i : = i + 1 ; 8 }9 / / i t e ( a [ 0 ] == a [ bnd ] , 1 , 0 ) 
+
+D.3 Non-Linear Programs  
+
+> Listing 10. Multiply
+
+1 / / wp <= m ∗ n2 uint r ; uint i ; uint n ; uint m; 3 r : = 0 ; i : = 0 ; 4 @kinduction ( i t e ( i < m, r + (m − i ) ∗ n , r ) ) 5 while ( i < m) {6 r : = r +n ; i : = i + 1 ; 7 }8 / / r42 Batz et al.  
+
+> Listing 11. Non. Det. Grow
+
+1 / / wp <= r2 uint i ; uint a ; uint r ; 3 i : = 0 ; 4 @fixpoint 
+
+5 while ( i < bnd ) {6 { a : = a + 1 ; } [ ] { a : = a ∗ a ; } 7 i : = i + 1 ; 8 }9 i f ( r > a ) {10 r : = r −a ; 11 } e l s e { skip ; } 12 / / r 
+
+> Listing 12. Plane
+
+1 / / wp <= 1 / 2 2 uint e v e r y b o d y _ o w n _ s e a t ; uint i ; 3 { e v e r y b o d y _ o w n _ s e a t : = 1 ; } [ 1 / bnd ] { e v e r y b o d y _ o w n _ s e a t : = 0 ; } 4 i : = 1 ; 5 @fixpoint 
+
+6 while ( i < bnd − 1 ) {7 i f ( e v e r y b o d y _ o w n _ s e a t == 0 ) {8 { e v e r y b o d y _ o w n _ s e a t : = 1 ; } [ ( 1 / ( bnd − i ) ) ∗ ( 1 / ( bnd − i ) ) ] { } 9 } e l s e { skip ; } 10 i : = i + 1 ; 11 }12 / / e v e r y b o d y _ o w n _ s e a t 
+
+D.4 Conditioned Programs  
+
+> Listing 13. Grid Cond.
+
+1 / / cwp <= ( bnd / 2 , 1 / bnd )2 a : = 0 ; b : = 0 ; 3 @fixpoint 
+
+4 while ( a < bnd & b < bnd ) {5 { a : = a + 1 ; } [ 1 / 2 ] { b : = b + 1 ; } 6 observe ( a <= b ) ; 7 }8 / / ( a , 1 ) Scalable Probabilistic Program Verification via Typed Extended Decision Diagrams 43 
+
+Listing 14. Refute BRP Cond. 
+
+1 / / cwp <= ( ∞ , 1 / 2 ) 2 @unroll ( bnd ) 3 while ( f a i l e d < m a x F a i l e d & s e n t < t o S e n d ) { 4 {5 f a i l e d : = 0 ; s e n t : = s e n t +1 6 } [ 9 / 1 0 ] { 7 f a i l e d : = f a i l e d + 1 ; t o t a l F a i l e d : = t o t a l F a i l e d +1 8 }9 observe ( f a i l e d < 0 ) ; 10 }11 / / ( t o t a l F a i l e d , 1 ) 
+
+Listing 15. UniformGridWalk Cond. 
+
+1 / / cwp < ( bnd , 1 / 2 ) 2 a : = 0 ; b : = 0 ; k : = 0 ; 3 @fixpoint 
+
+4 while ( a < bnd & b < bnd & k < bnd ) {5 {6 a ~= uniform ( 0 , bnd + 1 ) ; 7 } [ 1 / 2 ] { 8 b ~= uniform ( 0 , bnd + 1 ) ; 9 } ; 10 k : = k + 1 ; 11 { observe ( a < bnd ) } [ 1 / 2 ] { observe ( b < bnd ) } 12 }13 / / ( a , 1 ) 44 Batz et al. 
+
+D.5 Non-Deterministc Programs  
+
+> Listing 16. Non. Det. BRP
+
+1 / / wp <= i t e ( t o S e n d <= bnd , t o t a l F a i l e d + 1 0 , ∞ )2 @kinduction ( i t e ( t o S e n d <= bnd , t o t a l F a i l e d + 1 0 , ∞ ) ) 3 while ( f a i l e d < m a x F a i l e d & s e n t < t o S e n d ) {4 {5 {6 f a i l e d : = 0 ; s e n t : = s e n t + 1 ; 7 } [ 9 / 1 0 ] { 8 f a i l e d : = f a i l e d + 1 ; t o t a l F a i l e d : = t o t a l F a i l e d +1 9 }10 } [ ] { 11 {12 f a i l e d : = 0 ; s e n t : = s e n t + 1 ; 13 } [ 9 1 / 1 0 0 ] { 14 f a i l e d : = f a i l e d + 1 ; t o t a l F a i l e d : = t o t a l F a i l e d + 1 ; 15 }16 }17 }18 / / t o t a l F a i l e d  
+
+> Listing 17. Non. Det. GeoGrid
+
+1 / / wp <= bnd 
+
+2 run : = 1 ; a : = 0 ; b : = 0 ; 3 @kinduction ( a + bnd )4 while ( run > 0 ) {5 { { a : = a + 1 ; } [ 1 / 2 ] { b : = b + 1 } } [ ] { a : = a + 1 ; } 6 { } [ 1 / 2 ] { 7 i f ( ! ( a < bnd & b < bnd ) ) {8 run : = 0 ; 9 } e l s e { skip ; } 10 }11 }12 / / a 
+
+> Listing 18. Non. Det. Grid
+
+1 / / wp <= bnd + bnd − 2
+
+2 a : = 0 ; b : = 0 ; 3 @fixpoint 
+
+4 while ( a < bnd & b < bnd ) {5 { a : = a + 1 } [ ] { b : = b + 1 } 6 c o s t ( 1 ) ; 7 }8 / / 0
