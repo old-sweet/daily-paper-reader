@@ -1,6 +1,10 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-06-21 <!--dpr-date:20260621-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/21/2606.19588v1-analyzing-the-narration-gap-in-llm-solver-loops" data-sidebar-item="{&quot;title&quot;: &quot;Analyzing the Narration Gap in LLM-Solver Loops&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.19588v1-analyzing-the-narration-gap-in-llm-solver-loops&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;LLM与求解器交互循环在形式验证中的应用，可迁移至硬件&quot;}">Analyzing the Narration Gap in LLM-Solver Loops</a>
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/21/2606.15500v1-llm4rtl-tool-assisted-llm-for-rtl-generation" data-sidebar-item="{&quot;title&quot;: &quot;LLM4RTL: Tool-Assisted LLM for RTL Generation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.15500v1-llm4rtl-tool-assisted-llm-for-rtl-generation&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;LLM用于RTL生成，与LLM进行RTL验证紧密相关&quot;}">LLM4RTL: Tool-Assisted LLM for RTL Generation</a>
   * 2026-06-20 <!--dpr-date:20260620-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/20/2606.15500v1-llm4rtl-tool-assisted-llm-for-rtl-generation" data-sidebar-item="{&quot;title&quot;: &quot;LLM4RTL: Tool-Assisted LLM for RTL Generation&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.15500v1-llm4rtl-tool-assisted-llm-for-rtl-generation&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;基于LLM的RTL代码生成流水线，与硬件设计验证中的LLM应用密切相关&quot;}">LLM4RTL: Tool-Assisted LLM for RTL Generation</a>
