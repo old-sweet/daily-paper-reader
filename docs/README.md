@@ -6,31 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-21
-- 运行时间：2026-06-21 21:09:00 UTC
+- 最新运行日期：2026-06-22
+- 运行时间：2026-06-22 22:52:50 UTC
 - 运行状态：成功
-- 本次总论文数：2
-- 精读区：0
+- 本次总论文数：5
+- 精读区：3
 - 速读区：2
 
 ### 今日简报（AI）
-今日速读两篇论文，聚焦LLM在求解循环与硬件生成中的关键挑战。
-
-其中《Analyzing the Narration Gap in LLM-Solver Loops》值得关注，揭示了LLM与求解器交互时的叙述理解偏差；《LLM4RTL》则展示了工具辅助下LLM生成RTL代码的可行性。
-
-建议普通读者后续留意LLM与专业工具协同的改进方向，以及如何弥合模型对领域规则的叙述缺失。
-- 详情：[/202606/21/README](/202606/21/README)
+1) 今日共精读3篇、速读2篇，聚焦形式化验证与定理证明技术前沿。  
+2) 最值得关注的是SMT模型检查在梯形图程序验证中的突破（9.0分），以及基于强化学习验证的定理证明方法（8.0分）。  
+3) 建议深入研究将验证工具扩展到工业PLC场景，同时关注Lean等交互式证明助手与RL的结合进展。
+- 详情：[/202606/22/README](/202606/22/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Graph-ESBMC-PLC: Formal Verification of Graphical PLCopen XML Ladder Diagram Programs Using SMT-Based Model Checking](/202606/22/2606.18941v1-graph-esbmc-plc-formal-verification-of-graphical-plcopen-xml-ladder-diagram-programs-using-smt-based-model-checking)  
+   标签：评分：9.0/10、query:fsh
+   evidence：基于SMT的硬件PLC程序形式验证
+2. [Process-Verified Reinforcement Learning for Theorem Proving via Lean](/202606/22/2606.20068v1-process-verified-reinforcement-learning-for-theorem-proving-via-lean)  
+   标签：评分：8.0/10、query:ml-verify
+   evidence：利用Lean的细粒度验证信号训练RL进行定理证明，直接服务于形式验证。
+3. [The Correctness Illusion in LLM-Generated GPU Kernels](/202606/22/2606.20128v1-the-correctness-illusion-in-llm-generated-gpu-kernels)  
+   标签：评分：8.0/10、query:fsh
+   evidence：模糊测试用于LLM生成GPU内核的正确性验证
 
 ### 速读区论文标签
-1. [Analyzing the Narration Gap in LLM-Solver Loops](/202606/21/2606.19588v1-analyzing-the-narration-gap-in-llm-solver-loops)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：LLM与求解器交互循环在形式验证中的应用，可迁移至硬件
-2. [LLM4RTL: Tool-Assisted LLM for RTL Generation](/202606/21/2606.15500v1-llm4rtl-tool-assisted-llm-for-rtl-generation)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：LLM用于RTL生成，与LLM进行RTL验证紧密相关
+1. [Witnesses and Counterexamples for Timed Bisimulation](/202606/22/2606.16736v1-witnesses-and-counterexamples-for-timed-bisimulation)  
+   标签：评分：6.0/10、query:fsh
+   evidence：时间自动机验证，使用区域图和虚拟时钟，可应用于硬件时序分析
+2. [Verifying LTL for Infinite State Systems via Termination Analysis](/202606/22/2606.17693v1-verifying-ltl-for-infinite-state-systems-via-termination-analysis)  
+   标签：评分：6.0/10、query:fsh
+   evidence：通过终止分析验证无限状态系统的线性时序逻辑属性
 
 
 <div class="dpr-home-promo-card">
