@@ -1,0 +1,704 @@
+Title: VeriPilot: An LLM-Powered Verilog Debugging Framework
+
+URL Source: https://arxiv.org/pdf/2606.23759v1
+
+Published Time: Wed, 24 Jun 2026 00:02:42 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+> 1
+
+# VeriPilot: An LLM-Powered Verilog Debugging Framework 
+
+Yihan Wang, Cheng Liu, Senior Member, IEEE, Jiazheng Zhang, Lei Zhang, Long Cheng, Senior Member, IEEE, 
+
+Xiaowei Li, Senior Member, IEEE, and Huawei Li, Senior Member, IEEE 
+
+Abstract —Verilog debugging remains one of the most time-consuming stages in digital circuit design. Recent advances in Large Language Models (LLMs) have enabled automated debugging; however, most existing approaches rely solely on test outputs and compiler feedback in an end-to-end manner, limiting their effectiveness on complex bugs. A key challenge is that the root cause of an error may be far removed from its observable outputs, making it difficult for LLMs to trace long dependency chains in code. This challenge is further exacerbated in large codebases, where long context lengths hinder efficient reasoning. To address these limitations, we propose VeriPilot, an LLM-powered debugging framework that leverages golden reference models to enable fine-grained bug localization and repair. VeriPilot goes beyond output-level comparison by aligning internal variable semantics between the Verilog design and its corresponding golden model through LLM-based analysis. It then performs step-by-step signal tracing using Control-Data-Flow Graphs (CDFGs) derived from static analysis, identifying a minimal set of suspicious code regions along with their correct counterparts from the golden model. These structured insights are subsequently provided to the LLM to guide reasoning and automated code repair. Experimental results on the Comprehen-sive Verilog Design Problems (CVDP) benchmark from NVIDIA demonstrate that VeriPilot improves the repair success rate of GPT-4o from 54.3% to 85.71%, significantly enhancing both bug localization accuracy and repair effectiveness for complex Verilog designs. The source code and benchmark are publicly available at Github https://github.com/YihanWn/VeriPilot.git. 
+
+Index Terms —Verilog Debugging, Verilog Repair, Error Local-ization, LLM-powered Debugging 
+
+I. I NTRODUCTION 
+
+Debugging is a fundamental component of digital circuit design, traditionally ensuring the correctness of manually de-veloped hardware modules. As large language models (LLMs) become increasingly involved in hardware design [1], [2], [3], [4], [5], [6], [7], debugging becomes even more criti-cal. The inherent uncertainty and occasional hallucination in LLM-generated Verilog code necessitate automated debugging mechanisms to ensure reliability and continuously improve generation quality [8], [9], [10], [11]. 
+
+The corresponding author is Cheng Liu. This work is in part supported by the Strategic Priority Research Program of the Chinese Academy of Sciences under Grant No. XDB0660103, and the National Natural Science Foundation of China (NSFC) under Grant No. 62174162. Yihan Wang, Cheng Liu, Jiazheng Zhang, Huawei Li, and Xiaowei Li are with the State Key Lab of Processors, Institute of Computing Technology, Chinese Academy of Sciences, and the University of Chinese Academy of Sci-ences, Beijing, China. E-mail: {wangyihan24s, liucheng, zhangjiazheng24s, zlei, lxw, lihuawei }@ict.ac.cn. Long Cheng is with with North China Electric Power University, Beijing 102206, China. E-mail: lcheng@ncepu.edu.cn. 
+
+Prior efforts predominantly rely on compilation errors or mismatches in output waveforms as feedback for LLMs to iteratively repair code in an end-to-end manner [12], [13], [14]. While such approaches can handle simple circuits, their effec-tiveness quickly degrades as design complexity increases [14]. This limitation stems from two fundamental challenges. On the one hand, as the codebase grows, the input context can easily exceed or saturate the effective reasoning capacity of LLMs, leading to degraded performance due to long context lengths and irrelevant information. On the other hand, debugging RTL designs frequently requires tracing long-range dependencies, where the root cause of an error may be far removed from the observed output mismatch. Such long-chain reasoning is inher-ently difficult for LLMs to perform reliably in an end-to-end fashion. Basically, LLMs often lack precise bug localization, making it difficult to identify where the design deviates from the intended behavior [15], [16], [17]. More critically, existing methods lack explicit references to correct internal behavior. While high-level specifications or golden software models describe the intended functionality, they abstract away low-level hardware details such as intermediate signals, pipeline states, and control logic. As a result, LLMs struggle not only to determine what is wrong, but also what the correct implementation should look like at the RTL level. To address these challenges, we revisit the workflow of human hardware debugging (Fig. 1). Engineers typically con-struct a testbench to apply input stimuli to the Design Under Test (DUT) and observe its outputs. When discrepancies arise, they go beyond output inspection by analyzing simu-lation logs, examining internal signals, and tracing execution paths through the design to identify the root cause [18]. This process fundamentally relies on fine-grained observabil-ity—particularly the behavior of internal variables—rather than solely on final outputs. A key difficulty, however, lies in the abstraction gap between high-level specifications and RTL implementations. While high-level models describe func-tional intent using abstract variables, RTL designs introduce numerous low-level signals (e.g., intermediate wires, registers, and control signals) that do not have explicit counterparts in the high-level description. As a result, effective debug-ging requires identifying meaningful correspondences between high-level variables and low-level hardware signals, which is a task largely depending on human expertise. In practice, engineers iteratively establish and refine such correspondences, progressively shifting the point of comparison from outputs to internal signals along the data path. By aligning seman-tically related variables across abstraction levels and tracing 
+
+> arXiv:2606.23759v1 [cs.AR] 22 Jun 2026 2
+
+their dependencies step by step, they can narrow down the discrepancy to a minimal set of suspicious code regions, ultimately enabling precise and fine-grained bug localization and repairing. Human Analysis DUT                                                                    
+
+> a
+> b
+> Backtrace
+> op
+> module PipeMAC (
+> input wire clk ,
+> input wire rst ,
+> input wire en ,
+> input wire [7:0]a,
+> input wire [7:0]b,
+> output reg [15 :0]acc
+> );
+> reg [15 :0]pro ;
+> always @( posedge clk )begin
+> if (rst )begin
+> pro <= 16'd0 ;
+> acc <= 16'd0 ;
+> end
+> else if (en )begin
+> pro <= a* ( b+8'd1 );
+> acc <= acc +pro ;
+> end
+> end
+> endmodule
+> Golden Model
+> RTL Sigs
+> Simulation Log:
+> T = 0: a=1, b=2
+> T = 2: acc = 6fail;
+> expect acc = 4
+> Analy ze RTL
+> Analyze Golden
+> Golden Vars
+> pro
+> acc
+> temp
+> total
+> Earliest mismatching signal :
+> pro = 3, expect ed 2; check drivers
+> pro
+> acc
+> T012
+> 3
+> 36
+> temp
+> total
+> 2
+> pro acc
+> acc
+> *
+> Repaired: b + 8'd 1b
+> def golden_step (a,b,en ,rst ,
+> temp ,total ):
+> if rst :
+> hist =0
+> total =0
+> elif en :
+> total =temp +Acc
+> temp =a*b
+> return total ,temp
+> 30
+> 0
+> 0
+> 0
+> 2
+> 22
+
+Fig. 1. Overview of the manual debugging methodology. The process initiates with an output comparison between the DUT and the golden model to detect failures. By leveraging aligned signals and variables from both entities, engineers then perform a backward traversal through the circuit’s internal logic hierarchy to isolate and rectify the root cause of the erroneous behavior. 
+
+Inspired by this human debugging workflow, we propose VeriPilot, an LLM-powered Verilog debugging framework that incorporates golden reference models to enable fine-grained signal-level reasoning. Rather than relying solely on output mismatches, VeriPilot compares both design outputs and internal signal behaviors against a golden model. It aligns variable semantics between the RTL design and the reference model using LLM-guided analysis, and constructs CDFGs via static code analysis. VeriPilot then performs stepwise signal tracing on both CDFGs to identify a minimal set of suspicious code regions, along with their corresponding correct logic from the golden model. These structured insights—localized errors paired with correct references—are provided to the LLM to guide reliable and interpretable code repair. Experimental results on the Strider and CirFix benchmarks demonstrate that VeriPilot significantly improves bug localization accuracy and repair success rates, particularly on complex Verilog designs with deep control and data dependencies. In summary, this work makes the following key contribu-tions:  
+
+> •
+
+We propose a human-inspired debugging paradigm, VeriPilot, the first framework to integrate LLM-based semantic alignment, CDFG-driven trace analysis, and fine-grained reference extraction for Verilog debugging.  
+
+> •
+
+We present a principled approach for generating struc-tured debugging context, including localized suspicious code segments paired with correct reference logic, sub-stantially improving the LLM’s ability to perform accu-rate and explainable repairs.  
+
+> •
+
+We present a comprehensive evaluation on the CVDP benchmark, demonstrating significant gains in bug local-ization accuracy and repair success on both simple and complex Verilog designs. In particular, VeriPilot improves the repair success rate of GPT-4o from 54.3% to 77.1%, showing the effectiveness of our framework in enabling more reliable automated RTL debugging. II. R ELATED WORK 
+
+Debugging is a time-consuming yet essential part of pro-gramming. To alleviate this burden, automated program re-pair (APR) has been extensively studied for software lan-guages [19], [20], [21]. Recently, APR techniques have been extended to register-transfer level (RTL) design, though sig-nificant challenges remain due to the unique semantics and verification constraints of hardware description languages [22], [4]. Early RTL-specific APR approaches rely on structural analysis, constraint solving, or heuristic search, often leading to large patch spaces and limited scalability. CirFix [23] formulates RTL repair as a search problem using simulation-driven scoring and genetic algorithms to explore candidate patches. Strider [24] applies static analysis to localize sus-picious regions and repair them using expected signal values; however, it assumes access to ground-truth internal signals, which are typically unavailable in real-world scenarios. RTL-Repair [25] combines template-based patch generation with SMT solving to enforce semantic correctness. While Veri-Fix [26] focuses on software concurrency bugs, it highlights an important insight for hardware debugging: effective repair requires reasoning about semantic correctness rather than merely satisfying test outputs. The advent of large language models (LLMs) has opened new avenues for automated RTL debugging [27], [28], [29], [30], [31], [32]. Existing LLM-based approaches can be broadly categorized into two directions: (1) agentic frame-works that integrate LLMs with compilers and simulators, and (2) model-centric approaches that fine-tune LLMs for end-to-end debugging [33], [34], [35], [36], [37], [38], [39], [40]. Early systems such as AutoChip [12] and RTLFixer [13] adopt iterative reasoning loops guided by compiler errors or output mismatches. MEIC [15] improves this paradigm via lightweight fine-tuning within a dual-agent architecture, while VeriDebug [16] jointly optimizes retrieval and generation for unified bug localization and repair. More recent multi-agent frameworks such as MAGE [41], VerilogCoder [42], and BugGen [43] further decompose debugging into specialized roles and incorporate self-refinement mechanisms. Despite these advances, most existing methods operate in an end-to-end manner, relying primarily on compiler diagnostics and output-level feedback. Such signals are often too coarse-grained to support precise bug localization, particularly when errors originate far from observable outputs. In addition, RTL debugging typically involves long dependency chains and large codebases, posing challenges for LLMs in both reasoning over extended execution paths and handling long-context inputs. Finally, existing approaches lack explicit alignment between high-level functional intent and low-level hardware implemen-tation, limiting their ability to leverage high-level references for fine-grained debugging. To address these limitations, we propose VeriPilot, a framework that introduces structured, cross-abstraction debugging. Instead of relying solely on end-to-end feedback, VeriPilot leverages LLMs to align high-level variables with RTL signals, compare internal behaviors against a golden reference, and perform stepwise tracing via control-data-flow analysis for precise bug localization. By providing 3Simulation Framework 
+
+4 1
+
+0
+
+3
+
+2
+
+5
+
+> Golden CDFG
+
+Variable Mapping 
+
+> Golden CDFG
+> Top module
+
+Matching preparation Variable Mapping 
+
+> Mod2
+> regs
+> combs
+> Mod1
+> regs
+> combs
+> Top class
+> class 1
+> vars
+> vars
+> class 2
+> vars
+> class 3
+> vars
+
+AST Yosys AST Pyverilog Pys lang 
+
+Simulation results   
+
+> DUT: sig_0: [0, 1, ...]
+> sig_1: [2, 3, ...]
+> Golden: gld_0: [0, 1, ...]
+> gld_1: [2, 3, ...]
+
+Bug Location 
+
+Bug Repair                      
+
+> Semantic similarity
+> Structural similarity
+> Behavioral similarity
+> Top sigs Top vars
+> DUT sigs GM vars
+> Mod1 sigs Class1 vars
+> Mod2 sigs Class2 vars
+> Hierarchical mapping constraint
+> sig_0:
+> -gld_vars: gld_0
+> -confidence: 1
+> sig_0:
+> -fan_in: 2
+> -fan_out: 1
+> sig_0:
+> -gld_0: 0.8
+> -gld_1: 0.5
+> Map Signals
+> sig_0
+> ├─ gld_0 (0.92) ✓
+> ├─ gld_1 (0.61)
+> └─ gld_4 (0.38)
+> sig_1
+> ├─ gld_3 (0.81) ✓
+> └─ gld_2 (0.55)
+> Score = 𝑓 (𝑆 name, 𝑆 trace, 𝑆 struct)
+
+Simulation results Signal Mapping DUT / Golden CDFG 
+
+0 
+
+> DUT CDFG
+
+2
+
+5 3
+
+Comb. Logic 
+
+Mapped Var. 
+
+Unmapped Reg. Mapped Reg. Mismatch Reg. Unmapped Comb. Mapped Comb. Mismatch Comb. 
+
+Unmapped Var. Mismatch Var. Data Dep. 
+
+> DUT CDFG
+
+State -level localization 
+
+4 1
+
+0
+
+3
+
+2
+
+5
+
+> Golden CDFG
+
+0 
+
+> DUT CDFG
+
+2
+
+5 4 3
+
+Combinational refinement 
+
+6
+
+6
+
+Reference Region Suspicious Region     
+
+> assign b = 0;
+> always @(*)
+> begin
+> if (a)
+> c = b;
+> end
+> 8
+> 12
+> 13
+> 14
+> 15
+> 16
+
+b = 1
+
+if a == 0:
+
+c = b 
+
+4
+
+7
+
+8
+
+Code Retrieval Debug Evidence          
+
+> fro ntier:
+> [ sig_0, sig_1, ...]
+> stop boundary :
+> [ sig_2, sig_3, ...]
+> Suspicious region :
+> [ sig_2, sig_3, ...]
+> DUT Suspicious Code :
+> ```RTL```
+> Golden Reference Code
+> ```Python/C```
+> Fix the buggy Verilog
+> You can using:
+> -Spec
+> -Suspicious Code
+> -Corresponding Golden
+> -Debug Evidence
+> Return
+> corrected RTL code
+> assign b = 1;
+> always @(*)
+> begin
+> if (!a)
+> c = b;
+> end
+> 8
+> 12
+> 13
+> 14
+> 15
+> 16
+
+Spec       
+
+> module DUT (
+> input wire a,
+> input wire b,
+> …
+> output wire c
+> );
+> assign c = Fun(a, b) ;
+> endmodule
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 8
+
+DUT        
+
+> Input:
+> a: sig meaning
+> b: sig meaning
+> Output:
+> c: sig meaning
+> Function:
+> To achieve xxx
+> def Golden (
+> a, # input
+> b, # input
+> …
+> ):
+> c = Fun(a, b)
+> return c# output
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+
+Golden 
+
+Input Vectors 
+
+> TestPoint1:
+> Input:
+> a = 1, b = 1
+> Output: c = 1
+> TestPoint2:
+> …
+
+Input Vectors 
+
+> TestPoint1:
+> Input:
+> a = 1, b = 1
+> Output: c = 1
+> TestPoint2:
+> …
+
+Simulation results    
+
+> Output Port:
+> Assert c == 1 failed
+> sig_0: [0, 1, ...]
+> sig_1: [2, 3, ...]
+> Golden wave: gld_0: [0, 1, ...]
+> gld_1: [2, 3, ...]
+> DUT wave:
+> regs combs
+
+4
+
+Input 
+
+> Syntax
+> error
+
+Gen repair To Simulate 
+
+> Syntax correct
+
+Fig. 2. VeriPilot is an LLM-powered multi-agent Verilog debugging framework. It consists of four phases: (1) simulation & verification to identify the earliest divergent execution state between the DUT and the golden model, (2) variable mapping to align semantically equivalent variables through cross-language CDFGs, (3) bug localization via deterministic backward tracing over aligned dependency graphs, and (4) bug repair using localized debugging evidence to guide LLM-based patch generation. A shared debugging context persistently stores intermediate results and historical debugging information to support iterative multi-round repair. 
+
+the LLM with both localized error contexts and corresponding correct semantic references, VeriPilot enables more accurate and interpretable RTL repair. III. V ERI PILOT FRAMEWORK 
+
+A fundamental limitation of prior LLM-based Verilog de-bugging approaches lies in their reliance on coarse-grained, end-to-end error signals typically limited to simulation mis-matches at module outputs or compiler diagnostic messages. While such signals may suffice for simple, localized bugs, they are fundamentally inadequate for complex designs where the root cause of a failure resides several dependency levels upstream from the observable symptom. In such scenarios, the LLM is expected to navigate a long and ambiguous causal chain purely from textual error descriptions, a task that quickly becomes intractable as code complexity grows. Our design philosophy is grounded in a key insight borrowed from established hardware verification practice. Basically, a high-level golden model typically written in a high-level language such as C/C++ or Python encodes the ground-truth behavioral specification of the design. Rather than asking the LLM to infer design intent solely from test failures, we leverage this structured behavioral reference to dramatically narrow the debugging search space. Specifically, by aligning the internal signal semantics of the design under test (DUT) with those of the golden model, we can decompose a complex end-to-end debugging task into a sequence of fine-grained, localized comparisons, each substantially easier for an LLM to reason over. We further observe that systematic backward tracing along program dependency graphs can deterministically iden-tify the earliest divergence point between the DUT and the reference model, transforming opaque black-box debugging into a structured, evidence-driven procedure. 
+
+A. Overview 
+
+Instantiating the above philosophy, we propose VeriPilot, an LLM-powered Verilog debugging framework (Fig. 2). It adopts a high-level golden model as the behavioral specification consistent with standard industrial chip verification practice. The overall system is orchestrated as a multi-agent pipeline in which specialized agents collaborate across four phases including simulation & verification, variable mapping, bug localization, and bug repair, with structured information pass-ing between phases, persistent memory of historical findings, and tight integration with external static analysis tools. This architectural choice ensures that each agent operates on a well-scoped, information-rich context rather than the full codebase, 4
+
+directly mitigating the long-context reasoning degradation that plagues monolithic LLM-based approaches. For the simulation & verification agent, it leverages LLMs to generate a simulation framework according to design inputs such as design specifications, DUT, and the golden reference model. Specifically, it produces identical input vectors for both the golden model and the DUT, and setups the cross-language co-simulation environment. Meanwhile, it handles tool invocation for simulation such as Verilator or VCS for the Verilog DUT and a native interpreter for the golden model. In addition, it also monitors the execution and the comparison of outputs. Whenever output vectors from the two models diverge, it halts the simulation at the earliest divergent cycle and initiates the debugging procedure. The failing input vector, divergent output signals, and the timestep of divergence are captured and stored in a shared debugging context where a persistent structured memory that all subsequent agents can read from and write to. For the variable mapping agent, we first leverage a suite of static analysis tools to construct Control-Data-Flow Graphs (CDFGs) for both the Verilog DUT and the high-level golden model. Specifically, dedicated CDFG extraction utilities are applied to each design representation, producing deterministic and precise structural artifacts that serve as the foundation for subsequent reasoning. Based on these CDFGs, the agent further employs an LLM to establish cross-language variable correspondences between the DUT and the golden model. The mapping objective extends beyond aligning output signals. The agent attempts to identify as many semantically equivalent in-ternal variables as possible, enabling fine-grained intermediate error indicators that significantly improve debugging resolu-tion and localization accuracy. To support iterative debugging, previously established mappings, unresolved ambiguities, and intermediate reasoning results are persistently maintained in a shared debugging context and reused across iterations, thereby avoiding redundant recomputation during multi-round debug-ging sessions. Variable mapping is detailed in Section III-B. With variable mappings established, the bug localization agent applies a deterministic BackTrace algorithm that tra-verses aligned variables along the cross-language CDFGs in a backward direction which moves from divergent output signals toward potential root-cause input variables. At each step, the algorithm compares the runtime values of semantically aligned DUT and golden model variables at the failing timestep, propagating suspicion scores toward the nodes with the earliest divergence. This algorithmic traversal is performed as an external tool call, ensuring that the causal tracing logic is precise and computationally grounded rather than hallucinated by the LLM. The result is a minimal suspicious region. It is essentially a small, ranked set of DUT code lines that are most likely responsible for the observed mismatch, each paired with its correct counterpart from the golden model. This structured localization evidence is appended to the shared debugging context for use in the repair phase. The full localization procedure is described in Section III-C. Finally, the Repair Agent aggregates all structured evidence accumulated in the shared debugging context including the suspicious DUT code lines, their golden model counterparts, relevant signal traces, and variable mapping context. Then, it synthesizes a precise repair prompt for the LLM. Leveraging this rich, localized context, the LLM is asked to reason about the design intent and generate a targeted code patch, rather than attempting to comprehend the entire DUT in one pass. The repaired DUT is automatically re-simulated by the Environment Agent, and if the mismatch persists due to multiple independent bugs, the framework initiates a new debugging iteration. Historical repair attempts and their out-comes are retained in the shared context, enabling the Repair Agent to avoid previously explored patches and progressively refine its hypotheses across iterations. This closed-loop, tool-augmented, iteratively refining multi-agent architecture en-dows VeriPilot with the capability to handle complex, multi-bug Verilog designs that far exceed the practical scope of prior end-to-end LLM debugging approaches. 
+
+B. Variable Mapping 
+
+To enable fine-grained debugging across heterogeneous design representations, we establish variable-level correspon-dences between the Python golden model and the Verilog RTL. Rather than relying solely on output mismatches, our goal is to align as many semantically equivalent internal variables as possible, thereby exposing intermediate discrep-ancies that significantly improve error localization accuracy. However, directly matching variables across languages and abstraction levels is challenging due to inconsistent naming conventions, structural transformations, and implementation-specific optimizations. In order to address these challenges, we formulate variable alignment as a constrained bipartite matching problem that jointly leverages structural, semantic, and behavioral information. The overall process consists of two stages: (1) structural representation construction , which extracts comparable program representations and dependency information from both designs, and (2) multi-view variable alignment , which computes cross-language correspondences using complementary similarity metrics under hierarchy-aware constraints. 
+
+1) Structural Representation Construction: We first con-struct CDFGs for both the Verilog DUT and the Python golden model using dedicated static analysis utilities. The extracted CDFGs provide deterministic and precise structural represen-tations that capture data dependencies, control relationships, and variable interaction patterns in each design. These graph-level artifacts serve as the structural foundation for subsequent variable alignment. Beyond graph construction, we additionally extract auxiliary metadata for each variable, including module hierarchy in-formation, variable attributes, dependency statistics, and local source-code context. Such information enables the alignment stage to reason about variables not only based on naming patterns, but also according to their structural roles and behav-ioral characteristics within the overall design. To further im-prove scalability, we partition variables into multiple disjoint matching spaces according to hierarchy and structural locality. This decomposition significantly reduces the search space for subsequent matching and avoids unnecessary comparisons between structurally unrelated variables. 5
+
+2) Multi-View Variable Alignment: After constructing the structural representations, we perform cross-language variable alignment by integrating multiple complementary similarity signals. Relying on a single similarity criterion is often un-reliable in practice, especially when design bugs, implemen-tation optimizations, or abstraction differences distort signal values or naming conventions. Therefore, our approach jointly combines semantic, behavioral, and structural similarities to improve matching robustness. 
+
+Semantic similarity. We first estimate the semantic simi-larity between variables using an LLM-based analysis. Given a golden-model variable p and a DUT variable v, we prompt the LLM with their variable names, attributes, and surrounding source-code context to obtain a semantic similarity score 
+
+Sname (p, v ) ∈ [0 , 1] . Variables with identical or semantically related naming patterns tend to receive higher scores, while unrelated variables receive lower scores. 
+
+Behavioral similarity. To incorporate runtime behavior into the alignment process, we compute behavioral similarity scores Strace (p, v ) using execution traces generated during simulation. The similarity is evaluated according to the con-sistency of variable value transitions across time. To ensure statistical reliability, behavioral similarity is only computed when the trace length exceeds a minimum threshold L; other-wise, this feature is excluded from the final matching score. 
+
+Structural similarity. We further incorporate structural information derived from the constructed CDFGs. For each variable, we characterize its local structural context using lightweight descriptors such as fan-in and fan-out depen-dency statistics. The structural similarity score Sstruct (p, v )
+
+is then computed according to the similarity of these de-scriptors. Unlike exact graph matching, this lightweight rep-resentation remains robust under abstraction differences and implementation-specific transformations. 
+
+Unified matching. For every feasible candidate pair (p, v )
+
+within the same matching space, we compute a unified sim-ilarity score as shown in Equation (1). Using these scores, we construct a weighted bipartite graph in which the left partition represents Python variables and the right partition represents Verilog variables. Each edge (p, v ) is weighted by Score( p, v ). The final variable alignment is obtained by solving a maximum-weight bipartite matching problem using the Hungarian algorithm, as shown in Equation (2). This for-mulation enforces one-to-one correspondences and produces a consistent mapping across the entire matching space. The mappings obtained from all matching spaces are then merged to produce the final cross-language variable mapping Map .
+
+Score( p, v ) = f (Sname (p, v ), S trace (p, v ), S struct (p, v )) ,
+
+Score( p, v ) ∈ [0 , 1] .
+
+(1) 
+
+max    
+
+> M:P′→V′
+
+X 
+
+> p∈P′
+
+Score  p, M (p)
+
+subject to role (p) = role  M (p),
+
+∀ p ∈ P ′.
+
+(2) Allowing unrestricted cross-module matching substantially increases the number of candidate pairs, leading to structural ambiguity, degraded matching quality, and increased computa-tional cost for large hierarchical designs. To address this issue, we enforce hierarchy-consistent alignment whenever corre-sponding module structures exist between the DUT and the golden model. Variables are preferentially matched within the same module scope, while cross-module mappings between sibling modules are disallowed. This constraint preserves structural consistency and prevents semantically unrelated variables from being incorrectly aligned. In practice, high-level golden models often adopt simplified structures that do not explicitly replicate the RTL hierarchy. Therefore, when a DUT submodule lacks a clear golden-model counterpart, we allow variables in the DUT top module to be matched against variables from arbitrary golden-model modules. Over-all, the hierarchy-aware constraint significantly reduces the matching search space while preserving the flexibility required for heterogeneous cross-level designs. In our experiments, this strategy improves mapping stability and provides better scalability for complex hierarchical RTL designs. 
+
+C. Bug Localization 
+
+In automated RTL debugging, merely identifying suspicious code lines is often insufficient to effectively bridge the gap between bug localization and bug repair. Isolated statements typically lack the structural and behavioral context required for LLM-based reasoning and patch generation. Instead of predicting individual buggy lines, our framework localizes bugs in the form of suspicious regions , which provide compact yet semantically meaningful logic contexts surrounding the potential bug locations. To construct such regions, we propose a progressive localization procedure that jointly leverages tem-poral reasoning on sequential states and structural reasoning on combinational logic. The overall process incrementally refines the bug scope, starting from high-level behavioral divergence and gradually narrowing the analysis to compact structural logic cones, as illustrated in Fig. 3. We first perform variable mapping on sequential state vari-ables between the DUT and the golden model, and compare their runtime behaviors using execution traces. Among all mapped state variables, we identify the earliest mismatched states according to both temporal execution order and struc-tural dependency. These variables are defined as the state frontier , as illustrated in Fig. 3(a). Intuitively, the state fron-tier represents the earliest observable behavioral divergence between the DUT and the golden model at the sequential state level. Since sequential states provide stable temporal synchronization points between the two designs, anchoring localization on these states enables more reliable downstream structural analysis. Starting from each state frontier element, we perform guarded backtracing through its structural predecessors in the constructed CDFG, as illustrated in Fig. 3(b). During traversal, we perform variable mapping on the involved combinational signals and classify them as mapped-and-matched, mapped-and-mismatched, or unmapped. If the predecessor combina-tional cone contains mapped-and-mismatched or unmapped 6IN_1              
+
+> state frontier [s1]
+> IN_2
+> OUT_1
+> OUT_2
+> state frontier [s 2]
+> frontier [s1 , c1 ]
+> frontier [s 2]stop boundary [IN_2, c3, c4 ]
+> s1 s1
+> s2 s2
+> c1 c2
+> c3
+> IN_1
+> IN_2
+> c4
+> OUT_1
+> OUT_2
+> s3 s3 s1 s1
+> s2 s2
+> stop boundary [s3, c2 ]
+> c1 c2
+> c3
+> IN_1
+> IN_2
+> c4
+> OUT_1
+> OUT_2
+> s3 s3 s1 s1
+> s2 s2
+> suspicious region 1
+> suspicious region 2
+> Correct Port Mismatch Port Unmapped Register Correct Register Mismatch Register Unmapped Comb Correct Comb Mismatched Comb
+
+(a) State Frontier Extraction (b) Frontier and Stop Boundary Identification (c) Suspicious Region Construction  
+
+> Fig. 3. Progressive bug localization procedure in VeriPilot. (a) State frontier extraction identifies the earliest mismatched sequential states based on temporal and structural dependencies. (b) Frontier extraction performs guarded backtracing to identify the earliest upstream suspicious signals. (c) Suspicious region construction expands from frontier signals and collects all visited logic nodes until reaching stop boundaries.
+
+signals, the corresponding state frontier together with these predecessor combinational signals are collected as the frontier .Intuitively, the frontier represents the earliest structural bound-ary where the observed state-level divergence propagates from sequential states into combinational logic. The traversal ter-minates when reaching mapped-and-matched variables or pri-mary inputs. Subsequently, starting from each frontier element, we further backtrace through its structural predecessors until all incoming signals become mapped-and-matched variables, primary inputs, or constants. Since these signals either behave consistently with the golden model or represent external design boundaries, they naturally terminate the traversal process. We denote these terminating signals as the stop boundary , which defines the upstream limits of the suspicious logic region. All sequential and combinational nodes visited during the above backtracing process are collected into the final suspi-cious region , as illustrated in Fig. 3(c). Conceptually, this re-gion corresponds to the minimal structural logic cone capable of explaining the observed behavioral divergence. Since the actual bug is expected to reside within or along the logic paths connecting the frontier and the stop boundary, the suspicious region provides a compact yet comprehensive search space for subsequent repair. Finally, suspicious regions derived from different frontier elements are merged whenever they are struc-turally connected. The remaining connected components are treated as independent bug candidates, enabling the framework to naturally support debugging scenarios involving multiple concurrent bugs. 
+
+D. Bug Repair 
+
+After bug localization, VeriPilot performs repair at the granularity of suspicious regions rather than isolated code lines. This design allows the repair process to preserve suf-ficient structural and behavioral context, which is critical for generating semantically correct RTL patches. For each suspicious region, we further leverage the frontier and stop-boundary signals identified during localization to retrieve their corresponding variables in the golden model through the proposed variable mapping framework. Using these aligned variables as anchors, we extract the associated golden-model code segments that describe the ex-pected behavior of the suspicious logic region. These refer-ence snippets serve as semantically aligned repair guidance, enabling the LLM to reason not only about where the bug resides, but also about how the correct functionality should behave. Compared with relying solely on compiler errors or failing test cases, such cross-level behavioral guidance substantially improves the quality and stability of generated repairs. Overall, VeriPilot summarizes the debugging results into structured debugging evidence consisting of four key com-ponents.  
+
+> •
+
+the frontier , which captures the earliest structurally sus-picious signals,  
+
+> •
+
+the stop boundary , which defines the upstream limits of the suspicious logic cone,  
+
+> •
+
+the suspicious region , which contains the potentially faulty RTL logic, and  
+
+> •
+
+the aligned golden-model code segments, which describe the corresponding correct behavior. Together, these artifacts provide both structural localization information and behavioral repair references for the LLM. Based on this information, we construct a tailored repair prompt, as illustrated in Fig. 4. The prompt begins with a system-level instruction that defines the debugging objective and repair constraints. Next, the structured debugging evidence generated by VeriPilot is provided, including the frontier signals, suspicious region, stop boundary, mapped variables, and the extracted golden-model reference code. Finally, the DUT source code and the design specification are appended to provide complete design semantics and implementation context. Compared with directly feeding the entire RTL design into the LLM, this structured prompt significantly reduces irrelevant context and explicitly highlights the logic regions most relevant to the observed behavioral divergence. As a result, the LLM can focus its reasoning on the most suspicious structural dependencies and generate more accurate repair 7You are a helpful assistance.               
+
+> Consider that you have a folder structure like the following:
+> ……
+> #VeriPilot Debug Evidence
+> The frontier is the earliest signal (in time) and the closest signal (in
+> structure) where the ……
+> stop_boundary = [signal_a, signal_b, ...]
+> The stop_boundary defines where the backtrace terminates. Signals in this set are
+> considered mapped -and -matched (map & match), top -level inputs, or ……
+> The suspicious_region contains all signals encountered during the backtrace from the
+> frontier up to the stop_boundary. The bug is expected to reside on or ……
+> suspicious_region = [signal_A, signal_B]
+> dataset_prompt: {DUT}, {spec}
+> frontier = [signal_1, signal_2, ...]
+> Debug Prompt
+> ## DUT Suspicious Code Excerpts
+> {DUT_SNIP_ n}
+> ## Golden Reference Excerpts
+> {Golden_SNIP_n}
+> ## DUT Suspicious Code Excerpts
+> {DUT_SNIP_ n}
+> ## Golden Reference Excerpts
+> {Golden_SNIP_n}
+> Fig. 4. Bug repair prompt template used by VeriPilot, which integrates structured debugging evidence and relevant DUT/golden code snippets to guide LLM-based RTL repair.
+
+candidates. The constructed prompt is then provided to the LLM to synthesize a repaired RTL patch. The generated patch is inserted back into the DUT, after which the updated design is re-evaluated using the testbench to regenerate execution traces and validate functional correctness. If mismatches still exist, VeriPilot re-enters the debugging stage and repeats the localization–repair loop until either a correct implementation is obtained or the maximum iteration limit is reached. This iterative localization–repair workflow allows VeriPilot to pro-gressively refine both bug understanding and repair quality across debugging iterations. By tightly coupling structured bug evidence with semantically aligned golden-reference guidance, the framework achieves substantially better repair accuracy and robustness than approaches that rely solely on test fail-ures, compiler diagnostics, or unconstrained end-to-end code generation. IV. E XPERIMENT RESULTS 
+
+A. Experiment Setups 
+
+Software Setups: VeriPilot relies on several key software for the implementation. PyVerilog [44] and pyslang [45] are used to parse Verilog and SystemVerilog source files, extract AST and data-flow information, and construct the control-data-flow graph (CDFG) of the DUT. Since VeriPilot relies on golden model for the debugging, we extend the original verification harness with a base golden model abstraction to capture the evolution of internal variables during simulation. We implement executable Python-based golden models and leverage Python’s built-in AST utilities to analyze their se-mantics and construct the corresponding golden-side CDFGs. The DUT is compiled using a hardware simulator and accessed through cocotb’s VPI interface [46], which enables Python to control simulation execution, inject test stimuli, and collect both RTL signal traces and golden model variable traces.                             
+
+> TABLE I REPAIR PERFORMANCE ACROSS DIFFERENT BENCHMARKS
+> Type Model Benchmarks Strider CVDP-cid16 Algorithm CirFix 15.79 22.85 Strider 36.84 28.57 LLM GPT-3.5-turbo 43.85 34.29 GPT-4o 78.95 57.14 GPT-5 84.21 74.28 RTL Agent MAGE(GPT-3.5-turbo) 57.89 42.86 MAGE(GPT-4o) 87.72 65.71 MAGE(GPT-5) 91.23 80.00 Ours VeriPilot(GPT-3.5-turbo) 70.18 51.42 VeriPilot(GPT-4o) 91.23 85.71 VeriPilot(GPT-5) 92.98 91.43
+
+These components are further integrated with pytest to en-able automated simulation, regression testing, and differential checking between the DUT and the golden reference. Fur-thermore, we employ gpt-3.5-turbo, gpt-4o and gpt-5 as the backbone LLMs for both DUT–golden variable mapping and automated patch generation. 
+
+Evaluation Benchmark: In this experiment, we evaluate our approach on both the Strider dataset and the CVDP bench-mark. The Strider dataset, originally proposed for evaluating non-LLM debugging approaches, contains 57 real defect–fix pairs collected from seven programming assignments. In con-trast, CVDP is a benchmark framework designed to evaluate LLM-based and agent-based solutions for hardware verifica-tion tasks, providing more complex and realistic debugging scenarios. This makes it well suited for evaluating the upper-bound capability and robustness of VeriPilot on challenging RTL designs. Compared with Strider, CVDP contains more diverse bug types, including missing ports, partially imple-mented modules, and other functional omissions. Moreover, these bugs are often distributed across multiple locations in the design rather than confined to a single defect pattern. In this work, we select the cid16 Design Verification - Debug-ging / Bug Fixing subset for evaluation. Since the original CVDP designs are written in SystemVerilog, while most prior RTL debugging approaches primarily target Verilog such as Cirfix and Strider, we manually translate these designs into semantically equivalent Verilog implementations to enable fair comparison with existing methods. Additionally, some CVDP prompts include repair hints that explicitly describe how the bug should be fixed. To more rigorously evaluate the bug reasoning capability of LLM-based approaches, we remove such repair guidance from the prompts to avoid leaking ground-truth repair. Basically, Strider represents a relatively simple benchmark and CVDP represents a more complex and diverse benchmark. 
+
+B. Overall Debugging Capability Evaluation 
+
+Table I summarizes the RTL repair performance of VeriP-ilot and representative baselines on the Strider and CVDP benchmarks. The compared approaches cover three categories: traditional algorithm-based debugging methods (CirFix and 8
+
+Strider), foundation LLMs with direct prompting, and the state-of-the-art RTL debugging agent MAGE. Across both benchmarks and all backbone models, VeriPilot consistently achieves the highest repair success rates, demonstrating the effectiveness of combining algorithmic debugging analysis with LLM-based repair generation. Compared with traditional algorithm-based approaches, VeriPilot achieves substantially higher repair success rates on both benchmarks. On Strider, CirFix and Strider repair only 15.79% and 36.84% of defects, respectively, whereas VeriP-ilot repairs up to 92.98% of buggy designs when equipped with GPT-5. Similar trends are observed on the more chal-lenging CVDP benchmark, where VeriPilot reaches 91.43% and outperforms CirFix and Strider considerably. The limited effectiveness of algorithm-based approaches primarily arises from their reliance on predefined repair templates and struc-tural constraints. Although these methods are effective for addressing simple syntactic defects, they struggle with bugs in CVDP benchmark which generally has larger design contexts and requires deeper semantic reasoning about the intended functionality and coordinated modifications across multiple code regions. Compared with direct LLM prompting, VeriPilot consis-tently delivers significant improvements across all backbone models. On Strider, repair rates increase from 43.85–84.21% for standalone LLMs to 70.18–92.98% with VeriPilot. Simi-lar gains are observed on CVDP, where repair performance improves from 34.29–74.28% to 51.42–91.43%. These im-provements indicate that model capability alone is insufficient for reliable RTL debugging. Although modern LLMs possess strong code understanding abilities, they still face difficulties in accurately identifying fault locations and inferring intended design behaviors from incomplete specifications. VeriPilot alleviates these challenges by providing semantically grounded debugging evidence, allowing the model to focus its reasoning on a substantially reduced search space. MAGE is an agent-based baseline that enhances LLMs with iterative reasoning and tool-assisted debugging. Despite this, VeriPilot consistently outperforms MAGE across all backbone models and benchmarks. On Strider, VeriPilot raises the repair rate from 57.89% to 70.18% with GPT-3.5-turbo, and from 91.23% to 92.98% when moving from GPT-4o to GPT-5. On the more challenging CVDP benchmark, the improvements are even more pronounced, increasing repair rates from 42.86%, 65.71%, and 80.00% to 51.42%, 85.71%, and 91.43%, respec-tively. The key distinction is that VeriPilot explicitly leverages executable golden reference designs and structural analysis to generate debugging evidence before repair generation. This approach provides the LLM with more precise semantic guid-ance, resulting in higher repair accuracy and better scalability on complex RTL designs. The substantial performance gap on CVDP highlights that semantic alignment and structured debugging evidence become increasingly critical as design complexity grows. In addition, an interesting observation is that the per-formance of VeriPilot remains strongly correlated with the capability of the underlying foundation model. When using GPT-3.5-turbo, VeriPilot achieves repair rates of 70.18% and 
+
+TABLE II CATEGORIZATION OF REMAINING FAILURE CASES OF VERI PILOT WITH 
+
+GPT-4 O AND GPT-5. Category GPT-4o Failure Cases GPT-5 Failure Cases Semantic misalignment counter6bit (5 cases) counter6bit (4 cases) Localized but difficult repair pipelined adder 32bit pipelined booth mult montgomery mult AXI ALU galois encryption montgomery mult AXI ALU galois encryption 
+
+51.42% on Strider and CVDP, respectively. Replacing GPT-3.5-turbo with GPT-4o significantly improves the repair rates to 91.23% and 85.71%, indicating that stronger reasoning and code understanding capabilities directly translate into better repair outcomes. This observation suggests that VeriPilot does not replace the reasoning process of LLMs. Instead, it provides structured debugging evidence that allows the model to utilize its reasoning capacity more effectively. On the other hand, the improvement from GPT-4o to GPT-5 is considerably smaller. On Strider, the repair rate increases only from 91.23% to 92.98%, despite the approximately four-point gap between the two models when evaluated through direct prompting. A similar trend can be observed on CVDP. We believe this saturation effect may originate from benchmark limitations rather than insufficient model capability. 
+
+C. VeriPilot Failure Analysis 
+
+To better understand the limitations of VeriPilot, we analyze the failure cases when using GPT-4o and GPT-5. Table ?? 
+
+summarizes all failed designs. Despite the diversity of bench-mark designs, the failures can be broadly categorized into two stages of the VeriPilot pipeline: (1) semantic alignment failures, where meaningful debugging evidence cannot be reliably extracted from the golden reference model, and (2) repair failures, where the fault is successfully localized but the LLM fails to synthesize a valid repair. Golden Reference Model                                                                              
+
+> # Convert binary to 6 -digit BCD for output Q[23:0]
+> Signal internal state
+> // Ripple -carry style BCD counter (cascade)
+> Calculator U0 (F_IN, ENA, CLR, F_IN, Q[ 3:0],cout[ 0]);
+> Calculator U1 (F_IN, ENA, CLR, cout[ 0], Q[ 7:4],cout[ 1]);
+> Calculator U2 (F_IN, ENA, CLR, cout[ 1], Q[ 11 :8],cout[ 2]);
+> Calculator U3 (F_IN, ENA, CLR, cout[ 2], Q[ 15 :12 ], cout[ 3]);
+> Calculator U4 (F_IN, ENA, CLR, cout[ 3], Q[ 19 :16 ], cout[ 4]);
+> Calculator U5 (F_IN, ENA, CLR, cout[ 4], Q[ 23 :20 ], F_OUT);
+> DUT Module
+> tmp
+> d5 = ( tmp // 100000 ) % 10 # Q[23:20] (100000's)
+> d4 = ( tmp // 10000 )%10 # Q[19:16] (10000's)
+> d3 = ( tmp // 1000 )%10 # Q[15:12] (1000's)
+> d2 = ( tmp // 100 )%10 # Q[11:8] (100's)
+> d1 = ( tmp // 10 )%10 # Q[7:4] (10's)
+> d0 = ( tmp )%10 # Q[3:0] (1's)
+> Q= ( d5 << 20 ) | ( d4 << 16 ) | ( d3 << 12 ) | ( d2 << 8) | ( d1 << 4) | d0
+> tmp = …
+> d1 d0d2d3d4d5
+> Q[23:0]
+> U0
+> digit0
+> cout[ 0]
+> U1
+> digit1
+> U5
+> digit5
+> cout[ 1]cout[ 4]
+> Q[3:0] Q[7:4] Q[23:20]
+
+Fig. 5. Semantic alignment failure in the counter6bit design. The golden model exposes a single binary state (tmp), while the DUT distributes the counting state across multiple internal registers, making reliable variable alignment difficult and potentially leading to misleading debugging evidence. 9
+
+Failure Type I: Semantic Alignment Failure. The first category originates from the semantic alignment stage. VeriP-ilot relies on the golden reference model to establish cor-respondences between DUT signals and reference variables. While the DUT and golden model may be functionally equiv-alent, successful alignment additionally requires sufficient correspondence between their internal state representations. A representative example is the counter6bit benchmark shown in Fig. 5. The golden reference maintains a single binary counter and derives the displayed BCD digits through arithmetic conversion. In contrast, the DUT directly stores each decimal digit as an independent state and propagates carries through cascaded calculator modules. Although both implementations satisfy the same functional specification, many internal DUT states have no meaningful counterparts in the golden model. Consequently, variable alignment becomes unreliable, and mismatched signals identified from the reference model may not accurately reflect the true root cause. Golden Reference Model                                                              
+
+> #Pipeline registers updated at clock edge
+> self .FF23.step (reset, A2 )# A2 goes to ADD3 (middle -high byte)
+> self .FF24.step (reset, B2 )#B2 goes to ADD3
+> self .FF25.step (reset, A3 )#A3 goes to ADD4 (highest byte)
+> self .FF26.step (reset, B3 )#B3 g oes to ADD4
+> # Sum byte alignment
+> self .FF32.step (reset, s12 )#s1 →S[7:0]
+> self .FF31.step (reset, s2 )#s2 →S[15:8]
+> // Stage 2 -> Stage 3 pipeline registers
+> dff #( 8) FF23 (.D( A3 ), .Q(A21)); // should be A2
+> dff #( 8) FF24 (.D( B3 ), .Q(B21)); // should be B2
+> dff #( 8) FF25 (.D( A2 ), .Q(A31)); // should be A3
+> dff #( 8) FF26 (.D( B2 ), .Q(B31)); // should be B3
+> // Sum byte alignment pipeline registers
+> dff #( 8) FF31 (.D(s2), .Q(s13)); // s2 sent to S[7:0]
+> dff #( 8) FF32 (.D(s12), .Q(s23)); // s1 sent to S[15:8]
+> Localized Evidence in DUT (Buggy Verilog)
+> Suspicious Region (identified by frontier signal: carry2 )
+> Excerpt from golden model step()
+> Multiple Plausible Repairs Emerge
+> Hypothesis 1: Fix pipeline stage order
+> dff #( 8) FF23 (.D(A3), .Q(A21));
+> dff #( 8) FF24 (.D(B3), .Q(B21));
+> dff #( 8) FF25 (.D(A2), .Q(A31));
+> dff #( 8) FF26 (.D(B2), .Q(B31));
+> dff #( 8) FF31 (.D(s12) , . Q(s13));
+> dff #( 8)FF32 (.D(s2), .Q(s23));
+> Hypothesis 3: Modify carry propagation logic
+> // e.g., change C[i+1] =G[i] |(P[i] & C[i] )
+> // or register carry differently
+> Hypothesis 4: Fix control/start/done path
+> Hypothesis 2: Fix sum byte alignment
+> dff #( 1) FF00 (.D( start ), .Q(control1));
+> dff #( 1) FF01 (.D(control1), .Q(control2));
+> Localization gives the right region, but
+> translating evidence into a valid repair is difficult
+
+Fig. 6. Repair ambiguity after successful bug localization. The localized suspicious region and golden-model evidence can lead to multiple plausible repair hypotheses, while identifying the correct patch requires deeper reason-ing about pipeline interactions and temporal behavior. 
+
+Failure Type II: Repair Construction Failure. The second category emerges after successful localization and becomes the dominant source of failures on the more complex CVDP benchmark. In these cases, VeriPilot is able to identify frontier signals, suspicious regions, and relevant golden-model evi-dence. However, transforming this debugging evidence into a correct implementation fix remains a challenging reason-ing task. The pipelined adder example in Fig. 6 illustrates this challenge. VeriPilot accurately localizes the earliest mis-matched signals and extracts relevant reference logic, but the suspicious region may admit multiple plausible repair hy-potheses. Selecting the correct repair requires reasoning about temporal behavior, pipeline-stage interactions, and signal de-pendencies that are not explicitly encoded in the debugging evidence. Similar behavior can be observed in the modified Booth multiplier. The impact of model reasoning capability becomes evi-dent when comparing GPT-4o and GPT-5. Without changing the debugging framework, GPT-5 successfully repairs several previously unsolved designs, including the pipelined adder, modified Booth multiplier, and APB DSP operator. Since the generated debugging evidence remains largely unchanged, these improvements indicate that the bottleneck lies primarily in repair construction rather than fault localization. In other words, VeriPilot is often able to identify where the problem occurs, while generating how to fix it still depends on the reasoning capability of the backbone model. Nevertheless, some failures persist even with GPT-5. These designs typically require architectural modifications rather than localized behavioral corrections. For example, repairing the Montgomery multiplier requires introducing additional submodules and inserting new pipeline stages, while the AXI ALU and Galois encryption designs involve large-scale missing functionality and multiple interacting defects. In such cases, the suspicious regions and aligned reference code may span a substantial portion of the design, leaving a large repair search space even after localization. Consequently, successful repair becomes increasingly constrained by the generative and architectural reasoning capabilities of the underlying model. Overall, the failure analysis reveals a clear separation be-tween fault localization and repair synthesis in RTL debug-ging. The remaining semantic-alignment failures indicate that accurate correspondence between heterogeneous implementa-tions remains an open challenge. Meanwhile, the reduction in repair-construction failures from GPT-4o to GPT-5 sug-gests that VeriPilot already provides informative debugging evidence, but translating this evidence into correct repairs continues to depend heavily on the reasoning capabilities of the underlying LLM. These findings suggest that future RTL debugging frameworks should focus on both improving semantic alignment across diverse implementations and de-veloping repair-oriented reasoning mechanisms that explicitly bridge the gap between debugging evidence and repair gener-ation. 
+
+D. Bug Localization Evaluation 
+
+Since many benchmark designs are relatively small, we focus on the 16 most challenging repair cases that cannot be successfully repaired by GPT-4o alone to evaluate the effec-tiveness of VeriPilot’s bug localization capability. Table III summarizes the localization results, including the total RTL lines of code ( LOC ), the size of the localized suspicious region (Sus. ), and the resulting Search Space Reduction , defined as 
+
+Search Space Reduction = 1 − Suspicious LOC Total LOC . (3) Overall, VeriPilot reduces the repair search space by an av-erage of 58.4% while preserving complete SystemVerilog code blocks as debugging evidence. Rather than returning isolated statements, VeriPilot localizes semantically coherent code re-gions, enabling the LLM to focus on relevant logic while retaining sufficient structural context for repair generation. The localization results demonstrate a strong correlation between search-space reduction and repair effectiveness. Among the 16 challenging designs, VeriPilot successfully repairs 11 cases after localization. In many successful repairs, the framework is able to narrow the debugging scope to a small fraction of the original design, substantially reducing the reasoning burden imposed on the LLM. These results suggest that accurate 10                                                                            
+
+> TABLE III BUG LOCALIZATION QUALITY ON THE 16 HARD REPAIR CASES THAT
+> GPT-4 O FAILS WITHOUT VERI PILOT GUIDANCE .
+> Design LOC Sus. Red. Repair
+> pipelined adder 32bit 131 19 85.5 ✗
+> arithmetic progression generator 75 27 64.0 ✓
+> caesar cipher 63 50 20.6 ✓
+> coffee machine 222 157 29.3 ✓
+> FILO RTL 59 41 30.5 ✓
+> fsm seq detector 125 19 84.8 ✓
+> image stego 22 768.2 ✓
+> line buffer 165 75 54.5 ✓
+> pipelined modified booth multiplier 105 39 66.7 ✗
+> prim max find 82 692.7 ✓
+> sobel filter 60 11 81.7 ✓
+> apb dsp op 165 19 88.5 ✓
+> axi alu 132 51 61.4 ✗
+> galois encryption 177 123 30.5 ✗
+> signed sequential booth multiplier 141 112 20.6 ✓
+> montgomery mult 151 26 82.8 ✗
+> Mean 117 49 60.1 11/16
+
+localization serves as an effective intermediate step between failure observation and repair generation. Interestingly, several unrepaired designs still exhibit high-quality localization results. For example, the 32-bit pipelined adder and the Montgomery multiplier achieve search-space reductions of 85.5% and 82.8%, respectively. In both cases, VeriPilot successfully isolates the relevant suspicious logic and identifies the earliest faulty signals. However, generating a correct repair requires coordinated modifications across multiple pipeline stages and non-local structural reasoning, which remains challenging even after the debugging scope has been significantly reduced. The effectiveness of localization also depends on the struc-tural characteristics of the design. For example, the Galois encryption module contains signals with extensive fan-in and fan-out dependencies, causing the corresponding logic cone to span a large portion of the design. To preserve semantic completeness, VeriPilot includes the entire dependent code region as debugging evidence, resulting in a relatively smaller search-space reduction. Similar behavior can be observed in designs with highly interconnected control logic, where main-taining sufficient context is more important than aggressively minimizing the suspicious region. Finally, some failures are fundamentally dominated by re-pair complexity rather than localization quality. The AXI ALU design requires synthesizing a substantial amount of missing functionality, expanding from approximately 132 RTL lines to more than 400 lines in the corrected implementation. Likewise, the Galois encryption design contains multiple distributed defects that require extensive modifications throughout the design. In such scenarios, localization alone provides limited benefit because the primary challenge lies in large-scale code generation rather than fault identification. Overall, these results suggest that the primary role of VeriPilot is to reduce debugging uncertainty by narrowing the search space and generating structured debugging evidence. Even when repair generation ultimately fails, the localized suspicious regions significantly reduce the amount of RTL code requiring inspection, making root-cause analysis substan-tially more efficient. At the same time, the results highlight an inherent limitation of localization-based approaches: when defects correspond to missing functionality or require large-scale architectural modifications, accurate localization alone is insufficient, and repair success becomes increasingly de-pendent on the reasoning and synthesis capabilities of the underlying LLM. 
+
+E. Variable Mapping Evaluation 
+
+The effectiveness of VeriPilot’s bug localization largely depends on the quality of variable mapping between the DUT and the golden model especially for more complex designs. Since localization is performed by comparing the runtime behavior of mapped variables, incorrect mappings may directly propagate to subsequent trace analysis and lead to inaccurate localization results. Therefore, we evaluate the proposed map-ping strategy independently before analyzing its impact on bug localization. We select the 16 debugging tasks in the CVDP-cid16 benchmark that GPT-4o fails to solve for evaluation. For the baseline, we directly provide the DUT and golden model source code to GPT-4o and leverage it to generate variable correspondences in a predefined format, referred to as 
+
+raw LLM mapping . We then compare the generated mappings against VeriPilot’s automated mapping strategy. The results are summarized in Table IV. Overall, VeriPilot improves mapping precision from 55.89% to 80.99%, demonstrating the effectiveness of combining behavioral similarity with structural consistency constraints. Compared with raw LLM mapping, VeriPilot typically pro-duces fewer candidate correspondences, but a substantially larger fraction of them are correct. This suggests that the proposed alignment framework effectively filters spurious matches while preserving semantically meaningful signal cor-respondences. The improvement is most pronounced in large and structurally complex designs, where variable correspon-dence cannot be reliably inferred from signal names alone. For example, the 32-bit pipelined adder contains hierarchical module instantiations and repeated pipeline stages, resulting in multiple signals with similar naming patterns and functionality. In such scenarios, direct LLM-based mapping frequently pro-duces ambiguous correspondences. By incorporating runtime trace similarity, structural connectivity, and hierarchy-aware constraints, VeriPilot is able to distinguish signals that exhibit similar behavior but belong to different logical contexts, substantially improving mapping precision. In contrast, the performance gap becomes much smaller in designs with limited mapping ambiguity. For instance, the FSM sequence detector contains only a small number of state variables, making most signal correspondences rela-tively straightforward to identify. As a result, both approaches achieve comparable mapping accuracy. Similar observations can be made for the image steganography encoder, where the design is dominated by combinational logic and the number of candidate variables remains relatively small. In these cases, the completeness of the golden model becomes a more important factor than the alignment algorithm itself. 11                                                             
+
+> TABLE IV SIGNAL ALIGNMENT ACCURACY COMPARISON BETWEEN DIRECT NAME MATCHING AND VERI PILOT . C/C DENOTES CANDIDATE / C ORRECT .
+> Benchmark Total Direct VeriPilot Signals C/C C/C
+> pipelined adder 32bit 179 105 / 44 72 / 57 arith progression gen 18 14 / 7 8 / 8 caesar cipher 13 11 / 7 9 / 8 coffee machine 25 18 / 8 12 / 10 FILO RTL 37 22 / 9 15 / 12 fsm seq detector 11 11 / 8 9 / 8 image stego 96 / 5 5 / 5 line buffer 110 74 / 41 60 / 53 pipelined booth mult 23 24 / 9 19 / 11 prim max find 84 54 / 35 45 / 39 sobel filter 18 14 / 4 10 / 5 apb dsp op 90 41 / 29 48 / 44 axi alu 40 18 / 13 21 / 19 galois encryption 314 118 / 80 102 / 71 seq signed booth mult 22 13 / 6 10 / 8 montgomery mult 40 26 / 13 18 / 17
+> Overall Precision –55.89% 80.99%
+
+These results indicate that the primary benefit of VeriPilot lies in resolving ambiguity in complex RTL designs. As design size and structural complexity increase, behavioral and structural constraints become increasingly important for establishing reliable variable correspondences. The resulting improvement in mapping precision directly benefits subsequent mismatch detection and bug localization, where incorrect mappings can otherwise propagate errors throughout the debugging pipeline. 
+
+F. Token Consumption Evaluation 
+
+Due to the inherent nondeterminism of LLM-based repair generation, a design may require multiple repair attempts before a correct solution is obtained. To eliminate the impact of varying iteration counts, we report the average token consumption per repair iteration. The results are summarized in Table V. Compared with raw prompting, VeriPilot increases token consumption by an average of 2.58 ×. This overhead mainly originates from two sources. First, additional LLM queries are required during the variable-alignment stage to establish semantic correspondences between DUT and golden-model signals. Second, VeriPilot augments the repair prompt with structured debugging evidence, including variable map-pings, frontier signals, suspicious regions, and relevant golden-reference code fragments. The additional token usage grows with design complexity. Large designs such as the coffee-machine controller, AXI ALU, and Galois encryption module require more extensive debugging evidence and therefore incur higher token costs, whereas smaller designs introduce only modest overhead. This trend is expected, as larger designs contain more candidate signals and broader suspicious regions that must be analyzed and communicated to the LLM. Despite the increased token consumption, the additional context sub-stantially improves repair effectiveness by enabling the LLM to reason about the internal behavior of the design. Overall, the results demonstrate a favorable trade-off between token cost and repair performance: VeriPilot incurs moderate overhead                                      
+
+> TABLE V TOKEN CONSUMPTION COMPARISON BETWEEN RAW PROMPTING AND
+> VERI PILOT .Design Raw Tokens VeriPilot Tokens pipelined adder 32bit 4791 16195 arith progression gen 1743 4982 caesar cipher 1557 5063 coffee machine 8152 25476 FILO RTL 1603 3535 fsm seq detector 1787 8485 image stego 1297 2902 line buffer 6165 14023 pipelined booth mult 2902 6485 prim max find 2381 4465 sobel filter 5738 8234 string to ascii 5385 7727 apb dsp op 5694 12217 axi alu 8999 19108 galois encryption 9211 22856 seq signed booth mult 2079 3814 montgomery mult 5432 10490 Average Overhead 2.58 ×
+
+while providing significantly stronger localization capability and higher repair success rates. 
+
+G. Ablation Study 
+
+To evaluate the contribution of different forms of structured debugging evidence, we conduct an ablation study across both Strider and CVDP-cid16 using three backbone models: GPT-3.5-turbo, GPT-4o, and GPT-5. We progressively augment the repair prompt with different evidence sources, including sus-picious regions ( B) and golden-model references ( G), starting from the baseline setting that contains only the specification and mismatch information ( S). This allows us to isolate the contribution of each evidence type and analyze how their effectiveness varies across models of different capabilities. The results are summarized in Table VI. On the Strider dataset, providing the ground-truth bug loca-tion significantly improves repair accuracy. This improvement can be attributed to two factors. First, it eliminates the need for the LLM to perform additional reasoning for bug localization. Second, it constrains the modification scope, preventing the LLM from unnecessarily altering correct logic or attempting to rewrite large portions of the code, which often introduces additional errors. Providing the golden model further improves repair performance beyond supplying bug locations alone. This is because the comparison between the DUT and the golden reference implicitly encodes bug localization informa-tion while also providing guidance on how the faulty behavior should be corrected, thereby facilitating more effective repair generation. On the CVDP dataset, a similar trend is observed. Moreover, the performance gain of S+G over S+B is more pronounced than that on the Strider dataset. This can be attributed to two factors. First, the use of stronger LLM backbones amplifies the benefit of structured debugging evidence. Second, the higher implementation diversity in Strider introduces a larger abstraction gap between DUTs and golden models, which 12 
+
+TABLE VI ABLATION STUDY OF EVIDENCE USED IN LLM-BASED REPAIR .Benchmark Model S S+B S+G S+B+G Strider GPT-3.5-turbo 43.85 56.14 64.91 70.18 GPT-4o 78.95 84.21 89.47 91.23 GPT-5 84.21 87.72 91.23 92.98 CVDP-cid16 GPT-3.5-turbo 34.29 42.86 48.57 51.43 GPT-4o 57.14 68.57 80.00 85.71 GPT-5 74.28 82.86 88.57 91.43 
+
+reduces the effectiveness of golden-model guidance compared to the more structurally consistent designs in CVDP-cid16. V. C ONCLUSION 
+
+We presented VeriPilot, a unified framework that combines static structural analysis, dynamic simulation evidence, and LLM-driven reasoning for automated Verilog debugging and repair. By exposing fine-grained internal behaviors through CDFGs, semantic variable mapping, frontier-signal extraction, and guarded backtracing, VeriPilot provides LLMs with pre-cise and structured debugging evidence, enabling them to reason about root causes rather than relying on unguided code regeneration. Experimental results on both Strider and CVDP-cid16 demonstrate the effectiveness of the proposed frame-work. When integrated with GPT-4o, VeriPilot achieves repair rates of 91.23% and 85.71% on Strider and CVDP-cid16, respectively. With GPT-5, the repair rates further increase to 92.98% and 91.43%, substantially outperforming traditional automated program repair approaches, standalone LLMs, and existing RTL debugging agents. These results suggest that combining program-analysis techniques with LLM reasoning is a promising direction toward scalable and reliable AI-assisted hardware development. VI. A CKNOWLEDGMENTS 
+
+The authors used GPT-5 to polish the manuscript’s text. All core ideas, methodologies, and scientific conclusions are entirely the original work of the authors, who have thoroughly reviewed all AI-assisted outputs and take full responsibility for the final content. REFERENCES [1] Shailja Thakur, Baleegh Ahmad, Hammond Pearce, Benjamin Tan, Brendan Dolan-Gavitt, Ramesh Karri, and Siddharth Garg. Verigen: A large language model for verilog code generation. ACM Transactions on Design Automation of Electronic Systems , 29(3):1–31, 2024. [2] Lily Jiaxin Wan, Yingbing Huang, Yuhong Li, Hanchen Ye, Jinghua Wang, Xiaofan Zhang, and Deming Chen. Software/hardware co-design for llm and its application for design verification. In 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) , pages 435–441. IEEE, 2024. [3] Yang Zhao, Di Huang, Chongxiao Li, Pengwei Jin, Ziyuan Nan, Tianyun Ma, Lei Qi, Yansong Pan, Zhenxing Zhang, Rui Zhang, et al. Codev: Empowering llms for verilog generation through multi-level summariza-tion. arXiv preprint arXiv:2407.10424 , 2024. [4] Mingjie Liu, Yun-Da Tsai, Wenfei Zhou, and Haoxing Ren. Craftrtl: High-quality synthetic data generation for verilog code models with correct-by-construction non-textual representations and targeted code repair. arXiv preprint arXiv:2409.12993 , 2024. [5] Yongan Zhang, Zhongzhi Yu, Yonggan Fu, Cheng Wan, and Yingyan Ce-line Lin. Mg-verilog: Multi-grained dataset towards enhanced llm-assisted verilog generation. In 2024 IEEE LLM Aided Design Workshop (LAD) , pages 1–5. IEEE, 2024. [6] Jinwei Tang, Jiayin Qin, Kiran Thorat, Chen Zhu-Tian, Yu Cao, Yang Katie Zhao, and Caiwen Ding. Hivegen–hierarchical llm-based verilog generation for scalable chip design. In 2025 IEEE International Conference on LLM-Aided Design (ICLAD) , pages 30–36. IEEE, 2025. [7] Junfeng Gong, Zhiyi Wei, Junying Chen, Cheng Liu, and Huawei Li. From large to small: Transferring cuda optimization expertise via reasoning graph, 2025. [8] Mingjie Liu, Nathaniel Pinckney, Brucek Khailany, and Haoxing Ren. Verilogeval: Evaluating large language models for verilog code genera-tion. In 2023 IEEE/ACM International Conference on Computer Aided Design (ICCAD) , pages 1–8. IEEE, 2023. [9] Ning Wang, Bingkun Yao, Jie Zhou, Yuchen Hu, Xi Wang, Zhe Jiang, and Nan Guan. Large language model for verilog generation with code-structure-guided reinforcement learning. In 2025 IEEE International Conference on LLM-Aided Design (ICLAD) , pages 164–170. IEEE, 2025. [10] Ruiyang Ma, Yuxin Yang, Ziqian Liu, Jiaxi Zhang, Min Li, Junhua Huang, and Guojie Luo. Verilogreader: Llm-aided hardware test gener-ation. In 2024 IEEE LLM Aided Design Workshop (LAD) , pages 1–5. IEEE, 2024. [11] Chandan Kumar Jha, Muhammad Hassan, Khushboo Qayyum, Sallar Ahmadi-Pour, Kangwei Xu, Ruidi Qiu, Jason Blocklove, Luca Collini, Andre Nakkab, Ulf Schlichtmann, et al. Large language models (llms) for verification, testing, and design. In 2025 IEEE European Test Symposium (ETS) , pages 1–10. IEEE, 2025. [12] Shailja Thakur, Jason Blocklove, Hammond Pearce, Benjamin Tan, Sid-dharth Garg, and Ramesh Karri. Autochip: Automating hdl generation using llm feedback. arXiv preprint arXiv:2311.04887 , 2023. [13] YunDa Tsai, Mingjie Liu, and Haoxing Ren. Rtlfixer: Automatically fixing rtl syntax errors with large language model. In Proceedings of the 61st ACM/IEEE Design Automation Conference , pages 1–6, 2024. [14] Hanxian Huang, Zhenghan Lin, Zixuan Wang, Xin Chen, Ke Ding, and Jishen Zhao. Towards llm-powered verilog rtl assistant: Self-verification and self-correction. arXiv preprint arXiv:2406.00115 , 2024. [15] Ke Xu, Jialin Sun, Yuchen Hu, Xinwei Fang, Weiwei Shan, Xi Wang, and Zhe Jiang. Meic: Re-thinking rtl debug automation using llms. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design , pages 1–9, 2024. [16] Ning Wang, Bingkun Yao, Jie Zhou, Yuchen Hu, Xi Wang, Zhe Jiang, and Nan Guan. Veridebug: A unified llm for verilog debugging via con-trastive embedding and guided correction. In 2025 IEEE International Conference on LLM-Aided Design (ICLAD) , pages 61–67. IEEE, 2025. [17] Bingkun Yao, Ning Wang, Jie Zhou, Xi Wang, Hong Gao, Zhe Jiang, and Nan Guan. Location is key: Leveraging llm for functional bug local-ization in verilog design. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) , pages 1–7. IEEE, 2025. [18] Janick Bergeron. Writing testbenches: functional verification of HDL models . Springer, 2000. [19] Claire Le Goues, Michael Pradel, and Abhik Roychoudhury. Automated program repair. Communications of the ACM , 62(12):56–65, 2019. [20] Quanjun Zhang, Chunrong Fang, Yuxiang Ma, Weisong Sun, and Zhenyu Chen. A survey of learning-based automated program repair. 
+
+ACM Transactions on Software Engineering and Methodology , 33(2):1– 69, 2023. 13 
+
+[21] Kui Liu, Li Li, Anil Koyuncu, Dongsun Kim, Zhe Liu, Jacques Klein, and Tegawend´ e F Bissyand´ e. A critical review on the evaluation of automated program repair systems. Journal of Systems and Software ,171:110817, 2021. [22] Sangeetha Sudakrishnan, Janaki Madhavan, E James Whitehead Jr, and Jose Renau. Understanding bug fix patterns in verilog. In Proceedings of the 2008 international working conference on Mining software repositories , pages 39–42, 2008. [23] Hammad Ahmad, Yu Huang, and Westley Weimer. Cirfix: Automatically repairing defects in hardware design code. In Proceedings of the 27th ACM International Conference on Architectural Support for Program-ming Languages and Operating Systems , pages 990–1003, 2022. [24] Deheng Yang, Jiayu He, Xiaoguang Mao, Tun Li, Yan Lei, Xin Yi, and Jiang Wu. Strider: Signal value transition-guided defect repair for hdl programming assignments. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 43(5):1594–1607, 2023. [25] Kevin Laeufer, Brandon Fajardo, Abhik Ahuja, Vighnesh Iyer, Borivoje Nikoli´ c, and Koushik Sen. Rtl-repair: Fast symbolic repair of hardware design code. In Proceedings of the 29th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 3 , pages 867–881, 2024. [26] Umair Z Ahmed, Zhiyu Fan, Jooyong Yi, Omar I Al-Bataineh, and Abhik Roychoudhury. Verifix: Verified repair of programming assign-ments. ACM Transactions on Software Engineering and Methodology (TOSEM) , 31(4):1–31, 2022. [27] Kangwei Xu, Ruidi Qiu, Zhuorui Zhao, Grace Li Zhang, Ulf Schlicht-mann, and Bing Li. Llm-aided efficient hardware design automation. 
+
+arXiv preprint arXiv:2410.18582 , 2024. [28] Khushboo Qayyum, Chandan Kumar Jha, Sallar Ahmadi-Pour, Muham-mad Hassan, and Rolf Drechsler. Llm-assisted bug identification and correction for verilog hdl. ACM Transactions on Design Automation of Electronic Systems , 2025. [29] Parker Link and Benjamin Tan. Evaluating llm-based communicative agents for verilog design. In 2025 26th International Symposium on Quality Electronic Design (ISQED) , pages 1–8. IEEE, 2025. [30] Zhigang Fang, Renzhi Chen, Zhijie Yang, Yang Guo, Huadong Dai, and Lei Wang. Lintllm: An open-source verilog linting framework based on large language models. arXiv preprint arXiv:2502.10815 , 2025. [31] Jian Zuo, Junzhe Liu, Xianyong Wang, Yicheng Liu, Navya Goli, Tong Xu, Hao Zhang, Umamaheswara Rao Tida, Zhenge Jia, and Mengying Zhao. Complexvcoder: An llm-driven framework for systematic gener-ation of complex verilog code. arXiv preprint arXiv:2504.20653 , 2025. [32] Weimin Fu, Shijie Li, Yifang Zhao, Kaichen Yang, Xuan Zhang, Yier Jin, and Xiaolong Guo. A generalize hardware debugging approach for large language models semi-synthetic, datasets. IEEE Transactions on Circuits and Systems I: Regular Papers , 72(2):623–636, 2024. [33] Bardia Nadimi, Ghali Omar Boutaib, and Hao Zheng. Verimind: Agentic llm for automated verilog generation with a novel evaluation metric. 
+
+arXiv preprint arXiv:2503.16514 , 2025. [34] Zhendong Mi, Renming Zheng, Haowen Zhong, Yue Sun, Seth Kneeland, Sayan Moitra, Ken Kutzer, and Zhaozhuo Xu Shaoyi Huang. Coopetitivev: Leveraging llm-powered coopetitive multi-agent prompting for high-quality verilog generation. arXiv preprint arXiv:2412.11014 , 2024. [35] Mohammad Shahidzadeh, Behnam Ghavami, Steve Wilton, and Lesley Shannon. Automatic high-quality verilog assertion generation through subtask-focused fine-tuned llms and iterative prompting. arXiv preprint arXiv:2411.15442 , 2024. [36] Xufeng Yao, Haoyang Li, Tsz Ho Chan, Wenyi Xiao, Mingxuan Yuan, Yu Huang, Lei Chen, and Bei Yu. Hdldebugger: Streamlining hdl debugging with large language models. ACM Transactions on Design Automation of Electronic Systems , 30(6):1–26, 2025. [37] Charles Hong, Brendan Roberts, Huijae An, Alex Um, Advay Ratan, and Yakun Sophia Shao. hdl2v: A code translation dataset for enhanced llm verilog generation. arXiv preprint arXiv:2506.04544 , 2025. [38] Baleegh Ahmad, Shailja Thakur, Benjamin Tan, Ramesh Karri, and Hammond Pearce. On hardware security bug code fixes by prompting large language models. IEEE Transactions on Information Forensics and Security , 19:4043–4057, 2024. [39] Cl´ ement Pit-Claudel, Thomas Bourgeat, Stella Lau, Arvind, and Adam Chlipala. Effective simulation and debugging for a high-level hardware language using software compilers. In Proceedings of the 26th ACM International Conference on Architectural Support for Programming Languages and Operating Systems , pages 789–803, 2021. [40] Zhuorui Zhao, Bing Li, Grace Li Zhang, and Ulf Schlichtmann. Vfo-cus: Better verilog generation from large language model via focused reasoning. arXiv preprint arXiv:2511.02285 , 2025. [41] Yujie Zhao, Hejia Zhang, Hanxian Huang, Zhongming Yu, and Jishen Zhao. Mage: A multi-agent engine for automated rtl code generation. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) , pages 1–7. IEEE, 2025. [42] Chia-Tung Ho, Haoxing Ren, and Brucek Khailany. Verilogcoder: Autonomous verilog coding agents with graph-based planning and abstract syntax tree (ast)-based waveform tracing tool. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 300– 307, 2025. [43] Surya Jasper, Minh Luu, Evan Pan, Aakash Tyagi, Michael Quinn, Jiang Hu, and David Houngninou. Buggen: A self-correcting multi-agent llm pipeline for realistic rtl bug synthesis. In 2025 ACM/IEEE 7th Symposium on Machine Learning for CAD (MLCAD) , pages 1–9. IEEE, 2025. [44] Shinya Takamaeda-Yamazaki. Pyverilog: A python-based hardware design processing toolkit for verilog hdl. In International Symposium on Applied Reconfigurable Computing , pages 451–460. Springer, 2015. [45] Mike Popoloski. pyslang: Systemverilog frontend. https://github.com/ MikePopoloski/slang, 2022. [46] cocotb contributors. cocotb: Coroutine-based cosimulation library for writing vhdl and verilog testbenches in python. https://github.com/ cocotb/cocotb, 2024.

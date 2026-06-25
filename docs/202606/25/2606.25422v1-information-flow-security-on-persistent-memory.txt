@@ -1,0 +1,837 @@
+Title: Information flow security on persistent memory
+
+URL Source: https://arxiv.org/pdf/2606.25422v1
+
+Published Time: Thu, 25 Jun 2026 00:35:52 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# Information flow security on persistent memory 
+
+# Graeme Smith 
+
+School of Electrical Engineering and Computer Science, The University of Queensland, Brisbane, Australia. 
+
+Abstract 
+
+Persistent memory is a recently proposed memory paradigm that delivers many system-wide benefits, including improved runtime efficiency and the ability of pro-grams to recover from power outages and system crashes. While recent research has investigated techniques for proving functional correctness of programs run-ning on related architectures, this is not the case for the orthogonal concept of information flow security. In this paper, we provide an information flow logic for an unstructured language (i.e., with gotos rather than loops) modelling a simple assembly language. We apply this logic to x86 assembly using a notion of reorder-ing interference freedom (rif) to reason about potential out-of-order propagation of instructions to memory. We then show how this same notion of rif can be used to similarly reason about information flow on persistent memory. 
+
+Keywords: Information flow security, persistent memory, weak memory models 
+
+# 1 Introduction 
+
+Traditionally, microprocessors use two tiers of memory: byte-addressable volatile mem-ory (DRAM) for fast read and write access during program execution, and non-volatile hard, or solid-state, drive storage for longer-term retention of data. Unlike the data in volatile memory, that in non-volatile storage survives power shutdowns, including in the case of a system crash or power failure. However, accessing this data during pro-gram execution is less convenient, done at the level of blocks rather than bytes, and less efficient, being substantially slower than accessing volatile memory. Persistent memory is a recently proposed memory paradigm that can be used as an additional layer between traditional volatile memory and non-volatile storage [1]. Like volatile memory it allows fast, byte-addressable access. Unlike standard volatile 1
+
+> arXiv:2606.25422v1 [cs.LO] 24 Jun 2026
+
+memory, the data in persistent memory is preserved across power shutdowns, improv-ing system performance on reboot. While there are systems where persistent memory can replace non-volatile storage completely, and also systems where persistent mem-ory can replace volatile memory, we focus on its use as a layer between the traditional two tiers of memory. Writing programs to run on such persistent memory systems must be done with care. The order in which program writes are persisted , i.e., committed to persistent memory from volatile memory, is largely under the control of the hardware based on, for example, the need for a cache line to be cleared. Therefore, unlike volatile memory which is simply repopulated from the hard/solid-state drive when a system is started, rebooting from persistent memory can leave the system in an inconsistent state. This has led to recent research on formal semantics and formal verification tech-niques for programs on persistent memory [2–13]. These existing approaches focus on verifying functional correctness of such programs, and develop new verification tech-niques, e.g., based on buffering stores to memory [6, 7] or thread-observable views [9, 11]. In contrast, in this paper we focus on information flow security on persistent memory, and build on the insight that the observable effects of persistent memory are comparable to those of hardware weak memory models [14–17]. Hence, we use an existing verification technique for reasoning about weak memory models, reordering interference freedom (rif ) [18, 19], to reason about effects of persistent memory. This technique 
+
+• is applicable to all currently available processor memory models, and 
+
+• allows us to separately reason about – the security of a program, – the effects on security introduced by the processor’s memory model, and – the effects on security introduced by persistent memory. Not only does this simplify the overall reasoning, but enables reuse of reasoning about a program on a range of different processor architectures. It provides a notion of relative security which allows us to compare information flow in the presence and absence of particular architectural features (as in the work of Cheang et al. [20]). The paper makes two main contributions. 1. We provide an approach to information flow checking on persistent memory. To the best of our knowledge, this is the first such approach. 2. We demonstrate that the proof technique, reordering information freedom (rif), can be used to reason about persistent memory without having to develop specialised reasoning techniques. We begin in Section 2 by providing an information flow logic for an unstructured programming language, i.e., one using gotos rather than higher level language con-structs such as loops. We illustrate the use of the logic on a case study based on the Linux reader-writer mechanism seqlock [21]. In Section 3, we introduce rif and show how it can be used to reason about instruction reordering on x86 processors, and to additionally reason about effects due to inconsistent states possible with persistent memory. We demonstrate this reasoning using the case study of Section 2. A proof of 2the soundness of the approach is provided in Section 4. In Section 5, we provide an overview of related work before concluding in Section 6. 
+
+# 2 Information flow logic 
+
+Our information flow logic is defined over an abstract syntax representing assembly language constructs. A procedure is defined as having an identifier and a set of basic blocks (including both a start block and one or more exit blocks). Each basic block comprises a (possibly empty) sequence of instructions followed by either a jump to another basic block in the procedure or, in the case of an exit block, a return. Jumps may be conditional allowing for two or more possible jump targets. The condition b
+
+is in terms of registers and literal values only. 
+
+procedure ::= id : block +
+
+block ::= id : instruction ∗ jump instruction ::= r := e | r := [ x ] | [x ] := ejump ::= goto id | if (b) jump else jump |
+
+return 
+
+There are three types of instructions: register updates r := e where r is a thread-local register name and e is an expression in terms of registers and literals, loads 
+
+r := [ x ] where x is the address of the data to be loaded into register r , and stores 
+
+[x ] := e. The address x corresponds to a global, i.e., shared, program variable, or an offset from such a variable (representing an index into an array or other data structure). Each of these instructions is considered to be atomic in our abstract language. Our logic builds on that of Winter et al. [22] which uses a combination of weakest precondition reasoning [23, 24] to check security proof obligations and rely/guarantee reasoning [25, 26] to take into account the effects of concurrently running threads. The memory is assumed to be partitioned in such a way that an attacker can only directly 
+
+access data labelled as low . Data labelled as high is regarded as sensitive and it is the objective of the logic to detect any possibility of such data being directly or indirectly imparted to an attacker. We adapt that logic (developed for a simple while language) to our abstract assem-bly language syntax. Each memory location x (corresponding to a program variable or part of a data structure) is given a security classification L(x ). The classification is either high (meaning the location is not directly accessible by an attacker and can hold either high or low data) or low (meaning the location is directly accessible by an attacker and hence should only hold low data). The security level of the data itself is given by an auxiliary variable Γx for a location x . Similarly, Γr is used for the security level of the data held in a register r .Given a Boolean lattice with values high and low such that low ⊑ high and high ̸ ⊑
+
+low , our logic checks that an instruction or jump carried out in a secure state, i.e., one where for all locations x , Γx ⊑ L (x ), results in a secure state. 1 As has been proved in Isabelle/HOL [22], this amounts to verifying noninterference [27], i.e., that low 
+
+data is not influenced by high data. The required check is made via proof obligations introduced by the weakest precondition rules (see below) for each instruction or jump. 
+
+> 1The approach can be extended to a general lattice as detailed in [22].
+
+3Following Barnett and Leino [28], we apply weakest precondition reasoning to each basic block. The reasoning starts from a postcondition at each exit block, and conditions that need to hold to ensure noninterference are added by rules associated with each instruction and jump. Given id ok denotes the weakest precondition of block id , the rules for jumps are as follows (where Q is the poststate from which the rule is applied and wpif is our extension of standard weakest precondition reasoning). 
+
+wpif (goto id , Q) = id ok 
+
+wpif (if (b) j1 else j2, Q) = ΓE (b) = low ∧
+
+(b ⇒ wpif (j1, Q)) ∧ (¬b ⇒ wpif (j2, Q)) 
+
+wpif (return , Q) = Q
+
+where ΓE (b) evaluates to high when any of the values that are used to express b are 
+
+high , and low otherwise. The predicate ΓE (b) = low is a proof obligation ensuring that branching does not occur based on high data: in concurrent programs, the value of b
+
+can readily be deduced using timing attacks (even when the statement’s branches do not change publicly accessible variables) [29, 30]. Consider, for example, the following procedure where id 0 is the start block and the basic block id 1 repeatedly performs the sequence of instructions c until condition b is false. 
+
+id 0 :[x ] := 0 
+
+if (r = 0) goto id 1 else goto id 2
+
+id 1 :
+
+c
+
+if (b) goto id 1 else goto id 2
+
+id 2 :[x ] := 1 
+
+return 
+
+Assume that r holds high data. Even though the values stored to [x ] are inde-pendent of the value of r , a concurrent thread which simply loads [x ] will be able to deduce information about r in some circumstances. For example, under a round robin scheduler with time slices less than the time it takes to execute id 1, loading the value 1 would indicate that r̸ = 0 .In circumstances where releasing some information about high data is not prob-lematic from a security perspective, the verification can include declassification of 
+
+what expressions in terms of high variables can be released, and where in the pro-gram this can occur [31]. For example, when reasoning about the above procedure, we could declassify the expression r = 0 at line 2 of id 0 (and nowhere else). This expres-sion is then treated as if it were low . Such an approach changes the property being proved to something slightly weaker, but ultimately more practical, than standard noninterference as detailed in [32, 33]. For a register update r := e, we have no additional proof obligation since registers are thread-local and hence no data is put into a location that is accessible by another thread. The rule differs from the standard weakest precondition rule for assignments by including an update to the auxiliary variable Γr denoting the security level of the data in r .
+
+wpif (r := e, Q) = Q[r , Γr \e, ΓE (e)] 
+
+4where Q[r , Γr \e, ΓE (e)] denotes predicate Q with each occurrence of r and Γr replaced by e and ΓE (e), respectively. Load and store instructions add proof obligations that depend on globally accessi-ble memory locations. These proof obligations can therefore be falsified by concurrently running threads. To allow for thread-local reasoning, we include an additional proof obligation that assures they are not falsified by any possible step, or sequence of steps, of threads in the environment. This potential environment behaviour is captured by a rely predicate R [25]. R
+
+is a two-state predicate over locations, i.e., global variables, describing the relation between the state before and after all possible environment steps. This relation is reflexive to capture that the environment may do nothing, and transitive to capture that the environment may perform several steps. Each variable v in the before state of R is denoted by v ′ in the after state. Using 
+
+P ′ to refer to P [¯ v \¯v ′] where ¯v is the list of all variables in P and ¯v ′ their primed counterparts, a predicate P is defined to be stable , i.e., non-falsifiable, under behaviour described by R as follows. 
+
+stable R(P) = ∀ ¯v ′ · P ∧ R ⇒ P ′
+
+A wellformedness condition of wpif requires that the specified precondition and postcondition of a procedure are stable. For a load r := [ x ], we require that r and Γr are updated, the latter to L(x ) ⊓ Γx ,i.e., the meet, or lowest value, of L(x ) and Γx . This ensures Γr is no greater than 
+
+L(x ) in the case where Γx ’s value is not defined. This reflects that we are starting the execution of the load from a secure state. Additionally, we require that this proof obligation is stable. 
+
+wpif (r := [ x ], Q) = Q[r , Γr \[x ], L(x ) ⊓ Γx ] ∧ stable R(Q[r , Γr \[x ], L(x ) ⊓ Γx ]) 
+
+A store [x ] := e changes the data in the globally accessible location x . Hence, it is required that this change satisfies the rely predicates of all other threads in the environment. To support proving this, a thread has a guarantee predicate G which stores must satisfy [25]. Like R, G is a two-state predicate over locations capturing a change of global state. The rule for a store updates [x ] and Γx and checks that the security value of e is less than or equal to the security classification of x . Additionally, it assures the thread’s guarantee holds when the value of [x ] is updated to e, and that all proof obligations are stable. 
+
+wpif ([ x ] := e, Q) = Q[[ x ], Γx \e, ΓE (e)] ∧ ΓE (e) ⊑ L (x ) ∧ G [[ x ]′\e][¯ v ′\¯v ] ∧
+
+stable R(Q[[ x ], Γx \e, ΓE (e)] ∧ ΓE (e) ⊑ L (x ) ∧ G [[ x ]′\e][¯ v ′\¯v ]) 
+
+where ¯v is the list of all variables in G, i.e., G has all occurrences of [x ]′ replaced by 
+
+e and all other primed variables v ′ replaced by v (capturing that the value of v is unchanged). 5Finally, to reason over the sequence of instructions and jump in a basic block, we have the following rule (where i1 and i2 are sequences of instructions, i2 optionally followed by a jump). 
+
+wpif (i1 i2, Q) = wpif (i1, wpif (i2, Q)) 
+
+# 2.1 Case study 
+
+To illustrate the use of the logic, we present a case study based on the Linux reader-writer mechanism seqlock [21]. The case study provides a proof of concept that (i) persistent memory can introduce new information flow problems, and (ii) that the proposed approach can find them. A deeper evaluation of the approach requires automated tool support which is left to future work. The seqlock mechanism allows reading of shared memory locations without the need for locking, thus supporting fast write access. We assume there is just one writer thread but many reader threads. When the writer thread wishes to write to the shared locations x 1 and x 2, it increments a counter c whose initial value is even. It then proceeds to write to the locations, and finally increments c again. The counter c
+
+ensures the consistency of values read by other threads. The two increments of c ensure that it is odd when a thread is writing to the locations, and even otherwise. Hence, when a thread wishes to read the locations, it waits in a loop until c is even before reading them. Also, before returning it checks that the value of c has not changed (i.e., another write has not begun). If it has changed, the values from x 1 and x 2 that have been read may not belong to the same write and hence the thread discards these values and starts over. To introduce a security element to our case study, we assume the location x 1 may hold high data, and that this is flagged via x 2 which is 1 when the data at x 1 is high 
+
+and 0 when it is low .Assuming the values to be written to x 1 and x 2 are stored in registers r 1 and r 2,respectively, the write procedure has just the following basic block. 
+
+wr 0 :
+
+r 0 := [ c][c] := r 0 + 1 [x 1] := r 1[x 2] := r 2
+
+r 0 := [ c][c] := r 0 + 1 
+
+return 
+
+The read procedure places the values at x 1 and x 2 in registers r 1 and r 2, respec-tively. Since registers are local to a thread, these registers are different to those of the writer thread and all other reader threads. The procedure has four basic blocks. In the start block rd 0, the value at c is read and, if it is even, the code jumps to basic block rd 1, otherwise it starts over. In rd 1,the value at x 2 is read and if it is 1 the procedure jumps to basic block rd 2 where it 6clears the value in r 1 and returns. The 1 in r 2 indicates to the thread that called the procedure that the read has failed (due to the current value being high ). 2 Otherwise, the code jumps to basic block rd 3. This block reads the data at x 1 then re-reads the value at c. If this latter value hasn’t changed, then the values in r 1 and r 2 correspond to a single write and the procedure returns. In this case, the 0 in r 2 indicates to the calling thread that the read was successful (and r 1 contains the low data read from 
+
+x 1). If the value at c has changed, the data cannot be returned and so the procedure starts over. 
+
+rd 0 :
+
+r 0 := [ c]
+
+if (r 0 mod 2 = 0) goto rd 1 else goto rd 0
+
+rd 1 :
+
+r 2 := [ x 2] 
+
+if (r 2 = 1) goto rd 2 else goto rd 3
+
+rd 2 :
+
+r 1 := 0 
+
+return 
+
+rd 3 :
+
+r 1 := [ x 1] 
+
+r 3 := [ c]
+
+if (r 3 = r 0) return else goto rd 0
+
+To reason about information flow in this program, we let L(c) = L(x 2) = low as these locations do not hold sensitive data, and L(x 1) = high since it may hold high 
+
+information (when the value at x 2 is 1). The writer thread can rely on the values at x 1, x 2 and c not being changed by other threads. It guarantees that the correspondence between the value at x 2 and the security of data in x 1 is maintained when the value at c is even ( G ∧ G′ below). It also guarantees that it only ever increases the value at c, and does not change the values at x 1 and x 2 when the value at c is even. 
+
+Rwr = ([ x1]′ = [ x1] ∧ [x2]′ = [ x2] ∧ [c]′ = [ c]) 
+
+Gwr = G ∧ G′ ∧ [c]′ ≥ [c] ∧ (c mod 2 = 0 ⇒ [x 1] ′ = [ x 1] ∧ [x 2] ′ = [ x 2]) 
+
+where G = ([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) 
+
+The application of the information flow logic to the write procedure is given in Figure 1 (where predicates at each step have been simplified). Starting with a post-condition that the value at c is even and, hence, that x 2 = 1 ⇔ Γx 1 = high , the proof applies the wpif rules to derive the weakest precondition to ensure noninterference and the thread’s guarantee. Note that the stability conditions are trivially true at each step due to the environment threads not changing the values at c, x 1 or x 2.Since none of the predicates in the proof evaluates to false, the procedure is secure when started in a state satisfying the calculated weakest precondition; that is, in a state where r 2 holds low data, the value at c is even, r 1 holds high data if, and only if, 
+
+r 2 = 1 , and [x 1] holds high data if, and only if, [x 2] = 1 . The latter condition ensures that the guarantee is met by the first store. The rely and guarantee predicates for the read procedure are the inverse of those for write , i.e., Rrd = Gwr and Grd = Rwr . This ensures compatibility with the writer      
+
+> 2We assume there are additional privileged reader threads that could read the value at x1in these cases.
+
+7wr 0 :
+
+{Γr 2 = low ∧ [c] mod 2 = 0 ∧ (r 2 = 1 ⇔ Γr 1 = high ) ∧ ([ x 2] = 1 ⇔ Γx 1 = high )}
+
+r 0 := [ c]
+
+{Γr 0 = low ∧ Γr 2 = low ∧ r 0 mod 2 = 0 ∧ (r 2 = 1 ⇔ Γr 1 = high ) ∧ r 0 + 1 ≥ [c] ∧
+
+([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) }
+
+[c] := r 0 + 1 
+
+{Γr 2 = low ∧ ([ c] + 1) mod 2 = 0 ∧ (r 2 = 1 ⇔ Γr 1 = high )}
+
+[x 1] := r 1
+
+{Γr 2 = low ∧ ([ c] + 1) mod 2 = 0 ∧ (r 2 = 1 ⇔ Γx 1 = high )}
+
+[x 2] := r 2
+
+{([ c] + 1) mod 2 = 0 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )}
+
+r 0 := [ c]
+
+{Γr 0 = low ∧ (r 0 + 1) mod 2 = 0 ∧ ([ x 2] = 1 ⇔ Γx 1 = high ) ∧ r 0 + 1 ≥ [c]}
+
+[c] := r 0 + 1 
+
+{[c] mod 2 = 0 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )}   
+
+> Fig. 1 Calculation of weakest precondition of write procedure.
+
+thread (i.e., it ensures that the writer thread ensures what the reader threads rely on, and vice versa). Also, since the read procedure only changes (thread-local) registers, each thread calling it is trivially compatible with other reader threads. The information flow logic is applied to the read procedure in Figure 2 (where again predicates have been simplified at each step). Starting with a postconditon that r 1 holds low information (and hence there is no information leak), the weakest precondition of the start block rd 0 is calculated to be the predicate [c] mod 2 = 0 ⇒
+
+([ x 2] ̸ = 1 ⇒ Γx 1 = low ) which is implied by the predicate G maintained by the writer thread. Note that due to cycles between the basic blocks, a process akin to deriving loop invariants needs to be used to calculate the basic block’s preconditions. At each step, the predicates referring to locations which can be modified by the writer are stable as follows. The predicate [c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low )
+
+is implied by predicate G which is maintained by the writer thread. Similarly, each predicate with [c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ) as the consequent of an implication is stable. The stability of predicate [c] = r 0 ⇒ Γr 1 = low reduces to r 0 ≤ [c]: since the writer guarantees [c]′ ≥ [c], the antecedent of the predicate can never go from false to 
+
+true when r 0 ≤ [c] and hence the predicate cannot be falsified. Similarly, the stability of the predicate [c] = r 0 ⇒ Γx 1 = low reduces to r 0 ≤ [c] ∧ r 0 mod 2 = 0 : again 
+
+r 0 ≤ [c] ensures that the antecedent does not go from false to true , and r 0 mod 2 = 0 
+
+ensures [c]mod2 = 0 when the antecedent is true and hence that the writer guarantees 
+
+x 1 is not changed. Again since none of the predicates in the proof evaluate to false , the procedure is secure when started from a state satisfying its weakest precondition. The weakest precondition of read requires that if the value at c is even then if [x 2] ̸ = 1 , x 1 contains 
+
+low data (since it is this data which will be returned in r 1). 8rd 0 :
+
+{[c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low )}
+
+r 0 := [ c]
+
+{Γr 0 = low ∧
+
+(r 0 mod 2 = 0 ⇒
+
+([ x 2] ̸ = 1 ⇒ r 0 ≤ [c] ∧ ([ c] = r 0 ⇒ Γx 1 = low ) ∧
+
+([ c]̸ = r 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low )))) ∧
+
+(r 0 mod 2 ̸ = 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ))) }
+
+if (r 0 mod 2 = 0) goto rd 1 else goto rd 0
+
+{true }
+
+rd 1 :
+
+{([ x 2] ̸ = 1 ⇒ r 0 mod 2 = 0 ∧ r 0 ≤ [c] ∧ Γr 0 = low ∧ ([ c] = r 0 ⇒ Γx 1 = low ) ∧
+
+([ c]̸ = r 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ))) }
+
+r 2 := [ x 2] 
+
+{Γr 2 = low ∧
+
+(r 2̸ = 1 ⇒ r 0 mod 2 = 0 ∧ r 0 ≤ [c] ∧ Γr 0 = low ∧ ([ c] = r 0 ⇒ Γx 1 = low ) ∧
+
+([ c]̸ = r 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ))) }
+
+if (r 2 = 1) goto rd 2 else goto rd 3
+
+{true }
+
+rd 2 :
+
+{true }
+
+r 1 := 0 
+
+{Γr 1 = low }
+
+return 
+
+{Γr 1 = low }
+
+rd 3 :
+
+{r 0 mod 2 = 0 ∧ r 0 ≤ [c] ∧ Γr 0 = low ∧ ([ c] = r 0 ⇒ Γx 1 = low ) ∧
+
+([ c]̸ = r 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ))) }
+
+r 1 := [ x 1] 
+
+{r 0 ≤ [c] ∧ Γr 0 = low ∧ ([ c] = r 0 ⇒ Γr 1 = low ) ∧
+
+([ c]̸ = r 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ))) }
+
+r 3 := [ c]
+
+{Γr 3 = low ∧ Γr 0 = low ∧ (r 3 = r 0 ⇒ Γr 1 = low ) ∧
+
+(r 3̸ = r 0 ⇒ ([ c] mod 2 = 0 ⇒ ([ x 2] ̸ = 1 ⇒ Γx 1 = low ))) }
+
+if (r 3 = r 0) return else goto rd 0
+
+{Γr 1 = low }   
+
+> Fig. 2 Calculation of weakest precondition of read procedure.
+
+93 Reordering interference freedom (rif) 
+
+The analysis of the seqlock case study in Section 2.1, did not take into account the memory model of the processor on which the code is running, nor the effect of using persistent memory in the case of an unplanned power outage. Recently, custom approaches have been developed to enable such reasoning [7, 11]. Our approach, however, is to use the rely/guarantee-based analysis already presented and to augment it with side-conditions to identify new vulnerabilities introduced by given architectural features. We use the notion of reordering interference freedom , or rif for short, introduced by Coughlin et al. [18, 19] to reason about the effects of processor weak memory models. As we show in this section, it can also be used to reason about the effects of persistent memory. 
+
+# 3.1 Definition of rif 
+
+In their work on operational semantics for hardware weak memory models, Colvin and Smith [34, 35] show that the effects of all multicopy atomic memory models , i.e., those in which all processor cores see writes to memory at the same time, can be captured in terms of an instruction reordering relation R. This is validated by comparing sim-ulations of the semantics against actual hardware using the widely accepted range of litmus tests of Alglave et al. [16]. 
+
+R captures the reordering of memory accesses, i.e., stores and loads, allowed by a given memory model to improve efficiency. Such reordering is required to maintain a thread’s in-order semantics and hence has certain restrictions (detailed in [34, 35]). In general, two instructions cannot reorder when there is a dependency between them. For example, the program r := 0 [ x ] := r cannot be reordered to [x ] := r r := 0 
+
+due to the store depending on the update to r . Importantly, reordered stores must write the values they would have written if executed in order. This can be assured by rewriting register updates/loads in dynamic single assignment (DSA) form, i.e., where each register variable is assigned only once in an execution [36]. For example, 
+
+r := 0 [ x ] := r r := 1 would be rewritten as r0 := 0 [ x ] := r0 r1 := 1 ensuring that location x is updated with value 0 even if the final register update is reordered before it. We assume R does not allow non-memory instructions, i.e., register updates and jumps, to reorder with each other; such reorderings, while possible on a pipelined architecture, are inconsequential for the ordering of memory accesses. In the reordering semantics, the rule for sequential composition is split into two cases: standard in-order execution, and reordered execution according to any reordering of instructions allowed by R.
+
+α c α
+
+−→ cc β
+
+−→ c′ (α, β ) ∈ R
+
+α c β⟨α⟩
+
+−−→ α c′
+
+10 The rule for in-order execution (left-hand rule above) allows the next instruction 
+
+α in a program α c to execute leaving the program c. The reordered execution (right-hand rule above) allows an instruction β⟨α⟩, which is not the next instruction, to execute transforming program α c to α c′. This is possible whenever c can execute β
+
+to become c′ and α and β are reorderable according to R. In this rule, β⟨α⟩ denotes a modification of β which takes into account that it has been reordered with α. For example, the code [x ] := 1 r := [ x ] can be reordered to r := 1 [x ] := 1 on the Intel/AMD memory model x86 [15], where the load r := [ x ] has been modified to 
+
+r := 1 . Such modification is referred to as forwarding (or bypassing ) and occurs to maintain the sequential semantics of the program [14]. Formally, β⟨α⟩ is defined as follows. 
+
+β⟨α⟩ =
+
+(
+
+r := e, if α = ([ x ] := e) and β = ( r := [ x ]) for some x , r and e
+
+β, otherwise Note that the reordering rule can be applied successively to reorder, for example, 
+
+α β γ c to γ α β c when (β, γ ) ∈ R and (α, γ ) ∈ R (and no forwarding is required): first β γ c is reordered to γ β c then α γ β c is reordered to γ α β c.The semantics of other language constructs are not affected by R and hence have the standard semantics as shown for a given procedure in Figure 3. Note that the 
+
+return statement terminates the procedure and, as such, has no behaviour. Based on the above semantics, the idea of rif is simple. Essentially the approach checks, for every pair of reorderable instructions of a program, i.e., instructions that can occur in the reverse order to the order they appear in the program, that executing the instructions in the reverse order does not introduce new behaviour. This check is defined for a verification approach based on rely/guarantee reasoning and includes ensuring that (i) interference from other threads is taken into account via the program’s rely condition, (ii) the program’s guarantee is maintained under the reordering, and (iii) other instructions reordering before or after the reorderable pair are taken into account by performing the check for the execution of the instructions with respect to an arbitrary pre- and post-state. For the logic in Section 2, we check the following for each pair of reorderable instructions (α, β ) for a program with rely R and guarantee G.
+
+rif (α, β, R, G) b= ∀ Q · wpif (α β, Q) ⇒ wpif (β⟨α⟩ α, Q) (1) That is, for every state from which the execution of α β will reach an arbitrary state Q,the execution of β⟨α⟩ α will also reach Q. The use of wpif ensures that the program’s rely and guarantee are taken into account (conditions (i) and (ii) above), and the universal quantification over Q over-approximates the post-states the executions result in (ensuring condition (iii)). The over-approximation ensures the soundness of rif, i.e., that it captures all behaviours possible under the given reordering, as has been proved in Isabelle/HOL [18]. While false positives are possible, they are not common (most 11 id : c ∈ blocks 
+
+goto id [true ]
+
+−−−→ c
+
+eval (σ, b)
+
+if (b) j1 else j 2 [b]
+
+−→ j 1
+
+¬eval (σ, b)
+
+if (b) j1 else j 2 [¬b]
+
+−−→ j 2
+
+c [b]
+
+−→ c′
+
+σ, c −→ σ, c′
+
+c r := e
+
+−−−→ c′
+
+σ, c −→ σ[r 7 → eval (σ, e)] , c′
+
+c r :=[ x ]
+
+−−−→ c′
+
+σ, c −→ σ[r 7 → σ(x )] , c′
+
+c [x ]:= e
+
+−−−→ c′
+
+σ, c −→ σ[x 7 → eval (σ, e)] , c′
+
+For a given procedure, blocks is the set of basic blocks of the procedure, and σ is the state comprising values at global memory locations and in registers local to the thread calling the procedure ( σ[l 7 → v ] updates location/register l with value v and eval (σ, e)
+
+is the evaluation of expression e in σ).  
+
+> Fig. 3 Operational semantics of a procedure.
+
+allowed reorderings are benign in any context) and are readily dealt with using strategies detailed in [18]. The over-approximation also dramatically reduces the complexity of reasoning in the presence of reordering. For a thread with n instructions, the worst case is that every instruction can reorder giving us n(n − 1) /2 reorderable pairs (significantly less than the n! execution traces that such reordering would introduce). Note also that this worst case is extremely unlikely. Weak memory models preserve sequential semantics and hence, apart from cases of forwarding, instructions which refer to the same variable are not reorderable. The rif approach is also readily automated. Pairs of reorderable instructions of a program can be found via a dataflow analysis, similar to dependence analysis com-monly used in compiler optimisation [37]. This approach has been implemented for both a simple while language and an abstraction of ARMv8 assembly code [18]. The operational semantics and definition of rif above is for multicopy atomic pro-cessors. These include widely used x86 and ARMv8 processors as well as those based on the open-source RISC-V architecture. An extension of the semantics has been devel-oped for non-multicopy atomic processors such as IBM POWER and ARMv7 [34, 35]. The interested reader is referred to [19] for a corresponding definition of rif which works for these processors. 
+
+# 3.2 rif on the x86 weak memory model 
+
+To illustrate the use of rif, we apply it to analyse information flow security of our seqlock case study when running on an x86 processor. On x86 (also referred to as Total Store Order (TSO)), stores occur in program order but may be delayed with respect to loads, register updates and jumps. In the case of loads to the same memory location as the store, forwarding occurs (as discussed in Section 3.1). These rules are summarised in Table 1 where X indicates no reordering is possible, F indicates reordering is possible and that forwarding applies in the case that the store and load 12 Instruction 2 load store RMW mfence other load X X X X Xstore F X X X ✓                
+
+> RMW XXXXXInstruction 1 mfence XXXXXother XXXXX
+> Table 1 Instruction reordering on x86 (from [14], extended with the category “other” for register updates and jumps).
+
+refer to the same location, and ✓ indicates reordering is possible. Instruction 1 is the earlier instruction and Instruction 2 the later. For greater completeness, we have included atomic read-modify-write instructions such as compare-and-swap and fetch-and-add ( RMW ) and a general fence instruction ( mfence ) used to prevent unwanted reordering. 3 The operational semantics and wpif rules for these constructs are provided below. We model a general RMW instruction as RMW (b, x , e1, e2) which updates the location x to e2 when b holds. For a fetch-and-add with parameters x and e1, b is true and e2 = σ([ x ]) + e1. For a compare-and-swap with parameters x , e1 and e2, b is 
+
+σ([ x ]) = e1.
+
+c mfence 
+
+−−−−→ c′
+
+σ, c −→ σ, c′
+
+eval (σ, b) c RMW (b,x ,e1,e2)
+
+−−−−−−−−−→ c′
+
+σ, c −→ σ[x 7 → eval (σ, e2), r 7 → σ(x )] , c′
+
+¬eval (σ, b) c RMW (b,x ,e1,e2)
+
+−−−−−−−−−→ c′
+
+σ, c −→ σ[r 7 → σ(x )] , c′
+
+where r is the x86 register into which 
+
+[x ] is loaded during a read-write-modify instruction. 
+
+wpif (mfence , Q) = Qwpif (RMW (b, x , e1, e2), Q) = Γ E (b) = low ∧ (b ⇒ wpif ([ x ] := e2, Q)) ∧ (¬b ⇒ Q)
+
+where r is not free in Q nor e2 (and hence loading [x ] to it has no effect on the calculated weakest precondition). Note that neither the operational semantics nor wpif 
+
+rules take into account the ordering constraints introduced by these instructions, as these will be handled by rif. Table 1 represents the reordering relation R where for each (α, β ) ∈ R, α is a store 
+
+[x ] := e1 and β is either a load r := [ y], register update r := e2 or jump. Recalling the write procedure of seqlock from Section 2.1, three pairs of reorderable instructions can be found. The second load r 0 := [ c] can be reordered with each of the proceedings stores. We apply the rif check (1) to the first pair of instructions [x 2] := r 2 and r 0 := [ c]
+
+below. Noting that write ’s rely condition ensures values at c, x 1 and x 2 do not change, 
+
+> 3x86 also supports a store fence (sfence) and a load fence (lfence) which we omit here.
+
+13 we have the following (where r , r0 and r1 are the DSA variables corresponding to the initial value, first and second assignments to a register r , respectively). 
+
+wpif ([ x 2] := r 2 r 01 := [ c], Q)= wpif ([ x 2] := r 2, wpif (r 01 := [ c], Q)) (sequential composition) 
+
+= wpif ([ x 2] := r 2, Q[r 01, Γr 01 \[c], Γc ]) (load) 
+
+= Q[r 01, Γr 01 \[c], Γc ] [[ x 2] , Γx 2\r 2, Γr 2] ∧
+
+([ c] mod 2 = 0 ⇒ [x 2] = r 2 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )) (store) 
+
+wpif (r 01 := [ c] [x 2] := r 2, Q)= wpif (r 01 := [ c], wpif ([ x 2] := r 2, Q)) (sequential composition) 
+
+= wpif (r 01 := [ c], Q[[ x 2] , Γx 2\r 2, Γr 2] ∧
+
+([ c] mod 2 = 0 ⇒ [x 2] = r 2 ∧ ([ x 2] = 1 ⇔ Γx 1 = high ))) (store) 
+
+= Q[[ x 2] , Γx 2\r 2, Γr 2]] [ r 01, Γr 01 \[c], Γc ] ∧
+
+([ c] mod 2 = 0 ⇒ [x 2] = r 2 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )) (load) Since neither updated variable depends on the other, the order of substitution does not matter. Hence, wpif ([ x 2] := r 2 r 01 := [ c], Q) = wpif (r 01 := [ c] [ x 2] := r 2, Q)
+
+and (1) holds. From this we deduce that no new behaviour is introduced by the reordering and the results of the analysis of Section 2.1, that seqlock is secure, still holds. The rif check for the reorderable pair [x 1] := r 1 and r 0 := [ c] similarly holds. Forwarding is required for the pair [c] := r 0 + 1 and r 0 := [ c] since the store and load refer to the same location c. The rif check is as follows. 
+
+wpif ([ c] := r 00 + 1 r 01 := [ c], Q)= wpif ([ c] := r 00 + 1 , wpif (r 01 := [ c], Q)) (sequential composition) 
+
+= wpif ([ c] := r 00 + 1 , Q[r 01, Γr 01 \[c], Γc ]) (load) 
+
+= Q[r 01, Γr 01 \[c], Γc ] [[ c], Γc \r 00 + 1 , Γr 00 ] ∧ r 00 + 1 ≥ [c] ∧
+
+([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) ∧
+
+(( r 00 + 1) mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) (store) 
+
+wpif (r 01 := r 00 + 1 [c] := r 00 + 1 , Q) (forwarding applied) 
+
+= wpif (r 01 := r 00 + 1 , wpif ([ c] := r 00 + 1 , Q)) (sequential composition) 
+
+= wpif (r 01 := r 00 + 1 , Q[[ c], Γc \r 00 + 1 , Γr 00 ] ∧ r 00 + 1 ≥ [c] ∧
+
+([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) ∧
+
+(( r 00 + 1) mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high ))) (store) 
+
+= Q[[ c], Γc \r 00 + 1 , Γr 00 ]] [ r 01, Γr 01 \r 00 + 1 , Γr 00 ] ∧ r 00 + 1 ≥ [c] ∧
+
+([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) ∧
+
+(( r 00 + 1) mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high ))) (load) Again the order of substitutions does not matter. In this case, for both orders [c]
+
+and r 01 become r 00 + 1 , and Γc and Γr 01 become Γr 00 . Hence, no new behaviour is introduced. Since there are no further reorderable pairs in write and no reorderable pairs in read (since it has no stores), it follows that seqlock is secure when executed on x86. 14 3.3 rif on persistent memory 
+
+A key problem with programming for persistent memory is ensuring a consistent state after a power outage. The problem arises due to the way stores are propagated from volatile to persistent memory. This is based on cache lines in the sense that stores on the same cache line are persisted , i.e., committed to persistent memory, together. More importantly, stores on different cache lines are committed at different times (determind by the hardware) which may not correspond to the order in which these stores occur in the program. For seqlock, when a power outage occurs, we would like to restart in a state where reader threads can immediately begin calling the read procedure. This will be true if the predicate G = ([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high ) holds, since G implies the weakest precondition of read . It is not possible to also guarantee the weakest precondition of write as this requires [c] to be even, for example (and it is possible for a crash to occur when the latest persisted value at c is odd). Hence, a start-up/recovery routine would need to be run before write is called. Our earlier analysis shows that, under normal execution, G always holds. However, imagine that stores to x 1, x 2 and c are placed on different cache lines. Given a write of a high value to x 1 after a previous write of a low value, [x 1] and the final (even) value at c may be persisted, but not yet the value at x 2 which indicates that the value in 
+
+x 1 is high. If at this time the computer crashes and needs to be restarted, the system will be in a state where [c] is even and [x 2] is 0 and the value at x 1 is high. That is, 
+
+G does not hold and a reader thread will be able to access [x 1] despite it being high .To help programmers avoid such problems, Intel-x86 persistent memory provides instructions flush and flush opt for forcing cache lines to be committed [6]. 4 The instruc-tion flush x persists all pending stores to locations on the same cache line as x . The instruction flush opt x also persists all pending stores to locations on the same cache line as x , but optimises performance by not necessarily executing at the point in the program where it occurs. It must occur after all earlier stores to locations on x ’s cache line, but may occur after later stores and before earlier stores to locations on different cache lines. These rules, as well as others related to the order of flush and flush opt instructions are summarised in Table 2 where X indicates no reordering is possible, F indicates reordering is possible, however forwarding may need to be taken into account, CL indicates reordering is possible when the instructions refer to different cache lines, and 
+
+✓ denotes reordering is always possible. 5
+
+The semantics for flush and flush opt are similar to the mfence semantics; again we will use rif to handle ordering constraints. 
+
+c flush x
+
+−−−−→ c′
+
+σ, c −→ σ, c′
+
+c flush opt x
+
+−−−−−−→ c′
+
+σ, c −→ σ, c′   
+
+> 4There is also an instruction wb (write back) which we do not consider: semantically, it behaves like
+> flush opt but performs better in some circumstances [6].
+> 5The table corresponds to Intel’s intended behaviour as opposed to the behaviour described in the under-specified manual text. See [6] for details.
+
+15 Instruction 2 load store RMW mfence flush flush opt other load X X X X X X Xstore F X X X X CL ✓                                    
+
+> RMW XXXXXXXmfence XXXXXXXInstruction 1 flush ✓XXXXCL ✓
+> flush opt ✓✓XXCL ✓✓
+> other XXXXXXX
+> Table 2 Instruction reordering on Intel-x86 persistent memory (from [6], extended with the category “other” for register updates and jumps).
+
+wpif (flush x , Q) = wpif (flush opt x , Q) = Q
+
+To reason about behaviour over power outages, we extend the reordering relation captured in Table 2 to also allow stores to different locations to reorder. This is based on the observation that the state after a crash may have only the second of two successive stores in a program persisted. This is equivalent to a state reachable in the program when the stores can be reordered. Hence, to check that a program c is secure in the presence of possible crashes, we need to prove it secure when any combination of stores to different locations can be reordered. That is, we need to check rif (α, β, R, G)
+
+(see (1)) for each pair of stores (α, β ) to different locations in c.If the rif check succeeds, we have the following. 
+
+∀ Q · wpif (α β, Q) ⇒ wpif (β α, Q)
+
+That is, for all states from which the execution of α β is secure (i.e., all instruction proof obligations hold, the guarantee is maintained and all states are stable), the execution of β α is also secure. It follows that the execution of β alone from such a state is secure (since during the execution of β α concurrent threads will be able to observe the execution of β and have access to the state immediately after it executes). Hence, if a power outage occurs when only β is persisted, the state will be secure. Table 3 is identical to Table 2 except for the cell for the ordering of a pair of stores, where L indicates reordering is possible when the instructions refer to different locations.                                                         
+
+> Instruction 2 load store RMW mfence flush flush opt other load XXXXXXXstore FLXXXCL ✓
+> RMW XXXXXXXmfence XXXXXXXInstruction 1
+> flush ✓XXXXCL ✓
+> flush opt ✓✓XXCL ✓✓
+> other XXXXXXX
+> Table 3 Instruction reordering for reasoning with rif on Intel-x86 persistent memory.
+
+16 The proposed approach is proved sound with respect to an existing approach of Raad et al. [6] in Section 4. Here we illustrate it on the seqlock case study. For the 
+
+write procedure, we now have an additional five reorderable pairs of instructions: the first store to c can reorder with the stores to x 1 and x 2, the store to x 1 can reorder with the store to x 2 and the second store to c, and the store to x 2 can reorder with the second store to c.Each of these pairs needs to be checked using (1) to determine if their reordering can introduce new behaviour. For the first occurrence of [c] := r 0 + 1 and [x 1] := r 1,we have the following. 
+
+wpif ([ c] := r 00 + 1 [x 1] := r 1, Q)= wpif ([ c] := r 00 + 1 , wpif ([ x 1] := r 1, Q)) (sequential composition) 
+
+= wpif ([ c] := r 00 + 1 , Q[[ x 1] , Γx 1\r 1, Γr 1] ∧
+
+([ c] mod 2 = 0 ⇒ [x 1] = r 1 ∧ ([ x 2] = 1 ⇔ Γx 1 = high ))) (store) 
+
+= Q[[ x 1] , Γx 1\r 1, Γr 1] [[ c], Γc \r 00 + 1 , Γr 00 ] ∧
+
+(r 00 + 1 mod 2 = 0 ⇒ [x 1] = r 1 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )) ∧
+
+r 00 + 1 ≥ [c] ∧ Γr 00 = low ∧ ([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) (store) 
+
+wpif ([ x 1] := r 1 [c] := r 00 + 1 , Q)= wpif ([ x 1] := r 1, wpif ([ c] := r 00 + 1 , Q)) (sequential composition) 
+
+= wpif ([ x 1] := r 1, Q[[ c], Γc \r 00 + 1 , Γr 00 ] ∧ r 00 + 1 ≥ [c] ∧ Γr 00 = low ∧
+
+([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high )) ∧
+
+(r 00 + 1 mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γx 1 = high ))) (store) 
+
+= Q[[ c], Γc \r 00 + 1 , Γr 00 ]] [[ x 1] , Γx 1\r 1, Γr 1] ∧ r 00 + 1 ≥ [c] ∧ Γr 00 = low ∧
+
+([ c] mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γr 1 = high )) ∧
+
+(r 00 + 1 mod 2 = 0 ⇒ ([ x 2] = 1 ⇔ Γr 1 = high ))) ∧
+
+([ c] mod 2 = 0 ⇒ [x 1] = r 1 ∧ ([ x 2] = 1 ⇔ Γx 1 = high ))) (store) Recall that the guarantee of write maintains G = ([ c] mod 2 = 0 ⇒ ([ x 2] = 1 
+
+⇔ Γx 1 = high ). The weakest precondition for the in-order execution requires, in addition to the substitutions in Q, that if r 00 + 1 (the value at c after the first store) is even, then [x 1] = r 1 to ensure that the second store maintains [x 1] ′ = [ x 1] , and 
+
+[x 2] = 1 ⇔ Γx 1 = high to ensure that G holds before it. Additionally, it requires that the first store does not decrease the value at c and that G holds before it. The weakest precondition of the reordered execution is similar but, since the store to x 1 occurs first, requires that [x 1] = r 1 based on the initial value at c not the value 
+
+r 00 + 1 .Hence, the reordered weakest precondition is not implied by the in-order one, and rif fails. This failure highlights the security issue that results from persisting the store to x 1 before that to c: if r 1 is high but [x 2] = 0 , since the previous value at x 1 was 
+
+low , then we no longer maintain G.To prevent such an occurrence we can insert a flush c instruction immediately after the store to c. This prevents the stores being persisted out of order. Note that a 
+
+flush opt instruction is not sufficient as it could reorder with the following store to x 1
+
+which could then reorder with the store to c.17 The flush c instruction also prevents the initial store to c reordering with that to 
+
+x 2. However, the stores to x 1 and x 2 can still reorder and we consider that possibility next. 
+
+wpif ([ x 1] := r 1 [x 2] := r 2, Q)= wpif ([ x 1] := r 1, wpif ([ x 2] := r 2, Q)) (sequential composition) 
+
+= wpif ([ x 1] := r 1, Q[[ x 2] , Γx 2\r 2, Γr 2] ∧ Γr 2 = low ∧
+
+(c mod 2 = 0 ⇒ [x 2] = r 2 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )) (store) 
+
+= Q[[ x 2] , Γx 2\r 2, Γr 2] [ x 1, Γx 1\r 1, Γr 1] ∧ Γr 2 = low ∧
+
+([ c] mod 2 = 0 ⇒ [x 2] = r 2 ∧ [x 1] = r 1 ∧ ([ x 2] = 1 ⇔ Γr 1 = high )) (store) 
+
+wpif ([ x 2] := r 2 [x 1] := r 1, Q)= wpif ([ x 2] := r 2, wpif ([ x 1] := r 1, Q)) (sequential composition) 
+
+= wpif ([ x 2] := r 2, Q[[ x 1] , Γx 1\r 1, Γr 1] ∧
+
+(c mod 2 = 0 ⇒ [x 1] = r 1 ∧ ([ x 2] = 1 ⇔ Γx 1 = high )) (store) 
+
+= Q[[ x 1] , Γx 1\r 1, Γr 1] [ x 2, Γx 2\r 2, Γr 2] ∧ Γr 2 = low ∧
+
+([ c] mod 2 = 0 ⇒ [x 1] = r 1 ∧ [x 2] = r 2 ∧ ([ x 2] = 1 ⇔ Γr 1 = high )) (store) In this case, the weakest preconditions are identical requiring the value at r 2 to be low since L(x 2) = low and that if the value at c is even then the values of x 1 and x 2
+
+are not changed and that G holds initially. Hence, persisting the stores out of order does not affect security. In addition to persisting after the store to x 2, the store to x 1 can be persisted after the final store to c. The weakest preconditions for this case, wpif ([ x 1] := r 1 [c] := 
+
+r 01 + 1 , Q) and wpif ([ c] := r 01 + 1 [x 1] := r 1) are similar to those calculated above but with r 01 in place of r 00. The former does not imply the latter, again indicating a security issue: in this case, if [x 1] and [x 2] were high and 1, respectively, and an even value is persisted at c and 0 at x 2 before a low value at x 1 then, after a power outage, the high value at x 1 could be read by a reader thread. Similarly, since the store to x 2 can be persisted after the final store to c, an even value could be persisted at c and a high value at x 1 before 1 is persisted at x 2. Again this allows a reader thread to read the high value in x 1. Both occurrences can be prevented by including flush x 1 and flush x 2 instructions before the final store to c.The resulting code is shown below. 
+
+r 0 := [ c][c] := r 0 + 1 
+
+flush c
+
+[x 1] := r 1[x 2] := r 2
+
+r 0 := [ c]
+
+flush x 1
+
+flush x 2[c] := r 0 + 1 
+
+return 
+
+18 Since the only stores that can persist out of order are those to x 1 and x 2, this code is secure. Since the read procedure does not include any stores, the above changes are sufficient to prove that seqlock is secure on x86 persistent memory. 
+
+# 4 Soundness 
+
+The property that wpif verifies, when the calculated weakest precondition of a program holds, is value-dependent non-interference as defined in [38]. This property states that, given two initial states s1 and s2 which agree on the values of variables which are low ,after executing a prefix of instructions t of the program on each state, the resulting states will continue to agree on the values of variables which are low . In other words, the values of variables which are high have no effect on those that are low (and hence the high values cannot be deduced from observations of the low values). Formally, given a program c with specified pre- and postconditions P and Q, respectively, we have 
+
+P ⇒ wpif (c, Q) ⇛
+
+∀ s1, s2 ∈ P; t ⩽ c · ∀ s′ 
+
+> 1
+
+· s1 ∼ s2 ∧ s1 →t s′ 
+
+> 1
+
+⇒ ∃ s′ 
+
+> 2
+
+· s2 →t s′ 
+
+> 2
+
+∧ s′ 
+
+> 1
+
+∼ s′ 
+
+> 2
+
+(2) where t ⩽ P denotes that t is a prefix of c, s1 ∼ s2 denotes s1 and s2 agree on low 
+
+values, and s1 →t s′ 
+
+> 1
+
+denotes s′ 
+
+> 1
+
+is reached from s1 by instructions t. Note that since the programming language is deterministic, the above property implies that all states reached from s2 by t agree with the low values of s′
+
+> 1
+
+. The soundness of the logic with respect to this property has been proven in Isabelle/HOL [22]. The soundness of rif with respect to the reordering semantics of Colvin and Smith [34, 35] (see Section 3.1) has also been established in Isabelle/HOL [18, 19]. This proof establishes the fact that if a property (such as (2) above) holds and the rif check (see (1)) holds for all reorderable pairs of instructions, then the property holds when the program is subject to reordering. More formally, for a program c with rely R and guarantee G, let P(c) be a property of c and PR(c) be the same property when c is subject to the reordering relation R. We have 
+
+P(c) ∧ (∀(α, β ) ∈ reorderable (c, R) · rif (α, β, R, G)) ⇛ PR(c) (3) where reorderable (c, R) denotes the set of pairs of reorderable instructions of program 
+
+c under reordering relation R. As mentioned in Section 3.1, this set can be calculated using a dataflow analysis. For the approach in this paper, we additionally need to prove the soundness of the reordering semantics in the context of persistent memory; that is, that our reordering of stores has the same effect on behaviour as a crash due to a power outage or shut-down. We do this by showing that the behaviours allowed under such reordering are equivalent to those of the Intel-x86 persistent memory model Px86 sim of Raad et al. [6] (a model developed in consultation with Intel engineers). Px86 sim has both an operational and declarative semantics which have been proven equivalent. Here we focus on the former. To model delayed stores in x86, the opera-tional semantics models a store happening in two steps: the first records the store in 19 a store buffer B (τ ), where τ is the identifier of the thread performing the store, and the second transfers the store from the buffer to volatile memory, modelled by a buffer 
+
+PB of instructions awaiting to be persisted to persistent memory M . The first step is captured by the rule M-Write .
+
+B (τ ) = b [ M-Write ]
+
+M , PB , B τ :[ x ]:= v
+
+−−−−−→ M , PB , B [τ 7 → b.⟨x , v ⟩]
+
+Forwarding is captured by the load rule ( M-Read ) reading the most recent value from the thread’s buffer B when one is present (thus reading from a store which has been delayed). Otherwise, it reads the most recent value from volatile memory PB if a value exists there, otherwise from the persistent memory M . The rule for mfence 
+
+instructions ( M-MF ) requires that B is empty, ensuring all earlier writes have been propagated to volatile memory before the fence. Similar to M-Write , the rules M-FL and M-FO add ⟨fl , x ⟩ to B for each flush x
+
+and ⟨fo , x ⟩ to B for each flush opt x , respectively. To ensure atomicity, however, the rule for a RMW instruction is only enabled when B is empty, and writes directly to volatile memory to ensure that it is immediately visible to all threads. Letting ϵ denote the empty buffer this is captured by the rule M-RMW .
+
+b B(τ ) = ϵ [ M-RMW ]
+
+M , PB , B τ :RMW (b,x ,e1,e2)
+
+−−−−−−−−−−−→ M , PB .⟨x , e2⟩, B
+
+The second step for a store is captured by the rule M-BPropW .
+
+B (τ ) = b1.⟨x , v ⟩.b2 ∀ y, v ′ · ⟨ y, v ′⟩, ⟨fl , y⟩̸ ∈ b1 [ M-BPropW ]
+
+M , PB , B −→ M , PB .⟨x , v ⟩, B [τ 7 → b1.b2]
+
+The second premise in rule M-BPropW captures the fact that stores may not leave the buffer before stores or flush instructions added earlier, but may leave the buffer before flush opt instructions added earlier. Again there are similar rules for propagating 
+
+flush and flush opt instructions to PB .
+
+B (τ ) = b1.⟨fl , x ⟩.b2
+
+∀ y, v · ∀ x ′ ∈ X · ⟨ y, v ⟩, ⟨fo , x ′⟩, ⟨fl , y⟩̸ ∈ b1 [ M-BPropFL ]
+
+M , PB , B −→ M , PB .⟨per , x ⟩, B [τ 7 → b1.b2]
+
+B (τ ) = b1.⟨fo , x ⟩.b2
+
+∀ v · ∀ x ′ ∈ X · ⟨ x ′, v ⟩, ⟨fl , x ′⟩̸ ∈ b1 [ M-BPropFO ]
+
+M , PB , B −→ M , PB .⟨per , x ⟩, B [τ 7 → b1.b2]
+
+20 where X is the set of locations on the same cache line as x . Note that a flush opt must not be propagated before earlier stores and flushes to the same cache line, whereas a 
+
+flush cannot be propagated earlier than any store or flush , nor earlier than any flush opt 
+
+on the same cache line. Finally, there are rules for persisting writes, ensuring flush and flush opt instructions are taken into account. 
+
+PB = PB 1.⟨x , v ⟩.PB 2 ∀ y, v ′ · ⟨ x , v ′⟩, ⟨per , y⟩̸ ∈ PB 1 [ M-PropW ]
+
+M , PB , B −→ M [x 7 → v ], PB 1.PB 2, BPB = PB 1.⟨per , x ⟩.PB 2
+
+∀ y, v · ∀ x ′ ∈ X · ⟨ x ′, v ⟩, ⟨per , y⟩̸ ∈ PB 1 [ M-PropP ]
+
+M , PB , B −→ M , PB 1.PB 2, B
+
+Given a state σ and an x86 assembly program c, let a configuration of the program be a tuple (σ, c′, p) where c′ is a suffix of c of instructions yet to be executed and p is a sequence of delayable instructions (stores and flushes) which occur earlier in c than the suffix and are also yet to be executed, i.e., yet to take effect in volatile memory. We use ϵ to represent p when it is empty. The configuration captures the progress of the program in terms of what has taken place in volatile memory and is hence visible to other threads. For the reordering semantics of Section 3.1, when an instruction is executed, all earlier instructions in c′, if any, are added (in program order) to the end of p. These instructions and the executed instruction are removed from c′. When one of the instructions in p is executed, it is removed from p.For Px86 sim , when an instruction is added to buffer B it is added to the end of p
+
+and removed from c′. When it is propagated from B to PB , i.e., takes effect in volatile memory, it is removed from p. That is, p denotes the same sequence of instructions as B .
+
+Theorem 1. Any configuration (σ, c′, p) of a program c reachable by the reordering semantics when R is defined as in Table 2, is reachable by the semantics of Px86 sim ,and vice versa. 
+
+Proof by induction: 
+
+Base case: Initially, the configuration of c in a state σ0 is (σ0, c, ϵ ) under both seman-tics. Inductive case: Assume that the program is in a configuration (σ, c′, p) reachable by both semantics. Let σα denote the state resulting from executing instruction α from state σ.(i) A load , register update or jump in c′ can execute under the reordering seman-tics, only when each instruction occurring before it in c′ is a store, flush or 
+
+flush opt . As can be seen in Table 2, these are the only instructions which a later load, update or jump can reorder with. That is, when c′ = c1 β c2 where c1 is a 21 sequence of stores and flushes and β is the load, update or jump, the configura-tion can become (σβ⟨α⟩ , c2, p c 1), where α is the latest store to the same location in c1 if any (and β⟨α⟩ is β otherwise). Similarly, a load, update or jump in c′ can execute under Px86 sim only when each instruction occurring before it in c′ is a store, flush or flush opt . Each of these instructions (with expressions evaluated to values) can be placed in order into 
+
+B (via rules M-Write , M-FL and M-FO ). The load, update or jump is then able to execute; a load β taking on the value of the most recent store α to the same location in B if any (via rule M-Read ), i.e., executing as β⟨α⟩. Again, the configuration becomes (σβ⟨α⟩ , c2, p c 1).(ii) A store α can execute under the reordering semantics when it is either in p and each instruction before it is a flush opt , or it is in c′ and each instruction before it in c′ as well as each instruction in p is a flush opt . This follows as the only instructions which a later store can reorder with are flush opt instructions (see Table 2). In the first case, configuration (σ, c′, p1 α p2) becomes (σα, c′, p1 p2)
+
+and in the second, configuration (σ, c1 α c2, p) becomes (σα, c2, p c 1).Similarly, a store can execute under Px86 sim only under the same configura-tions. This is because propagation to volatile memory (see rule M-BPropW )requires there are no other stores or flush instructions before it in the buffer B,only flush opt instructions. In the case of configuration (σ, c′, p1 α p2), the store can leave B (and hence p) resulting in (σα, c′, p1 p2). In the case of configuration 
+
+(σ, c1 α c2, p), the store can be added to B by rule M-Write after each of the 
+
+flush opt instructions preceding it in c′ are added to B (via rule M-FO ) resulting in configuration (σ, c2, p c 1 α). After this, rule M-BPropW can be used to prop-agate the store to volatile memory (since there are no stores or flush instructions ahead of it in B ), resulting in configuration (σα, c2, p c 1).(iii) An RMW or mfence instruction α cannot be reordered with any instruc-tion. Hence, in the reordering semantics it will only execute in a configuration 
+
+(σ, α c′, ϵ ), i.e., when all previous instructions in the program have taken effect in volatile memory. The configuration becomes (σα, c′, ϵ ).Similarly, an RMW or mfence can only execute in Px86 sim when B (and hence 
+
+p) is empty. That is, it can only execute from a configuration (σ, α c′, ϵ ), resulting in configuration (σα, c′, ϵ ).(iv) A flush instruction α can only occur in the reordering semantics when it is in p
+
+and each instruction before it is a flush opt belonging to a different cache line, or it is in c′ and each instruction before it in c′ as well as each instruction in p is a flush opt belonging to a different cache line (see Table 2). In the first case, con-figuration (σ, c′, p1 α p2) becomes (σ, c′, p1 p2) and in the second, configuration 
+
+(σ, c1 α c2, p) becomes (σ, c2, p c 1).Similarly, a flush can execute under Px86 sim only under the same configura-tions. This is because propagation to volatile memory (see rule M-BPropFL )requires there are no stores, other flush instructions or flush opt instructions on 22 the same cache line before it in the buffer B, only flush opt instructions on differ-ent cache lines. In the case of configuration (σ, c′, p1 α p2), the flush can leave B
+
+(and hence p) resulting in configuration (σ, c′, p1 p2). In the case of configura-tion (σ, c1 α c2, p), the flush can be added to B by rule M-FL after each of the instructions preceding it in c′ are added to B (via rule M-FO ) resulting in con-figuration (σ, c2, p c 1 α). After this, rule M-BPropFL can be used to propagate the flush to volatile memory, resulting in configuration (σ, c2, p c 1).(v) A flush opt instruction α can only occur in the reordering semantics when it is in p and each instruction before it is a store or a flush belonging to a different cache line or a flush opt , or it is in c′ and each instruction before it in c′ as well as each instruction in p is a store or a flush belonging to a different cache line or a flush opt (see Table 2). In the first case, configuration (σ, c′, p1 α p2) becomes 
+
+(σ, c′, p1 p2) and in the second, configuration (σ, c1 α c2, p) becomes (σ, c2, p c 1).Similarly, a flush opt can execute under Px86 sim only under the same configu-rations. This is because propagation to volatile memory (see rule M-BPropFO )requires there are no stores or flush instructions on the same cache line before it in the buffer B, only stores and flush instructions on different cache lines, and flush opt instructions. In the case of configuration (σ, c′, p1 α p2), the flush opt 
+
+can leave B (and hence p) resulting in the configuration (σ, c′, p1 p2). In the case of configuration (σ, c1 α c2, p), the flush opt can be added to B by rule M-FO after each of the instructions preceding it in c′ are added to B (via rules 
+
+M-Write and M-FL ) resulting in configuration (σ, c2, p c 1 α). After this, rule 
+
+M-BPropFO can be used to propagate the flush opt to volatile memory, resulting in configuration (σ, c2, p c 1).
+
+□
+
+The above theorem shows that the order of instructions taking effect on volatile memory are identical in our reordering semantics and that of Px86 sim , ensuring sound-ness of our reasoning (using the reordering relation of Table 2). This reasoning does not, however, take into account crash states resulting from a power outage. To show soundness under power outages, we need to consider the propagation of instructions to persistent memory. For a state π corresponding to persistent memory and program c, we let [π, c′, q]
+
+denote a persistent configuration where c′ is a suffix of c of instructions yet to be executed, and q is a sequence of stores and flushes which occur earlier in c than the suffix and are also yet to take effect in persistent memory. In Px86 sim , q corresponds to the sequence of the stores in PB and stores and flushes in B in the order that they appear in c. Note that flushes in PB have already taken effect in the sense that they can no longer be reordered (see rules M-PropW and M-PropP where both kinds of flushes are represented by per ). 
+
+Theorem 2. Any persistent configuration [π, c′, q] of a program c reachable by the reordering semantics when R is defined as in Table 3, is reachable by the semantics of Px86 sim , and vice versa. 
+
+Proof by induction: 
+
+Base case: Initially, the persistent configuration of c in a state π0 is [π0, c, ϵ ] under 23 both semantics. Inductive case: Assume that the program is in a persistent configuration [π, c′, q] reach-able by both semantics. Let πα denote the persistent state resulting from executing instruction α from persistent state π.(i) Load , register update , jump , RMW , mfence , flush and flush opt instruc-tions update a persistent configuration [π, c′, q] when they take effect in volatile memory. Hence, given that the instructions they can reorder before are identical in Tables 2 and 3, the reasoning for these instructions from Theorem 1 suffices to prove that the same persistent configurations can be reached by the reordering semantics and Px86 sim .(ii) A store α is persisted in the reordering semantics when it is either in q and each instruction before it is a store to another location or a flush opt (see Table 3), or it is in c′ and each instruction before it in c′ as well as each instruction in q is a store to another location or a flush opt . In the first case, configuration [π, c′, q1 α q2]
+
+becomes [πα, c′, q1 q2] and in the second, configuration [π, c1 α c2, q] becomes 
+
+[πα, c2, q c 1].Similarly, a store can persist under Px86 sim only under the same configurations. If the store is in B it can propagate to PB along with any earlier stores in B
+
+(without changing the persistent configuration) provided there are only store and flush opt instructions earlier in B (see rule M-BPropW ). If it is in PB , it can propagate to persistent memory (see rule M-PropW ) provided there are no earlier stores to the same location in PB (recall the flushes in PB have already taken effect and are not included in q). In the case of configuration [π, c′, q1 α q2], the store propagates to PB as described above and from PB to persistent memory once all earlier flushes are removed from PB using rule M-PropP . The resulting configuration is 
+
+[πα, c′, q1 q2]. In the case of configuration [π, c1 α c2, q], the store can be added to B by rule M-Write after each of the instructions preceding it in c′ are added to B (rules M-Write and M-FO ). After this, rule M-BPropW can be used to propagate all stores in B to PB (since this propagation can occur before pre-ceding flush opt instructions in B ). The resulting configuration is [π, c2, q c 1 α].Finally, the store can be persisted with rule M-PropW : again all flushes are first removed from PB and then the store is persisted which can occur before preceding stores to different locations. The resulting configuration is [πα, c2, q c 1]
+
+as required. 
+
+□
+
+# 5 Related work 
+
+To the best of our knowledge, there is no existing work on information flow security on persistent memory. There has been work, however, on information flow on processor memory models, and much activity on formalising persistent memory semantics and associated verification approaches. 24 5.1 Information flow and weak memory models 
+
+Vaughan and Milstein [39] provide a logic for detecting information leaks on TSO which cannot be detected using standard information flow techniques. Mantel et al. [40] show that information flow security on a variety of memory models (TSO, PSO and IBM 370) does not imply information flow security in the absence of a weak memory model, nor vice versa. Based on the semantics of Colvin and Smith [34, 35], Smith et al. [30, 41] provide a logic that can provide information flow assurance on any processor memory model. That logic, however, only supports a limited form of compositional reasoning where rely/guarantee properties are restricted to read and write permissions on variables, and these permissions are fixed for the duration of a program’s execution. Building on this work, a general approach using full rely/guarantee reasoning is presented by Coughlin and Smith [42]. All of the above approaches lack the ability to separate the reasoning about infor-mation flow from that about the memory model, leading to more complex reasoning than the approach in this paper. However, a recent information flow logic for detecting speculative execution vulnerabilities by Coughlin et al. [43], like our approach, uses rif to simplify reasoning. 
+
+# 5.2 Persistent memory semantics and proof techniques 
+
+Izraelevitz et al. [2] formalise the notion of durable linearizability for reasoning about crash resilience of concurrent data structures executing on persistent memory. This notion requires that all completed operations of a data structure are persisted (so they remain completed after a crash). A relaxed variant buffered durable linearizability is also presented which requires that completed operations are buffered for persistence, but not necessarily persisted. A proof technique based on refinement of IO-automata is provided for durable linearizability by Derrick et al. [5, 10]. These papers, like the work of Izraelevitz et al., do not consider the effects of the processor’s memory model. Raad and Vafeiadis [3], on the other hand, formalise semantics of a memory model PTSO which incorporates the TSO memory model of x86 with persistent memory. They define buffered durable linearizability for this model. Similarly, Raad et al. [4] provide a memory model PARMv8 for ARMv8 persistent memory (along with a semantics of software transactions). PTSO is based on the concept of epoch persis-tency of Pelley et al. [44] where the execution of each thread is divided into several epochs, separated by persist barriers. A persist barrier ensures that all stores prior to the barrier are persisted to memory before those after the barrier. Such barriers are more coarse-grained than the actual persistent primitives ( flush , flush opt and wb ) used in Intel x86 persistent memory. Formal semantics of two memory models based on the actual primitives are provided in Raad et al. [6]: Px86 man which is faithful to the (under-specified) Intel manual, and Px86 sim , a simplified model capturing the inten-tion of the Intel engineers. It is the latter semantics which informed our use of rif on x86. A strengthening of Px86 sim , called SPx86, is presented by Cho et al. [9]. They argue that in Px86 sim the semantics of flush operations in the presence of external 25 operations, such as writes to a file, is too weak. Their semantics is view-based [45] recording the entire history of stores to memory and allowing different threads to have different views on this history, i.e., threads may be able to read old stores. To fix the problem with flush instructions, they ensure such instructions are executed 
+
+synchronously , i.e., they block execution until all pending stores on the associated cache line are persisted (rather than allow execution of reorderable instructions to proceed). The synchronous semantics of flush instructions also appears in the PTSO syn 
+
+semantics of Khyzha and Lahav [46] who show Px86 sim and PTSO syn are equivalent in the absence of external operations. Adopting the synchronous flush semantics for our approach is easily achieved by redefining the reordering relations of Tables 2 and 3. A program logic for persistent memory which is sound with respect to Px86 sim is presented by Raad et al. [7]. The logic, persistent Owicki-Gries (POG), is based on a combination of Owicki-Gries [47] and rely/guarantee [25, 26] reasoning, the latter to allow compositional reasoning. In POG, each memory location x has three values associated with it: xv is a volatile value written to x during program execution, xs is a 
+
+synchronously persisted value that would be seen after a crash if the flush instructions were incremented synchronously, and xp is a persistent value that is seen after a crash. The added complexity, not needed in our approach where the program logic is indepen-dent of persistent memory, makes it too difficult to reason about flush opt instructions. Instead, the authors present an approach to transforming (most) programs that use 
+
+flush opt to only use flush and restrict their logic to only support flush instructions. Bila et al. [11] provide an alternative program logic based on views [45] called 
+
+Pierogi that does support flush opt instructions. The logic, which is based on Owicki-Gries reasoning, is proven sound with respect to SPx86 of Cho et al. [9]. In other work, Bila et al. [8] formalise a notion of durable opacity enabling formal reasoning about software transactional memory on persistent memory architectures, along with a proof technique based on refinement of IO-automata. The proof tech-nique is modularised in [12] to separate the proof of opacity (perceived atomicity of transactions) [48] from that of the persistent memory effects. As such it allows existing proofs of opacity to be reused to prove durable opacity, in much the same way as our approach allows reuse of existing proofs of information flow. Similarly, recent work by D’Osualdo et al. [13] provides a proof technique for durable linearizability that, like our approach, is independent of the processor memory model and separates the per-sistency proof from a standard proof of linearizability (correctness of concurrent data structures) [49]. 
+
+# 5.3 Crash recovery 
+
+While orthogonal to the aims of this paper, there has also been work on the formali-sation of crash recovery both for persistent memory [50] and in general, e.g., [51, 52]. Investigating the application of rif in these contexts would make for interesting future work. 26 6 Conclusion 
+
+We have presented an information flow logic for an unstructured language representing assembly code, and shown how it can be used in combination with an existing tech-nique for weak memory models, rif, to reason about security of programs running on persistent memory architectures. We illustrated our approach for Intel x86 persistent memory using a case study based on Linux’s seqlock. The rif technique provides us with a proof technique that is applicable to all cur-rently available processor memory models, and allows us to separate the reasoning about information flow, the processor’s memory model and the effects of persistent memory. This leads to simpler reasoning and enables us to compare the information flow security of a program in the presence and absence of particular architectural features. Future work will focus on automated tool support for the approach and potential application of rif to crash recovery on both persistent memory and more generally. 
+
+# Acknowledgement 
+
+The author would like to thank Kirsten Winter for her feedback on an earlier draft of this work. 
+
+# References 
+
+[1] Baldassin, A., Barreto, J., Castro, D., Romano, P.: Persistent memory: A survey of programming support and implementations. ACM Comput. Surv. 54 (7), 152– 115237 (2022) https://doi.org/10.1145/3465402 [2] Izraelevitz, J., Mendes, H., Scott, M.L.: Linearizability of persistent memory objects under a full-system-crash failure model. In: Gavoille, C., Ilcinkas, D. (eds.) Distributed Computing - 30th International Symposium, DISC 2016. Lecture Notes in Computer Science, vol. 9888, pp. 313–327. Springer, Berlin-Heidelberg (2016). https://doi.org/10.1007/978-3-662-53426-7_23 [3] Raad, A., Vafeiadis, V.: Persistence semantics for weak memory: integrating epoch persistency with the TSO memory model. Proc. ACM Program. Lang. 
+
+2(OOPSLA), 137–113727 (2018) https://doi.org/10.1145/3276507 [4] Raad, A., Wickerson, J., Vafeiadis, V.: Weak persistency semantics from the ground up: formalising the persistency semantics of ARMv8 and transactional models. Proc. ACM Program. Lang. 3(OOPSLA), 135–113527 (2019) https: //doi.org/10.1145/3360561 [5] Derrick, J., Doherty, S., Dongol, B., Schellhorn, G., Wehrheim, H.: Verifying correctness of persistent concurrent data structures. In: Beek, M.H., McIver, A., Oliveira, J.N. (eds.) Formal Methods - The Next 30 Years - Third World Congress, FM 2019. Lecture Notes in Computer Science, vol. 11800, pp. 179–195. Springer, Berlin-Heidelberg (2019). https://doi.org/10.1007/978-3-030-30942-8_12 27 [6] Raad, A., Wickerson, J., Neiger, G., Vafeiadis, V.: Persistency semantics of the Intel-x86 architecture. Proc. ACM Program. Lang. 4(POPL), 11–11131 (2020) https://doi.org/10.1145/3371079 [7] Raad, A., Lahav, O., Vafeiadis, V.: Persistent Owicki-Gries reasoning: a program logic for reasoning about persistent programs on Intel-x86. Proc. ACM Program. Lang. 4(OOPSLA), 151–115128 (2020) https://doi.org/10.1145/3428219 [8] Bila, E., Doherty, S., Dongol, B., Derrick, J., Schellhorn, G., Wehrheim, H.: Defining and verifying durable opacity: Correctness for persistent software trans-actional memory. In: Gotsman, A., Sokolova, A. (eds.) Formal Techniques for Distributed Objects, Components, and Systems - 40th IFIP WG 6.1 Inter-national Conference, FORTE 2020. Lecture Notes in Computer Science, vol. 12136, pp. 39–58. Springer, Berlin-Heidelberg (2020). https://doi.org/10.1007/ 978-3-030-50086-3_3 [9] Cho, K., Lee, S., Raad, A., Kang, J.: Revamping hardware persistency mod-els: view-based and axiomatic persistency models for Intel-x86 and Armv8. In: Freund, S.N., Yahav, E. (eds.) PLDI ’21: 42nd ACM SIGPLAN International Conference on Programming Language Design and Implementation, pp. 16–31. ACM, New York (2021). https://doi.org/10.1145/3453483.3454027 [10] Derrick, J., Doherty, S., Dongol, B., Schellhorn, G., Wehrheim, H.: Verify-ing correctness of persistent concurrent data structures: a sound and complete method. Formal Aspects Comput. 33 (4-5), 547–573 (2021) https://doi.org/10. 1007/S00165-021-00541-8 [11] Bila, E., Dongol, B., Lahav, O., Raad, A., Wickerson, J.: View-based Owicki-Gries reasoning for persistent x86-TSO. In: Sergey, I. (ed.) Programming Languages and Systems - 31st European Symposium on Programming, ESOP 2022. Lecture Notes in Computer Science, vol. 13240, pp. 234–261. Springer, Berlin-Heidelberg (2022). https://doi.org/10.1007/978-3-030-99336-8_9 [12] Bila, E., Derrick, J., Doherty, S., Dongol, B., Schellhorn, G., Wehrheim, H.: Mod-ularising verification of durable opacity. Log. Methods Comput. Sci. 18 (3) (2022) https://doi.org/10.46298/LMCS-18(3:7)2022 [13] D’Osualdo, E., Raad, A., Vafeiadis, V.: The path to durable linearizability. Proc. ACM Program. Lang. 7(POPL), 748–774 (2023) https://doi.org/10.1145/ 3571219 [14] Sorin, D.J., Hill, M.D., Wood, D.A.: A Primer on Memory Consistency and Cache Coherence. Synthesis Lectures on Computer Architecture. Mor-gan & Claypool Publishers, San Rafael CA (2011). https://doi.org/10.2200/ S00346ED1V01Y201104CAC016 28 [15] Sewell, P., Sarkar, S., Owens, S., Nardelli, F.Z., Myreen, M.O.: x86-TSO: a rig-orous and usable programmer’s model for x86 multiprocessors. Commun. ACM 
+
+53 (7), 89–97 (2010) https://doi.org/10.1145/1785414.1785443 [16] Alglave, J., Maranget, L., Tautschnig, M.: Herding cats: Modelling, simulation, testing, and data mining for weak memory. ACM Trans. Program. Lang. Syst. 
+
+36 (2), 7–1774 (2014) https://doi.org/10.1145/2627752 [17] Colvin, R.J.: Parallelized sequential composition and hardware weak memory models. In: Calinescu, R., Pasareanu, C.S. (eds.) Software Engineering and Formal Methods - 19th International Conference, SEFM 2021. Lecture Notes in Computer Science, vol. 13085, pp. 201–221. Springer, Berlin-Heidelberg (2021). https://doi. org/10.1007/978-3-030-92124-8_12 [18] Coughlin, N., Winter, K., Smith, G.: Rely/guarantee reasoning for multicopy atomic weak memory models. In: Huisman, M., Pasareanu, C.S., Zhan, N. (eds.) Formal Methods - 24th International Symposium, FM 2021. Lecture Notes in Computer Science, vol. 13047, pp. 292–310. Springer, Berlin-Heidelberg (2021). https://doi.org/10.1007/978-3-030-90870-6_16 [19] Coughlin, N., Winter, K., Smith, G.: Compositional reasoning for non-multicopy atomic architectures. Formal Aspects Comput. 35 (2), 8–1830 (2023) https://doi. org/10.1145/3574137 [20] Cheang, K., Rasmussen, C., Seshia, S.A., Subramanyan, P.: A formal approach to secure speculation. In: 32nd IEEE Computer Security Foundations Symposium, CSF 2019, pp. 288–303. IEEE, New York (2019). https://doi.org/10.1109/CSF. 2019.00027 [21] Bovet, D.P., Cesati, M.: Understanding the Linux Kernel - from I/O Ports to Process Management: Covers Version 2.6 (3. ed.). O’Reilly, Sebastopol CA (2005) [22] Winter, K., Coughlin, N., Smith, G.: Backwards-directed information flow anal-ysis for concurrent programs. In: 34th IEEE Computer Security Foundations Symposium, CSF 2021, pp. 1–16. IEEE, New York (2021). https://doi.org/10. 1109/CSF51468.2021.00017 [23] Dijkstra, E.W.: A Discipline of Programming. Prentice-Hall, Hoboken NJ (1976) [24] Dijkstra, E.W., Scholten, C.S.: Predicate Calculus and Program Semantics. Texts and Monographs in Computer Science. Springer, Berlin-Heidelberg (1990). https: //doi.org/10.1007/978-1-4612-3228-5 [25] Jones, C.B.: Specification and design of (parallel) programs. In: Mason, R.E.A. (ed.) Information Processing 83, Proceedings of the IFIP 9th World Computer Congress, pp. 321–332. North-Holland/IFIP, Amsterdam (1983) 29 [26] Xu, Q., Roever, W.P., He, J.: The rely-guarantee method for verifying shared variable concurrent programs. Formal Aspects of Computing 9(2), 149–174 (1997) https://doi.org/10.1007/BF01211617 [27] Goguen, J.A., Meseguer, J.: Security policies and security models. In: 1982 IEEE Symposium on Security and Privacy, 1982, pp. 11–20. IEEE Computer Society, New York (1982). https://doi.org/10.1109/SP.1982.10014 [28] Barnett, M., Leino, K.R.M.: Weakest-precondition of unstructured programs. In: Ernst, M.D., Jensen, T.P. (eds.) Proceedings of the 2005 ACM SIGPLAN-SIGSOFT Workshop on Program Analysis For Software Tools and Engineering, PASTE’05, pp. 82–87. ACM, New York (2005). https://doi.org/10.1145/1108792. 1108813 [29] Murray, T.C., Sison, R., Engelhardt, K.: C overn : A logic for compositional verification of information flow control. In: 2018 IEEE European Symposium on Security and Privacy, EuroS&P 2018, pp. 16–30. IEEE, New York (2018). https://doi.org/10.1109/EuroSP.2018.00010 [30] Smith, G., Coughlin, N., Murray, T.: Value-dependent information-flow security on weak memory models. In: Beek, M.H., McIver, A., Oliveira, J.N. (eds.) Formal Methods - The Next 30 Years - Third World Congress, FM 2019. Lecture Notes in Computer Science, vol. 11800, pp. 539–555. Springer, Berlin-Heidelberg (2019). https://doi.org/10.1007/978-3-030-30942-8_32 [31] Sabelfeld, A., Sands, D.: Declassification: Dimensions and principles. J. Comput. Secur. 17 (5), 517–548 (2009) https://doi.org/10.3233/JCS-2009-0352 [32] Askarov, A., Sabelfeld, A.: Localized delimited release: combining the what and where dimensions of information release. In: Hicks, M.W. (ed.) Proceedings of the 2007 Workshop on Programming Languages and Analysis for Security, PLAS 2007, pp. 53–60. ACM, New York (2007). https://doi.org/10.1145/1255329. 1255339 [33] Smith, G.: Declassification predicates for controlled information release. In: Riesco, A., Zhang, M. (eds.) Formal Methods and Software Engineering - 23rd International Conference on Formal Engineering Methods, ICFEM 2022. Lecture Notes in Computer Science, vol. 13478, pp. 298–315. Springer, Berlin-Heidelberg (2022). https://doi.org/10.1007/978-3-031-17244-1_18 [34] Colvin, R.J., Smith, G.: A wide-spectrum language for verification of programs on weak memory models. In: Havelund, K., Peleska, J., Roscoe, B., Vink, E.P. (eds.) Formal Methods - 22nd International Symposium, FM 2018. Lecture Notes in Computer Science, vol. 10951, pp. 240–257. Springer, Berlin-Heidelberg (2018). https://doi.org/10.1007/978-3-319-95582-7_14 [35] Colvin, R.J., Smith, G.: A high-level operational semantics for hardware weak 30 memory models. CoRR abs/1812.00996 (2018) [36] Vanbroekhoven, P., Janssens, G., Bruynooghe, M., Catthoor, F.: Transformation to dynamic single assignment using a simple data flow analysis. In: Yi, K. (ed.) Programming Languages and Systems, Third Asian Symposium, APLAS 2005. Lecture Notes in Computer Science, vol. 3780, pp. 330–346. Springer, Berlin-Heidelberg (2005). https://doi.org/10.1007/11575467_22 [37] Kildall, G.A.: A unified approach to global program optimization. In: Proc. of POPL, pp. 194–206. ACM, New York (1973) [38] Murray, T.C., Sison, R., Pierzchalski, E., Rizkallah, C.: Compositional verifi-cation and refinement of concurrent value-dependent noninterference. In: IEEE 29th Computer Security Foundations Symposium, CSF 2016, pp. 417–431. IEEE Computer Society, New York (2016). https://doi.org/10.1109/CSF.2016.36 [39] Vaughan, J.A., Millstein, T.D.: Secure information flow for concurrent programs under Total Store Order. In: Chong, S. (ed.) 25th IEEE Computer Security Foun-dations Symposium, CSF 2012, pp. 19–29. IEEE Computer Society, New York (2012). https://doi.org/10.1109/CSF.2012.20 [40] Mantel, H., Perner, M., Sauer, J.: Noninterference under weak memory models. In: IEEE 27th Computer Security Foundations Symposium, CSF 2014, pp. 80–94. IEEE Computer Society, New York (2014). https://doi.org/10.1109/CSF.2014.14 [41] Smith, G., Coughlin, N., Murray, T.: Information-flow control on ARM and POWER multicore processors. Formal Methods Syst. Des. 58 (1-2), 251–293 (2021) https://doi.org/10.1007/S10703-021-00376-2 [42] Coughlin, N., Smith, G.: Compositional noninterference on hardware weak mem-ory models. Sci. Comput. Program. 217 , 102779 (2022) https://doi.org/10.1016/ j.scico.2022.102779 [43] Coughlin, N., Lam, K., Smith, G., Winter, K.: Detecting speculative execution vulnerabilities on weak memory models. In: Platzer, A., Rozier, K.Y., Pradella, M., Rossi, M. (eds.) Formal Methods - 26th International Symposium, FM 2024. Lecture Notes in Computer Science, vol. 14933, pp. 482–500. Springer, Berlin-Heidelberg (2024). https://doi.org/10.1007/978-3-031-71162-6_25 [44] Pelley, S., Chen, P.M., Wenisch, T.F.: Memory persistency. In: ACM/IEEE 41st International Symposium on Computer Architecture, ISCA 2014, pp. 265–276. IEEE Computer Society, New York (2014). https://doi.org/10.1109/ISCA.2014. 6853222 [45] Kang, J., Hur, C., Lahav, O., Vafeiadis, V., Dreyer, D.: A promising seman-tics for relaxed-memory concurrency. In: Castagna, G., Gordon, A.D. (eds.) 31 Proceedings of the 44th ACM SIGPLAN Symposium on Principles of Program-ming Languages, POPL 2017, pp. 175–189. ACM, New York (2017). https: //doi.org/10.1145/3009837.3009850 [46] Khyzha, A., Lahav, O.: Taming x86-TSO persistency. Proc. ACM Program. Lang. 
+
+5(POPL), 1–29 (2021) https://doi.org/10.1145/3434328 [47] Owicki, S.S., Gries, D.: An axiomatic proof technique for parallel programs I. Acta Informatica 6, 319–340 (1976) https://doi.org/10.1007/BF00268134 [48] Guerraoui, R., Kapalka, M.: On the correctness of transactional memory. In: Chatterjee, S., Scott, M.L. (eds.) Proceedings of the 13th ACM SIGPLAN Sym-posium on Principles and Practice of Parallel Programming, PPOPP 2008, pp. 175–184. ACM, New York (2008). https://doi.org/10.1145/1345206.1345233 [49] Herlihy, M., Wing, J.M.: Linearizability: A correctness condition for concurrent objects. ACM Trans. Program. Lang. Syst. 12 (3), 463–492 (1990) https://doi. org/10.1145/78969.78972 [50] Cho, K., Jeon, S., Raad, A., Kang, J.: Memento: A framework for detectable recoverability in persistent memory. Proc. ACM Program. Lang. 7(PLDI), 292– 317 (2023) https://doi.org/10.1145/3591232 [51] Koskinen, E., Yang, J.: Reducing crash recoverability to reachability. In: Bodík, R., Majumdar, R. (eds.) Proceedings of the 43rd Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages, POPL 2016, pp. 97–108. ACM, New York (2016). https://doi.org/10.1145/2837614.2837648 [52] Surbatovich, M., Spargo, N., Jia, L., Lucia, B.: A type system for safe intermittent computing. Proc. ACM Program. Lang. 7(PLDI), 736–760 (2023) https://doi. org/10.1145/3591250 32

@@ -1,0 +1,272 @@
+Title: Guarded Equivalence Predicates for Scalable Formal Hardware Information-Flow Verification
+
+URL Source: https://arxiv.org/pdf/2606.22063v1
+
+Published Time: Tue, 23 Jun 2026 02:00:24 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+# Guarded Equivalence Predicates for Scalable Formal Hardware Information-Flow Verification 
+
+Liangtao Dai, Yimin Gao, Melika Morsali and Mircea R. Stan 
+
+Department of Electrical and Computer Engineering University of Virginia Charlottesville, VA, USA 
+
+{kvf4sf, yg9bq, qfc2zn, mircea }@virginia.edu 
+
+Abstract —Formal hardware information-flow verification is a principled way to rule out secret-dependent functional or timing observations, but scaling such proofs remains difficult. Self-composition reduces information-flow verification to safety checking over two circuit copies, creating relational proof obli-gations that are hard for a generic PDR engine to discover from bit-level logic alone. Recent PDR-based techniques exploit this duplicated structure through copy symmetry and global cross-copy equivalence predicates. These predicates are effective when corresponding internal signals agree throughout the reachable state space, but they do not capture equalities that are relevant only in a specific control context. We observe that such contextual relations arise naturally in hardware IFV proofs: an internal signal pair may need to agree only within a control phase, transaction window, loop state, or protocol region. We introduce guarded equivalence predicates to expose these relations to PDR. Rather than treating a proposed contextual equality as an assumption, the verifier submits the corresponding mismatch condition as an auxiliary blocking obligation. Guards are pro-posed from relational counterexamples-to-induction using CTI-local extraction and state-split search; only candidates proved unreachable by the backend affect the proof. Across 12 IFV benchmarks and two PDR backends, guarded predicates convert two contextual baseline timeouts into completed proofs within 34.2–89.5s under an 1800s limit, while reducing proof time by up to 10.8 × on additional benchmarks. 
+
+Index Terms —Information-flow verification, formal verifica-tion, hardware security, property-directed reachability 
+
+I. I NTRODUCTION 
+
+Hardware information-flow verification (IFV) proves that protected sources do not influence attacker-observable sinks, including functional outputs and timing-observable behav-ior [1]. Such guarantees are important because hardware enforces confidentiality, privilege boundaries, and trusted exe-cution, while hardware vulnerabilities can remain exploitable even when software is correctly written [2], [3]. Formal IFV addresses this problem by proving security over all executions of a design, rather than relying only on simulation, testing, fuzzing, or manually selected traces [4]–[7]. A standard way to verify non-interference is self-composition [8]. The verifier builds two copies of the same hardware design, constrains their public inputs to match, al-lows their secret inputs to differ, and checks that corresponding observable outputs remain equal. This reduces a hyperproperty over pairs of executions to a safety property over a single composed transition system [9]. Although this reduction is general and direct, it also creates a relational proof obligation over two structurally identical circuit copies. Generic model checkers may miss this structure. Recent work has shown that PDR-based hardware IFV can benefit substantially from the duplicated structure created by self-composition. In particular, SecIC3 [10] customizes IC3/PDR with copy-swap symmetry and cross-copy equiva-lence predicates, giving the proof engine a relational vocabu-lary for reasoning about corresponding signals in the two cir-cuit copies. This approach is effective on many self-composed IFV instances, but it can still struggle on designs whose security proof is entangled with complex control behavior, such as multi-cycle arithmetic units and FSM-rich protocol regions. We observe that, in such cases, the missing proof fact is often not simply a global cross-copy equality. Instead, the useful relation is tied to a control context: two corresponding internal signals may need to agree only within a particular FSM state, loop state, transaction window, or protocol phase. Outside that context, the equality may be irrelevant to the observable behavior, false on reachable states, or too expensive for PDR to establish as an unconditional invariant. This suggests that the verifier should not only have access to cross-copy equivalence predicates, but should also be able to test whether a mismatch is unreachable under a specific control context. We introduce guarded equivalence predicates for PDR-based hardware IFV. Given a candidate control context (g) and a cross-copy mismatch predicate ( neq X ), our method submits the guarded mismatch cube ( g ∧ neq X ) to the ordinary PDR blocking procedure. If PDR proves this region unreachable, the learned clauses become part of the proof and establish the corresponding guarded equality on reachable states. If the region is reachable, or if the backend cannot block it, the candidate is discarded. Thus guarded predicates are not assumptions; they are auxiliary proof obligations accepted only by the backend’s proof-producing mechanism. The remaining question is how to find useful guards auto-matically. Our method uses information already produced in-side PDR proof search. CTI-local search extracts guards from the context literals of counterexamples-to-induction (CTIs), where PDR has already exposed a relational failure pattern. When individual CTIs expose only fragments of a larger con-       
+
+> arXiv:2606.22063v1 [cs.CR] 20 Jun 2026 Fig. 1. IC3/PDR blocks an unreachable candidate cube sby generalizing it to a larger cube cand adding the learned clause ¬cto the frames.
+
+trol context, state-split search aggregates relational CTIs, se-lects a small proof-relevant state-region partition, and enumer-ates complete valuations of that partition as candidate guards. Both searches are heuristic candidate generators; acceptance remains the backend’s proof-producing blocking procedure. This paper makes three contributions:  
+
+> •
+
+We identify guarded cross-copy equivalence as a useful proof shape for hardware IFV, especially for designs where relational facts are tied to control state rather than valid as unconditional invariants.  
+
+> •
+
+We present an in-engine guard-generation procedure that combines CTI-local extraction with state-split search, producing guarded mismatch obligations without user-supplied guarded lemmas.  
+
+> •
+
+We implement guarded search on ABC-PDR and rIC3. Across 12 IFV benchmarks and two PDR backends, guarded predicates convert two contextual baseline time-outs into completed proofs within 34.2–89.5s under an 1800s limit, while reducing proof time by up to 10.8 ×
+
+on additional benchmarks. II. B ACKGROUND 
+
+IC3/PDR [11], [12] is a SAT-based model checking pro-cedure for proving safety properties of finite-state transition systems. Let the system be described by an initial-state for-mula Init (x) and a transition relation T (x, x ′), where x and 
+
+x′ denote current- and next-state variables. Given a safety property P (x), IC3/PDR attempts to prove 
+
+∀x. ; Reach (x) ⇒ P (x), (1) or to return a counterexample trace reaching a bad state satisfying ¬P (x).IC3/PDR maintains a sequence of clause sets, called frames, 
+
+F0, F 1, . . . , F k. (2) The first frame is the initial condition, F0 = Init , and later frames over-approximate states reachable in increasing  
+
+> Fig. 2. Global equivalence can be too strong in hardware IFV. A guarded equivalence predicate captures equality only in the control context where it is required by the proof.
+
+numbers of transitions. The frames are maintained to satisfy monotonicity and relative inductiveness: 
+
+Fi(x) ⇒ Fi+1 (x), Fi(x) ∧ T (x, x ′) ⇒ Fi+1 (x′). (3) When two adjacent frames become equivalent, the later frame is an inductive invariant; if it excludes all bad states, the property is proved. The main refinement step is cube blocking. A cube is a conjunction of state literals. Given a candidate cube s at frame 
+
+Fk, IC3/PDR checks whether s has a one-step predecessor in the previous frame: 
+
+Fk−1(x) ∧ T (x, x ′) ∧ s(x′). (4) If this query is unsatisfiable, no state currently allowed by 
+
+Fk−1 can transition into s. IC3/PDR then generalizes s to a larger unreachable cube c and learns the blocking clause ¬c,refining the relevant frames as 
+
+Fi ← Fi ∧ ¬ c for 1 ≤ i ≤ k. (5) Fig. 1 illustrates this process. If the query in Eq. (4) is satis-fiable, the SAT solver returns a predecessor cube. IC3/PDR recursively attempts to block this predecessor at an earlier frame; if the recursion reaches F0, the predecessor chain forms a real counterexample. Otherwise, clauses learned while blocking earlier predecessors may remove the path and allow the original cube to be blocked later. This cube-blocking interface is the mechanism our method builds on. Rather than changing the transition relation or the target safety property, our method generates additional proof obligations and submits them to the same standard PDR blocking procedure. III. M OTIVATION 
+
+Self-composition turns IFV into a relational safety problem over two copies of the same design, as shown in Fig. 2. This structure naturally exposes cross-copy relationships [10]: if an internal signal is determined only by public inputs and public state, the corresponding signals in the two copies should agree. Making such relations explicit can help IC3/PDR decompose TABLE I CANONICAL GUARDED CANDIDATE -GENERATION MODES .                      
+
+> Mode Candidate family Intended role
+> g-AoN C(Gq, N q)cheap CTI-local bundle
+> g-Maximal C(Gq,{neq X})CTI-local singleton equality
+> g-Maximum C(Gq, S ), S ⊆Nqbounded CTI-local subsets
+> g-StateSplit C(gK,a ,{neq X})per-region singleton equality
+> g-Hybrid schedule over modes engineering policy
+
+the final output-equality proof into smaller internal proof obligations. However, many useful cross-copy equalities in hardware are contextual rather than global. A signal may be meaningful only during a protocol phase, transaction window, loop state, or valid cycle. Outside that context, it may hold stale, inactive, or secret-dependent state that is irrelevant to the observable behavior. Thus the unconditional claim that corresponding signals are always equal can be too strong even when the IFV property is true. Fig. 2 illustrates this case. For corresponding signals X1 and 
+
+X2, equality may be required only when a control condition 
+
+g holds. When g is false, the protocol does not require X to affect the observable behavior, and the two copies may differ. The useful proof fact is therefore not global equality of X1
+
+and X2, but equality guarded by the relevant control context. This observation motivates guarded equivalence predicates. Instead of asking IC3/PDR to use only equalities that hold everywhere, we pair a candidate equality with a control or pro-tocol condition. Operationally, the verifier blocks the violating region in which the guard holds and the two copies disagree. If the region is unreachable, the learned clauses become part of the ordinary proof; if it is reachable, the candidate is discarded. The remaining challenge is to discover the control contexts in which such guarded relations should be tested. A purely local strategy can reuse the context literals that already ap-pear in PDR counterexamples-to-induction (CTIs), since these cubes expose where a relational proof attempt is currently failing. However, this still ties guard generation to a single local obligation. In FSM-rich designs, the relevant context may be distributed across multiple CTIs: PDR generalization may retain only partial state encodings, and a partial guard may combine control states where a mismatch is reachable with states where it should be ruled out. Our state-split search makes contextual discovery explicit. It aggregates relational CTIs, selects a small proof-relevant control partition, and enumerates complete valuations of that partition as candidate guarded regions. Thus, instead of waiting for PDR to en-counter the right contextual relation inside an existing proof obligation, the verifier actively proposes guarded mismatch regions and asks the standard blocking procedure to prove or reject them. IV. M ETHOD : G UARDED EQUIVALENCE PREDICATES 
+
+This section describes how guarded search generates and validates contextual cross-copy obligations inside PDR. The method observes relational CTIs produced by the normal PDR  
+
+> Fig. 3. Overview of guarded search. Candidate generation is heuristic: CTI-local and state-split searches propose guarded mismatch obligations. Candidate acceptance remains proof-producing: blocked candidates contribute learned clauses to PDR frames, while failed or reachable candidates are discarded.
+
+Algorithm 1 In-engine guarded candidate search 
+
+Require: Relational CTIs Q, frame k, mode M , schedule K 
+
+> 1:
+
+C ← ∅  
+
+> 2:
+
+if M enables CTI-local search then  
+
+> 3:
+
+for all q ∈ Q with positive mismatch predicates do  
+
+> 4:
+
+Gq ← CONTEXT LITS (q) 
+
+> 5:
+
+Nq ← MISMATCH PREDS (q) 
+
+> 6:
+
+C ← C ∪ LOCAL CANDS (Gq , N q , M ) 
+
+> 7:
+
+if M enables state-split search then  
+
+> 8:
+
+rank non-predicate context variables using Eq. (10)  
+
+> 9:
+
+for all K ∈ K do  
+
+> 10:
+
+SK ← TOP KC ONTROLS (K) 
+
+> 11:
+
+for all valuation a of SK do  
+
+> 12:
+
+for all eligible mismatch predicate neq X do  
+
+> 13:
+
+C ← C ∪ { (SK = a) ∧ neq X } 
+
+> 14:
+
+for all c ∈ C do  
+
+> 15:
+
+if c intersects Init then  
+
+> 16:
+
+discard c 
+
+> 17:
+
+else if BLOCK CUBE (c, k ) succeeds then  
+
+> 18:
+
+keep the clauses learned by PDR  
+
+> 19:
+
+else  
+
+> 20:
+
+drop c
+
+loop, proposes guarded mismatch cubes from those CTIs, and submits each candidate to the standard B LOCK CUBE proce-dure. Candidate generation is heuristic; candidate acceptance remains proof-producing. Fig. 3 shows the flow. CTI-local search extracts guards from individual relational CTIs, while state-split search aggregates CTIs to construct candidate control regions. A candidate con-tributes to the proof only if B LOCK CUBE proves its guarded mismatch cube unreachable; otherwise it is discarded. 
+
+A. Guarded Mismatch Obligations 
+
+Consider corresponding internal signals ( X1) and ( X2) in the two copies of a self-composed design. We write 
+
+eq X ≡ (X1 = X2), neq X ≡ (X1̸ = X2). (6) A guarded equality states that the two signals agree under a control context (g): g ⇒ eq X . Rather than asserting this implication, we submit its violation to PDR: 
+
+V (g, X ) = g ∧ neq X . (7) If (V(g,X)) is blocked, the equality holds under (g) on all reachable states. If the cube is reachable or cannot be blocked, the candidate is discarded. For a set of mismatch predicates (N ), we write 
+
+C(g, N ) = g ∧ ^ 
+
+> neq X∈N
+
+neq X . (8) A singleton candidate directly proves a guarded equality when blocked. A bundled candidate only proves that a particular combination of mismatches cannot occur under the guard; it may still help PDR, but it does not by itself imply each individual equality. 
+
+B. Relational CTI Capture 
+
+Guarded search is driven by information already produced by the PDR engine. As PDR blocks bad states and their predecessors, it creates minimized cubes that explain proof failures and learned clauses. We observe these cubes and keep a bounded set of relational CTIs: cubes that contain at least one positive mismatch predicate neq X . It stores evidence for later candidate generation but does not re-enter PDR, add a clause, or change the stock proof state. A captured relational CTI q
+
+is split into ordinary context literals and mismatch predicates: 
+
+q = Gq ∪ Nq , Nq ⊆ { neq X }X . (9) The context ( Gq ) may include control-state bits, valid bits, counters, phase conditions, or other state literals. This capture is observational: it records evidence for candidate generation, but does not add clauses or modify the PDR state. 
+
+C. Guarded Candidate Generation 
+
+The implementation uses two candidate sources. CTI-local search uses the state region already exposed by one CTI. State-split search constructs a bounded state-region partition from many relational CTIs. Both sources generate cubes; neither source is trusted semantically. 
+
+a) CTI-local search: For a relational CTI q, the context 
+
+Gq is used as a guard and the mismatch set Nq supplies the candidate mismatches. The CTI-local family differs only in how it selects mismatch predicates under this guard; these selection policies follow the AoN, Maximal, and Maximum predicate-replacement modes of SecIC3 [10]. The g-AoN mode submits one bundled candidate C(Gq , N q ). The g-Maximal mode submits singleton candidates C(Gq , {neq X })
+
+for mismatches exposed by the CTI. The g-Maximum mode explores bounded subsets of Nq .
+
+b) State-split search: A single CTI may expose only fragments of the useful state region. State-split search therefore aggregates many relational CTIs and builds a small partition of the proof state space. First, it excludes mismatch predicate latches from consideration so that guards are built from ordinary state/context variables. Then it ranks each remaining variable by how often it appears in CTI contexts: 
+
+freq (x) = |{ q ∈ Q : x ∈ Vars (Gq )}| . (10) Both polarities of a variable contribute to the same frequency. For a parameter K, the search selects the K highest-ranked variables, 
+
+SK = TopK x∈V ctx freq (x), (11) and enumerates complete valuations of the selected partition. For a valuation a ∈ { 0, 1}|SK |, the state-region guard is 
+
+gK,a = ( SK = a) = ^
+
+> xi∈SK
+
+(xi = ai). (12) State-split search uses singleton mismatch obligations by de-fault: 
+
+(SK = a) ∧ neq X . (13) The selected variables are not trusted as a semantic FSM encoding; they only partition the state space into regions that PDR can test. Small (K) may produce coarse guards, while large (K) increases candidate count. Table I summarizes the canonical modes used in our evalu-ation. Hybrid scheduling is included for completeness: it runs a cheap CTI-local phase first and can escalate to state-split search, but it is an engineering policy rather than a separate proof rule. Algorithm 1 gives the in-engine search. The al-gorithm intentionally separates proposal from acceptance: all candidates are ordinary cubes, and only B LOCK CUBE can turn a candidate into learned PDR clauses. 
+
+D. Candidate Acceptance and Soundness 
+
+Guarded candidates are auxiliary proof obligations, not assumptions. A candidate contributes to the proof only if the backend proves its guarded mismatch cube unreachable using the ordinary PDR blocking procedure and learns blocking clauses. Candidates that intersect initial states, are reachable, or fail to block are discarded. Therefore, guard generation can affect which auxiliary cubes are attempted, but not the transition relation, the initial condition, the IFV property, or the proof rule used to accept learned clauses. CTI-local search, state-split search, and hybrid scheduling are untrusted proposal mechanisms; soundness rests on the backend’s blocking and final proof/certification path. V. E VALUATION 
+
+A. Experimental Setup 
+
+We implemented guarded candidate generation in two PDR-based IFV flows: an ABC-PDR backend and an rIC3 back-end. Both backends support the same guarded families: g-AoN, g-Maximal, g-Maximum, g-StateSplit, and g-Hybrid, together with selected symmetry-enabled combinations. All experiments were run on a machine with an Intel Core i9-14900K CPU and 188 GiB of RAM. Each proof process is single-threaded. Independent benchmark/mode runs were executed as parallel processes for throughput, and reported runtimes are per-process wall-clock times. Each run uses a 1800s timeout. TABLE II RUNTIME SUMMARY ON THE ABC-PDR BACKEND WITH A 1800 S BUDGET .Base SecIC3 Ours on ABC-PDR Benchmark PDR Best g-AoN g-Maxl g-Maxm g-StSpl g-Hyb S+ g-Maxl S+ g-StSpl                                                                                                                                                                                                                                      
+
+> GCD 10.7 7.2 1.8 1.7 1.3 5.8 1.7 3.3 37.7
+> FP_ADD TO:13 89.7 43.0 42.8 42.1 31.7 71.1 29.8 21.1
+> FP_DIV TO:59 TO:65 TO:66 TO:66 TO:66 80.0 136.8 TO:59 122.1
+> normacc TO:44 TO:46 TO:16 TO:16 TO:16 89.5 TO:16 TO:33 TO:25
+> vctr TO:63 444.6 64.7 42.5 41.6 TO:27 TO:43 64.9 TO:40
+> Cache 1745.3 150.8 174.8 169.9 170.1 TO:16 TO:17 63.6 TO:16
+> Multiplier 6.1 0.1 0.1 0.1 0.1 0.1 0.1 0.1 0.1
+> Modexp 0.6 0.4 0.6 0.6 0.6 0.6 0.9 0.4 0.4
+> Sodor 1.4 0.4 0.8 0.9 0.7 TO:6 0.7 0.5 0.4
+> SecEnclave 2.4 2.1 2.2 2.2 2.4 2.7 2.2 2.1 2.5
+> Rocket 6.5 1.5 2.7 2.7 2.7 2.6 2.7 1.8 1.8
+> FP_MUL TO:13 TO:15 TO:12 TO:12 TO:12 TO:9 TO:12 TO:11 TO:9 TABLE III RUNTIME SUMMARY ON THE R IC3 BACKEND WITH A 1800 S BUDGET .Base SecIC3 Ours on rIC3 Benchmark rIC3 Best g-AoN g-Maxl g-Maxm g-StSpl g-Hyb S+ g-Maxl S+ g-StSpl
+> GCD 8.0 1.0 1.8 0.8 1.4 0.7 0.9 0.5 0.6
+> FP_ADD 201.9 43.1 30.8 33.6 28.1 88.3 16.6 15.4 20.6
+> FP_DIV TO:54 TO:99 38.1 37.2 37.6 51.0 209.7 37.1 34.2
+> normacc TO:47 TO:48 TO:49 TO:48 TO:49 TO:49 61.1 TO:49 TO:49
+> vctr 250.3 82.8 7.7 10.8 12.1 42.2 16.5 9.5 28.0
+> Cache TO:15 69.4 8.8 7.3 12.3 9.2 96.7 6.8 6.8
+> Multiplier 2.1 0.1 0.1 0.1 0.1 2.2 0.1 0.1 1.1
+> Modexp 0.3 0.2 0.6 0.6 0.6 0.4 0.6 0.3 0.3
+> Sodor 2.0 1.1 4.0 3.5 4.1 3.4 3.7 3.4 3.0
+> SecEnclave 28.0 27.5 28.2 29.8 41.2 29.0 29.0 33.5 33.1
+> Rocket 8.3 5.4 164.2 123.2 226.5 182.0 189.7 TO:620 147.3
+> FP_MUL TO:14 TO:15 TO:10 TO:10 TO:10 TO:10 TO:10 TO:10 TO:11
+
+B. Benchmarks and Baselines 
+
+We evaluate 12 IFV benchmarks: ten from the Se-cIC3 benchmark suite [10] and two diagnostic designs, 
+
+vctr and normacc , that stress contextual guarded rela-tions. The SecIC3 benchmarks cover arithmetic datapaths, cryptographic/control-heavy designs, and processor fragments. The diagnostic designs isolate cases where the relevant cross-copy relation is tied to a control context rather than useful as an unconditional invariant. We compare against the unmodified backend and the SecIC3-style predicate-replacement modes AoN, Maximal, and Maximum, with and without copy-swap symmetry. The SecIC3-best column reports the best result among the seven reproduced SecIC3-style configurations on the same backend. Guarded modes use the same backends, but add auxiliary guarded mismatch obligations submitted to the standard PDR blocking procedure. 
+
+C. Runtime Results 
+
+Tables II and III report runtime summaries for ABC-PDR [13] and rIC3 [14]. Each row is a benchmark. Entries are wall-clock seconds for completed proofs; TO: n denotes a timeout after reaching frame n. Bold entries mark the fastest completed proof in each row. Guarded search closes contextual cases that the best repro-duced SecIC3-style baseline does not prove under the same 1800s budget. On ABC-PDR, guarded modes prove FP_DIV 
+
+and normacc in 80.0s and 89.5s, respectively, where SecIC3-best times out. On rIC3, the corresponding proofs complete in 34.2s and 61.1s. Thus, guarded obligations do not merely improve runtime on easy cases; they turn several baseline timeouts into completed proofs. Guarded search also accelerates already-provable bench-marks. Across the two backends, the best guarded config-uration improves GCD , FP_ADD , vctr , and Cache by up to 10.8 × over SecIC3-best. The benefit is not uniform: easy or non-contextual cases leave little room for improvement, and guarded candidates can add overhead. FP_MUL remains unsolved on both backends, suggesting a separate bottleneck in wide arithmetic or operator reasoning rather than in contextual guard discovery. 
+
+D. Mode Analysis 
+
+No guarded mode is uniformly best across benchmarks or backends. CTI-local modes work well when a single relational CTI already exposes the relevant control context; this explains their gains on cases such as GCD , vctr , and Cache . State-split search is useful when the needed context is distributed across multiple CTIs. By selecting frequently appearing con-text variables and enumerating complete valuations, it avoids overly coarse partial guards and is essential for the ABC-PDR proofs of FP_DIV and normacc . Symmetry and guarded search are complementary but not universally beneficial: their combination helps on some cases, including FP_ADD and 
+
+Cache , but no fixed combination dominates. Similarly, g-Hybrid is only a scheduling policy; it can help when it reaches the right guarded family early, but it can also add overhead. We therefore report individual guarded modes rather than presenting a single default configuration. VI. C ONCLUSION 
+
+This paper introduced guarded equivalence predicates for PDR-based hardware information-flow verification. The method tests whether a cross-copy mismatch is unreachable under a candidate control context, and accepts guards only through the backend’s standard blocking procedure. Guards are proposed from relational CTIs using CTI-local extraction and state-split search. Experiments on ABC-PDR and rIC3 show that guarded obligations close contextual IFV cases missed by baseline equivalence predicates and accelerate additional benchmarks, making them a practical complement to symme-try and equivalence-based reasoning. REFERENCES [1] K. v. Gleissenthall, R. G. Kıcı, D. Stefan, and R. Jhala, “Solver-aided constant-time hardware verification,” in Proceedings of the 2021 ACM SIGSAC Conference on Computer and Communications Security , ser. CCS ’21. New York, NY, USA: Association for Computing Machinery, 2021, p. 429–444. [Online]. Available: https: //doi.org/10.1145/3460120.3484810 [2] X. Lou, T. Zhang, J. Jiang, and Y. Zhang, “A survey of microarchitectural side-channel vulnerabilities, attacks, and defenses in cryptography,” ACM Comput. Surv. , vol. 54, no. 6, Jul. 2021. [Online]. Available: https://doi.org/10.1145/3456629 [3] P. Kocher, J. Horn, A. Fogh, D. Genkin, D. Gruss, W. Haas, M. Ham-burg, M. Lipp, S. Mangard, T. Prescher, M. Schwarz, and Y. Yarom, “Spectre attacks: Exploiting speculative execution,” in 2019 IEEE Sym-posium on Security and Privacy (SP) , 2019, pp. 1–19. [4] W. Hu, A. Ardeshiricham, and R. Kastner, “Hardware information flow tracking,” ACM Comput. Surv. , vol. 54, no. 4, May 2021. [Online]. Available: https://doi.org/10.1145/3447867 [5] A. Ardeshiricham, W. Hu, J. Marxen, and R. Kastner, “Register transfer level information flow tracking for provably secure hardware design,” in 
+
+Design, Automation & Test in Europe Conference & Exhibition (DATE), 2017 , 2017, pp. 1691–1696. [6] W. Hu, J. Oberg, A. Irturk, M. Tiwari, T. Sherwood, D. Mu, and R. Kastner, “Theoretical fundamentals of gate level information flow tracking,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 30, no. 8, pp. 1128–1140, 2011. [7] K. V. Gleissenthall, R. G. Kici, D. Stefan, and R. Jhala, “Iodine: verifying constant-time execution of hardware,” in Proceedings of the 28th USENIX Conference on Security Symposium , ser. SEC’19. USA: USENIX Association, 2019, p. 1411–1428. [8] G. Barthe, P. D’Argenio, and T. Rezk, “Secure information flow by self-composition,” in Proceedings. 17th IEEE Computer Security Foun-dations Workshop, 2004. , 2004, pp. 100–114. [9] M. R. Clarkson and F. B. Schneider, “Hyperproperties,” J. Comput. Secur. , vol. 18, no. 6, p. 1157–1210, Sep. 2010. [10] Q. Tan, A. Gaonkar, Y.-W. Fan, A. Gupta, and S. Malik, “Secic3: Customizing ic3 for hardware security verification,” 2026. [Online]. Available: https://arxiv.org/abs/2601.21353 [11] A. R. Bradley, “Sat-based model checking without unrolling,” in Pro-ceedings of the 12th International Conference on Verification, Model Checking, and Abstract Interpretation , ser. VMCAI’11. Berlin, Hei-delberg: Springer-Verlag, 2011, p. 70–87. [12] N. Een, A. Mishchenko, and R. Brayton, “Efficient implementation of property directed reachability,” in 2011 Formal Methods in Computer-Aided Design (FMCAD) , 2011, pp. 125–134. [13] R. Brayton and A. Mishchenko, “Abc: an academic industrial-strength verification tool,” in Proceedings of the 22nd International Conference on Computer Aided Verification , ser. CAV’10. Berlin, Heidelberg: Springer-Verlag, 2010, p. 24–40. [Online]. Available: https://doi.org/10.1007/978-3-642-14295-6 5 [14] Y. Su, Q. Yang, Y. Ci, T. Bu, and Z. Huang, “The ric3 hardware model checker,” in Computer Aided Verification: 37th International Conference, CAV 2025, Zagreb, Croatia, July 23–25, 2025, Proceedings, Part I . Berlin, Heidelberg: Springer-Verlag, 2025, p. 185–199. [Online]. Available: https://doi.org/10.1007/978-3-031-98668-0 9

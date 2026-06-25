@@ -1,0 +1,938 @@
+Title: PowerFuzz: Power-Based Black-Box Firmware Fuzzing
+
+URL Source: https://arxiv.org/pdf/2606.24692v1
+
+Published Time: Wed, 24 Jun 2026 01:20:46 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# PowerFuzz: Power–Based Black-Box Firmware Fuzzing 
+
+# Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra 
+
+University of Florida Gainesville, Florida, USA 
+
+## Abstract 
+
+Fuzzing is widely used for software and hardware verification, offering an effective alternative to random testing. While gray-box fuzzers benefit from full visibility into the system under test and can leverage execution feedback such as branch coverage, these approaches are not applicable when verifying systems whose firmware or binaries are not publicly available. In such scenarios, obtaining coverage information for guiding the fuzzer becomes infeasible. In this paper, we introduce PowerFuzz, a statistical black-box fuzzing framework that leverages power side-channel mea-surements as a substitute for binary instrumentation, requiring no internal visibility into the target firmware. A central challenge in black-box firmware fuzzing is determining the executed branches during test execution. To address this challenge, we use power traces to identify branches utilizing a sliding window followed by a growing window full-trace correlation method. This approach also enables the construction of a high-level control-flow graph of the black-box firmware, which we utilize to drive the fuzzer to unex-plored execution paths. Extensive evaluation using three embedded hardware platforms and ten firmware benchmarks demonstrates that PowerFuzz can provide branch coverage comparable (within 13.5%) to gray-box fuzzers while significantly outperforming (up to 22%) state-of-the-art black-box fuzzers. 
+
+## Keywords 
+
+Firmware validation, Firmware fuzzing, Side-channel analysis 
+
+## 1 Introduction 
+
+The rapid proliferation of embedded devices has transformed mod-ern computing infrastructure. From industrial control systems and medical implants to automotive controllers and smart home appli-ances, embedded systems now constitute the backbone of critical infrastructure worldwide. As of 2024, over 19.8 billion Internet of Things (IoT) devices are deployed globally, with projections exceed-ing 30 billion by 2030 [ 27 ]. Many embedded systems operate in safety-critical and security-sensitive environments where failures can have catastrophic consequences [ 12 ]. Despite their pervasive role, the systematic verification and testing of embedded firmware remains significantly understudied relative to traditional software, largely due to the difficulty of observing firmware execution be-havior without direct access to the binary or hardware debugging infrastructure. Ensuring the correctness of embedded firmware through rigorous automated testing is therefore not merely a tech-nical challenge, but an urgent practical necessity for the reliable operation of the systems that underpin modern infrastructure. Fuzzing has emerged as one of the most effective techniques for vulnerability discovery in software systems. It was originally intro-duced as a random input generation method [ 18 ] and then it has evolved over the past three decades into a sophisticated, feedback-driven discipline. As shown in Figure 1a, modern coverage-guided 
+
+Firmware  
+
+> Full Visibility
+
+Inputs 
+
+Branch Coverage Fuzzer 
+
+(a) State-of-the-art graybox fuzzing using branch coverage Firmware  
+
+> No Visibility
+
+Inputs Coverage using Power Traces Fuzzer (b) Black-box firmware fuzzing using power traces 
+
+Figure 1: Architectural comparison of gray-box and power-based black-box firmware fuzzing frameworks. (a) State-of-the-art gray-box fuzzing leverages binary instrumentation to extract branch coverage feedback from a firmware image with full internal visibility. (b) PowerFuzz enables the same coverage-guided fuzzing loop in a fully black-box setting by substituting binary-level branch coverage with power-based branch coverage derived from power side-channel measure-ments, requiring no access to the firmware binary. 
+
+fuzzers such as AFL [ 36 ], libFuzzer [ 6 ], and HonggFuzz [ 29 ] leverage compile-time or binary-level instrumentation to collect branch cov-erage feedback, enabling the fuzzer to systematically explore deeper and more diverse execution paths. This paradigm of coverage-guided fuzzing has been extended from traditional software to firmware testing. Systems such as Firmadyne [ 3 ], Avatar [ 35 ], and Fuzzware [ 23 ] attempt to rehost or emulate firmware in a controlled environment, enabling instrumentation-based feedback collection. The central insight underlying all effective fuzzing is that a meaning-ful feedback loop, one that informs the fuzzer whether a new input has triggered previously unseen program behavior, is indispensable for efficient exploration of a firmware’s state space. Without such a feedback loop, the fuzzer operates blindly, unable to distinguish a productive mutation from a redundant one. However, rehosting and instrumentation-based approaches re-quire full visibility of the firmware binary. Therefore, they have limited applicability since embedded firmware is frequently propri-etary and shipped in encrypted or obfuscated form. For example, manufacturers of commercial-off-the-shelf (COTS) devices such as routers, PLCs, and medical devices rarely disclose firmware bina-ries [ 5 ]. The absence of JTAG debug ports, secure boot enforcement, and locked fuse bits further prevent binary extraction on modern microcontrollers. This creates a fundamental challenge: while tra-ditional high-level validation techniques and gray-box fuzzing rely on internal branch coverage to evaluate performance, such metrics are inaccessible when the internal design, source code, or memory interfaces are proprietary. Furthermore, the inherent constraints of embedded systems, such as limited I/O bandwidth and restricted  
+
+> arXiv:2606.24692v1 [cs.CR] 23 Jun 2026 Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra
+
+computational power severely limit the runtime feedback avail-able during fuzzing. Therefore, the absence of effective fuzzing techniques for fully black-box firmware, constitutes a critical and largely unaddressed problem in embedded systems security. To design effective fuzzing in a black-box setting, two funda-mental challenges must be overcome. First, the feedback loop that drives coverage-guided mutation must be reconstructed without any visibility into the firmware binary. Second, the fuzzer must develop behavioral insight into the firmware’s internal execution to generate semantically meaningful inputs that exercise diverse code paths rather than relying on purely random mutation, which is well-known to be inefficient for state-dependent firmware [ 20 ]. These requirements are in direct conflict with the black-box constraint: a black-box tester lacks meaningful feedback and behavioral insight when no binary access or debugging infrastructure is available. Any viable solution must therefore derive equivalent information from external observables of the device under test, without modifying or instrumenting the firmware itself. In this paper, we address this challenge through a novel insight. The power consumption of a microcontroller unit (MCU) is an externally observable side-channel that encodes fine-grained infor-mation about its internal execution. Power traces vary measurably as a function of the instructions executed, data operated upon, and branches taken within the firmware. This physical phenome-non, long exploited in cryptographic side-channel attacks [ 14 ], has not previously been leveraged as a fuzzing feedback mechanism. We present PowerFuzz , the first power-based black-box firmware fuzzing framework. Figure 1b shows the PowerFuzz framework, which operates under the same fuzzing paradigm but in a fully black-box setting replacing binary-level branch coverage with our power-based branch coverage derived from physical side-channel measurements. PowerFuzz integrates an AFL-based input genera-tion engine with a real-time power trace acquisition pipeline. When the fuzzer dispatches an input to the target device, a synchronized acquisition system captures the resulting power trace as a time-series signal. We introduce a trace comparison algorithm that iden-tifies execution divergences between power traces, enabling us to dynamically construct a novel tree structure, referred to as Trace-guided Control Flow Graph (TCFG). We make an explicit distinction between CFG and TCFG since we cannot guarantee that TCFG would be isomorphic to CFG unless the underlying fuzzer is able to cover all the branches. TCFG is a hierarchical representation of the firmware’s execution behavior built entirely from power traces based on side-channel measurements, without any binary access. Unlike a conventional Control Flow Graph (CFG) derived from static binary analysis, TCFG is constructed incrementally at runtime: each node stores a power trace segment corresponding to an identified basic block, and each edge represents a branch transition observed through trace divergence. TCFG is iteratively refined during the fuzzing process, and serves as a structural proxy for branch coverage, feeding back into the fuzzer’s mutation engine to prioritize inputs that explore new branches. This architectural correspondence demonstrates that PowerFuzz is an adaptation of coverage-guided fuzzing to address the firmware visibility constraints in embedded systems. Gray-box Fuzzing PowerFuzz Random Testing 
+
+Figure 2: Conceptual comparison of control flow awareness across firmware testing approaches. 
+
+Figure 2 contextualizes PowerFuzz within the broader landscape of firmware testing approaches by visualizing the degree of con-trol flow awareness available to each method. In gray-box fuzzing (Figure 2, left), binary instrumentation provides the fuzzer with complete structural knowledge of the firmware’s control flow. The fuzzer can observe every branch taken, map the full control of the firmware, and exploit this precise structural knowledge to generate inputs that systematically drive execution into unexplored paths. At the opposite extreme, random testing (Figure 2, right) operates without any knowledge of the firmware’s internal structure. The control flow is entirely opaque in case of random testing: inputs are generated without any structural guidance, and there is no mecha-nism to distinguish a mutation that reaches a new branch from one that redundantly re-executes an already-covered path. PowerFuzz occupies a middle ground between these two extremes (Figure 2, center). Without access to the firmware binary, PowerFuzz cannot directly observe the control flow. However, PowerFuzz progres-sively gathers structural knowledge of the firmware as the fuzzing advances by dynamically constructing a power-trace-driven TCFG from power side-channel measurements. This partial-but-growing visibility is the defining characteristic of PowerFuzz. In summary, this paper makes the following contributions: 
+
+• We present the first power side-channel-based black-box firmware fuzzing framework. 
+
+• We implement a branch identification method using captured power traces by incorporating a sliding-window analysis fol-lowed by a growing-window full-trace correlation technique along with dynamic time warping technique. 
+
+• We enable dynamic generation of trace-guided control flow graph without internal firmware visibility by accumulating and comparing power traces across the fuzzing iterations. 
+
+• Experimental evaluation using three embedded platforms and ten firmware benchmarks demonstrates that PowerFuzz can achieve fuzzing performance comparable to gray-box fuzzers and significantly outperform state-of-the-art black-box fuzzers based on electromagnetic (EM) emanations. The remainder of this paper is organized as follows. Section 2 provides relevant background and surveys related efforts. Section 3 describes PowerFuzz methodology. Section 4 presents experimental results. Finally, Section 5 concludes the paper. PowerFuzz: Power–Based Black-Box Firmware Fuzzing Conference’17, July 2017, Washington, DC, USA 
+
+## 2 Background and Related Work 
+
+In this section, we first provide an overview of coverage-guided fuzzing and dynamic time warping. Next, we survey related efforts and their limitations to highlight the need for the proposed work. 
+
+## 2.1 Coverage-guided Fuzzing 
+
+Coverage-based fuzzing is a dynamic testing approach that guides input generation using lightweight instrumentation to monitor which execution paths are triggered. Inputs that reach previously unseen basic blocks or branch edges in the control-flow graph (CFG) are retained in a corpus and prioritized for further mutation, while redundant inputs are discarded. This feedback-driven loop allows the fuzzer to systematically expand its exploration of the program’s state space. AFL [ 36 ] maintains a compact bitmap of edge hit counts and uses it to detect coverage-increasing inputs efficiently. 
+
+> Input Corpus
+
+LibAFL    
+
+> Scheduler Mutator
+> Feedback Observer Harness
+> Input Corpus
+
+Design Under Test  
+
+> Scheduler New Input
+
+Figure 3: Block diagram of the LibAFL fuzzing framework, illustrating the coverage-guided fuzzing loop. 
+
+LibAFL [9] is a modular and extensible fuzzing framework that decomposes the coverage-guided fuzzing loop into a set of well-defined, reusable components. As shown in Figure 3, a LibAFL-based fuzzer operates as follows. The fuzzer maintains an input corpus , a set of test cases selected for their ability to exercise distinct program behaviors. A scheduler selects the next corpus entry to fuzz based on a prioritization policy, such as favoring inputs that cover rarely-reached paths. A mutator then applies a sequence of transformations to the selected input, producing a new test case through operations such as bit flips, byte substitutions, or block insertions. The mutated input is delivered to the target through a 
+
+harness . During execution, observer collects runtime signals from the target. In standard software fuzzing, these signals are coverage bitmaps produced by compile-time or binary-level instrumentation. The observations are passed to a feedback module that determines whether the input has improved coverage; if so, it is added to the corpus for future mutation. This cycle repeats continuously, with the corpus growing as new paths are discovered and the fuzzer progressively penetrating deeper regions of the program. 
+
+## 2.2 Dynamic Time Warping 
+
+Power traces captured from a microcontroller are time-series signals that encode the sequence of instructions executed by the firmware. Comparing two such traces to determine whether they reflect the same or different execution paths is therefore a problem of time-series similarity measurement. Naive point-by-point comparison using Euclidean distance is ill-suited for this task, as minor timing variations introduced by measurement jitter cause traces from iden-tical executions to appear misaligned in the time domain. Dynamic Time Warping (DTW) [ 22 ] addresses this by computing an elastic alignment between two sequences that minimizes total distance while allowing non-linear stretching along the time axis, making it robust to such temporal perturbations. Given two time-series sequences 𝑄 = ⟨𝑞 1, 𝑞 2, . . . , 𝑞 𝑚 ⟩ and 𝐶 =
+
+⟨𝑐 1, 𝑐 2, . . . , 𝑐 𝑛 ⟩, DTW constructs an 𝑚 × 𝑛 cost matrix 𝐷 where each entry 𝐷 (𝑖, 𝑗 ) represents the cumulative alignment cost of matching the first 𝑖 elements of 𝑄 with the first 𝑗 elements of 𝐶 . The matrix is populated recursively as: 
+
+𝐷 (𝑖, 𝑗 ) = 𝑑 (𝑞 𝑖 , 𝑐 𝑗 ) + min 
+
+
+
+𝐷 (𝑖 − 1, 𝑗 )
+
+𝐷 (𝑖, 𝑗 − 1)
+
+𝐷 (𝑖 − 1, 𝑗 − 1)
+
+where 𝑑 (𝑞 𝑖 , 𝑐 𝑗 ) is the local distance between the 𝑖 -th sample of trace 
+
+𝑄 and the 𝑗 -th sample of trace 𝐶 .The optimal warping path W = ⟨𝑤 1, 𝑤 2, . . . , 𝑤 𝐾 ⟩, where 𝑤 𝑘 =
+
+(𝑖 𝑘 , 𝑗 𝑘 ), is then recovered by backtracking from 𝐷 (𝑚, 𝑛 ) to 𝐷 (1, 1).This path represents the optimal elastic alignment between the two traces. Then for each step 𝑤 𝑘 = (𝑖 𝑘 , 𝑗 𝑘 ) along the warping path, the 
+
+𝛿 𝑘 = 𝑗 𝑘 −𝑖 𝑘 is calculated, which quantifies how far the alignment has stretched or compressed at that point. The sequence of offsets Δ =
+
+⟨𝛿 1, 𝛿 2, . . . , 𝛿 𝐾 ⟩ forms an offset profile that reflects the local temporal relationship between the two traces throughout their alignment. For identical executions, this profile remains nearly constant with minor fluctuations due to measurement jitter, whereas for true branch divergence, this introduces a sustained and monotonic shift as the traces progressively misalign. 
+
+## 2.3 Related Work 
+
+Coverage-guided fuzzing has been extensively studied for soft-ware validation, with tools such as AFL++ [ 8 ] and HonggFuzz [ 29 ]demonstrating that feedback-driven mutation can uncover deep vulnerabilities in complex software implementations [ 2, 4, 10 , 15 ]. However, these techniques are not directly applicable to firmware fuzzing, as they assume a standard process execution model and cannot account for the complex interactions between firmware and underlying hardware peripherals. Extending fuzzing to embedded firmware therefore requires fundamentally different strategies for target execution, observation, and feedback collection. A significant body of work addresses firmware fuzzing through emulation and rehosting. FirmFuzz [ 37 ] performs gray-box fuzzing via POSIX-compatible emulation, while FirmCOV [ 13 ] improves coverage through process-level virtualization combined with struc-tured input dictionaries. Fuzzware [23] advances this line of work by modeling peripheral behavior to enable accurate full-system emulation of bare-metal firmware. Forming [ 25 ] and Ember [ 7] fur-ther refine rehosting fidelity by recovering hardware abstractions from firmware binaries. While these approaches achieve high cov-erage, they depend on access to the firmware binary for emulation setup and instrumentation, limiting their applicability to open or Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra 
+
+> Black-box Firmware
+
+Device 
+
+Power Measurement 
+
+Similarity Analysis Dynamic Construction of TCFG 
+
+> Random
+
+Branch Selector 
+
+> Depth Prioritization
+
+Fuzzing Engine 
+
+> Seed Corpus
+
+New Input 
+
+TCFG 
+
+> Power Correlation
+> Dynamic Time Warping
+> Mutation Logic
+
+Figure 4: Overview of PowerFuzz framework. After power measurement (trace acquisition), it performs similarity analysis using dynamic time warping and power correlation to detect execution divergences, which leads to the construction of the trace-guided control flow graph (TCFG) of the black-box firmware. A branch selector consults the TCFG to identify unexplored paths and guides the fuzzing engine’s mutation logic to generate new inputs. Our contributions are highlighted in ■ color. 
+
+extractable firmware images. The challenges of secure firmware dis-tribution and access control that further complicate this assumption are discussed in [31]. Several efforts have focused on improving the runtime efficiency of firmware fuzzing. SNPSFuzzer [ 16 ] reuses saved program states to avoid repetitive initialization overhead, and SnapFuzz [ 1 ] simi-larly leverages snapshot restoration to accelerate the fuzzing loop. Nyx [ 24 ] achieves high-throughput fuzzing through hypervisor-level snapshotting. A complementary line of work combines fuzzing with symbolic execution to overcome coverage plateaus. Driller [ 28 ] and QSYM [ 34 ] invoke symbolic execution selectively when the fuzzer stalls, while SysFuSS [ 30 ] extends this hybrid approach to system-level firmware fuzzing through selective symbolic exe-cution. EM-Fuzz [ 11 ] targets memory-sensitive vulnerabilities in firmware through electromagnetic traces during emulation Sperl and Böttinger [ 26 ] have explored power side-channel mea-surements to improve their white-box fuzzing performance. Specif-ically, they collect execution traces using the target board to train the machine learning (ML) model. During fuzzing, they use power traces for ML-based branch detection and branch-distance classi-fication to reconstruct an approximate CFG. Since their approach requires prior knowledge of the target’s instruction-level behavior, it is not applicable in a black-box setting when firmware func-tionality is unavailable. In contrast, PowerFuzz enables black-box firmware fuzzing using power traces without any prior knowledge of the firmware. All of the above approaches operate under the assumption that the firmware binary is accessible for instrumentation, rehosting, or symbolic analysis, a gray-box requirement that is frequently unmet in practice. In many real-world deployments, firmware is encrypted, obfuscated, or otherwise inaccessible. Black-box fuzzing directly targets this gap by treating the target firmware as entirely opaque. FirmXRay [ 33 ] and similar efforts attempt to recover partial firmware structure from network traffic or behavioral observation, but stop short of providing a closed feedback loop suitable for coverage-guided fuzzing. Most relevant to our work, Fuzz’EMup [ 19 ] proposes leveraging electromagnetic side-channel emanations to guide black-box firmware fuzzing, demonstrating that physical side-channel signals can substitute for binary instrumentation as a fuzzing feedback source. However, Fuzz’EMup relies on electro-magnetic measurements that require specialized near-field probing equipment and expensive physical setup, limiting its practical de-ployability. In contrast, PowerFuzz operates on power consumption measurements using low-cost current sensing hardware. To the best of our knowledge, PowerFuzz is the first framework to use power traces to enable black-box firmware fuzzing. 
+
+## 3 Power-based Black-Box Firmware Fuzzing 
+
+Figure 4 provides an overview of power-based black-box firmware fuzzing ( PowerFuzz ) framework that operates as a closed feed-back loop between a black-box embedded device and a coverage-guided fuzzing engine. When the fuzzing engine dispatches an input to the target device, trace acquisition is triggered synchronously with input delivery, capturing the MCU’s power consumption as a time-series signal 𝑃 = ⟨𝑝 1, 𝑝 2, . . . , 𝑝 𝑛 ⟩, where each sample 𝑝 𝑖 rep-resents the instantaneous power draw of the MCU at time step 
+
+𝑖 . Since different instructions and branch decisions produce mea-surably distinct power consumption patterns, this trace encodes the firmware’s execution behavior in response to the given input without requiring any internal visibility into the firmware binary. The captured trace is then passed to the similarity analysis mod-ule, which applies power correlation and dynamic time warping to compare it against previously observed traces and detect execution divergences. Detected divergences are used by the TCFG updater to incrementally refine the firmware’s control flow behavior. The branch selector then consults the current TCFG to identify promis-ing unexplored branches and communicates this structural insight to the fuzzing engine, which biases its mutation logic toward inputs likely to drive execution into those branches. PowerFuzz progres-sively builds structural knowledge of the firmware and exploits it to guide input generation without any visibility of the firmware binary. Algorithm 1 highlights the three major components in the PowerFuzz framework: similarity analysis, dynamic construction PowerFuzz: Power–Based Black-Box Firmware Fuzzing Conference’17, July 2017, Washington, DC, USA 
+
+of TCFG, and branch selection for test generation. The remainder of this section describes these components in detail. 
+
+Algorithm 1 Overall Framework of PowerFuzz  
+
+> 1:
+
+Initialize Seed Corpus C ← random inputs  
+
+> 2:
+
+while budget not exhausted do  
+
+> 3:
+
+Send 𝑛𝑒𝑤 _𝑖𝑛𝑝𝑢𝑡 to target device  
+
+> 4:
+
+𝑃 𝑐𝑢𝑟𝑟 ← average of 𝑁 captured power traces  
+
+> 5:
+
+𝑑𝑝 ← SimilarityAnalysis (G, 𝑃 𝑐𝑢𝑟𝑟 ) 
+
+> 6:
+
+𝐹 ← UpdateTCFG (G, 𝑃 𝑐𝑢𝑟𝑟 , 𝑛𝑒𝑤 _𝑖𝑛𝑝𝑢𝑡 ) 
+
+> 7:
+
+if 𝐹 ≠ 0 then  
+
+> 8:
+
+Add (𝑛𝑒𝑤 _𝑖𝑛𝑝𝑢𝑡 ) to corpus C 
+
+> 9:
+
+else  
+
+> 10:
+
+Discard 𝑛𝑒𝑤 _𝑖𝑛𝑝𝑢𝑡  
+
+> 11:
+
+end if  
+
+> 12:
+
+if |G| < depth_threshold then  
+
+> 13:
+
+𝑣 ∗ ← RandomSelect (G) 
+
+> 14:
+
+else  
+
+> 15:
+
+𝑣 ∗ ← DepthPrioritization (G) 
+
+> 16:
+
+end if  
+
+> 17:
+
+𝑠 ← SelectSeed (C, 𝑣 ∗.𝑑𝑎𝑡𝑎 ) 
+
+> 18:
+
+𝑛𝑒𝑤 _𝑖𝑛𝑝𝑢𝑡 ← Mutate (𝑠 ) 
+
+> 19:
+
+end while 
+
+## 3.1 Similarity Analysis for Identification of Executed Branches 
+
+A basic block is a straight-line sequence of instructions with a sin-gle entry point and a single exit point, meaning no branches occur within the block except at its boundaries. Consequently, when two different inputs execute the same basic block, the corresponding power traces differ only due to data-dependent variations. As ob-served in our experiments, such data-dependent fluctuations are typically negligible compared to operation-dependent variations that arise when inputs drive the firmware into distinct execution paths with fundamentally different instruction sequences. This property forms the physical foundation of PowerFuzz: branch de-cisions in the firmware manifest as structurally distinct changes in the power trace, making it possible to identify newly covered branches purely from power measurements. Since the proposed work is implemented on embedded systems, actual power consumption measurements are collected using a state-of-the-art physical power side-channel acquisition setup. Specif-ically, we connect trace-capturing probes across a shunt resistor, which transforms operation-dependent current fluctuations into measurable voltage fluctuations. The captured power traces are then used for subsequent processing within PowerFuzz. 
+
+3.1.1 Branch Deviation Detection using Dynamic Time Warping: 
+
+The core challenge of PowerFuzz is determining, from a pair of power traces, whether two inputs drove the firmware through the same execution path or diverged at some branch point. We address this through a two-stage similarity analysis combining dynamic time warping (DTW) and Pearson correlation, applied sequentially to progressively narrow down the location of any divergence. In the first stage, DTW (Section 2.2) is applied to compare the newly      
+
+> 0200 400 600 800 1,000
+> −0.4
+> −0.2
+> 0
+> 0.2
+> Samples
+> Voltage
+
+a) Trace 1      
+
+> Trace 1
+> 0200 400 600 800 1,000
+> −0.2
+> 0
+> 0.2
+> Samples
+> Voltage
+
+b) Trace 2      
+
+> Trace 2
+> 0200 400 600 800 1,000
+> 0
+> 10
+> 20
+> Samples
+> Distance
+
+c) Offset Profile with Divergence Window  
+
+> Divergence Window
+> Offset Profile Δ
+
+Figure 5: DTW-based divergence detection between two power traces. Traces 1 and 2 correspond to two inputs that initially follow the same execution path before diverging. The resulting DTW offset profile remains approximately con-stant during the shared execution region and begins growing after timestamp 550, identifying the approximate temporal window within which the branch divergence occurs. 
+
+captured trace against the previously captured trace. To distinguish true execution divergences from transient noise, we apply a sliding-window analysis over the offset profile Δ. For a window of size 𝑤 
+
+centered at step 𝑘 , we compute the mean offset 𝜇 𝑘 as: 
+
+𝜇 𝑘 = 1
+
+𝑤 
+
+> 𝑘 +𝑤 −1
+
+∑︁ 
+
+> 𝑙 =𝑘
+
+𝛿 𝑙 
+
+A divergence is detected at position 𝑘 ∗ if the difference between consecutive window means exceeds a threshold 𝜏 . This approach ensures that PowerFuzz responds only to sustained divergences indicative of a genuine branch transition, and not to the localized perturbations characteristic of timing jitter. Figure 5 illustrates this behavior: Trace 1 and 2 correspond to two inputs that initially follow the same execution path before diverging, and the resulting offset profile begins growing steadily around after timestamp 550, identifying the approximate divergence window within which the divergence occurs. The DTW stage efficiently filters out trace pairs whose differences are attributable to jitter noise, and localizes the divergence to a coarse temporal region for further analysis. 
+
+3.1.2 Precise Divergence Localization using Pearson Correlation: 
+
+Once the approximate deviation window is identified by DTW, Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra 
+
+we apply a sliding-window followed by a growing-window Pear-son correlation analysis to pinpoint the precise divergence point. Formally, the Pearson correlation coefficient between two trace segments 𝑋 = [𝑋 1, . . . , 𝑋 𝑛 ] and 𝑌 = [𝑌 1, . . . , 𝑌 𝑛 ] is defined as: 
+
+𝐶𝑜𝑟𝑟 (𝑋, 𝑌 ) =
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+(𝑋 𝑖 − ¯𝑋 )( 𝑌 𝑖 − ¯𝑌 )√︄ 
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+(𝑋 𝑖 − ¯𝑋 )2√︄ 𝑛 ∑︁ 
+
+> 𝑖 =1
+
+(𝑌 𝑖 − ¯𝑌 )2
+
+, (1) where ¯𝑋 and ¯𝑌 are the sample means of 𝑋 and 𝑌 , respectively, and 𝐶𝑜𝑟𝑟 ∈ [− 1, 1] quantifies the linear similarity between the two segments. A value close to 1 indicates highly similar power behavior, while lower values indicate divergence. Figure 6 illustrates this analysis on two trace pairs. When the windowed segments correspond to the same execution path, the traces exhibit nearly identical power fluctuations, yielding a high correlation value ( 𝐶𝑜𝑟𝑟 > 𝑇 , where T denotes the divergence thresh-old). When the segments span a branch divergence point, the struc-tural difference in the power patterns produces a noticeably lower correlation (Corr < 𝑇 ), as shown at timestamp 576 in Figure 6. The full procedure is formalized in Algorithm 2. First, DTW al-gorithm is called with the two traces and it returns the start index (𝐷𝑊 𝑠𝑡𝑎𝑟𝑡 ) and the end index ( 𝐷𝑊 𝑒𝑛𝑑 ) of the deviation window. A sliding window of fixed length 𝑆𝑙𝑖𝑑𝑒 _𝑤 is first applied over the traces to efficiently identify the approximate location of the diver-gence (lines 8–23). Once the coarse deviation region is identified, a growing-window analysis is applied starting from a window of one sample at the beginning of the deviation region, incrementally expanding the window until the correlation drops below 𝑇 (lines 24–33). This two-stage design balances computational efficiency, the sliding window rapidly eliminates non-divergent regions, with localization precision, as the growing window narrows the diver-gence to a precise sample index. The identified branch point is then used to provide feedback to the fuzzer: inputs that do not cover any new branch are discarded, while inputs associated with a newly discovered branch are added to the seed corpus. However, as the number of previously identified branches grows, determining whether a new trace corresponds to a novel branch requires running Algorithm 2 against all previously captured branch traces, which becomes computationally expensive. To address this, we propose a TCFG-based approach in the follow-ing subsection that reduces the number of required correlation computations by exploiting the structural relationships between already-identified branches 
+
+## 3.2 Dynamic Construction of TCFG 
+
+The TCFG is a graph G = (V , E) , where each node 𝑣 ∈ V repre-sents a basic block, a maximal straight-line sequence of instructions with no internal branches, and each directed edge (𝑣 𝑖 , 𝑣 𝑗 ) ∈ E rep-resents a possible execution transition between two basic blocks. PowerFuzz dynamically constructs the TCFG of the firmware from power traces, using the branch identification method described in Section 3.1. As the fuzzing campaign progresses and more exe-cution paths are exercised, the generated TCFG grows to closely approximate the actual firmware’s control flow graph (CFG). Note 
+
+Algorithm 2 Divergent Point Identifier  
+
+> 1:
+
+procedure GetDivergentPoint (𝑃𝑟𝑒 _𝑡𝑟𝑎𝑐𝑒, 𝐶𝑢𝑟𝑟 _𝑡𝑟𝑎𝑐𝑒 )
+
+/* Inputs */  
+
+> 2:
+
+Previously stored power trace - 𝑃𝑟𝑒 _𝑡𝑟𝑎𝑐𝑒  
+
+> 3:
+
+Current execution power trace - 𝐶𝑢𝑟𝑟 _𝑡𝑟𝑎𝑐𝑒  
+
+> 4:
+
+Sliding-window size - 𝑆𝑙𝑖𝑑𝑒 _𝑤  
+
+> 5:
+
+Sliding-window correlation threshold - 𝑇  
+
+> 6:
+
+Growing-window correlation threshold - 𝑇 𝑔 
+
+/* Initialization */  
+
+> 7:
+
+𝐷𝑊 𝑠𝑡𝑎𝑟𝑡 , 𝐷𝑊 𝑒𝑛𝑑 ← 𝐷𝑇𝑊 (𝑃𝑟𝑒 _𝑡𝑟𝑎𝑐𝑒, 𝐶𝑢𝑟𝑟 _𝑡𝑟𝑎𝑐𝑒 ) 
+
+> 8:
+
+𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 ← 𝐷𝑊 𝑠𝑡𝑎𝑟𝑡  
+
+> 9:
+
+𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 ← − 1
+
+/* Sliding-Window Full-Trace Correlation */  
+
+> 10:
+
+while 𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 < 𝐷𝑊 𝑒𝑛𝑑 − 𝑆𝑙𝑖𝑑𝑒 _𝑤 do  
+
+> 11:
+
+if 𝐷𝑊 𝑒𝑛𝑑 < 𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 + 2 ∗ 𝑆𝑙𝑖𝑑𝑒 _𝑤 then  
+
+> 12:
+
+𝐸𝑛𝑑 _𝑖𝑑𝑥 ← 𝑀𝑖𝑛 _𝑙𝑒𝑛  
+
+> 13:
+
+else  
+
+> 14:
+
+𝐸𝑛𝑑 _𝑖𝑑𝑥 ← 𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 + 𝑆𝑙𝑖𝑑𝑒 _𝑤  
+
+> 15:
+
+end if  
+
+> 16:
+
+𝑊 𝑝𝑟𝑒 ← 𝑃𝑟𝑒 _𝑡𝑟𝑎𝑐𝑒 [𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 : 𝐸𝑛𝑑 _𝑖𝑑𝑥 ] 
+
+> 17:
+
+𝑊 𝑐𝑢𝑟𝑟 ← 𝐶𝑢𝑟𝑟 _𝑡𝑟𝑎𝑐𝑒 [𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 : 𝐸𝑛𝑑 _𝑖𝑑𝑥 ] 
+
+> 18:
+
+𝐶𝑜𝑟𝑟 ← 𝐶𝑜𝑟𝑟 (𝑊 𝑝𝑟𝑒 ,𝑊 𝑐𝑢𝑟𝑟 ) 
+
+> 19:
+
+if 𝐶𝑜𝑟𝑟 < 𝑇 then  
+
+> 20:
+
+𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 ← 𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥  
+
+> 21:
+
+break  
+
+> 22:
+
+end if  
+
+> 23:
+
+𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 ← 𝑆𝑡𝑎𝑟𝑡 _𝑖𝑑𝑥 + 𝑆𝑙𝑖𝑑𝑒 _𝑤  
+
+> 24:
+
+end while /* Growing-Window Correlation */  
+
+> 25:
+
+if 𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 ≠ −1 then  
+
+> 26:
+
+for 𝐸𝑛𝑑 _𝑖𝑑𝑥 _𝑔 = 𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 to 𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 + 𝑆𝑙𝑖𝑑𝑒 _𝑤 do  
+
+> 27:
+
+𝐺𝑊 𝑝𝑟𝑒 ← 𝑃𝑟𝑒 _𝑡𝑟𝑎𝑐𝑒 [𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 : 𝐸𝑛𝑑 _𝑖𝑑𝑥 _𝑔 ] 
+
+> 28:
+
+𝐺𝑊 𝑐𝑢𝑟𝑟 ← 𝐶𝑢𝑟𝑟 _𝑡𝑟𝑎𝑐𝑒 [𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 : 𝐸𝑛𝑑 _𝑖𝑑𝑥 _𝑔 ] 
+
+> 29:
+
+𝐶𝑜𝑟𝑟 𝑔 ← 𝐶𝑜𝑟𝑟 (𝐺𝑊 𝑝𝑟𝑒 , 𝐺𝑊 𝑐𝑢𝑟𝑟 ) 
+
+> 30:
+
+if 𝐶𝑜𝑟𝑟 𝑔 < 𝑇 𝑔 then  
+
+> 31:
+
+𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 _𝑝𝑜𝑖𝑛𝑡 ← 𝐸𝑛𝑑 _𝑖𝑑𝑥 _𝑔  
+
+> 32:
+
+return 𝐷𝑒𝑣𝑖𝑎𝑡𝑖𝑜𝑛 _𝑝𝑜𝑖𝑛𝑡  
+
+> 33:
+
+end if  
+
+> 34:
+
+end for  
+
+> 35:
+
+end if  
+
+> 36:
+
+return length( 𝑃𝑟𝑒 _𝑡𝑟𝑎𝑐𝑒 ) ⊲ Traces are similar  
+
+> 37:
+
+end procedure 
+
+that TCFG will be same as CFG if the underlying fuzzer can cover all the branches in the firmware. The dynamic nature of TCFG serves two complementary purposes: (i) it guides the fuzzer to-ward unexplored branches by providing structural knowledge of the firmware’s execution behavior, and (ii) it organizes previously captured power traces in a structured and searchable form, reducing the number of pairwise comparisons required during fuzzing. 
+
+3.2.1 Node Structure. Each node 𝑣 ∈ V in the PowerFuzz TCFG stores four fields: (1) a trace segment 𝑣.𝑑𝑎𝑡𝑎 , representing the por-tion of the power trace corresponding to the basic block executed at that node; (2) the input 𝑣.𝑖𝑛𝑝𝑢𝑡 that corresponds to reach this node; PowerFuzz: Power–Based Black-Box Firmware Fuzzing Conference’17, July 2017, Washington, DC, USA             
+
+> 550 560 570 580 590 600 610
+> −0.4
+> −0.2
+> 0
+> 0.2Corr > T Corr > T Corr > T Corr > T Corr > T Corr > T
+> Slide w
+> Samples
+> Voltage
+
+Same Execution Paths          
+
+> 550 560 570 580 590 600 610 576
+> Corr > T Corr > T Corr < T Deviation point
+> Samples
+
+Different Execution Paths 
+
+Figure 6: Sliding-window Pearson correlation analysis for precise branch divergence localization. (Left) Two power traces corresponding to inputs that follow the same execution path, producing consistently high correlation values ( Corr > 𝑇 ) across all sliding windows. (Right) Two power traces that share an initial execution path before diverging, where the correlation drops below the threshold (Corr < 𝑇 ) at timestamp 576, identifying the precise deviation point of the newly covered branch. 1st Trace 
+
+(𝑖 𝑓 → 𝑖 𝑓 )
+
+2nd Trace 
+
+(𝑒𝑙𝑠𝑒 → 𝑖 𝑓 )
+
+B1 3rd Trace 
+
+(𝑒𝑙𝑠𝑒 → 𝑒𝑙𝑠𝑒 )
+
+4th Trace 
+
+(𝑖 𝑓 → 𝑒𝑙𝑠𝑒 )
+
+B1 B3 B1 B3 B2 a) b) c) d) Figure 7: An overview of control-flow graph update based on power traces collected during the execution of an example firmware shown in Listing 1. The corresponding execution path for each trace is also mentioned below the title. The first trace initializes the TCFG as a single root node storing the complete power trace. When the 2nd trace is encountered, the 
+
+GetDivergentPoint detects a divergence partway through the root node’s trace segment at branch point 𝐵 1. Then the root is split with a new node 𝐵 1 storing the shared prefix up to the divergence point, a new left node storing the remaining trace suffix of the original root, and a new right node storing the remaining trace suffix of the new trace. (c) and (d) show the TCFG after the third and fourth traces are processed, following the same procedure. 
+
+(3) a left child pointer 𝑣.𝑙𝑒 𝑓 𝑡 ; and (4) a right child pointer 𝑣.𝑟𝑖𝑔ℎ𝑡 .The binary child structure directly reflects the nature of branch instructions in firmware binaries. At any branch point, execution follows exactly one of two possible paths: the branch-taken path or the branch-not-taken path corresponding to the left and right children, respectively. 
+
+3.2.2 TCFG Construction. Algorithm 3 describes the TCFG con-struction and update procedure. To explain the TCFG construction clearly, we use an illustrative example using the firmware Listing 1 and Figure 7. Assume that four inputs are dispatched in sequence, following the paths if →if , else →if , else →else , and if →else , through branch points 𝐵 1, 𝐵 2, and 𝐵 3.When the first trace arrives, the TCFG is initialized with that trace stored as the root node. As shown in Figure 7(a), the root node holds the complete power trace of the if →if execution path with no children, representing the entire firmware execution ob-served so far. For each subsequent power trace 𝑃 𝑛𝑒𝑤 , the algorithm recursively traverses the TCFG from the root to determine where the new trace diverges from the existing structure. At each node 𝑣 ,
+
+GetDivergentPoint (Algorithm 2) is called between 𝑣.𝑑𝑎𝑡𝑎 and the corresponding segment of 𝑇 𝑛𝑒𝑤 . Two cases arise depending on the result: 
+
+Case 1: New trace matches the current node ( 𝑑𝑝 = |𝑣.𝑑𝑎𝑡𝑎 | line 7). 
+
+The new trace is fully consistent with the current node’s trace seg-ment, meaning the new input follows the same execution path through this basic block. The remaining trace segment 𝑇 𝑟𝑒𝑚 is then compared against both children of 𝑣 by computing 𝑑𝑝 𝑙𝑒 𝑓 𝑡 and 
+
+𝑑𝑝 𝑟𝑖𝑔ℎ𝑡 using GetDivergentPoint . If 𝑑𝑝 𝑙𝑒 𝑓 𝑡 ≠ 0, the remaining trace shares execution history with the left child and the algorithm recurses into 𝑣.𝑙𝑒 𝑓 𝑡 with 𝑇 𝑟𝑒𝑚 . If 𝑑𝑝 𝑟𝑖𝑔ℎ𝑡 ≠ 0. If 𝑑𝑝 𝑟𝑖𝑔ℎ𝑡 ≠ 0, it re-curses into 𝑣.𝑟𝑖𝑔ℎ𝑡 instead. In the example, this case is encountered when processing the third and fourth traces, which both match the shared 𝐵 1 prefix before diverging deeper into the tree at 𝐵 2 and 𝐵 3
+
+respectively. 
+
+Case 2: New trace diverges within the current node ( 𝑑𝑝 < |𝑣.𝑑𝑎𝑡𝑎 |
+
+line 17). The new trace diverges partway through the current node’s basic block, revealing a previously unidentified branch within an already-captured basic block. The node 𝑣 is split at the divergence point 𝑑𝑝 : a new parent node 𝑣 𝑛𝑒𝑤 is created storing the shared prefix 
+
+𝑣.𝑑𝑎𝑡𝑎 [: 𝑑𝑝 ]; the current node’s trace is trimmed to the remaining suffix 𝑣.𝑑𝑎𝑡𝑎 [𝑑𝑝 :]; and a new sibling node 𝑣 𝑠𝑖𝑏 is created storing the Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra 
+
+Listing 1 Example firmware with a branch condition 
+
+if (device_status & FLAG_INITIALIZED) { // B1 
+
+int new_temp = (acc * 3) + (in * 7) ; 
+
+if (fw_version >= MIN_SUPPORTED_VERSION) { // B2 temp = new_temp; temp = ((temp) | (temp >> 2)) ; temp = (temp + (in * 17) + (in * 31)) ; acc ^= temp; } else {
+
+return ERROR_FW_UNSUPPORTED; }} else {
+
+int new_temp = (acc * 5) + (in * 11) ; 
+
+if (hw_ready & HW_READY_MASK) { // B3 temp = new_temp; temp = ((temp >> 2) ^ (temp)) ; acc = (acc + temp) ; } else {
+
+return ERROR_HW_NOT_READY; }}
+
+diverging trace segment 𝑇 𝑛𝑒𝑤 [𝑑𝑝 :]. The trimmed current node is at-tached as the left child of 𝑣 𝑛𝑒𝑤 , preserving the previously identified execution path, and 𝑣 𝑠𝑖𝑏 is attached as the right child, represent-ing the newly discovered branch direction. If 𝑣 was previously the root, 𝑣 𝑛𝑒𝑤 becomes the new root; otherwise, 𝑣 𝑛𝑒𝑤 replaces 𝑣 in its parent’s left or right pointer. This case is first encountered when the second trace ( else →if )arrives. GetDivergentPoint detects a divergence within the root at branch point 𝐵 1, where the outer if and else paths produce measurably different power patterns. As shown in Figure 7(b), the root is split into a new parent node 𝐵 1 storing the shared prefix up to the divergence point, with the original root’s remaining trace attached as the left child and the second trace’s remaining segment attached as the right child. When the third trace ( else →else ) arrives, it matches 𝐵 1 and recurses into the right child, since both the second and third traces enter the outer else branch. A divergence is then detected within that child at 𝐵 3, where the inner if and else paths differ, causing a further split and producing the structure shown in Figure 7(c). The fourth trace ( if →else ) matches 𝐵 1, recurses into the left child, sharing the outer if path with the first trace, and triggers a split at 𝐵 2, yielding the final TCFG shown in Figure 7(d). After processing 𝑃 𝑛𝑒𝑤 , if NewCoverage is returned, the cor-responding input is retained in the fuzzing engine’s seed corpus for further mutation. If no TCFG update occurs, the input is dis-carded. This coverage signal replaces the conventional coverage bitmap of standard coverage-guided fuzzing, closing the feedback loop entirely from power trace observations. After all four traces, the generated TCFG structurally mirrors the actual control flow of Listing 1, with 𝐵 1, 𝐵 2, and 𝐵 3 correctly identified as branch points purely from power trace observations. 
+
+Algorithm 3 TCFG Construction and Update 
+
+Require: TCFG G, new trace 𝑇 𝑛𝑒𝑤 
+
+Ensure: Updated G 
+
+> 1:
+
+if G is empty then  
+
+> 2:
+
+Initialize G with 𝑇 𝑛𝑒𝑤 as root  
+
+> 3:
+
+return NewCoverage  
+
+> 4:
+
+end if  
+
+> 5:
+
+UpdateRecursive (G.𝑟𝑜𝑜𝑡, 𝑇 𝑛𝑒𝑤 ) 
+
+> 6:
+
+function UpdateRecursive (𝑣, 𝑇 ) 
+
+> 7:
+
+𝑑𝑝 ← GetDivergentPoint (𝑣.𝑑𝑎𝑡𝑎, 𝑇 ) 
+
+> 8:
+
+if 𝑑𝑝 = |𝑣.𝑑𝑎𝑡𝑎 | then ⊲ Trace matches current node length  
+
+> 9:
+
+𝑇 𝑟𝑒𝑚 ← 𝑇 [| 𝑣.𝑑𝑎𝑡𝑎 | :] 
+
+> 10:
+
+𝑑𝑝 𝑙𝑒 𝑓 𝑡 ← GetDivergentPoint (𝑣.𝑙𝑒 𝑓 𝑡 .𝑑𝑎𝑡𝑎, 𝑇 𝑟𝑒𝑚 ) 
+
+> 11:
+
+𝑑𝑝 𝑟𝑖𝑔ℎ𝑡 ← GetDivergentPoint (𝑣.𝑟𝑖𝑔ℎ𝑡 .𝑑𝑎𝑡𝑎, 𝑇 𝑟𝑒𝑚 ) 
+
+> 12:
+
+if 𝑑𝑝 𝑙𝑒 𝑓 𝑡 ≠ 0 then  
+
+> 13:
+
+UpdateRecursive (𝑣.𝑙𝑒 𝑓 𝑡, 𝑇 𝑟𝑒𝑚 ) 
+
+> 14:
+
+else if 𝑑𝑝 𝑟𝑖𝑔ℎ𝑡 ≠ 0 then  
+
+> 15:
+
+UpdateRecursive (𝑣.𝑟𝑖𝑔ℎ𝑡, 𝑇 𝑟𝑒𝑚 ) 
+
+> 16:
+
+end if  
+
+> 17:
+
+else if 𝑑𝑝 < |𝑣.𝑑𝑎𝑡𝑎 | then ⊲ Divergence within current node; split  
+
+> 18:
+
+𝑣 𝑛𝑒𝑤 ← NewNode (𝑣.𝑑𝑎𝑡𝑎 [: 𝑑𝑝 ])  
+
+> 19:
+
+𝑣 𝑠𝑖𝑏 ← NewNode (𝑇 [𝑑𝑝 :])  
+
+> 20:
+
+𝑣.𝑑𝑎𝑡𝑎 ← 𝑣.𝑑𝑎𝑡𝑎 [𝑑𝑝 :] 
+
+> 21:
+
+𝑣 𝑛𝑒𝑤 .𝑙𝑒 𝑓 𝑡 ← 𝑣 ⊲ Existing path becomes left child  
+
+> 22:
+
+𝑣 𝑛𝑒𝑤 .𝑟𝑖𝑔ℎ𝑡 ← 𝑣 𝑠𝑖𝑏 ⊲ New path becomes right child  
+
+> 23:
+
+if 𝑣.𝑝𝑎𝑟𝑒𝑛𝑡 ≠ null then  
+
+> 24:
+
+Replace 𝑣 with 𝑣 𝑛𝑒𝑤 in 𝑣.𝑝𝑎𝑟𝑒𝑛𝑡  
+
+> 25:
+
+else  
+
+> 26:
+
+G.𝑟𝑜𝑜𝑡 ← 𝑣 𝑛𝑒𝑤  
+
+> 27:
+
+end if  
+
+> 28:
+
+end if  
+
+> 29:
+
+end function 
+
+## 3.3 Branch Selection for Test Generation 
+
+TCFG constructed by PowerFuzz not only serves as a control flow transition of the firmware, but also provides actionable guidance to the fuzzing engine regarding which regions of the firmware re-main unexplored. The branch selector consults the current TCFG at each iteration and selects a target branch for the fuzzing engine to explore, replacing the role of the coverage bitmap in conventional coverage-guided fuzzing. PowerFuzz implements two branch selec-tion strategies: random selection and depth-prioritized selection. 
+
+3.3.1 Random Branch Selection: In the early stages of the fuzzing campaign, the TCFG is sparse and contains few identified branches. At this stage, there is insufficient structural information to meaning-fully differentiate between branches. PowerFuzz therefore begins with a random branch selection strategy, in which an unexplored branch is selected uniformly at random from the current TCFG fron-tier. The corresponding trace segment stored at the selected node is retrieved and provided to the fuzzing engine as a reference, which uses it to bias mutation toward inputs likely to reach that branch. This strategy ensures broad initial exploration of the firmware’s PowerFuzz: Power–Based Black-Box Firmware Fuzzing Conference’17, July 2017, Washington, DC, USA 
+
+execution space and populates the TCFG with enough structural information to support informed selection in later stages. 
+
+3.3.2 Depth-Prioritized Branch Selection: As the TCFG grows and deeper nodes are identified, PowerFuzz transitions to a depth-prioritized selection strategy. The intuition behind this transition is that deeper nodes in the TCFG correspond to nested conditional logic, multi-stage computations, or state-dependent behaviors that are structurally harder to reach and thus more likely to harbor complex or vulnerable firmware behavior. Prioritizing these nodes directs the fuzzer’s mutation effort toward the most structurally significant unexplored regions of the firmware. To formalize this, let G = (V , E) be the current TCFG. We define the depth 𝑑 (𝑣 ) of a node 𝑣 ∈ V as the length of the shortest path from the root to 𝑣 . When a newly generated input produces a trace that results in a TCFG update, a new node 𝑣 𝑛𝑒𝑤 is inserted at depth 
+
+𝑑 (𝑣 𝑛𝑒𝑤 ). We define a scalar feedback value 𝐹 as: 
+
+𝐹 =
+
+(
+
+0, if no new node is added to the TCFG, 
+
+𝑑 (𝑣 𝑛𝑒𝑤 ), if a new node 𝑣 𝑛𝑒𝑤 is inserted. (2) A value of 𝐹 = 0 indicates no coverage improvement, while larger positive values indicate that the input has explored deeper regions of the firmware’s TCFG. The scalar feedback value 𝐹 is used directly as the mutation effort assigned to its corresponding input by the fuzzing engine, replacing the binary coverage indicator in the feed-back stage of the LibAFL loop described in Section 2.1. This enables the scheduler to assign proportionally higher mutation effort to inputs that introduce nodes at greater depths, while inputs that produce no TCFG update are assigned zero effort and discarded from the corpus. 
+
+## 4 Experiments 
+
+We evaluate PowerFuzz across two dimensions. First, we com-pare PowerFuzz against Fuzz’EMup [ 19 ], the closest state-of-the-art black-box firmware fuzzer with a set of large-scale real-world firmware applications to assess its fuzzing effectiveness in a fully black-box setting. Second, we evaluate PowerFuzz across three dis-tinct embedded hardware architectures to validate its applicability across platforms. All experiments are conducted on physical em-bedded devices with no access to the firmware binary, source code, or hardware specification. 
+
+## 4.1 Experiment Setup 
+
+4.1.1 Hardware Platforms. We evaluate PowerFuzz on three Chip-Whisperer -based embedded platforms that cover two distinct MCU architectures and three device configurations: 
+
+• ChipWhisperer Nano with STM32F0 : A Cortex-M0-based microcontroller operating at 7.37 MHz, representing a light-weight 32-bit ARM platform. 
+
+• ChipWhisperer Pro with STM32F3 : A Cortex-M4-based microcontroller operating at 7.37 MHz, representing a 32-bit ARM platform with hardware floating-point support. 
+
+• ChipWhisperer Pro with XMega : An AVR-based micro-controller, representing a fundamentally different architec-ture from the ARM-based targets. 
+
+> Chipwhisperer Pro Capturing Board
+> Chipwhisperer Nano with STM32F0 Target
+> STM32F3 Target Board
+> XMEGA Target Board
+
+Figure 8: Experimental setup used for evaluation. The Chip-Whisperer Nano is a self-contained board that integrates both the capturing infrastructure and the STM32F0 target. The ChipWhisperer Pro serves exclusively as a capturing board and it connects with two target boards: STM32F3 and XMEGA. Each target board is mounted on the CW308 UFO (red PCB) that provides an interface to the capturing board. 
+
+This selection spans two instruction set architectures (ARM Cortex-M and AVR), two word sizes (32-bit and 8-bit), and varying pipeline depths, providing a diverse and representative evaluation of Pow-erFuzz’s cross-architecture applicability. Figure 8 shows our experi-mental setup. 
+
+4.1.2 Power Trace Acquisition. Power traces are captured using the ChipWhisperer platform’s built-in measurement infrastructure [ 21 ]. Trace acquisition is triggered synchronously with input delivery to the target device, ensuring consistent temporal alignment across all captured traces. The sampling rate and capture window length are configured per platform to ensure that the full firmware response to each input is captured within a single trace. Also, for each iteration, power traces are captured 𝑁 = 10 times, and the average is taken to remove the measurement noise. 
+
+4.1.3 Fuzzing Configuration. The PowerFuzz fuzzing engine is built on top of LibAFL [ 9] and communicates with the target device over a serial interface. The seed corpus is initialized with set of random inputs. The DTW threshold, sliding window size 𝑆𝑙𝑖𝑑𝑒 _𝑤 ,and correlation threshold 𝑇 are calibrated empirically per platform from a set of reference trace pairs collected under identical execu-tion conditions. The branch selector operates in random mode until the TCFG reaches a 100 node count, after which it transitions to depth-prioritized selection. 
+
+4.1.4 Benchmark Firmware. We evaluate PowerFuzz on ten firmware benchmarks divided into two groups. The first group consists of four large-scale, application-level firmware images adopted from Fuzz’EMup [19], used for direct state-of-the-art comparison: (1) GPS Receiver: A DMA-driven NMEA 0183 parser for map-ping serial sentences to structured GPS data. Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra 
+
+Table 1: Firmware Code Coverage Results using the ChipWhisperer Pro board with STM32F3 target board comparing Gray-Box Fuzzing, Fuzz’EMup, and PowerFuzz, showing improvement over Fuzz’EMup. Firmware Total Gray-Box Random Fuzz’EMup PowerFuzz (Ours) Branches Covered % Covered % Covered % Covered % vs Fuzz’EMup 
+
+Stepper 2143 2017 94.1% 1321 61.6% 1244 58.1% 1730 80.7% +22.7% CNC 1763 1631 92.5% 993 56.3% 1180 66.9% 1467 83.2% +16.3% GPS 1356 1210 89.2% 885 65.3% 920 67.8% 1045 77.1% +9.2% Soldering Station 1871 1617 86.4% 1045 55.9% 1085 58.0% 1438 76.9% +18.9%      
+
+> 0200 400 600 800 1,000
+> 0
+> 500
+> 1,000
+> 1,500
+> # Inputs
+> # Branch hits
+
+Stepper      
+
+> Random
+> Fuzz’EMup
+> PowerFuzz
+> 0200 400 600 800 1,000
+> 0
+> 500
+> 1,000
+> 1,500
+> # Inputs
+
+CNC      
+
+> Random
+> Fuzz’EMup
+> PowerFuzz
+> 0200 400 600 800 1,000
+> 0
+> 500
+> 1,000
+> # Inputs
+> # Branch hits
+
+GPS      
+
+> Random
+> Fuzz’EMup
+> PowerFuzz
+> 0200 400 600 800 1,000
+> 0
+> 500
+> 1,000
+> 1,500
+> # Inputs
+
+Soldering Station 
+
+> Random
+> Fuzz’EMup
+> PowerFuzz
+
+Figure 9: Branch coverage vs. number of inputs for PowerFuzz, Fuzz’EMup, and the random baseline across four large-scale firmware benchmarks on the ChipWhisperer Pro with STM32F3 target. 
+
+(2) Stepper Controller: A three-axis UART controller featuring trajectory planning and timer-based pulse generation. (3) CNC (Grbl-based): A Cortex-M Grbl port for G-code inter-pretation and synchronized multi-axis motion planning. (4) Soldering Station: A TS100-style thermal controller utiliz-ing PID logic and PWM-modulated power delivery. The second group consists of six smaller benchmark firmware applications used to evaluate PowerFuzz across different hardware architectures. These benchmarks are taken from Fuzzbench [17]. (1) cjson : A lightweight C library for parsing JSON data. It fea-tures a high density of conditional branches and recursion, making it a target for testing fuzzer coverage efficiency. (2) zlib : A standard compression/decompression library. Its ex-ecution flow is highly dependent on input bit-patterns and internal lookup tables. (3) TinyFFT : An implementation of the Fast Fourier Transform for microcontrollers, representing signal processing work-loads. (4) microECDSA : A micro-implementation of the Elliptic Curve Digital Signature Algorithm, focusing on cryptographic con-trol logic. (5) miniAES : A minimal Advanced Encryption Standard imple-mentation. While its execution is highly regular, it is a stan-dard benchmark for side-channel leakage analysis. (6) TinyMaix : A lightweight neural network inference library for ARM Cortex-M microcontrollers, representing modern edge-AI workloads. 
+
+## 4.2 TCFG Structural Accuracy Analysis 
+
+While Sections 4.2 and 4.3 establish that PowerFuzz achieves high branch coverage in a fully black-box setting, they do not directly address whether the inferred TCFG accurately reflects the true control flow structure of the firmware. In this section, we evaluate the structural accuracy of the TCFG by comparing it against the ground-truth CFG extracted from the firmware binary, quantifying how faithfully power-trace-driven divergence detection identifies real branch transitions. We evaluate TCFG structural accuracy using four larger benchmark firmware applications from Section 4.1.4. 
+
+4.2.1 Ground-Truth CFG Extraction. For each firmware binary com-piled for the STM32F3 target, we extract the ground-truth CFG using angr [ 32 ] binary analysis framework. Specifically, we apply angr’s CFGEmulated analysis technique to perform the symbolic execution to recover basic block boundaries and inter-block edges from the compiled binary. This ground-truth CFG consists of a set of basic block nodes 𝑁 𝑡𝑟𝑢𝑒 and directed branch edges 𝐸 𝑡𝑟𝑢𝑒 .PowerFuzz: Power–Based Black-Box Firmware Fuzzing Conference’17, July 2017, Washington, DC, USA 
+
+4.2.2 TCFG-to-CFG Correspondence. The TCFG nodes produced by PowerFuzz store power trace segments rather than binary ad-dresses, so a correspondence must be established between TCFG nodes and ground-truth CFG nodes. To do this, we use the in-put stored at each TCFG node ( 𝑣.𝑖𝑛𝑝𝑢𝑡 ) and re-execute it on the firmware in QEMU with basic block tracing enabled, using the same QEMU-based infrastructure described in Section 4.2. Then using intruction-level QEMU trace, we determine the corresponding path in the real CFG and mark the covered nodes. We do this iteratively for all the inputs we collected throughout the fuzzing run. After that we can count the number of actual nodes covered in the CFG using a node travesal in the CFG. We say a TCFG node 𝑣 is a true positive (TP) if the corresponding QEMU execution reveals a basic block transition at that point that exists as an edge in 𝐸 𝑡𝑟𝑢𝑒 , and a 
+
+false positive (FP) if no such transition exists in 𝐸 𝑡𝑟𝑢𝑒 .Table 2 reports the structural accuracy of the TCFG for each of the four benchmark firmware applications on the STM32F3 plat-form. For each benchmark, we report the number of nodes in the inferred TCFG and in the ground-truth CFG, along with node-level precision and recall, defined as: Node Precision = 𝑇 𝑃 𝑛𝑜𝑑𝑒𝑠 
+
+𝑇 𝑃 𝑛𝑜𝑑𝑒𝑠 + 𝐹 𝑃 𝑛𝑜𝑑𝑒𝑠 
+
+, Node Recall = 𝑇 𝑃 𝑛𝑜𝑑𝑒𝑠 
+
+|𝑁 𝑡𝑟𝑢𝑒 |
+
+(3) 
+
+Table 2: TCFG structural accuracy compared against ground-truth CFGs extracted via angr, across four benchmark firmware applications on the STM32F3 platform. Firmware TCFG CFG Node Node Nodes Nodes Precison Recall 
+
+Stepper 1730 1694 97.91% 79.04% CNC 1467 1431 97.55% 81.17% GPS 1045 1018 97.41% 75.07% Soldering Station 1438 1406 97.77% 75.15% 
+
+Average 97.66% 77.61% 
+
+PowerFuzz achieves node precision of 97.66% and node recall of 77.61% on average across the four benchmarks. The consistently high precision, exceeding 97% on every benchmark, indicates that the vast majority of TCFG nodes constructed by PowerFuzz corre-spond to genuine basic block boundaries in the firmware: the two-stage DTW-then-Pearson-correlation divergence detector rarely de-clares a branch split where none exists, confirming that the sliding-window and growing-window analysis effectively suppresses spu-rious detections caused by timing jitter or measurement noise. Re-call is comparatively lower and more variable across benchmarks, ranging from 75.07% on GPS to 81.17% on CNC. This gap between precision and recall is consistent with the asymmetric nature of the detection mechanism: PowerFuzz is conservative by design, requiring a sustained correlation drop across both the sliding and growing window stages before committing to a new TCFG split, which biases the system toward missing subtle divergences rather than over-fragmenting the structure. 
+
+## 4.3 Comparison with State-of-the-Art 
+
+We compare PowerFuzz against Fuzz’EMup [ 19 ], the closest state-of-the-art black-box firmware fuzzer, and a random baseline fuzzer, across the four large-scale firmware benchmarks described in Sec-tion 4. All three methods are evaluated on the ChipWhisperer Pro board with the STM32F3 target under identical conditions. Gray-box fuzzing results, obtained through binary instrumentation of the same firmware images, are additionally reported in Table 1 as an upper-bound reference, representing the best achievable branch coverage with full internal visibility. Table 1 reports the total branch coverage achieved by each method across the four benchmarks. Gray-box fuzzing achieves coverage ranging from 86.4% to 94.1%, establishing a practical upper bound for each firmware. PowerFuzz achieves branch coverage of 80.7%, 83.2%, 77.1%, and 76.9% on the Stepper Motor Controller, CNC Controller, GPS Receiver, and Soldering Station firmware, re-spectively, consistently outperforming Fuzz’EMup across all four benchmarks. Fuzz’EMup achieves coverage between 58.0% and 67.8%, falling significantly short of both the gray-box upper bound and PowerFuzz. Notably, the coverage gap between PowerFuzz and gray-box fuzzing remains within 13.5% across all benchmarks, demonstrating that power-trace-driven TCFG guidance can closely approximate the effectiveness of binary instrumentation in a fully black-box setting. Figure 9 shows the branch coverage growth curves for random testing, Fuzz’EMup, and PowerFuzz across the four firmware bench-marks. PowerFuzz consistently reaches higher coverage plateaus than both Fuzz’EMup and the random baseline, and does so with fewer inputs in most benchmarks. Across all four firmware images, PowerFuzz’s coverage curve rises steeply in the early phase of the process, driven by random branch selection populating the initial TCFG and continues to grow steadily into deeper firmware regions as depth-prioritized selection takes over. In contrast, Fuzz’EMup and the random baseline both plateau earlier and at lower coverage levels, reflecting the absence of TCFG-guided mutation effort alloca-tion. The CNC Controller and Soldering Station benchmarks exhibit the largest performance gap between PowerFuzz and Fuzz’EMup, which we attribute to the complex state machine logic and multi-stage conditional structures present in these firmware images, pre-cisely the scenarios where depth-prioritized branch selection pro-vides the greatest advantage by directing mutation effort toward deeper, harder-to-reach execution paths. 
+
+Table 3: Novelty hit rate comparison between PowerFuzz, Fuzz’EMup, and random testing across four large-scale firmware benchmarks. Firmware Random Fuzz’EMup PowerFuzz 
+
+Stepper 1.3% 3.3% 6.6% CNC 4.4% 5.2% 10.0% GPS 4.7% 6.8% 7.1% Soldering Station 2.1% 2.4% 8.9% 
+
+Novelty Rate: Table 3 reports the novelty hit rate of each method across the four firmware benchmarks, measured as the fraction of generated inputs that exercise at least one previously unseen branch Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra   
+
+> 0200 400
+> 200
+> 400
+> 600
+> 800
+> 1,000
+> 1,200
+> 1,400
+> # Inputs
+> # Branch hits
+
+cjson 
+
+Random 
+
+PowerFuzz   
+
+> 0200 400
+> 200
+> 400
+> 600
+> 800
+> 1,000
+> # Inputs
+
+TinyFFT 
+
+Random 
+
+PowerFuzz   
+
+> 0200 400
+> 200
+> 400
+> 600
+> # Inputs
+
+Zlib 
+
+Random 
+
+PowerFuzz   
+
+> 0200 400
+> 100
+> 200
+> 300
+> # Inputs
+> # Branch hits
+
+microECDSA 
+
+Random 
+
+PowerFuzz   
+
+> 0200 400
+> 100
+> 200
+> 300
+> # Inputs
+
+miniAES 
+
+Random 
+
+PowerFuzz   
+
+> 0200 400
+> 100
+> 200
+> 300
+> 400
+> # Inputs
+
+TinyMaix 
+
+Random 
+
+PowerFuzz 
+
+Figure 10: Branch coverage vs. number of inputs for PowerFuzz and random testing across six benchmark firmware applications on the with STM32F3 target. PowerFuzz reaches higher coverage plateaus significantly faster than random testing across all benchmarks. Table 4: Branch coverage comparison between PowerFuzz (PF) and random testing across three targets (Nano/STM32F0, Pro/STM32F3, Pro/XMega) on six benchmark firmware applications. Firmware Total Nano (STM32F0) Pro (STM32F3) Pro (XMEGA) Random Testing Covered Percentage Covered Percentage Covered Percentage Covered Percentage 
+
+cjson 1578 1387 87.9% 1354 85.8% 1370 86.8% 1003 63.6% zlib 707 612 86.6% 623 88.1% 615 87.0% 456 64.5% TinyFFT 1150 974 84.7% 962 83.7% 965 83.9% 702 61.1% microECDSA 445 368 82.7% 368 82.7% 368 82.7% 261 58.7% miniAES 337 302 89.6% 315 93.5% 310 92.0% 221 65.6% TinyMaix 511 444 86.9% 461 90.2% 450 88.1% 323 63.2% relative to all prior inputs. To ensure a fair and instrumentation-independent evaluation, novelty is assessed by re-executing each input on the firmware in QEMU after the fuzzing process and marking it as novel if it reveals at least one new branch. This cal-culation is conducted separately from the fuzzing execution itself. PowerFuzz achieves novelty rates of 6.6%, 10%, 7.1%, and 8.9% on the Stepper Motor Controller, CNC Controller, GPS Receiver, and Soldering Station firmware, respectively, outperforms Fuzz’EMup by up to 3.7 × and the random baseline by up to 5.0 × across all benchmarks. While absolute novelty rates are low for all meth-ods, the consistent relative advantage of PowerFuzz confirms that TCFG-guided depth-prioritized mutation effectively steers input generation toward unexplored firmware behaviors. 
+
+## 4.4 Evaluation across Hardware Architectures 
+
+We evaluate PowerFuzz across three distinct embedded hardware platforms using the six smaller benchmark firmware applications described in Section 4. For each benchmark, PowerFuzz is com-pared against a random baseline fuzzer with no TCFG guidance under identical conditions. The goal of this evaluation is to demon-strate that the power-trace-driven TCFG construction mechanism of PowerFuzz generalizes across fundamentally different MCU ar-chitectures, including both 32-bit ARM Cortex-M and 8-bit AVR XMEGA platforms, without any architecture-specific tuning. Table 4 reports the branch coverage achieved by PowerFuzz and random testing across all six benchmarks and three platforms. PowerFuzz consistently outperforms random testing across every PowerFuzz: Power–Based Black-Box Firmware Fuzzing Conference’17, July 2017, Washington, DC, USA 
+
+firmware and platform combination, achieving coverage between 82.7% and 93.5% compared to 58.7%–65.6% for random testing. The coverage advantage of PowerFuzz over random testing ranges from approximately 20 to 30 percentage points across all benchmarks, confirming that TCFG-guided mutation provides a substantial and consistent benefit regardless of the underlying hardware archi-tecture. Notably, the coverage achieved by PowerFuzz remains stable across the three platforms for each firmware, for instance, microECDSA achieves exactly 82.7% on all three platforms, indicat-ing that the DTW-based similarity analysis and Pearson correlation produce consistent branch identification results across different power trace characteristics induced by different MCU architectures. Figure 10 shows the branch coverage growth curves for Power-Fuzz and random testing across all six benchmarks on the STM32F3 platform, which is representative of the behavior observed across all three platforms. PowerFuzz reaches its coverage plateau signifi-cantly faster than random testing in all six benchmarks, with the gap between the two methods widening progressively as the fuzzing process advances. The most pronounced efficiency gains are ob-served on cjson and zlib, where PowerFuzz achieves nearly 87% and 88% coverage respectively within the first 200 inputs, while random testing plateaus well below 65% even after 500 inputs. This behavior reflects the high branch density of these benchmarks. cjson’s deeply nested conditional logic and zlib’s bit-pattern-dependent execution paths are precisely the structures that depth-prioritized branch selection is designed to exploit. For microECDSA and miniAES, both methods converge more quickly due to the more regular and structured execution patterns of cryptographic firmware, though PowerFuzz still achieves a consistently higher final coverage level. 
+
+## 5 Conclusion 
+
+Gray-box firmware fuzzing assumes the full visibility of firmware and therefore not applicable when verifying embedded systems with proprietary, encrypted or obfuscated firmware. In this paper, we presented PowerFuzz , the first statistical black-box firmware fuzzing framework that leverages physical power side-channel mea-surements. PowerFuzz captures the MCU’s power consumption as a time-series signal in response to each fuzzer-generated input and applies a two-stage similarity analysis, combining dynamic time warping for coarse deviation window identification and a growing-window Pearson correlation analysis for precise branch localization to identify newly executed branches from power traces. These identified branches drive the dynamic construction of a high-level control flow graph of the black-box firmware, which in turn guides a prioritized branch selection mechanism that directs the fuzzing engine’s mutation effort toward deeper, unexplored regions of the firmware’s execution space. Experimental evaluation across three embedded hardware platforms using ten firmware bench-marks demonstrated that PowerFuzz can achieve branch coverage comparable (within 13.5%) to gray-box fuzzing. The results also highlight that PowerFuzz can significantly outperform (up to 22%) the state-of-the-art black-box fuzzer based on electromagnetic em-anations. 
+
+## References 
+
+[1] Anastasios Andronidis and Cristian Cadar. 2022. Snapfuzz: high-throughput fuzzing of network applications. In Proceedings of the 31st ACM SIGSOFT interna-tional symposium on software testing and analysis . 340–351. [2] Marcel Böhme, Van-Thuan Pham, and Abhik Roychoudhury. 2016. Coverage-based greybox fuzzing as markov chain. In Proceedings of the 2016 ACM SIGSAC Conference on Computer and Communications Security . 1032–1043. [3] Daming D Chen, Maverick Woo, David Brumley, and Manuel Egele. 2016. Towards automated dynamic analysis for linux-based embedded firmware.. In NDSS , Vol. 1. 1–1. [4] Peng Chen and Hao Chen. 2018. Angora: Efficient fuzzing by principled search. In 2018 IEEE Symposium on Security and Privacy (SP) . IEEE, 711–725. [5] Andrei Costin, Jonas Zaddach, Aurélien Francillon, and Davide Balzarotti. 2014. A {Large-scale } analysis of the security of embedded firmwares. In 23rd USENIX security symposium (USENIX Security 14) . 95–110. [6] Addison Crump, Andrea Fioraldi, Dominik Maier, and Dongjia Zhang. 2023. Libafl libfuzzer: Libfuzzer on top of libafl. In 2023 IEEE/ACM International Workshop on Search-Based and Fuzz Testing (SBFT) . IEEE, 70–72. [7] Guy Farrelly, Michael Chesser, and Damith C Ranasinghe. 2023. Ember-IO: Effective firmware fuzzing with model-free memory mapped IO. In Proceedings of the 2023 ACM Asia Conference on Computer and Communications Security .401–414. [8] Andrea Fioraldi, Dominik Maier, Heiko Eißfeldt, and Marc Heuse. 2020. {AFL++ }:Combining incremental steps of fuzzing research. In 14th USENIX workshop on offensive technologies (WOOT 20) .[9] Andrea Fioraldi, Dominik Christian Maier, Dongjia Zhang, and Davide Balzarotti. 2022. Libafl: A framework to build modular and reusable fuzzers. In Proceedings of the 2022 ACM SIGSAC Conference on Computer and Communications Security .1051–1065. [10] Shuitao Gan, Chao Zhang, Xiaojun Qin, Xuwen Tu, Kang Li, Zhongyu Pei, and Zuoning Chen. 2018. Collafl: Path sensitive fuzzing. In 2018 IEEE Symposium on Security and Privacy (SP) . IEEE, 679–696. [11] Jian Gao, Yiwen Xu, Yu Jiang, Zhe Liu, Wanli Chang, Xun Jiao, and Jiaguang Sun. 2020. Em-fuzz: Augmented firmware fuzzing via memory checking. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 39, 11 (2020), 3420–3432. [12] Vinay M Igure, Sean A Laughter, and Ronald D Williams. 2006. Security issues in SCADA networks. computers & security 25, 7 (2006), 498–506. [13] Juhwan Kim, Jihyeon Yu, Hyunwook Kim, Fayozbek Rustamov, and Joobeom Yun. 2021. FIRM-COV: High-coverage greybox fuzzing for IoT firmware via optimized process emulation. IEEE Access 9 (2021), 101627–101642. [14] Paul Kocher, Joshua Jaffe, and Benjamin Jun. 1999. Differential power analysis. In Annual international cryptology conference . Springer, 388–397. [15] Caroline Lemieux and Koushik Sen. 2018. Fairfuzz: A targeted mutation strategy for increasing greybox fuzz testing coverage. In Proceedings of the 33rd ACM/IEEE international conference on automated software engineering . 475–485. [16] Junqiang Li, Senyi Li, Gang Sun, Ting Chen, and Hongfang Yu. 2022. Snpsfuzzer: A fast greybox fuzzer for stateful network protocols using snapshots. IEEE Transactions on Information Forensics and Security 17 (2022), 2673–2687. [17] Jonathan Metzman, László Szekeres, Laurent Simon, Read Sprabery, and Abhishek Arya. 2021. Fuzzbench: an open fuzzer benchmarking platform and service. In 
+
+Proceedings of the 29th ACM joint meeting on European software engineering conference and symposium on the foundations of software engineering . 1393–1403. [18] Barton P Miller, Lars Fredriksen, and Bryan So. 1990. An empirical study of the reliability of UNIX utilities. Commun. ACM 33, 12 (1990), 32–44. [19] Fatemeh Moradihaghighi, Zihao Zhan, Yanan Guo, Ziming Zhao, Mashrur Chowd-hury, and Zhenkai Zhang. 2026. Fuzz’EMup: Leveraging EM Side-Channel Ema-nation to Guide Black-Box Embedded Firmware Fuzzing. In IEEE International Symposium on Hardware Oriented Security and Trust (HOST) . IEEE. [20] Roberto Natella. 2022. Stateafl: Greybox fuzzing for stateful network servers. 
+
+Empirical Software Engineering 27, 7 (2022), 191. [21] Colin O’Flynn and Zhizhang Chen. 2014. ChipWhisperer: An Open-Source Platform for Hardware Embedded Security Research. In Constructive Side-Channel Analysis and Secure Design (COSADE) . Springer International Publishing, 243– 260. [22] Hiroaki Sakoe and Seibi Chiba. 2003. Dynamic programming algorithm opti-mization for spoken word recognition. IEEE transactions on acoustics, speech, and signal processing 26, 1 (2003), 43–49. [23] Tobias Scharnowski, Nils Bars, Moritz Schloegel, Eric Gustafson, Marius Muench, Giovanni Vigna, Christopher Kruegel, Thorsten Holz, and Ali Abbasi. 2022. Fuz-zware: Using precise {MMIO } modeling for effective firmware fuzzing. In 31st USENIX Security Symposium (USENIX Security 22) . 1239–1256. [24] Sergej Schumilo, Cornelius Aschermann, Andrea Jemmett, Ali Abbasi, and Thorsten Holz. 2022. Nyx-net: network fuzzing with incremental snapshots. In Proceedings of the Seventeenth European Conference on Computer Systems . 166– 180. Conference’17, July 2017, Washington, DC, USA Dakshina Tharindu, Sahan Sanjaya, Philip Baptist, Prabhat Mishra 
+
+[25] Lukas Seidel, Dominik Christian Maier, and Marius Muench. 2023. Forming Faster Firmware Fuzzers.. In USENIX Security Symposium . 2903–2920. [26] Philip Sperl and Konstantin Böttinger. 2019. Side-channel aware fuzzing. In 
+
+European Symposium on Research in Computer Security . Springer, 259–278. [27] Statista. 2026. Number of Internet of Things (IoT) connections worldwide from 2022 to 2023, with forecasts from 2024 to 2034. https://www.statista.com/ statistics/1183457/iot-connected-devices-worldwide/. [28] Nick Stephens, John Grosen, Christopher Salls, Andrew Dutcher, Ruoyu Wang, Jacopo Corbetta, Yan Shoshitaishvili, Christopher Kruegel, and Giovanni Vigna. 2016. Driller: Augmenting fuzzing through selective symbolic execution.. In 
+
+NDSS , Vol. 16. 1–16. [29] Robert Swiecki. 2020. Honggfuzz. https://github.com/google/honggfuzz. [30] Dakshina Tharindu, Aruna Jayasena, and Prabhat Mishra. 2026. SysFuSS: System-Level Firmware Fuzzing with Selective Symbolic Execution. arXiv preprint arXiv:2602.02243 (2026). [31] Dakshina Tharindu, Aruna Jayasena, and Prabhat Mishra. 2026. A Tutorial on Secure and Efficient Firmware Delivery. IEEE Design & Test (2026), 1–1. doi:10.1109/MDAT.2026.3679608 [32] Fish Wang and Yan Shoshitaishvili. 2017. Angr-the next generation of binary analysis. In 2017 IEEE Cybersecurity Development (SecDev) . IEEE, 8–9. [33] Haohuang Wen, Zhiqiang Lin, and Yinqian Zhang. 2020. Firmxray: Detecting bluetooth link layer vulnerabilities from bare-metal firmware. In Proceedings of the 2020 ACM SIGSAC conference on computer and communications security .167–180. [34] Insu Yun, Sangho Lee, Meng Xu, Yeongjin Jang, and Taesoo Kim. 2018. {QSYM }:A practical concolic execution engine tailored for hybrid fuzzing. In 27th USENIX Security Symposium (USENIX Security 18) . 745–761. [35] Jonas Zaddach, Luca Bruno, Aurelien Francillon, Davide Balzarotti, et al . 2014. AVATAR: A Framework to Support Dynamic Security Analysis of Embedded Systems’ Firmwares.. In NDSS , Vol. 14. 1–16. [36] Michał Zalewski. 2014. American Fuzzy Lop (AFL) Technical Whitepaper. https: //lcamtuf.coredump.cx/afl/technical_details.txt. [37] Yaowen Zheng, Ali Davanian, Heng Yin, Chengyu Song, Hongsong Zhu, and Limin Sun. 2019. {FIRM-AFL }:{High-Throughput } greybox fuzzing of {IoT }
+
+firmware via augmented process emulation. In 28th USENIX Security Symposium (USENIX Security 19) . 1099–1114.

@@ -6,37 +6,40 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-22
-- 运行时间：2026-06-22 22:52:50 UTC
+- 最新运行日期：2026-06-25
+- 运行时间：2026-06-25 22:17:52 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：3
+- 本次总论文数：6
+- 精读区：4
 - 速读区：2
 
 ### 今日简报（AI）
-1) 今日共精读3篇、速读2篇，聚焦形式化验证与定理证明技术前沿。  
-2) 最值得关注的是SMT模型检查在梯形图程序验证中的突破（9.0分），以及基于强化学习验证的定理证明方法（8.0分）。  
-3) 建议深入研究将验证工具扩展到工业PLC场景，同时关注Lean等交互式证明助手与RL的结合进展。
-- 详情：[/202606/22/README](/202606/22/README)
+今日精选6篇，重点精读两篇9分论文，聚焦LLM在硬件验证中的闭环质量与调试框架。  
+最值得关注的方向是LLM生成RTL断言的质量感知形式验证，以及LLM驱动的Verilog调试框架。  
+建议优先精读这两篇高分论文，快速掌握LLM提升硬件验证效率的核心思路；速读方向可关注形式化信息流安全验证。
+- 详情：[/202606/25/README](/202606/25/README)
 
 ### 精读区论文标签
-1. [Graph-ESBMC-PLC: Formal Verification of Graphical PLCopen XML Ladder Diagram Programs Using SMT-Based Model Checking](/202606/22/2606.18941v1-graph-esbmc-plc-formal-verification-of-graphical-plcopen-xml-ladder-diagram-programs-using-smt-based-model-checking)  
-   标签：评分：9.0/10、query:fsh
-   evidence：基于SMT的硬件PLC程序形式验证
-2. [Process-Verified Reinforcement Learning for Theorem Proving via Lean](/202606/22/2606.20068v1-process-verified-reinforcement-learning-for-theorem-proving-via-lean)  
+1. [Closing the Loop on LLM-Generated RTL Assertions with Quality-Aware Formal Verification](/202606/25/2606.21451v1-closing-the-loop-on-llm-generated-rtl-assertions-with-quality-aware-formal-verification)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：大语言模型生成RTL断言并用于形式验证
+2. [VeriPilot: An LLM-Powered Verilog Debugging Framework](/202606/25/2606.23759v1-veripilot-an-llm-powered-verilog-debugging-framework)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：基于LLM的Verilog调试框架，用于RTL设计验证
+3. [Cycle-Consistent Neural Explanation of Formal Verification Certificates](/202606/25/2606.24414v1-cycle-consistent-neural-explanation-of-formal-verification-certificates)  
    标签：评分：8.0/10、query:ml-verify
-   evidence：利用Lean的细粒度验证信号训练RL进行定理证明，直接服务于形式验证。
-3. [The Correctness Illusion in LLM-Generated GPU Kernels](/202606/22/2606.20128v1-the-correctness-illusion-in-llm-generated-gpu-kernels)  
+   evidence：神经网络解释形式验证证书
+4. [PowerFuzz: Power-Based Black-Box Firmware Fuzzing](/202606/25/2606.24692v1-powerfuzz-power-based-black-box-firmware-fuzzing)  
    标签：评分：8.0/10、query:fsh
-   evidence：模糊测试用于LLM生成GPU内核的正确性验证
+   evidence：基于功率的黑盒模糊测试用于固件验证
 
 ### 速读区论文标签
-1. [Witnesses and Counterexamples for Timed Bisimulation](/202606/22/2606.16736v1-witnesses-and-counterexamples-for-timed-bisimulation)  
-   标签：评分：6.0/10、query:fsh
-   evidence：时间自动机验证，使用区域图和虚拟时钟，可应用于硬件时序分析
-2. [Verifying LTL for Infinite State Systems via Termination Analysis](/202606/22/2606.17693v1-verifying-ltl-for-infinite-state-systems-via-termination-analysis)  
-   标签：评分：6.0/10、query:fsh
-   evidence：通过终止分析验证无限状态系统的线性时序逻辑属性
+1. [Guarded Equivalence Predicates for Scalable Formal Hardware Information-Flow Verification](/202606/25/2606.22063v1-guarded-equivalence-predicates-for-scalable-formal-hardware-information-flow-verification)  
+   标签：评分：7.0/10、query:fsh
+   evidence：使用PDR的形式化硬件信息流验证
+2. [Information flow security on persistent memory](/202606/25/2606.25422v1-information-flow-security-on-persistent-memory)  
+   标签：评分：7.0/10、query:fsh
+   evidence：持久内存信息流安全的形式验证
 
 
 <div class="dpr-home-promo-card">
