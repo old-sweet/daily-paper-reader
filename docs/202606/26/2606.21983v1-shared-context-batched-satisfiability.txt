@@ -1,0 +1,585 @@
+Title: Shared-Context Batched Satisfiability
+
+URL Source: https://arxiv.org/pdf/2606.21983v1
+
+Published Time: Tue, 23 Jun 2026 01:37:29 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# Shared-Context Batched Satisfiability 
+
+Jiening Siow, Hanrui Zuo, Hanyun Jiang, Weiqi Wang, and Peisen Yao 
+
+The State Key Laboratory of Blockchain and Data Security, Zhejiang University 
+
+{jiening,zarin,jhanyun,wqwang1009,pyaoaa }@zju.edu.cn 
+
+Abstract. Program analyzers often issue batches of SMT queries that share a large symbolic context and differ only in a small predicate. We formalize this recurring pattern as Shared-Context Batched Satisfiability :given a formula φ and predicates P , determine whether φ∧p is satisfiable for each p ∈ P . We study three theory-agnostic strategies for this prob-lem: predicate-by- predicate checking, disjunctive over-approximation, and Core-Literal Filter (CLF), a new algorithm that learns literals in-consistent with φ and uses them to reject later predicates. Our evalua-tion on symbolic abstraction and active property checking shows that no strategy dominates universally: over-approximation is fastest on solved symbolic- abstraction queries, while CLF increases the number of solved hard instances and is fastest on active property checking. We advocate treating shared-context batched satisfiability as a first-class primitive in design program analyzers and exploring the algorithmic design space more systematically. 
+
+Keywords: Program analysis, verification, constraint solving 
+
+## 1 Introduction 
+
+Modern Satisfiability Modulo Theories (SMT) solvers are the workhorses behind a wide range of automated reasoning tasks, e.g., deciding the satisfiability for rich theories. They have become the de-facto backend for symbolic execution [1, 2], software model checking [3–5], program synthesis [6, 7], automated repair [8, 9], and refinement types [10, 11]. In the industry, they defend cloud infrastructures and even validate radiation-therapy machines [12, 13], with companies like Ama-zon reportedly issuing tens of millions of SMT queries each day. When analyzing real-world programs, modern program analyzers issue tens of thousands of satisfiability queries, many of which are highly correlated, such as queries that share a path condition. In this work, we focus on a recurring compu-tational pattern: Given a fixed symbolic context φ and a finite set of predicates, determine the satisfiability of φ conjoined with each predicate. This arises, for instance, when verifying multiple properties under a shared path condition, or when checking a family of assertions along a symbolic execution path: 
+
+– Active Property Checking : In symbolic execution, a fixed path condition is conjoined with different property predicates (e.g., division-by-zero, null dereference, buffer overflow) that are checked on the same path. This yields a large number of satisfiability queries sharing a common context. 
+
+> arXiv:2606.21983v1 [cs.PL] 20 Jun 2026
+
+– Symbolic Abstraction [14, 15]: For template linear domains, the best abstract transformers can be computed by encoding program semantics as a fixed formula and solving for parameters that yield over-approximations. OMT solvers explore candidate parameters via iterative refinement, issuing satis-fiability queries that vary the predicate while reusing the shared semantics. We isolate and formalize this structure as the problem of Shared-Context Batched Satisfiability (SCBS), a descriptive name for the query pattern: Given a formula φ and a set of predicates P = {p1, p 2, . . . , p n}, determine for each predicate pi whether the conjunction φ ∧ pi is satisfiable. There have been related techniques to accelerate similar classes of prob-lems—for example, expression caching in symbolic execution [16–18], unsat-core reuse in verification [19], and incremental solving inside SMT solvers. However, these techniques are designed for broad reuse across heterogeneous queries, such as those arising from different paths, time frames, or analysis stages. SCBS work-loads are different: all queries share the same large context, and the variability is confined to a set of predicates. While offering general-purpose acceleration, they do not exploit the structural regularities in SCBS. SCBS workloads possess a unique structural regularity: all queries share an identical, often large, symbolic context, and differ only by a single predicate. This regularity presents two optimization opportunities. First, when predicates have semantic relationships—implication, mutual exclusion, or logical domi-nance—classifying one predicate can immediately resolve others without addi-tional solver calls. Second, a solver invoked on the entire batch can amortize preprocessing, lemma learning, and conflict analysis across all predicates, rather than repeating this work for each query in isolation. As a first step toward principled support for SCBS, we investigate two exist-ing algorithmic strategies: linear scan and disjunctive over-approximation ( § 3.1). We then introduce Core-Literal Filter (CLF), a forbidden-literal–driven algo-rithm that extracts forbidden literals from unsatisfiable checks to pre-screen subsequent predicates ( § 3.2). All methods are theory-agnostic but can incorpo-rate theory-specific enhancements when applicable. We present a detailed analy-sis and practical optimization heuristics ( § 3.3). To provide insight into practical behavior, we evaluate the algorithms using queries from active property checking and symbolic abstraction ( § 4). Our results show that each algorithm exhibits distinct performance trade-offs. We also discuss future directions for enhancing shared-context batched satisfiability ( § 5). In summary, we make the following main contributions: 
+
+– A precise formalization of the shared-context batched satisfiability problem. 
+
+– A new forbidden-literal–driven algorithm (CLF), which extracts forbidden literals from unsatisfiable checks to pre-screen subsequent predicates. 
+
+– A systematic analysis and evaluation of three algorithmic approaches with respect to their theoretical properties and practical performance. The im-plementation is available at https://tinyurl.com/2f99zbun .2 Motivating Examples 
+
+In this section, we illustrate the presence of shared-context batched satisfiability in representative tasks in program analysis. 
+
+2.1 Active Property Checking 
+
+In symbolic bug finding, active property checking [20] generalizes runtime verifi-cation by checking whether a property holds for all executions that follow a given program path, rather than for a single concrete execution. This is achieved by symbolically executing the path and querying a constraint solver. If the property fails, the solver produces an input that exercises the same path while violating the property. Concretely, given a symbolic path constraint pc , active checkers inject addi-tional constraints encoding potential property violations. For example, a division-by-zero checker introduces the constraint ϕDiv = ( σ(d)̸ = 0), where σ(d) de-notes the symbolic value of the denominator. The analysis then checks whether 
+
+pc ∧ ¬ ϕDiv is satisfiable. If so, the resulting model yields a concrete input that triggers a division-by-zero error along the same path. When multiple properties are checked simultaneously—e.g., buffer overflows, NULL dereferences, integer overflows, and uninitialized variables—each property 
+
+Pj contributes a constraint ϕj . The analyzer must determine whether pc ∧ ¬ ϕj
+
+is satisfiable for each j ∈ 1, . . . , n : Check satisfiability of pc ∧ ¬ ϕj for each j ∈{1, . . . , n }. This is a direct instance of shared-context batched satisfiability, with 
+
+φ = pc and P = ¬ϕ1, . . . , ¬ϕn.
+
+Example 1. Consider the following program snippet: 
+
+int process(int x, int *p, int arr[10]) { if (x > 5) { int result = 100 / (x - 6); // Divide-by-zero? int val = *p + arr[x]; // NULL deref and overflow? return result + val; }return 0; }
+
+For the path where the condition x > 5 holds, the path constraint is φ ≡
+
+(x > 5). Three active checkers inject constraints: 
+
+– Division-by-zero: ϕ1 = ( x − 6̸ = 0), i.e., x̸ = 6. 
+
+– NULL pointer: ϕ2 = ( p̸ = NULL). 
+
+– Array bounds: ϕ3 = (0 ≤ x < 10). The analyzer checks three queries, each conjoining φ with the negation of one safety condition: (x > 5) ∧ ¬ (x̸ = 6) ≡ (x > 5) ∧ (x = 6) // SAT, yields x = 6 (x > 5) ∧ ¬ (p̸ = NULL) ≡ (x > 5) ∧ (p = NULL) // SAT, yields any x > 5(x > 5) ∧ ¬ (0 ≤ x < 10) ≡ (x > 5) ∧ (x ≥ 10) // SAT, yields x ≥ 10 2.2 Symbolic Abstraction 
+
+Abstract interpretation provides a general framework for sound program analysis by “executing” programs over abstract domains that over-approximate concrete program states. The connection between concrete and abstract semantics is for-malized through a Galois connection (α, γ ) between a concrete domain ( C, ≤C )and an abstract domain ( A, ≤A), where the abstraction function α : C → A 
+
+maps sets of concrete states to their best abstract representation, and the con-cretization function γ : A → C maps an abstract element back to the set of concrete states it represents. A central challenge in abstract interpretation is the design of abstract trans-formers —abstract counterparts of concrete operations that soundly propagate abstract states through program statements. Given a concrete transformer f :
+
+C → C , any abstract function f ♯ : A → A satisfying α ◦ f ◦ γ ≤A f ♯ is a sound abstract transformer. Among all sound choices, the best abstract transformer 
+
+f α = α◦f ◦γ is the most precise. However, this definition is non-constructive—it characterizes the desired result but provides neither a method for computing a representation of f α nor an algorithm for applying it. Symbolic abstraction [15, 21, 14, 22] addresses this by encoding program se-mantics as a formula φ and computing the least abstract element a ∈ A such that [[ φ]] ⊆ γ(a). In template linear domains, abstract elements are conjunctions of inequalities with fixed linear forms and variable parameters. The abstrac-tion problem reduces to solving optimization modulo theories (OMT) queries: max g1, . . . , g n s.t. φ, where each objective gi is maximized independently. OMT solvers typically employ iterative refinement. Each iteration evaluates candidate parameter vectors c and c′ by issuing satisfiability queries of the form: 
+
+SAT (φ(x, x′) ∧ pc(x) ∧ ¬ pc′ (x′)) ,
+
+where φ encodes the transition relation, and pc and pc′ are predicates instan-tiated with candidate parameters. Each batch of queries fixes φ and varies the predicates, conforming to the SCBS pattern. Multiple objectives may be handled across batches, with some converging early and others resolving later. 
+
+Example 2. Consider a transition formula φ(x, x ′) ≡ (x′ = x + 1 ∧ 0 ≤ x ≤ 10) and two template constraints x′ ≤ c1 and 2 x′ ≤ c2. An OMT solver maximizes 
+
+c1 and c2 by iteratively refining candidate bounds, issuing queries of the form 
+
+SAT (φ(x, x ′) ∧ (x′ ≤ c1) ∧ (2 x′ ≤ c2)) ,
+
+repeatedly with the same φ but different candidate values of c1 and c2 across iterations. The optimal answers are c1 = 11 and c2 = 22, since x′ reaches at most 11 when x = 10. This is precisely the shared-context batched satisfiability pattern: φ is fixed across the entire optimization, while the bounding predicates vary per iteration, and the two objectives may converge at different rates. In practice, there may exist a large number of optimization objectives. Algorithm 1: Predicate-by-predicate check.                                   
+
+> Input: An SMT formula φand a set of predicates P={p1, . . . , p n}
+> Output: Whether φ∧piis satisfiable for each pi∈P
+> 1foreach p∈Pdo
+> 2if φ∧pis satisfiable then
+> 3mark pas satisfiable;
+> 4else
+> 5mark pas unsatisfiable;
+> 6return marked results;
+
+## 3 Algorithms for Shared-Context Batched Satisfiability 
+
+In shared-context batched satisfiability, a fixed formula φ is evaluated repeatedly under varying sets of predicates. Moreover, analyzing a single program typically involves solving many such queries. This recurring structure lends itself to various optimizations. In this section, we first review two existing strategies ( § 3.1), then present our Core-Literal Filter (CLF) algorithm ( § 3.2), and finally analyze the performance trade-offs of these strategies ( § 3.3). 
+
+3.1 Existing Algorithms The Linear Scan Algorithm . A straightforward, and the most commonly used, approach is to check whether each predicate p ∈ P is satisfiable with φ.Despite its simplicity, the number of solver calls grows proportionally with the number of predicates. In § 3.3, we will discuss the optimization of the algorithm, such as solution caching and incremental solving. 
+
+The Disjunctive Over-Approximation Algorithm . To reduce the number of solver queries, Algorithm 2 [23, 20] uses a disjunctive over-approximation strategy. The key idea is to aggregate unresolved predicates into a single dis-junction and query the solver once for the aggregate, rather than individually for each predicate. This batching amortizes solver cost across multiple candidates while preserving correctness. 
+
+Example 3. Recall the queries in Example 1. A naive approach issues three sep-arate solver calls. However, a more efficient approach queries the disjunction: (x > 5) ∧ (¬ϕ1 ∨ ¬ ϕ2 ∨ ¬ ϕ3) once, and extracts from a single model (e.g., x = 6, 
+
+p = NULL) the set of violated properties. This reduces the number of solver invocations and enables early discovery of multiple violations. Algorithm 2 embodies this strategy and can be viewed as a coarse-to-fine search over the predicate set. Each iteration asks whether any predicate in the current pool can be satisfied together with φ, and uses a model to discharge as many predicates as possible at once. This provides a principled way to reduce solver calls while preserving exactness. Given a formula φ and a set of predi-cates P = {p1, . . . , p n}, the algorithm proceeds iteratively, refining P until all satisfiability results are determined. Algorithm 2: Compact check via over-approximation.                                                                  
+
+> Input: An SMT formula φand a set of predicates P={p1, . . . , p n}
+> Output: Whether φ∧piis satisfiable for each pi∈P
+> 1while P̸=∅do
+> 2Ψ←W
+> p∈Pp;// Create disjunction of remaining predicates
+> 3if φ∧Ψis unsatisfiable then
+> // All remaining predicates are unsatisfiable
+> 4mark every p∈Pas unsatisfiable;
+> 5return ;
+> 6else
+> // At least one predicate is satisfiable
+> 7M←a model of φ∧Ψ;// Get satisfying assignment
+> 8foreach pi∈Pdo
+> 9if M|=pithen
+> 10 mark pias satisfiable;
+> 11 remove pifrom P;// Remove from consideration
+> 12 return marked results;
+
+1. Predicate Aggregation (Line 2): At each iteration, the algorithm constructs an over-approximated formula Ψ = W 
+
+> p∈P
+
+p by taking the disjunction of all predicates in the current set P .2. Satisfiability Check (Lines 3–11): The algorithm then checks whether the conjunction φ ∧ Ψ is satisfiable. 
+
+– If φ ∧ Ψ is unsatisfiable , this implies that no predicate in P can be satisfied alongside φ. In this case, each conjunction φ ∧ pi is marked as unsatisfiable, and this round of the algorithm terminates (Line 5). There is no need for explicit separation of SMT calls for each predicate in P .
+
+– If φ ∧ Ψ is satisfiable, the SMT solver returns a model M . The algorithm iterates through each predicate pi ∈ P and evaluates whether M |= pi.If a predicate pi is satisfied by M , then φ ∧ pi is marked as satisfiable and removed from P (Line 11). 3. The process repeats, with P shrinking after each iteration. The algorithm terminates when all the predicates are marked. 
+
+Theorem 1. Let k be the number of predicates in P for which φ∧pi is satisfiable. Algorithm 2 requires at most min( k + 1 , n ) SMT solver calls [23]. Example 4. Consider φ ≡ (x ≥ 1 ∧ x ≤ 5) and predicates P = {p1 : x = 2 , p 2 :
+
+x > 3, p 3 : x < 0, p 4 : x = 4 , p 5 : x ≤ 5}.
+
+– First, with P = {p1, p 2, p 3, p 4, p 5}, the algorithm constructs disjunction Ψ =(x = 2) ∨ (x > 3) ∨ (x < 0) ∨ (x = 4) ∨ (x ≤ 5). The solver returns model 
+
+M1 = {x = 2 } for φ ∧ Ψ , which satisfies p1 and p5. These predicates are marked as satisfiable. 
+
+– Second, with P = {p2, p 3, p 4}, the new disjunction yields model M2 = {x =4}, which satisfies p2 and p4. These are marked satisfiable and removed. – Finally, only p3 : x < 0 remains. The formula φ∧(x < 0) is unsatisfiable since 
+
+φ requires x ≥ 1. The algorithm marks p3 as unsatisfiable and terminates. Overall, the algorithm requires three SMT calls, versus five for a naive linear scan (a 40% reduction). However, the trade-off is that each call solves a larger query— φ conjoined with a disjunction over the remaining predicates—which can increase per-call solving cost and, in the worst case, offset the reduction in the number of solver calls. 
+
+3.2 The Core-Literal Filter Algorithm 
+
+Both the linear scan and the over-approximation algorithm treat each unsatisfi-able result as an isolated event. We propose a new algorithm, Core-Literal Filter 
+
+(CLF ), which extracts reusable information from every unsatisfiable result and propagates it forward to avoid redundant solver calls. 
+
+Key insight. When φ ∧ pi is unsatisfiable, some top-level literal ℓ inside pi
+
+may itself be inconsistent with φ, i.e., φ |= ¬ℓ. If so, any future predicate pj
+
+that contains ℓ as a top-level conjunct is immediately unsatisfiable without any additional solver call involving pj . The algorithm maintains a forbidden literal set 
+
+F: a set of literals ℓ for which φ |= ¬ℓ has been confirmed. Membership in F is verified by checking φ∧ℓ under the precondition alone, which is a once-per-literal cost that can then amortize over arbitrarily many future predicates. 
+
+The Algorithm. Our algorithm proceeds through the predicates one by one within a single incremental solver session initialized with φ. For each predicate 
+
+pi, four steps are executed in order. 1. Free pre-screening (Line 4). Before issuing any solver call, the algorithm checks whether pi contains a top-level conjunctive literal ℓ that belongs to 
+
+F. If so, pi is immediately classified as unsatisfiable at zero additional solver cost, because φ |= ¬ℓ has already been confirmed. 2. Incremental satisfiability check (Line 8). If pi passes pre-screening, the algo-rithm asserts pi using push /pop and queries the solver. This is identical to the Inc variant of the linear scan. 3. Model reuse (SAT case, Lines 11–14). When the check is satisfiable, the returned model M is propagated forward: any unresolved pj (j > i ) satisfied by M is immediately marked satisfiable, analogous to the Reuse heuristic. 4. Forbidden literal extraction (UNSAT case, Lines 19–26). When the check is unsatisfiable, the algorithm extracts the top-level conjunctive literals of pi
+
+and tests each candidate ℓ against φ alone. A literal ℓ for which φ ∧ ℓ is itself unsatisfiable is added to F and can then eliminate future predicates for free. To bound overhead, the size of F is capped at a constant budget B
+
+(a tunable implementation parameter). 
+
+Example 5. Let φ ≡ (x ≥ 0 ∧ x ≤ 3) and consider the predicate set 
+
+P = { p1: x < 0, p 2: ( x < 0) ∧ (x = 2) , p 3: x = 1 , p 4: ( x < 0) ∧ (x = 3) }.Algorithm 3: Core-Literal Filter (CLF). 
+
+Input: An SMT formula φ and a set of predicates P = {p1, . . . , p n}
+
+Output: Whether φ ∧ pi is satisfiable for each pi ∈ P 
+
+> 1
+
+F ← ∅ ; // forbidden literal set  
+
+> 2
+
+Open an incremental solver S and assert φ; 
+
+> 3
+
+foreach pi ∈ P do 
+
+// Step 1 | free pre-screening  
+
+> 4
+
+if F̸ = ∅ and pi contains a top-level literal ℓ ∈ F then  
+
+> 5
+
+mark pi as unsatisfiable; // zero solver calls  
+
+> 6
+
+continue ;
+
+// Step 2 | incremental satisfiability check  
+
+> 7
+
+S.push ();  
+
+> 8
+
+assert pi in S; 
+
+> 9
+
+if S is satisfiable then  
+
+> 10
+
+mark pi as satisfiable;  
+
+> 11
+
+M ← model from S;
+
+// Step 3 | model reuse  
+
+> 12
+
+foreach unresolved pj with j > i do  
+
+> 13
+
+if M |= pj then  
+
+> 14
+
+mark pj as satisfiable;  
+
+> 15
+
+S.pop ();  
+
+> 16
+
+else  
+
+> 17
+
+mark pi as unsatisfiable; 
+
+// Step 4 | forbidden literal extraction  
+
+> 18
+
+S.pop (); 
+
+// restore to φ-only scope before verifying literals  
+
+> 19
+
+foreach top-level literal ℓ of pi with ℓ / ∈ F do  
+
+> 20
+
+if |F| ≥ B then  
+
+> 21
+
+break ; 
+
+> 22
+
+S.push ();  
+
+> 23
+
+assert ℓ in S; 
+
+> 24
+
+if S is unsatisfiable under ℓ then  
+
+> 25
+
+F ← F ∪ { ℓ}; 
+
+> 26
+
+S.pop ();  
+
+> 27
+
+return marked results; 
+
+Processing p1 shows φ ∧ (x < 0) is unsatisfiable; moreover, the literal x < 0is itself inconsistent with φ. We therefore add x < 0 to the forbidden set F
+
+(2 solver calls). Predicates p2 and p4 are then rejected syntactically, since they contain the forbidden literal x < 0 ∈ F (0 calls each). Finally, p3 is satisfiable under φ, requiring one solver call. In total, the procedure uses 3 solver calls for 4 predicates, versus 4 calls for a plain linear scan. Intuitively, the forbidden literal x < 0 is proved once and subsequently prunes two additional predicates at no solver cost. 
+
+Theorem 2. Let n = |P |, k be the number of satisfiable predicates, and B the forbidden literal budget. Algorithm 3 issues at most n + ( n − k) · B SMT solver calls in the worst case, and as few as 1 call in the best case. In the common regime where |F| saturates quickly, each predicate blocked by pre-screening saves one solver call at zero cost. Proof. Each predicate pi that is not pre-screened triggers exactly one incremental check in Step 2. For each UNSAT result, at most B additional verification calls are issued in Step 4 to populate F. Since there are at most n − k unsatisfiable predicates, the total verification calls are bounded by ( n − k) · B. Step 3 (model reuse) and Step 1 (pre-screening) incur no solver calls. Hence, the total is at most 
+
+n + ( n − k) · B. If V P is satisfiable together with φ, the very first incremental check suffices, and all remaining predicates are resolved by model reuse, giving a single solver call. 
+
+3.3 Algorithm Comparison 
+
+This subsection contrasts the three shared-context batched satisfiability algo-rithms discussed so far. Let n = |P | be the number of predicates and k (0 ≤ k ≤
+
+n) the number of satisfiable conjunctions φ ∧ pi. All complexity figures count 
+
+solver invocations .
+
+Optimization Heuristics . The algorithms can benefit from standard SMT optimizations that are orthogonal and can be combined. 
+
+– Incremental Solving (Inc) : Use push /pop commands to avoid reasserting φ
+
+and to trigger the internal incremental solving capability of SMT solvers. All three algorithms can benefit from Inc; the advantage is most pronounced for Linear Scan and CLF, where each query adds only a single predicate (or literal), making the delta small relative to the shared context φ.
+
+– Model Reuse (Reuse) : Reuse satisfying models to classify multiple predi-cates without additional solver calls. Both OA and CLF naturally employ this heuristic: OA discharges multiple predicates per iteration, while CLF propagates each SAT model forward to resolve subsequent predicates. 
+
+Algorithmic Trade-offs. The three algorithms differ in abstraction strategy and performance characteristics. Table 1 summarizes these trade-offs. 
+
+– Linear Scan (LS) (Algorithm 1) : The algorithm issues one query per predi-cate. Its chief drawback is that the solver may not capitalize on similarities between predicates, even with incremental solving. When n is large, the al-gorithm may become prohibitively slow. 
+
+– Over-Approximation (OA) (Algorithm 2) : This algorithm excels when only a few predicates are satisfiable, since unsatisfiable disjunctions can eliminate large sets at once. Its performance also depends on the “quality” of the models returned: a model that satisfies many predicates allows for rapid pruning, whereas poor models may require more iterations. 
+
+– Core-Literal Filter (CLF) (Algorithm 3) : The algorithm is effective when predicates share top-level literals that are inconsistent with φ, allowing for-bidden literals to pre-screen many predicates at zero cost. When such sharing is limited, the per-literal verification overhead may reduce the advantage. Table 1: Comparison of shared-context batched satisfiability algorithms.                          
+
+> Aspect Algorithm 1 Algorithm 2 Algorithm 3 Strategy Check each φ∧piCheck φ∧WPFilter by forbidden literals
+> Worst case nmin( k+ 1 , n )n+ ( n−k)·B
+> Best case n11
+
+Table 2: Summary of evaluated algorithm variants.               
+
+> Variant Base Algorithm Optimizations
+> LS-Naive Algorithm 1 None LS-Inc Algorithm 1 Incremental solver LS-Reuse Algorithm 1 Model reuse LS-IncReuse Algorithm 1 Incremental solver + Model reuse OA Algorithm 2 Model reuse OA-Inc Algorithm 2 Incremental solver + Model reuse CLF Algorithm 3 Incremental solver + Model reuse + Pre-screen
+
+While theoretical bounds provide useful guidance, empirical performance de-pends heavily on solver heuristics, predicate structure, and application-specific characteristics. Given the influence of domain-specific factors on algorithm per-formance, we present an empirical evaluation in the next section to provide insights into their practical behavior. 
+
+## 4 Evaluation 
+
+We evaluate the algorithms on two real-world clients that generate SCBS queries: 
+
+symbolic abstraction and active property checking . Our evaluation addresses three research questions: 
+
+– RQ1 : How do the (relatively) best variants of the three algorithms compare in terms of performance? ( § 4.1) 
+
+– RQ2 : What are the benefits of incremental solving and model reuse? ( § 4.2) 
+
+– RQ3 : How do predicate properties and client characteristics influence algo-rithm selection? ( § 4.3) Table 2 summarizes the evaluated configurations. For LS, we explore all com-binations of incremental solving and model reuse, resulting in four variants. For OA and CLF, we evaluate only the configurations shown; a full ablation of their internal heuristics is left to future work. For CLF, we set the forbidden-literal budget B = 32 for symbolic abstraction and B = 16 for active property checking; the impact of this parameter is discussed in § 5. 
+
+– Symbolic Abstraction . Generates SCBS queries during predicate refine-ment for verifying real-world programs. We evaluate on ten programs: perlbmk ,
+
+glusterd , gap , eon , wrk , tmux , openssl , vortex , darknet , and transmission .Table 3: Characteristics of benchmark sets. “Solved” counts queries where all solver calls complete within the timeout; “Total” includes queries with a timeout.          
+
+> Client #Solved #Total Avg. SAT Ratio Predicate Range
+> Symbolic Abstraction 1,656 3,400 0.88 20–58 Active Property Checking 9,153 9,200 0.89 13–27
+
+Table 4: Symbolic Abstraction: Average runtime and solver invocations are com-puted over the 1,656 queries where all algorithms complete within the timeout; timeout rate is computed over all 3,400 queries and reports the fraction in which at least one solver call exceeds the 30-second limit.                                        
+
+> Algorithm Runtime (s) Time ↓(%) #Calls #Call ↓(%) Timeout (%)
+> LS-Naive 124.78 –44.47 –37.6 LS-Inc 22.41 82.04 44.47 0.00 26.7 LS-Reuse 24.45 80.41 12.21 72.55 32.5 LS-IncReuse 11.99 90.39 12.31 72.33 25.2 OA 20.16 83.84 7.51 83.12 31.6 OA-Inc 11.57 90.73 8.56 80.75 24.8 CLF 13.27 89.37 27.72 37.71 17.5
+
+The high SAT ratio (0.88) reflects the iterative nature of refinement, where a significant fraction of candidate predicates remain feasible. 
+
+– Active Property Checking . Checks multiple bug detection properties on the same symbolic execution path. Properties include: buffer overflow (CWE-401), double free (CWE-415), use-after-free (CWE-416), null deref-erence (CWE-476), and additional checks for divide-by-zero, integer over-flow/underflow, and uninitialized reads. We evaluate on 27 datasets spanning both CWE-specific benchmarks and real-world programs, including darknet ,
+
+git , htop , lighttpd , mariadb , memcached , tmux , transmission , wget , and others. The high SAT ratio (0.89) indicates that many property checks are satisfiable, corresponding to potential bugs in the code. All experiments use Z3 version 4.14.1 with a 30-second timeout on a server running Ubuntu 20.04 LTS and equipped with 2 TB of RAM. 
+
+4.1 Comparison of the Best Algorithmic Variants (RQ1) 
+
+We compare the strongest representative of each algorithm family: LS-IncReuse for literal search, OA-Inc for over-approximation, and CLF for conflict-literal filtering. These three variants consistently outperform their simpler counterparts; 
+
+§ 4.2 analyzes the contribution of the underlying optimizations. We first present per-client results and then summarize the overall tradeoff. 
+
+Symbolic Abstraction . Table 4 shows the results. LS-Naive is the clear base-line bottleneck: it requires 124.78 s on average across the 1,656 solved queries and makes 44.47 solver calls per query because it checks predicates sequentially, Table 5: Active Property Checking: Average runtime (ms) per query by algorithm and dataset, computed over solved queries. Best results are in bold .                                                     
+
+> Dataset #Queries LS-IncReuse OA-Inc CLF
+> CWE-416 52 6.3 6.8 6.4 pbzip2 38 12.2 19.2 9.4
+> elfedit 30 16.4 30.8 13.0
+> memcached 130 31.1 65.4 26.6
+> pesI 171 78.4 47.5 71.9 lighttpd 137 25.1 36.8 21.8
+> htop 305 22.3 33.4 21.4
+> tar 323 28.2 36.1 21.7
+> wget 395 43.4 45.7 34.7
+> darknet 1187 28.5 36.6 30.2 git 1295 23.2 33.0 20.2
+> libicuuc 1858 23.6 29.0 20.9
+> Avg. (27 datasets) –28.1 42.4 26.5
+
+without either incremental solving or reuse. In contrast, OA-Inc achieves the fastest solved-query runtime at 11.57 s (90.7% reduction), followed closely by LS-IncReuse at 11.99 s (90.4%). CLF is slightly slower at 13.27 s (89.4%). OA achieves the lowest average number of solver calls (7.51, or 83.1% fewer than LS-Naive), while CLF trades additional calls for its filtering step. The main distinction of symbolic abstraction is robustness rather than solved-query speed. CLF has the lowest timeout rate at 17.5%, whereas both LS-IncReuse and OA-Inc time out on about 25% of the 3,400 total queries. Equiv-alently, CLF solves 82.5% of the benchmark, compared with 75.2% for OA-Inc and 74.8% for LS-IncReuse. This gap is substantial in absolute terms: CLF solves 272 queries that OA-Inc does not, while OA-Inc solves only 23 that CLF does not. The high timeout rate of this client is driven by instance-level difficulty: 27 of the 60 verification instances time out throughout refinement, whereas 17 are entirely valid. 
+
+Active Property Checking . Table 5 presents the active property checking results. Here, the ranking changes: CLF achieves the best overall average runtime at 26.5 ms, outperforming LS-IncReuse (28.1 ms) and OA-Inc (42.4 ms), and it is the fastest method on 19 of the 27 datasets. LS-IncReuse wins on 7 datasets and OA-Inc on only 1. Unlike symbolic abstraction, timeouts are negligible for this client (47 out of 9,200 queries), so average runtime is the dominant metric. Under that metric, CLF is the most effective choice. 
+
+Comparison across Clients . Figure 1 reports the per-query comparison across both clients. The scatter plots confirm that performance is regime-dependent: no single algorithm dominates. On symbolic abstraction, LS-IncReuse and OA-Inc are consistently competitive, particularly on instances solved by all methods. In contrast, CLF is uniformly stronger on active property checking and exhibits greater robustness on the harder symbolic-abstraction instances. 10 0 10 1                        
+
+> LS-IncReuse (s)
+> 10 0
+> 10 1
+> OA-Inc (s)
+> LS-IncReuse vs OA-Inc (Symbolic Abstraction (b=32))
+> 10 010 110 2
+> LS-IncReuse (s)
+> 10 0
+> 10 1
+> 10 2
+> CLF (s)
+> LS-IncReuse vs CLF (Symbolic Abstraction (b=32))
+> 10 010 110 2
+> OA-Inc (s)
+> 10 0
+> 10 1
+> 10 2
+> CLF (s)
+> OA-Inc vs CLF (Symbolic Abstraction (b=32))
+> 10 210 110 010 1
+> LS-IncReuse (s)
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> OA-Inc (s)
+> LS-IncReuse vs OA-Inc (Active Property Checking)
+> 10 210 110 0
+> LS-IncReuse (s)
+> 10 2
+> 10 1
+> 10 0
+> CLF (s)
+> LS-IncReuse vs CLF (Active Property Checking)
+> 10 210 110 010 1
+> OA-Inc (s)
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> CLF (s)
+> OA-Inc vs CLF (Active Property Checking)
+
+Fig. 1: Algorithm comparison scatter plots. Across both clients, the optimized variants expose a stable tradeoff. OA-Inc achieves the lowest runtime on symbolic-abstraction queries that it solves, whereas CLF solves substantially more difficult queries. For active property checking, where timeouts are uncommon, CLF is also the fastest overall. The primary difference between the two clients is not the SAT ratio (high for both), but the predicate count and the resulting timeout risk: CLF’s filtering is efficient enough to win on both runtime and completion when predicate sets are small (APC), while with larger predicate sets (SA), CLF’s verification overhead makes it slower on solved queries but its robustness gives it a higher completion rate. 
+
+Answer to RQ1: No single algorithm dominates across all workloads. On symbolic abstraction, OA-Inc achieves the fastest average runtime on solved queries (90.7% reduction over LS-Naive), with LS-IncReuse close behind (90.4%); CLF, however, achieves the highest completion rate (82.5% vs 75.2%). For active property checking, CLF achieves the best overall average runtime (26.5 ms), outperforming LS-IncReuse and OA-Inc. 
+
+4.2 Impact of the Optimizations (RQ2) 
+
+We examine how incremental solving and model reuse affect the algorithm’s ef-ficiency. Figure 2 compares optimized variants against their corresponding base-lines. Table 6 summarizes the speedup from each optimization. 
+
+Incremental Solving. Solver runtime increases with the satisfiability ratio. On symbolic abstraction, average runtime grows by 1.7–2.2 × from low-SAT (ratio Table 6: Summary of optimization benefits (runtime speedup). All runtimes are averaged over solved queries. 
+
+Optimization Symbolic Abstraction Property Checking 
+
+LS-Inc vs LS-Naive 5.57 × 4.94 ×
+
+LS-Reuse vs LS-Naive 5.10 × 3.01 ×
+
+LS-IncReuse vs LS-Naive 10.41 × 8.07 ×
+
+OA-Inc vs OA 1.74 × 1.80 ×10 2 10 1 10 0 10 1 10 2        
+
+> Time (s)
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> Cumulated instances solved
+> LS-Naive vs LS-IncReuse
+> LS-Naive
+> LS-IncReuse
+> 10 310 210 110 010 110 2
+> Time (s)
+> 0
+> 2000
+> 4000
+> 6000
+> 8000
+> 10000
+> Cumulated instances solved
+> OA vs OA-Inc
+> OA
+> OA-Inc
+
+Fig. 2: Optimization impact: incremental solving and model reuse. 
+
+≤ 0.85) to near-satisfiable (ratio ≥ 0.95) queries, with non-incremental variants (LS-Naive: 2.2 ×, OA: 2.2 ×) affected more than incremental ones (LS-Inc: 1.7 ×,OA-Inc: 1.7 ×). Notably, CLF is nearly invariant (1.0 ×), as its pre-screening ab-sorbs the additional cost of high-SAT queries. Algorithm selection also interacts with the SAT ratio. On symbolic abstraction, OA-Inc’s win rate drops from 51% on low-SAT queries (ratio < 0.7) to 30% on near-satisfiable ones (ratio ≥ 0.95), because disjunctive over-approximation provides less pruning when most pred-icates are satisfiable. During active property checking, CLF achieves the best average runtime on 19 of 27 datasets (most with ratios ¿0.85), leveraging model reuse to efficiently resolve satisfiable predicates. However, the same advantage does not fully carry over to symbolic abstraction: among the 21 solved SA cases with ratio ¿0.85, CLF wins only 6—suggesting that factors beyond the SAT ratio, such as predicate structure and count, also play an important role. 
+
+Model Reuse. Model reuse significantly decreases solver invocations by caching satisfying assignments that can be projected across multiple predicates. The LS family benefits most: LS-Reuse achieves a 72.5% reduction in solver calls on symbolic abstraction (63.0% on property checking). This is particularly effec-tive when SAT ratios are high, as a single satisfying model can resolve many predicates at once. Both OA and CLF incorporate model reuse as a built-in mechanism: OA discharges all predicates satisfied by the current model in each iteration (Algorithm 2, Lines 7–11), while CLF propagates each SAT model for-ward to resolve subsequent predicates (Algorithm 3, Lines 11–14). 
+
+Combined Effect. When both optimizations are applied together, the LS fam-ily achieves a combined speedup of 10.41 × for symbolic abstraction (8.07 × for property checking), exceeding either optimization alone (5.57 × for incremental solving, 5.10 × for model reuse). This complementary effect arises because in-cremental solving reduces per-call cost while model reuse reduces the number of calls, targeting different bottlenecks. On symbolic abstraction, LS-IncReuse reduces runtime from 124.78 s to 11.99 s, and solver calls from 44.47 to 12.31. 
+
+Cross-Client Comparison. Both optimizations yield larger absolute benefits on symbolic abstraction than on property checking. This difference is driven by predicate count: SA queries involve 20–58 predicates on average, providing more opportunities for model reuse to resolve multiple predicates per solver call. APC queries have fewer predicates (13–27), limiting the absolute number of calls that can be eliminated. Nevertheless, the relative speedup remains substantial across both clients, confirming that these optimizations should be considered mandatory for any practical SCBS implementation. 
+
+Answer to RQ2: Both incremental solving and model reuse are essential optimizations. For the LS family, where both can be independently eval-uated, their combination yields a speedup of 10.41 × on symbolic abstrac-tion and 8.07 × on property checking—exceeding either optimization alone (5.57 × and 5.10 × respectively). Adding incremental solving on top of model reuse provides a further 1.74 × speedup for OA. The two optimizations tar-get complementary bottlenecks and should be considered mandatory for any practical SCBS implementation. 
+
+4.3 Impact of Problem Characteristics (RQ3) 
+
+We evaluate how two key problem characteristics—satisfiability ratio and predi-cate count—affect solver performance. Figure 3a shows runtime as a function of SAT ratio for both clients. Figure 3b shows runtime as a function of predicate count. All algorithms exhibit sublinear scaling, though with varying sensitivity. Table 7 summarizes the performance characteristics of each client and recom-mended algorithm selection. 
+
+Satisfiability Ratio . As analyzed in § 4.2, the SAT ratio affects both runtime growth and algorithm competitiveness. The implication for algorithm selection is that SAT ratio alone is insufficient to determine the best choice: both clients have similar average ratios (0.88 and 0.89), yet CLF dominates on active property checking (19 of 27 datasets) but wins only 6 of 21 solved SA cases with ratio >
+
+0.85. The decisive factor is whether CLF’s pre-screening overhead is amortized by the predicate set—smaller sets (13–27, APC) allow efficient filtering, while larger sets (20–58, SA) incur verification costs that often exceed the savings. 
+
+Predicate Count . Runtime increases with predicate count for all algorithms, but the scaling patterns differ. LS-IncReuse and OA-Inc remain closely matched 0.0 0.2 0.4 0.6 0.8 1.0    
+
+> SAT Ratio
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Runtime (s)
+> Runtime vs SAT Ratio (Active Property Checking)
+> LS-Naive
+> LS-IncReuse
+> OA
+> OA-Inc
+> CLF
+
+(a) SAT ratio 25 50 75 100 125 150 175 200     
+
+> Predicate Count
+> 10 3
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> Runtime (s)
+> Runtime vs Predicate Count (Active Property Checking)
+> LS-Naive
+> LS-IncReuse
+> OA
+> OA-Inc
+> CLF
+
+(b) Predicate count 
+
+Fig. 3: Impact of SAT ratio and predicate count on runtime. Table 7: Client characteristics and algorithm comparison. Completion rate is the fraction of all queries that an algorithm solves within the timeout. 
+
+Characteristic Symbolic Abstraction Active Property Checking 
+
+Avg. SAT Ratio 0.88 0.89 Predicate Range 20–58 13–27 Query Timeout Rate 51.3% <0.1% Fastest Avg. Runtime OA-Inc CLF Highest Completion Rate 82.5% (CLF) ≈99.9% (all) Best Speedup vs LS-Naive 10.78 × (OA-Inc) 8.6 × (CLF) 
+
+across all predicate counts, with no clear threshold at which one dominates the other. OA-Inc achieves lower solver call counts by discharging several predicates per iteration, while LS-IncReuse compensates with lower per-call overhead from incremental solving. CLF tends to be slower than both on symbolic abstraction instances, as its forbidden-literal verification step adds overhead that grows with predicate count but does not always yield proportionally more filtering. CLF demonstrates its practical benefit in active property checking, where its model reuse resolves the majority of predicates with few solver calls, and its forbidden-literal pre-screening eliminates the remaining unsatisfiable predicates without solver invocation. On symbolic abstraction, however, CLF’s verification overhead often outweighs its benefits, likely because fewer predicates share a conflict structure that the forbidden-literal mechanism can exploit. 
+
+Answer to RQ3: SAT ratio and predicate count jointly influence algo-rithm selection. On active property checking (high-SAT, moderate predicate count, negligible timeouts), CLF achieves the lowest average runtime. On symbolic abstraction (high-SAT, large predicate count, frequent timeouts), OA-Inc achieves the fastest average runtime, but CLF completes signifi-cantly more queries and should be preferred when robustness matters. 5 Discussions 
+
+Applicability of SCBS. Although our focus is on formulas of the form φ ∧
+
+pi, the shared-context batched satisfiability (SCBS) problem generalizes to a broader class of program analysis tasks that share a common computational structure. For example, k-induction [24–27] extends classical mathematical in-duction to verify temporal properties of transition systems by considering ex-ecution traces of bounded length k. When verifying multiple safety properties simultaneously, both the base and inductive steps share a common formula repre-senting the system’s transition semantics. Similarly, in invariant inference, mod-ern guess-and-check techniques routinely generate dozens of candidates. SCBS enables efficient evaluation by batching these candidates. 
+
+CLF Budget Parameter. The forbidden-literal budget B in CLF controls a trade-off between filtering power and verification overhead. A larger B al-lows more literals to be added to the forbidden set F, enabling more aggressive pre-screening but incurring additional solver calls for verification (Step 4 of Al-gorithm 3). On the valid SA queries, increasing B improves CLF’s head-to-head win rate against OA-Inc from 36.3% ( B = 16) to 42.1% ( B = 64). However, a larger B also increases the risk of case-level timeouts: with B = 32, 320 SA queries return no results for all algorithms because CLF’s verification calls ex-haust the per-case time budget. We use B = 32 for symbolic abstraction (which has larger predicate sets, 20–58, that benefit from more aggressive filtering) and 
+
+B = 16 for active property checking (smaller predicate sets, 13–27, where a smaller B suffices). B = 16 is a safe default when the predicate set size is un-known; B = 32 or larger may be beneficial when predicate sets are large, and the timeout risk is acceptable. 
+
+Future Work . The shared-context batched satisfiability problem raises several directions for future work. On the theory side, tighter complexity bounds remain open, potentially obtainable by exploiting structural properties of the target theory or of the predicate families. On the algorithmic side, theory-specific opti-mizations (e.g., theory-aware lemma caching) may reduce solver interaction and improve throughput. More robust performance may also require adaptive algo-rithm selection, for instance via portfolio-style combinations that hedge against solver- and instance-specific variability. Finally, integrating SCBS more deeply with domain-specific contexts (e.g., symbolic execution) may enable further op-timization opportunities and scalability gains in practical applications. 
+
+## 6 Related Work 
+
+Constraint Caching for SMT . SMT solvers are integral to modern verifica-tion and synthesis tools, enabling reasoning about theories such as bit vectors, arrays, and linear arithmetic. They are widely used in various applications, such as symbolic execution [1, 2], software model checking [5, 4, 28, 3], program syn-thesis [6, 7], automated repair [8, 9], and refinement type systems [10, 11]. To reduce solver overhead, prior work has explored caching mechanisms to avoid redundant queries [29, 17, 18, 16, 17]. KLEE [30] caches path conditions and counterexamples in symbolic execution. Green [16] caches and simplifies queries over linear arithmetic. For example, GreenTrie [17] extends this by identifying logical implications to increase cache reuse. Utopia [18] introduces heuristics such as Sat-delta and Unsat-footprint to distinguish satisfiable and unsatisfiable queries for more effective reuse. These systems are designed for general-purpose reuse across diverse queries that often arise from different paths or time frames. In contrast, our setting is more structured: we evaluate satisfiability over a fixed formula φ conjoined with varying predicates pi. We hypothesize that combining client-side optimizations can yield additional performance improvements. 
+
+Consequence Finding . Consequence finding aims to compute the logical en-tailments of a formula and is widely studied in deduction, such as the compu-tation of prime implicants [31]. In the context of circuit verification, equality inference for Boolean functions [32] is a well-established technique; identify-ing equivalent sub-circuits can significantly reduce the complexity of equiva-lence checking. In SMT, congruence closure is a standard method for inferring equalities from conjunctions involving uninterpreted functions [33]. In program analysis, consequence finding manifests in various forms, including quantifier elimination [34, 35, 34, 36], interpolation [37–39], and implied equalities [40]. Shared-Context Batched Satisfiability can be applied to identify consequences of a fixed formula φ with respect to a set of candidate predicates. This restricted form of consequence finding enables localized reasoning within a fixed context. 
+
+Predicate Abstraction . Introduced by Graf and Sa¨ ıdi [41], predicate abstrac-tion is a foundational technique in program verification [42–44], which constructs abstractions of infinite-state systems by tracking the truth values of a selected set of predicates. Although early tools implemented predicate abstraction di-rectly, modern verification frameworks typically employ refined variants, includ-ing lazy abstraction with interpolants [39] and implicit predicate abstraction [19] A related body of work investigates symbolic abstraction [14], which seeks the best over-approximation of a formula within a given abstract domain, such as finite-height domains [14], template linear domains [45, 22, 15], polyhedral do-mains [46], In contrast, shared-context batched satisfiability focuses on determin-ing the satisfiability of a predicate in conjunction with a fixed formula, which can serve as a low-level primitive for designing and implementing other algorithms. 
+
+## 7 Conclusion 
+
+Shared-Context Batched Satisfiability is a recurring computational pattern that arises in various applications, yet it has remained hidden in plain sight—buried in implementation details rather than celebrated as the fundamental primitive it truly is. This paper formalizes the problem, introduces the CLF algorithm, and empirically compares three strategies. We advocate a more systematic explo-ration of the algorithmic design space to uncover structure-aware optimizations. Bibliography 
+
+[1] Koushik Sen, Darko Marinov, and Gul Agha. Cute: a concolic unit testing engine for c. In Proceedings of the 10th European Software Engineering Conference Held Jointly with 13th ACM SIGSOFT International Symposium on Foundations of Software Engineering , ESEC/FSE-13, pages 263–272, New York, NY, USA, 2005. ACM. https://doi.org/10.1145/1081706.1081750 .[2] Cristian Cadar, Vijay Ganesh, Peter M Pawlowski, David L Dill, and Dawson R Engler. Exe: automatically generating inputs of death. pages 322–335, 2006. 
+
+https://doi.org/10.1145/1180405.1180445 .[3] Leonardo Alt, Sepideh Asadi, Hana Chockler, Karine Even Mendoza, Grigory Fedyukovich, Antti EJ Hyv¨ arinen, and Natasha Sharygina. Hifrog: Smt-based function summarization for software verification. In International Conference on Tools and Algorithms for the Construction and Analysis of Systems , pages 207– 213. Springer, 2017. [4] Anvesh Komuravelli, Arie Gurfinkel, and Sagar Chaki. Smt-based model checking for recursive programs. Formal Methods in System Design , 48(3):175–205, 2016. [5] Matthias Heizmann, Jochen Hoenicke, and Andreas Podelski. Software model checking for people who love automata. In International Conference on Computer Aided Verification , pages 36–52. Springer, 2013. [6] Armando Solar-Lezama and Rastislav Bodik. Program synthesis by sketching .Citeseer, 2008. [7] Tim Blazytko, Moritz Contag, Cornelius Aschermann, and Thorsten Holz. Syn-tia: Synthesizing the semantics of obfuscated code. In Engin Kirda and Thomas Ristenpart, editors, 26th USENIX Security Symposium, USENIX Security 2017, Vancouver, BC, Canada, August 16-18, 2017 , pages 643–659. USENIX Associa-tion, 2017. [8] Sergey Mechtaev, Jooyong Yi, and Abhik Roychoudhury. Angelix: Scalable mul-tiline program patch synthesis via symbolic analysis. In Proceedings of the 38th International Conference on Software Engineering , ICSE ’16, pages 691–701, New York, NY, USA, 2016. ACM. https://doi.org/10.1145/2884781.2884807 .[9] Hoang Duong Thien Nguyen, Dawei Qi, Abhik Roychoudhury, and Satish Chan-dra. Semfix: Program repair via semantic analysis. In Proceedings of the 2013 International Conference on Software Engineering , ICSE ’13, pages 772–781, Pis-cataway, NJ, USA, 2013. IEEE Press. [10] Niki Vazou, Eric L. Seidel, Ranjit Jhala, Dimitrios Vytiniotis, and Simon Peyton Jones. Refinement types for haskell. In Proceedings of the 19th ACM SIGPLAN In-ternational Conference on Functional Programming (ICFP) , pages 269–282. ACM, 2014. https://doi.org/10.1145/2628136.2628161 .[11] A. Champion, T. Chiba, N. Kobayashi, and R. Sato. Ice-based refinement type discovery for higher-order functional programs. In Tools and Algorithms for the Construction and Analysis of Systems (TACAS) , volume 10805 of Lecture Notes in Computer Science , pages 365–383. Springer, 2018. https://doi.org/10.1007/ 978-3-319-89960-2_20 .[12] Stuart Pernsteiner, Calvin Loncaric, Emina Torlak, Zachary Tatlock, Xi Wang, Michael D. Ernst, and Jonathan Jacky. Investigating safety of a radiotherapy machine using system models with pluggable checkers. In Computer Aided Verifi-cation (CAV 2016), Part II , volume 9780 of Lecture Notes in Computer Science ,pages 23–41. Springer, 2016. https://doi.org/10.1007/978-3-319-41540-6_2 .[13] Byron Cook. Formal reasoning about the security of amazon web services. In 
+
+International Conference on Computer Aided Verification , pages 38–47. Springer, 2018. [14] Thomas Reps, Mooly Sagiv, and Greta Yorsh. Symbolic implementation of the best transformer. In VMCAI , volume 2937, pages 252–266. Springer, 2004. [15] Peisen Yao, Qingkai Shi, Heqing Huang, and Charles Zhang. Program analysis via efficient symbolic abstraction. Proc. ACM Program. Lang. , 5(OOPSLA):1–32, 2021. https://doi.org/10.1145/3485495 .[16] Willem Visser, Jaco Geldenhuys, and Matthew B Dwyer. Green: reducing, reusing and recycling constraints in program analysis. In Proceedings of the ACM SIG-SOFT 20th International Symposium on the Foundations of Software Engineering ,pages 58:1–58:11. ACM, 2012. [17] Xiangyang Jia, Carlo Ghezzi, and Shi Ying. Greentrie: Efficient constraint solving for software symbolic execution. In Proceedings of the 2015 IEEE International Conference on Software Quality, Reliability and Security , pages 311–320. IEEE, 2015. [18] Antonio Aquino, Marc Denecker, and Broes De Cat. Utopia: Smt-based formal analysis made easy. In Proceedings of the 41st International Conference on Soft-ware Engineering: Companion Proceedings , pages 167–170. IEEE Press, 2019. [19] Alessandro Cimatti, Alberto Griggio, Sergio Mover, and Stefano Tonetta. IC3 modulo theories via implicit predicate abstraction. In International Conference on Tools and Algorithms for the Construction and Analysis of Systems (TACAS’14) .[20] Patrice Godefroid, Michael Y Levin, and David A Molnar. Active property checking. In Proceedings of the 8th ACM International Conference on Embed-ded Software , EMSOFT ’08, pages 207–216, New York, NY, USA, 2008. ACM. 
+
+https://doi.org/10.1145/1450058.1450087 .[21] Yi Li, Aws Albarghouthi, Zachary Kincaid, Arie Gurfinkel, and Marsha Chechik. Symbolic optimization with smt solvers. In Proceedings of the 41st ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL’14) .[22] J¨ org Brauer and Andy King. Automatic abstraction for intervals using boolean formulae. In SAS , volume 6337, pages 167–183. Springer, 2010. [23] Peisen Yao, Qingkai Shi, Heqing Huang, and Charles Zhang. Program analysis via efficient symbolic abstraction. Proc. ACM Program. Lang. , 5(OOPSLA), 2021. [24] Martin Brain, Saurabh Joshi, Daniel Kroening, and Peter Schrammel. Safety verification and refutation by k-invariants and k-induction. In Static Analysis: 22nd International Symposium (SAS’15) .[25] Dirk Beyer, Matthias Dangl, and Philipp Wendler. Boosting k-induction with continuously-refined invariants. In Computer Aided Verification: 27th Interna-tional Conference (CAV’15) .[26] Dejan Jovanovi´ c and Bruno Dutertre. Property-directed k-induction. In 2016 Formal Methods in Computer-Aided Design (FMCAD) , pages 85–92. IEEE, 2016. [27] Omar M Alhawi, Herbert Rocha, Mikhail R Gadelha, Lucas C Cordeiro, and Eddie Batista. Verification and refutation of c programs based on k-induction and invariant inference. International Journal on Software Tools for Technology Transfer (STTT’21) .[28] Jiahong Jiang, Liqian Chen, Xueguang Wu, and Ji Wang. Block-wise abstract interpretation by combining abstract domains with smt. In International Con-ference on Verification, Model Checking, and Abstract Interpretation , VMCAI’17, pages 310–329. Springer, 2017. [29] Tianhai Liu, Mateus Ara´ ujo, Marcelo d’Amorim, and Mana Taghdiri. A compar-ative study of incremental constraint solving approaches in symbolic execution. In Haifa Verification Conference , pages 284–299. Springer, 2014. [30] Cristian Cadar, Daniel Dunbar, and Dawson Engler. Klee: Unassisted and auto-matic generation of high-coverage tests for complex systems programs. In Pro-ceedings of the 8th USENIX Conference on Operating Systems Design and Imple-mentation , pages 209–224. USENIX Association, 2008. [31] David D´ eharbe, Pascal Fontaine, Daniel Le Berre, and Bertrand Mazure. Com-puting prime implicants. In Formal Methods in Computer-Aided Design, FMCAD 2013, Portland, OR, USA, October 20-23, 2013 , pages 46–52. IEEE, 2013. URL 
+
+https://ieeexplore.ieee.org/document/6679390/ .[32] C. Leonard Berman and Louise Trevillyan. Functional comparison of logic designs for VLSI circuits. In 1989 IEEE International Conference on Computer-Aided Design, ICCAD 1989, Santa Clara, CA, USA, November 5-9, 1989. Digest of Technical Papers , pages 456–459. IEEE Computer Society, 1989. https://doi. org/10.1109/ICCAD.1989.76990 . URL https://doi.org/10.1109/ICCAD.1989. 76990 .[33] Aaron R Bradley and Zohar Manna. The calculus of computation: decision pro-cedures with applications to verification . Springer Science and Business Media, 2007. [34] Peter Backeman, Philipp Rummer, and Aleksandar Zeljic. Bit-vector interpolation and quantifier elimination by lazy reduction. In 2018 Formal Methods in Computer Aided Design (FMCAD’18) .[35] Deepak Kapur. Automatically generating loop invariants using quantifier elimi-nation. In Dagstuhl Seminar Proceedings . Schloss Dagstuhl-Leibniz-Zentrum f¨ ur Informatik, 2006. [36] Ajith K John and Supratik Chakraborty. A quantifier elimination algorithm for linear modular equations and disequations. In Proceedings of the 23rd Interna-tional Conference on Computer Aided Verification , CAV’11, pages 486–503, Berlin, Heidelberg, 2011. Springer-Verlag. [37] Rahul Sharma, Aditya V Nori, and Alex Aiken. Interpolants as classifiers. In 
+
+International Conference on Computer Aided Verification (CAV’12) .[38] Ondrej Sery, Grigory Fedyukovich, and Natasha Sharygina. Interpolation-based function summaries in bounded model checking. In Proc. 7th Int. Haifa Verifi-cation Conf. on Hardware and Software: Verification and Testing , HVC’11, pages 160–175, 2012. https://doi.org/10.1007/978-3-642-34188-5_15 .[39] Kenneth L. McMillan. Lazy abstraction with interpolants. In Thomas Ball and Robert B. Jones, editors, Computer Aided Verification, 18th International Conference, CAV 2006, Seattle, WA, USA, August 17-20, 2006, Proceedings , vol-ume 4144 of Lecture Notes in Computer Science , pages 123–136. Springer, 2006. 
+
+https://doi.org/10.1007/11817963_14 .[40] Josh Berdine and Nikolaj Bjørner. Computing all implied equalities via SMT-based partition refinement. Technical Report MSR-TR-2014-57, Microsoft Re-search, April 2014. [41] Susanne Graf and Hassen Sa¨ ıdi. Construction of abstract state graphs with pvs. In 
+
+Proceedings of the 9th International Conference on Computer Aided Verification ,CAV ’97, pages 72–83, London, UK, UK, 1997. Springer-Verlag. [42] Thomas Ball, Rupak Majumdar, Todd Millstein, and Sriram K Rajamani. Auto-matic predicate abstraction of c programs. In Proceedings of the ACM SIGPLAN 2001 Conference on Programming Language Design and Implementation , PLDI ’01, pages 203–213, New York, NY, USA, 2001. ACM. https://doi.org/10. 1145/378795.378846 .[43] Shuvendu K Lahiri, Robert Nieuwenhuis, and Albert Oliveras. Smt techniques for fast predicate abstraction. In Proceedings of the 18th International Conference on Computer Aided Verification , CAV’06, pages 424–437, Berlin, Heidelberg, 2006. Springer-Verlag. https://doi.org/10.1007/11817963_39 .[44] Sumit Gulwani, Saurabh Srivastava, and Ramarathnam Venkatesan. Constraint-based invariant inference over predicate abstraction. In Verification, Model Check-ing, and Abstract Interpretation, 10th International Conference (VMCAI’09) .[45] David Monniaux. Automatic modular abstractions for linear constraints. In Pro-ceedings of the 36th Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages , POPL ’09, pages 140–151, New York, NY, USA, 2009. ACM. https://doi.org/10.1145/1480881.1480899 .[46] Aditya Thakur and Thomas Reps. A method for symbolic computation of abstract operations. In Proceedings of the 24th International Conference on Computer Aided Verification , CAV’12, page 174–192, Berlin, Heidelberg, 2012. Springer-Verlag. https://doi.org/10.1007/978-3-642-31424-7_17 .
