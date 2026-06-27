@@ -6,46 +6,36 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-26
-- 运行时间：2026-06-26 21:58:51 UTC
+- 最新运行日期：2026-06-27
+- 运行时间：2026-06-27 21:25:53 UTC
 - 运行状态：成功
-- 本次总论文数：8
-- 精读区：4
-- 速读区：4
+- 本次总论文数：5
+- 精读区：0
+- 速读区：5
 
 ### 今日简报（AI）
-今日聚焦LLM生成RTL断言的质量闭环与AI辅助形式化证明，覆盖8篇论文的精读与速读。  
-最值得关注的是9分精读《Closing the Loop》提出的质量感知形式验证闭环，以及8分精读《AI-Assisted Completion》中的AI辅助证明补全经验。  
-建议优先精读这两篇，了解如何用形式验证提升AI生成断言与证明的可靠性，速读篇可辅助拓展模型驱动与运行时验证思路。
-- 详情：[/202606/26/README](/202606/26/README)
+今日速读5篇论文，聚焦AI生成代码与形式化方法的交叉领域，均获得7.0/10的较高评分。最值得关注两个方向：一是利用大语言模型结合程序依赖图自动合成ACSL形式规范，二是通过模型驱动工程为AI生成的安全关键软件闭环验证。建议读者优先深入这两篇论文，了解如何用传统形式化方法提升AI代码的可靠性与可验证性。
+- 详情：[/202606/27/README](/202606/27/README)
 
 ### 精读区论文标签
-1. [Closing the Loop on LLM-Generated RTL Assertions with Quality-Aware Formal Verification](/202606/26/2606.21451v1-closing-the-loop-on-llm-generated-rtl-assertions-with-quality-aware-formal-verification)  
-   标签：评分：9.0/10、query:llm-hw-fv
-   evidence：LLM用于RTL断言生成和形式验证
-2. [AI-Assisted Completion of CertiGC Proofs: An Experience Report](/202606/26/2606.21167v1-ai-assisted-completion-of-certigc-proofs-an-experience-report)  
-   标签：评分：8.0/10、query:llm-hw-fv
-   evidence：大语言模型辅助Coq定理证明
-3. [ESBMC-PLC+: A Unified IEC~61131-3 Formal Verification Framework as a PLCverif Successor](/202606/26/2606.23870v1-esbmc-plc-a-unified-iec61131-3-formal-verification-framework-as-a-plcverif-successor)  
-   标签：评分：8.0/10、query:fsh
-   evidence：面向PLC硬件的形式验证框架
-4. [ESBMC-PLC+: A Unified IEC 61131-3 Formal Verification Framework as a PLCverif Successor](/202606/26/2606.23870v2-esbmc-plc-a-unified-iec-61131-3-formal-verification-framework-as-a-plcverif-successor)  
-   标签：评分：8.0/10、query:fsh
-   evidence：针对PLC硬件的形式验证框架
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Formal-Method-Guided Vibe Coding: Closing the Verification Loop on AI-Generated Safety-Critical Software Through Model-Driven Engineering](/202606/26/2606.22413v2-formal-method-guided-vibe-coding-closing-the-verification-loop-on-ai-generated-safety-critical-software-through-model-driven-engineering)  
-   标签：评分：7.0/10、query:fsh
-   evidence：LLM与形式验证的闭环用于安全关键软件，可迁移至硬件验证
-2. [A Unified Framework for Runtime Verification and Model-Based Diagnosis in LOLA](/202606/26/2606.23720v1-a-unified-framework-for-runtime-verification-and-model-based-diagnosis-in-lola)  
-   标签：评分：7.0/10、query:fsh
-   evidence：LOLA中运行时验证与诊断框架，适用于数字电路
-3. [Shared-Context Batched Satisfiability](/202606/26/2606.21983v1-shared-context-batched-satisfiability)  
+1. [AutoACSL: Synthesizing ACSL Specifications by Integrating LLMs with CPG-Based Static Analysis](/202606/27/2606.20969v1-autoacsl-synthesizing-acsl-specifications-by-integrating-llms-with-cpg-based-static-analysis)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：AutoACSL结合LLM与CPG静态分析自动合成ACSL规范，该方法可迁移至硬件形式验证规范生成
+2. [Formal-Method-Guided Vibe Coding: Closing the Verification Loop on AI-Generated Safety-Critical Software Through Model-Driven Engineering](/202606/27/2606.22413v1-formal-method-guided-vibe-coding-closing-the-verification-loop-on-ai-generated-safety-critical-software-through-model-driven-engineering)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：大语言模型与形式验证循环结合用于安全关键代码
+3. [Formal-Method-Guided Vibe Coding: Closing the Verification Loop on AI-Generated Safety-Critical Software Through Model-Driven Engineering](/202606/27/2606.22413v2-formal-method-guided-vibe-coding-closing-the-verification-loop-on-ai-generated-safety-critical-software-through-model-driven-engineering)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：大语言模型与形式验证循环结合用于安全关键代码
+4. [An Empirical Study of LLM-Generated Specifications for VeriFast](/202606/27/2606.26490v1-an-empirical-study-of-llm-generated-specifications-for-verifast)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：LLM生成VeriFast规范的实证研究，展示了自动化硬件形式验证规范的潜力
+5. [ESBMC-PLC+: A Unified IEC 61131-3 Formal Verification Framework as a PLCverif Successor](/202606/27/2606.23870v2-esbmc-plc-a-unified-iec-61131-3-formal-verification-framework-as-a-plcverif-successor)  
    标签：评分：6.0/10、query:fsh
-   evidence：SMT求解用于形式验证
-4. [Cycle-Consistent Neural Explanation of Formal Verification Certificates](/202606/26/2606.24414v1-cycle-consistent-neural-explanation-of-formal-verification-certificates)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：神经网络解释形式验证证书，与AI引导的验证工具相关
+   evidence：使用模型检查的PLC程序形式验证框架
 
 
 <div class="dpr-home-promo-card">
