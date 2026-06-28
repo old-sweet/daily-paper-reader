@@ -6,36 +6,28 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-27
-- 运行时间：2026-06-27 21:25:53 UTC
+- 最新运行日期：2026-06-28
+- 运行时间：2026-06-28 20:31:10 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：0
-- 速读区：5
+- 本次总论文数：2
+- 精读区：1
+- 速读区：1
 
 ### 今日简报（AI）
-今日速读5篇论文，聚焦AI生成代码与形式化方法的交叉领域，均获得7.0/10的较高评分。最值得关注两个方向：一是利用大语言模型结合程序依赖图自动合成ACSL形式规范，二是通过模型驱动工程为AI生成的安全关键软件闭环验证。建议读者优先深入这两篇论文，了解如何用传统形式化方法提升AI代码的可靠性与可验证性。
-- 详情：[/202606/27/README](/202606/27/README)
+今日精读高评分论文，探索LLM学习字符串匹配与回溯技巧以解决位操作谜题；速读一篇利用知识图谱增强LLM的SysML v2故障定位框架。  
+最值得关注的是LLM通过精心设计教学任务可掌握组合爆炸问题的逻辑推理能力，而非简单记忆模式。  
+若想跟进前沿，可关注将结构化知识图谱与LLM结合来提升代码调试精度的研究方向。
+- 详情：[/202606/28/README](/202606/28/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Teaching LLMs String Matching, Backtracking, and Error Recovery to Deduce Bases and Truth Tables for the Combinatorially Exploding Bit Manipulation Puzzles](/202606/28/2606.23672v1-teaching-llms-string-matching-backtracking-and-error-recovery-to-deduce-bases-and-truth-tables-for-the-combinatorially-exploding-bit-manipulation-puzzles)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：教授大语言模型推导位操作谜题的真值表和布尔逻辑，与硬件形式验证相关
 
 ### 速读区论文标签
-1. [AutoACSL: Synthesizing ACSL Specifications by Integrating LLMs with CPG-Based Static Analysis](/202606/27/2606.20969v1-autoacsl-synthesizing-acsl-specifications-by-integrating-llms-with-cpg-based-static-analysis)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：AutoACSL结合LLM与CPG静态分析自动合成ACSL规范，该方法可迁移至硬件形式验证规范生成
-2. [Formal-Method-Guided Vibe Coding: Closing the Verification Loop on AI-Generated Safety-Critical Software Through Model-Driven Engineering](/202606/27/2606.22413v1-formal-method-guided-vibe-coding-closing-the-verification-loop-on-ai-generated-safety-critical-software-through-model-driven-engineering)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：大语言模型与形式验证循环结合用于安全关键代码
-3. [Formal-Method-Guided Vibe Coding: Closing the Verification Loop on AI-Generated Safety-Critical Software Through Model-Driven Engineering](/202606/27/2606.22413v2-formal-method-guided-vibe-coding-closing-the-verification-loop-on-ai-generated-safety-critical-software-through-model-driven-engineering)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：大语言模型与形式验证循环结合用于安全关键代码
-4. [An Empirical Study of LLM-Generated Specifications for VeriFast](/202606/27/2606.26490v1-an-empirical-study-of-llm-generated-specifications-for-verifast)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：LLM生成VeriFast规范的实证研究，展示了自动化硬件形式验证规范的潜力
-5. [ESBMC-PLC+: A Unified IEC 61131-3 Formal Verification Framework as a PLCverif Successor](/202606/27/2606.23870v2-esbmc-plc-a-unified-iec-61131-3-formal-verification-framework-as-a-plcverif-successor)  
-   标签：评分：6.0/10、query:fsh
-   evidence：使用模型检查的PLC程序形式验证框架
+1. [Automated Semantic Fault Localization in SysML v2: A Human-in-the-Loop Framework Using Knowledge-Graph Augmented LLMs](/202606/28/2606.23395v1-automated-semantic-fault-localization-in-sysml-v2-a-human-in-the-loop-framework-using-knowledge-graph-augmented-llms)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：使用大语言模型和知识图谱实现系统模型中的自动故障定位
 
 
 <div class="dpr-home-promo-card">
