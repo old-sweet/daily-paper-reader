@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-06-29 <!--dpr-date:20260629-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/29/2606.22616v1-compositional-generator-equivalence-extended-version" data-sidebar-item="{&quot;title&quot;: &quot;Compositional Generator Equivalence (Extended Version)&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.22616v1-compositional-generator-equivalence-extended-version&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;fsh&quot;}], &quot;evidence&quot;: &quot;可应用于硬件验证的属性测试技术&quot;}">Compositional Generator Equivalence (Extended Version)</a>
   * 2026-06-28 <!--dpr-date:20260628-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202606/28/2606.23672v1-teaching-llms-string-matching-backtracking-and-error-recovery-to-deduce-bases-and-truth-tables-for-the-combinatorially-exploding-bit-manipulation-puzzles" data-sidebar-item="{&quot;title&quot;: &quot;Teaching LLMs String Matching, Backtracking, and Error Recovery to Deduce Bases and Truth Tables for the Combinatorially Exploding Bit Manipulation Puzzles&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.23672v1-teaching-llms-string-matching-backtracking-and-error-recovery-to-deduce-bases-and-truth-tables-for-the-combinatorially-exploding-bit-manipulation-puzzles&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;教授大语言模型推导位操作谜题的真值表和布尔逻辑，与硬件形式验证相关&quot;}">Teaching LLMs String Matching, Backtracking, and Error Recovery to Deduce Bases and Truth Tables for the Combinatorially Exploding Bit Manipulation Puzzles</a>

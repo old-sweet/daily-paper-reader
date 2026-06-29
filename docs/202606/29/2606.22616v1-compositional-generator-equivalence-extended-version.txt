@@ -1,0 +1,1571 @@
+Title: Compositional Generator Equivalence (Extended Version)
+
+URL Source: https://arxiv.org/pdf/2606.22616v1
+
+Published Time: Tue, 23 Jun 2026 02:50:06 GMT
+
+Number of Pages: 30
+
+Markdown Content:
+# Compositional Generator Equivalence (Extended Version) 
+
+ANTHONY VANDIKAS, KIARASH SOTOUDEH, and MARSHA CHECHIK, University of Toronto, Canada Property-based testing (PBT) is a powerful technique for software verification that relies on random input generators and “shrinking” processes to find and minimize counterexamples to executable specifications called properties. While optimizing these generators is crucial for testing efficiency, formally justifying such optimizations is currently difficult because existing languages lack a compositional semantics that is coarse-grained enough for high-level reasoning. In this paper, we first provide a formal account of the syntax and semantics of Hedgehog, a popular PBT framework. We demonstrate that Hedgehog’s distribution semantics — which models how users typically reason about generators — is non-compositional. Furthermore, we prove that any sound and complete compositional semantics for Hedgehog must necessarily be equivalent to its sampling semantics, which is too fine-grained to justify common program optimizations. To resolve this dilemma, we introduce Hedgehog →, a restricted version of the language based on the arrow calculus, and prove that Hedgehog → possesses a compositional distribution semantics. We evaluate Hedgehog → through a Haskell implementation and show that it remains expressive enough to capture generators of practical interest, while providing the formal foundation needed for compositional generator equivalence proofs. CCS Concepts: • Theory of computation → Probabilistic computation ; Denotational semantics ;
+
+Program reasoning .Additional Key Words and Phrases: Property-Based Testing, Denotational Semantics, Probabilistic Program-ming, Program Equivalence 
+
+ACM Reference Format: 
+
+Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik. 2026. Compositional Generator Equivalence (Extended Version). In Proceedings of The ACM SIGPLAN International Conference on Functional Programming (ICFP ’26). ACM, New York, NY, USA, 30 pages. https://doi.org/XXXXXXX.XXXXXXX 
+
+1 Introduction 
+
+Property-based testing (PBT) is a powerful tool for identifying software bugs. Users provide an executable specification — or property — to a PBT framework , which automatically checks the specification against a system under test (SUT) over a wide range of randomly generated inputs (or 
+
+test cases ). If the framework finds a counterexample — a test case that causes the SUT to violate the specification — then the framework computes and reports a minimal counterexample. A property consists of three components: (1) generators , which compute random test cases, (2) an 
+
+oracle , which decides if a test case is a counterexample, and (3) shrinkers , which compute a set of “smaller” test cases from an existing test case. A property’s components are integral to the 
+
+Authors’ Contact Information: Anthony Vandikas, anthony.vandikas@mail.utoronto.ca; Kiarash Sotoudeh, kiarash@cs. toronto.edu; Marsha Chechik, chechik@cs.utoronto.edu, University of Toronto, Toronto, Ontario, Canada. Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org. 
+
+ICFP ’26, Indianapolis, United States 
+
+© 2026 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM ISBN XXX-X-XXXX-XXXX-X https://doi.org/XXXXXXX.XXXXXXX , Vol. 1, No. 1, Article . Publication date: June 2026.                                                               
+
+> arXiv:2606.22616v1 [cs.PL] 21 Jun 2026 2Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik 1coin1 ∷Gen Bool
+> 2coin1 =do
+> 3x←bool_
+> 4y←bool_
+> 5return (x == y)
+> 6coin2 ∷Gen Bool
+> 7coin2 =do
+> 8x←bool_
+> 9return x
+> 10 coin3 ∷Gen Bool
+> 11 coin3 =do
+> 12 return ()
+> 13 coin1
+> 14 discrim ∷Gen Bool →Gen Bool
+> 15 discrim m=do
+> 16 x←shrinkTo True [False ]
+> 17 if xthen melse coin1
+
+Fig. 1. Example generators and distinguishing context. The generator shrinkTo 1 True [False] produces  
+
+> True
+
+during testing, but can shrink to False during shrinking. 
+
+operation of a PBT framework, which consists of two stages: testing and shrinking. The testing stage is responsible for identifying a counterexample, and operates using the generators and the oracle of the property. The shrinking stage performs counterexample generation and minimization, and operates using the shrinkers and the oracle. The testing stage proceeds by constructing a random test case using the generators and then checking if the test case is a counterexample using the oracle. If the test case is not a counterexample, the testing process restarts with a different test case; otherwise, the counterexample is passed along to the shrinking stage. In lieu of a counterexample, the testing stage can be terminated (1) after a user-specified number of test cases have been generated, (2) after a user-specified timeout, or (3) manually. The shrinking stage is essential for the usability of property-based testing. Without it, coun-terexamples can be arbitrarily large, which complicates debugging. Shrinking operates as follows: (1) starting from the previously discovered counterexample, it computes a set of “smaller” test cases, called shrinks , and then (2) the oracle determines whether any of the shrinks are counterexamples. If so, the shrinking process restarts using the smaller counterexample; otherwise, the current counterexample is deemed minimal and reported to the user. Like the testing stage, the shrinking stage can be terminated (1) after a user-specified number of shrinks have been generated, (2) after a user-specified timeout, or (3) manually. Generators are specified using an embedded domain-specific language (eDSL) provided by the PBT framework. These eDSLs are essentially probabilistic programming languages, and hence users view generators as probability distributions. For example, consider the program given in Figure 1, written using the Hedgehog framework [Stanley 2024] for Haskell. Concretely, the coin1 
+
+generator computes two random booleans, x and y (lines 3 and 4), by invoking a sub-generator  
+
+> bool_
+
+which performs a fair coin flip. The coin1 generator then checks whether x and y are equal (line 5). Abstractly, coin1 represents a probability distribution that assigns 0.5 to both True and 
+
+> False
+
+.Shrinkers are also specified using an eDSL provided by the PBT framework. The QuickCheck [Claessen and Hughes 2000] framework which popularized PBT employs manual shrinking , where shrinkers and generators are specified separately. Shrinkers are surprisingly difficult to write manually, thus subsequent work such as Hedgehog [Stanley 2024] employs generator-based shrink-ing , where shrinkers are derived from annotated generator specifications. Under generator-based shrinking, generators represent distributions of labelled trees, where labels lower in the tree are considered “smaller”. While most languages with generator-based shrinking allow users to influ-ence shrinker behaviour [de Vries 2023; Stanley 2024], others — such as Hypothesis [Maciver and Hatfield-Dodds 2019] — rely solely upon built-in heuristics. This lack of user-controlled shrinking 
+
+saves users from having to think about how to shrink test cases, but inhibits correct and efficient shrinking since the correct notion of “smaller” test case is application-dependent. Furthermore, the heuristics used by these frameworks are unpredictable and can change when the framework is updated [de Vries 2023]. Thus, this work focuses on user-controlled generator-based shrinking.                      
+
+> 1The function shrinkTo :: a→[a] →Gen adoes not exist verbatim in Hedgehog, but is straightforward to implement using the existing combinator shrink :: (a →[a]) →Gen a→Gen a., Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 3
+
+Efficient generators and shrinkers are essential for the effectiveness of property-based testing. When timeouts are used, slow generators reduce the likelihood that the testing stage discovers a counterexample, and slow shrinkers reduce the likelihood that the shrinking stage completely minimizes counterexamples. Thus it is important that generators and shrinkers are optimized, either by hand or (preferably) automatically. By optimization , we mean replacing an existing (slow) program with a (faster) semantically equivalent one. Thus, in order to perform optimizations, we must formally justify their validity via a semantic equivalence proof. Semantic equivalence in languages with generator-based shrinking is surprisingly subtle. For example, consider the generator coin2 (Figure 1, line 6). As coin2 has the same distribution as coin1 , we can ostensibly optimize a program using coin1 by replacing  
+
+> coin1
+
+with coin2 . However, this is generally unsound, as coin1 and coin2 produce observably different behaviour in combination with the function discrim (line 14): discrim coin1 produces the trees given in Figure 2a, while discrim coin2 produces the trees given in both Figures 2a and 2b. We explain the reason for this in Example 3.11. Unfortunately, equivalence proofs are currently infeasible as there is currently no way to for-mally and effectively reason about the behaviour of generators in languages with user-controlled generator-based shrinking. Existing possibilities include: 
+
+(1) Utilize existing probabilistic calculi. Since generator specification languages are effectively probabilistic programming languages, we can use existing probabilistic calculi to reason about generator behaviour. However, existing probabilistic calculi [Culpepper and Cobb 2017; Dal Lago et al. 2020; Faggian and Rocca 2019] do not model shrinking behaviour. 
+
+(2) Adapt existing calculi for probabilistic non-determinism. Shrinking can be viewed as a form of non-determinism, which suggests that we can adapt existing calculi which model combinations of probabilistic and non-deterministic effects for our purposes. However, languages which feature generator-based shrinking violate common equational properties — the monad laws [Moggi 1991] — which are present in these calculi and also intuitively expected by users. For example, the monad laws imply that the generators coin1 and coin3 (Figure 1, line 10) are equivalent. Intuitively, this is expected because return () is a “no-op” and can be safely removed. Nonetheless, coin1 and  
+
+> coin3
+
+(like coin1 and coin2 ) are distinguished by discrim , as discrim coin3 returns the same set of trees as discrim coin2 (Figures 2a and 2b). 
+
+(3) Implementation-level reasoning. We can reason about languages directly in terms of their implementation (or sampling semantics ). Existing languages such as Hedgehog [Stanley 2024] represent a generator as a random variable , i.e., a deterministic function on some sample space .However, sampling semantics is too fine-grained , not preserved even by simple changes. For example, coin1 , coin2 , and coin3 (Figure 1) are all semantically distinct under Hedgehog’s sampling semantics because they interpret their samples differently. In contrast, an appropriate 
+
+coarse-grained semantics should allow coin1 , coin2 , and coin3 to be identified, at least in some contexts. 
+
+(4) Distribution-level reasoning. The effectiveness of property-based testing depends on the distribution of a generator, not the specifics of how samples are turned into test cases. Since Hedgehog has a sampling semantics in terms of random variables, one can derive an appropriate 
+
+distribution semantics . However, this distribution semantics is not compositional : the distribution of a generator is not uniquely determined by the distributions of its components. For example, we cannot determine the distribution of discrim m (Figure 1) simply by knowing the distribution of 
+
+> m
+
+: coin1 and coin2 have the same distribution, but discrim coin1 and discrim coin2 do not. A compositional semantics is important for reasoning about the behaviour of larger programs.     
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 4Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik true
+> true
+> false
+> false
+> (a) Expected Trees true
+> false
+> false
+> true (b) Additional Trees Fig. 2. Trees produced by discrim (see Figure 1).
+
+Contributions. In this paper, we address the problem of formally reasoning about generator be-haviour in languages with user-controlled generator-based shrinking, for the purpose of justifying optimizations. We focus on Hedgehog [Stanley 2024], although our results are easily transferred to other languages. The examples given in Figure 1 demonstrate that a compositional semantics must be somewhat sensitive to a generator’s internal structure.In fact, we show Hedgehog’s only 
+
+compositional semantics is its sampling semantics; Hedgehog generators can (at best) be interpreted as deterministic programs with no opportunity to optimize or reason about their probabilistic behaviour. In light of this result, we define a restricted version of Hedgehog based on the arrow calculus [Lindley et al . 2010] called Hedgehog →, and prove that its distribution semantics is compo-sitional and validates many common optimizations. We evaluate the expressiveness of Hedgehog →
+
+relative to Hedgehog in practice and demonstrate Hedgehog →’s utility for equivalence proofs on a set of examples. Specifically, (1) we give a formal account of the Hedgehog language’s syntax and its sampling semantics, where generators represent random variables on an appropriate sample space, (2) we also define Hedgehog’s distribution semantics, where generators represent probability distributions, and show that it is not compositional, (3) Hedgehog’s distribution semantics induces an observational equivalence relation, and we show that the only compositional semantics that is sound and complete with respect to observational equivalence is the sampling semantics, (4) we define Hedgehog →, a version of Hedgehog based on the arrow calculus [Lindley et al . 2010], and show that the distribution semantics for this version of Hedgehog is compositional, and (5) we evaluate the expressiveness of Hedgehog →, its effect on program size, and its utility for program optimization. 
+
+Organization. In Section 2, we review background material. In Section 3, we present our formal-ization and analysis of the Hedgehog language. In Section 4, we present Hedgehog →. In Section 5, we evaluate the practical utility of Hedgehog →. In Section 6, we describe and compare related work. In Section 7, we conclude and discuss future work. 
+
+2 Background 
+
+In this section, we fix some basic notation (Section 2.1) and then review the requisite probability theory (Section 2.2). We work within the framework of quasi-Borel spaces [Heunen et al . 2017], which allows reasoning about probabilistic behaviour of programs with higher-order functions. 
+
+2.1 Notation 
+
+Sets. The set of natural numbers is denoted by N and the set of extended non-negative real numbers 
+
+is denoted by R≥0. The union of two sets 𝐴 and 𝐵 is denoted by 𝐴 ∪ 𝐵 , the intersection is denoted by 𝐴 ∩ 𝐵 , the empty set is denoted by ∅, and the powerset of 𝐴 is denoted by P𝐴 . The sample space 
+
+S is defined as the interval [0, 1) ⊆ R≥0.
+
+Products. The (cartesian) product of a family of sets (𝐴 𝑖 )𝑖 ∈𝐼 is defined as Î𝑖 ∈𝐼 𝐴 𝑖 = { ( 𝑎 𝑖 )𝑖 ∈𝐼 |∀𝑖 ∈ 𝐼, 𝑎 𝑖 ∈ 𝐴 𝑖 }. We define the 𝑛 -ary product as 𝐴 1 × . . . × 𝐴 𝑛 = Î𝑛 𝑖 =1 𝐴 𝑖 , and write (𝑎 1, . . . , 𝑎 𝑛 ) in  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 5
+
+(×) : (𝐴 → 𝐵 ) × ( 𝐴 ′ → 𝐵 ′) → 𝐴 × 𝐴 ′ → 𝐵 × 𝐵 ′
+
+(𝑓 × 𝑔 ) ( 𝑥, 𝑦 ) = (𝑓 𝑥, 𝑔 𝑦 )
+
+distrib : 𝐴 × ( 𝐵 + 𝐶 ) → ( 𝐴 × 𝐵 ) + ( 𝐴 × 𝐶 )
+
+distrib (𝑥, 𝜄 1 𝑦 ) = 𝜄 1 (𝑥, 𝑦 )
+
+distrib (𝑥, 𝜄 2 𝑦 ) = 𝜄 2 (𝑥, 𝑦 )
+
+curry 𝐴,𝐵,𝐶 : (𝐴 × 𝐵 → 𝐶 ) → ( 𝐴 → 𝐵 → 𝐶 )
+
+curry 𝐴,𝐵,𝐶 𝑓 𝑎 𝑏 = 𝑓 (𝑎, 𝑏 )[ − ]𝐴 : B → 𝐴 
+
+[ true ]𝐴 = 1
+
+[false ]𝐴 = 0assoc 𝐴,𝐵,𝐶 : 𝐴 × ( 𝐵 × 𝐶 ) → ( 𝐴 × 𝐵 ) × 𝐶 
+
+assoc 𝐴,𝐵,𝐶 (𝑥, (𝑦, 𝑧 )) = (( 𝑥, 𝑦 ), 𝑧 )
+
+Fig. 3. Miscellaneous Functions 
+
+FB = B FN = N
+
+FR≥0 = Borel { ( 𝑟, 𝑟 ′) | 𝑟 < 𝑟 ′ ∈ R≥0 } FS = Borel { ( 𝑟, 𝑟 ′) | 𝑟 < 𝑟 ′ ∈ S }
+
+Fig. 4. Common 𝜎 -Algebras. 
+
+place of (𝑎 𝑖 )𝑛 𝑖 =1. The nullary product is denoted by 1, and its unique element is denoted by () . The 
+
+joining of two families 𝑎 = (𝑎 𝑖 )𝑖 ∈𝐼 and 𝑏 = (𝑏 𝑗 )𝑗 ∈ 𝐽 such that 𝐼 ∩ 𝐽 = ∅ is denoted by 𝑎, 𝑏 .
+
+Functions. The set of functions from set 𝐴 to set 𝐵 is denoted by 𝐴 → 𝐵 . Function application is denoted using juxtaposition ( 𝑓 𝑥 ). The notation (𝑎 ↦ → . . . ) denotes an (anonymous) function with parameter 𝑎 . Functions can be denoted using blanks , e.g., (1 + −) = (𝑛 ↦ → 1 + 𝑛 ). The identity function on 𝐴 is denoted by id 𝐴 and the composition of two functions 𝑓 : 𝐵 → 𝐶 and 𝑔 : 𝐴 → 𝐵 is denoted by 𝑓 ◦ 𝑔 . We omit the subscripts on id when it can be inferred from the context. 
+
+Coproducts. The coproduct (or disjoint sum ) of a family of sets (𝐴 𝑖 )𝑖 ∈𝐼 is defined as Í𝑖 ∈𝐼 𝐴 𝑖 =
+
+{ 𝜄 𝑖 𝑥 | 𝑥 ∈ 𝐴 𝑖 }. We define the 𝑛 -ary coproduct as 𝐴 1 +. . . +𝐴 𝑛 = Í𝑛 𝑖 =1 𝐴 𝑖 . Given a family of functions 
+
+𝑓 : Î𝑖 ∈𝐼 (𝐴 𝑖 → 𝐵 ), we define the function [𝑓 𝑖 ]𝑖 ∈𝐼 : Í𝑖 ∈𝐼 𝐴 𝑖 → 𝐵 to satisfy [𝑓 𝑖 ]𝑖 ∈𝐼 (𝜄 𝑗 𝑥 ) = 𝑓 𝑗 𝑥 for all 𝑗 ∈ 𝐼 . The nullary coproduct is denoted by 0 (= ∅), and is equipped with a (unique) function 
+
+(!𝐴 ) : 0 → 𝐴 for all sets 𝐴 . We omit the subscript on (!) when it can be inferred from the context. The set of booleans is defined as B = 1 + 1, where true = 𝜄 1 () and false = 𝜄 2 () .
+
+Miscellaneous. We implicitly treat propositions as booleans. We define common miscellaneous functions in Figure 3. We omit subscripts on these functions when they can be inferred from the context. 
+
+2.2 Probability Theory 
+
+Measure Theory. A set 𝐴 is a measurable space if it is equipped with a designated set F𝐴 ⊆ P 𝐴 
+
+(called a 𝜎 -algebra ) such that Borel F𝐴 ⊆ F 𝐴 , where Borel 𝑋 is the closure of 𝑋 under complements and countable unions. We define several (but not all) instances of F in Figure 4. The class of measurable spaces is denoted by Meas . A function 𝑓 : 𝐴 → 𝐵 for 𝐴, 𝐵 ∈ Meas is measurable if 
+
+𝑓 −1 𝑋 ∈ F 𝐴 for all 𝑋 ∈ F 𝐵 . The set of measurable functions from 𝐴 to 𝐵 is denoted by 𝐴 →M 𝐵 .
+
+Quasi Borel Spaces. A set 𝐴 is a quasi-Borel space if there is a designated set Elem 𝐴 ⊆ P ( R≥0 →𝐴 )
+
+of random variables such that (1) Elem 𝐴 contains all constant functions, (2) Elem 𝐴 is closed under precomposition with all measurable 𝑓 : R≥0 → R≥0, and  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 6Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+Elem B = (R≥0 →M B) Elem N = (R≥0 →M N)
+
+Elem R≥0 = (R≥0 →M R≥0) Elem S = (R≥0 →M S)
+
+Elem 
+
+Ö 
+
+> 𝑖 ∈𝐼
+
+𝐴 𝑖 =
+
+Ö 
+
+> 𝑖 ∈𝐼
+
+Elem 𝐴 𝑖 Elem (𝐴 →Q 𝐵 ) = {curry 𝑓 | 𝑓 : R≥0 × 𝐴 →Q 𝐵 }
+
+Elem ∑︁  
+
+> 𝑖 ∈𝐼
+
+𝐴 𝑖 =
+
+n
+
+(𝑟 ↦ → 𝜄 (𝑒 (𝑖 𝑟 ) ) (𝛼 (𝑖 𝑟 ) 𝑟 )) | 𝑖 : R≥0 →Q N, 𝑒 : N → 𝐼, 𝛼 𝑖 ∈ Elem 𝐴 (𝑒 𝑖 )
+
+o
+
+Fig. 5. Common Sets of Random Variables. 
+
+𝑓 ◦ arr id = 𝑓 (𝑓 ◦ 𝑔 ) ◦ ℎ = 𝑓 ◦ ( 𝑔 ◦ ℎ)
+
+arr (𝑓 ◦ 𝑔 ) = arr 𝑓 ◦ arr 𝑔 first (arr 𝑓 ) = arr (𝑓 × id )
+
+first (𝑓 ◦ 𝑔 ) = first 𝑓 ◦ first 𝑔 arr (id × 𝑔 ) ◦ first 𝑓 = first 𝑓 ◦ arr (id × 𝑔 )
+
+arr (− 1) ◦ first 𝑓 = 𝑓 ◦ arr (− 1) arr assoc ◦ first (first 𝑓 ) = first 𝑓 ◦ arr assoc 
+
+Fig. 6. Arrow Properties. 
+
+(3) Elem 𝐴 is closed under countable case analysis, i.e., (𝑟 ↦ → 𝑓 (𝑖 𝑟 ) 𝑟 ) ∈ Elem 𝐴 for all 𝑓 :
+
+N → Elem 𝐴 and 𝑖 : R≥0 →M N.We define several (but not all) instances of Elem in Figure 5. The class of quasi-Borel spaces is denoted by Qbs . A function 𝑓 : 𝐴 → 𝐵 on 𝐴, 𝐵 ∈ Qbs is quasi-measurable if 𝛼 ∈ Elem 𝐴 implies 
+
+(𝑓 ◦ 𝛼 ) ∈ Elem 𝐵 . The set of quasi-measurable functions from 𝐴 to 𝐵 is denoted by 𝐴 →Q 𝐵 . A function 𝑓 : 𝐴 × R≥0 →Q 𝐵 is called a random function .
+
+Functors, Monads, and Arrows. A functor is a mapping 𝐹 : Qbs → Qbs equipped with a designated function map 𝐹 : (𝐴 →Q 𝐵 ) → Q (𝐹 𝐴 →Q 𝐹 𝐵 ) such that (1) map 𝐹 id 𝐴 = id 𝐹 𝐴 and (2) map 𝐹 (𝑓 ◦ 𝑔 ) = map 𝐹 𝑓 ◦ map 𝐹 𝑔 for all 𝑓 : 𝐵 →Q 𝐶 and 𝑔 : 𝐴 →Q 𝐵 .A (strong) pre-monad is a mapping 𝐹 : Qbs → Qbs equipped with designated operations 
+
+unit 𝐹 : 𝐴 →Q 𝐹 𝐴 bind 𝐹 : (𝐴 →Q 𝐹 𝐵 ) → Q (𝐹 𝐴 →Q 𝐹 𝐵 ).
+
+A monad is a pre-monad 𝐹 such that, for all 𝑓 : 𝐵 →Q 𝐶 and 𝑔 : 𝐴 →Q 𝐵 ,
+
+bind 𝐹 unit 𝐹 = id bind 𝐹 𝑓 ◦ unit 𝐹 = 𝑓 bind 𝐹 𝑓 ◦ bind 𝐹 𝑔 = bind 𝐹 (bind 𝐹 𝑓 ◦ 𝑔 )
+
+Every monad 𝐹 is also a functor by defining map 𝐹 𝑓 = bind 𝐹 (unit 𝐹 ◦ 𝑓 ) for functions 𝑓 : 𝐴 →Q 𝐵 .A pre-arrow is a mapping 𝐹 : Qbs × Qbs → Qbs equipped with designated operations 
+
+arr 𝐹 : (𝐴 →Q 𝐵 ) → Q 𝐹 (𝐴, 𝐵 ) first 𝐹 : 𝐹 (𝐴, 𝐵 ) → Q 𝐹 (𝐴 × 𝐶, 𝐵 × 𝐶 )(◦ 𝐹 ) : 𝐹 (𝐵, 𝐶 ) × 𝐹 (𝐴, 𝐵 ) → Q 𝐹 (𝐴, 𝐶 ) left 𝐹 : 𝐹 (𝐴, 𝐵 ) → Q 𝐹 (𝐴 + 𝐶, 𝐵 + 𝐶 ).
+
+An arrow is a pre-arrow 𝐹 which satisfies the properties in Figure 6. We omit the subscripts on 
+
+map , unit , bind , arr , ◦, first , and left when they can be inferred from the context. 
+
+Measures and Distributions. Heunen et al . [2017] construct a distribution monad (or measure monad ) Dist : Qbs → Qbs equipped with an integration operator (∫ − d−) : (𝐴 →M R≥0) × 
+
+Dist 𝐴 →M R≥0 for all 𝐴 ∈ Qbs . We write ∫ 
+
+> 𝑥
+
+𝑦 d𝜇 in place of ∫ (𝑥 ↦ → 𝑦 ) d𝜇 when 𝜇 ∈ Dist 𝐴 . The integration operator satisfies the properties given in Figure 7 for all 𝑓 , 𝑓 1, 𝑓 2 : 𝐴 →Q R≥0, 𝑥 ∈ 𝐴 ,
+
+𝑐 ∈ R≥0, 𝜇 ∈ Dist 𝐴 , 𝜈 ∈ Dist 𝐵 , 𝑔 : 𝐵 →Q 𝐴 , and 𝑘 1 ≤ 𝑘 2 ≤ . . . : 𝐴 →Q R≥0 where 𝑘 𝑖 are ordered point-wise and converge to a function 𝑘 : 𝐴 →Q R≥0. Given 𝑓 : 𝐴 →Q 𝐵 , 𝑐 ∈ R≥0, and 𝜇 ∈ Dist 𝐴 , 
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 7
+
+∫
+
+𝑓 d(unit 𝑥 ) = 𝑓 𝑥 
+
+∫
+
+𝑓 d(bind 𝑔 𝜈 ) =
+
+∫
+
+> 𝑥
+
+∫
+
+𝑓 d(𝑔 𝑥 ) d𝜈 
+
+∫
+
+> 𝑥
+
+𝑐 · 𝑓 𝑥 d𝜇 = 𝑐 ·
+
+∫
+
+𝑓 d𝜇 
+
+∫
+
+> 𝑥
+
+𝑓 1 𝑥 + 𝑓 2 𝑥 d𝜇 =
+
+∫
+
+𝑓 1 d𝜇 +
+
+∫
+
+𝑓 2 d𝜇 
+
+lim 
+
+> 𝑛 →∞
+
+∫
+
+𝑘 𝑛 d𝜇 =
+
+∫
+
+𝑘 d𝜇 
+
+Fig. 7. Integral Properties. 
+
+Monad Operations 
+
+unit : 𝐴 →Q List 𝐴 
+
+unit 𝑎 = 𝑎 :: 𝜖 
+
+bind : (𝐴 →Q List 𝐵 ) → Q List 𝐴 →Q List 𝐵 
+
+bind 𝑓 𝜖 = 𝜖 
+
+bind 𝑓 (𝑎 :: 𝑎𝑠 ) = 𝑓 𝑎 ++ bind 𝑓 𝑎𝑠 
+
+unit : 𝐴 →Q Tree 𝐴 
+
+unit 𝑎 = node (𝑎, 𝜖 )
+
+bind : (𝐴 →Q Tree 𝐵 ) → Q Tree 𝐴 →Q Tree 𝐵 
+
+bind 𝑓 (node (𝑎, 𝑎𝑠 )) = node (𝑏, 𝑏𝑠 ++ map (bind 𝑓 ) 𝑎𝑠 )
+
+where node (𝑏, 𝑏𝑠 ) = 𝑓 𝑎 
+
+Auxiliary Definitions 
+
+(+ +) : List 𝐴 × List 𝐴 →Q List 𝐴 𝜖 ++ 𝑏𝑠 = 𝑏𝑠 
+
+(𝑎 :: 𝑎𝑠 ) + + 𝑏𝑠 = 𝑎 :: (𝑎𝑠 ++ 𝑏𝑠 )
+
+Fig. 8. Lists and Rose Trees. 
+
+the distributions map 𝑓 𝜇 ∈ Dist 𝐵 (called the push-forward of 𝑓 on 𝜇 ) and 𝑐 · 𝜇 ∈ Dist 𝐴 satisfy the properties 
+
+∫
+
+𝑔 d(map 𝑓 𝜇 ) =
+
+∫
+
+𝑔 ◦ 𝑓 d𝜇 
+
+∫
+
+ℎ d(𝑐 · 𝜇 ) = 𝑐 ·
+
+∫
+
+ℎ d𝜇 
+
+for all 𝑔 : 𝐵 →Q R≥0 and ℎ : 𝐴 →Q R≥0.The uniform distribution on samples 𝜆 ∈ Dist S is the (unique) distribution satisfying ∫ 
+
+> 𝜎
+
+[𝜎 1 ≤
+
+𝜎 ≤ 𝜎 2] d𝜆 = 𝜎 2 − 𝜎 1 for all 𝜎 1 ≤ 𝜎 2 ∈ S. There exists two functions 𝜋 𝑙 , 𝜋 𝑟 : S → S such that 
+
+∫
+
+> 𝜎
+
+𝑓 (𝜋 𝑙 𝜎, 𝜋 𝑟 𝜎 ) d𝜆 =
+
+∫
+
+> 𝜎 1
+
+∫
+
+> 𝜎 2
+
+𝑓 (𝜎 1, 𝜎 2) d𝜆 d𝜆 
+
+for all 𝑓 : S × S →Q R≥0.
+
+Lists and Trees. The quasi-Borel spaces of lists List 𝐴 and (rose) trees Tree 𝐴 over 𝐴 ∈ Qbs are the smallest sets satisfying 
+
+List 𝐴 = {𝜖 } ∪ { 𝑥 :: 𝑥𝑠 | 𝑥 ∈ 𝐴, 𝑥𝑠 ∈ List 𝐴 } Tree 𝐴 = {node (𝑥, 𝑥𝑠 ) | 𝑥 ∈ 𝐴, 𝑥𝑠 ∈ List (Tree 𝐴 )} .
+
+The functions (( 𝑥, 𝑥𝑠 ) ↦ → 𝑥 :: 𝑥𝑠 ), (( 𝑥, 𝑥𝑠 ) ↦ → node (𝑥, 𝑥𝑠 )) , and any functions built using struc-tural recursion with quasi-measurable functions, are themselves quasi-measurable. The mappings 
+
+List , Tree : Qbs → Qbs form monads with the operations defined in Figure 8.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 8Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+3 Hedgehog 
+
+In this section, we provide a formal account of the Hedgehog [Stanley 2024] language. Our for-malization is given in the style of the monadic metalanguage by Moggi [1991]. At a high level, Hedgehog is a probabilistic programming language, where generators are specified using probabilis-tic operators. In addition to probabilistic behaviour, Hedgehog contains operators for specifying shrinking behaviour. Generator optimizations require formal justification relative to an appropriate semantics. We formalize two candidate semantics for Hedgehog: (1) a sampling semantics (Definition 3.5), where generators represent random variables, which closely mirrors Hedgehog’s actual implementation, and (2) a distribution semantics (Definition 3.10), where generators represent distributions, which more closely model how users actually think about generators. Both of these semantics have significant issues which make them unsuitable for equivalence proofs. The sampling semantics is overly fine-grained , i.e., it distinguishes many terms which users expect to be identical (Example 3.6) and invalidates many common program transformations (Theorem 3.8). The distribution semantics is not compositional, i.e., the distribution of a term is not uniquely determined by the distributions of its immediate sub-terms (Proposition 3.12), which complicates reasoning about larger programs. Unfortunately, this state of affairs cannot be fixed by simply finding the “right semantics”: we derive soundness and completeness conditions from the distribution semantics (Definition 3.14) and show that every (sound and complete) compositional semantics is equivalent to the sampling semantics (Corollary 3.16). This result implies that several common program transformation are unsound, which justifies our need for a restricted version of Hedgehog. 
+
+3.1 Syntax 
+
+Syntactic elements are written in teletype font. 
+
+Definition 3.1 (Hedgehog Syntax). The set of Hedgehog types Type is generated by 
+
+𝜏 F 0 | 1 | 𝜏 + 𝜏 | 𝜏 * 𝜏 | 𝜏  𝜏 | Gen 𝜏 
+
+and the set of Hedgehog terms Term is generated by 
+
+𝑡 F 𝑥 | absurd 𝑡 | () | inl 𝑡 | inr 𝑡 | match 𝑡 with inl 𝑥 . 𝑡 | inr 𝑥 . 𝑡 | (𝑡, 𝑡 )
+
+| fst 𝑡 | snd 𝑡 | fun 𝑥 : 𝜏 . 𝑡 | 𝑡 𝑡 | return 𝑡 | let 𝑥 ← 𝑡 in 𝑡 | flip 𝑝 | shrink 
+
+where variables (e.g., 𝑥 ) are sourced from a countably infinite set of names Var , and probabilities (e.g., 𝑝 ) are elements of the real interval [0, 1]. We identify terms up to 𝛼 -equivalence. The set of types consists of the empty type ( 0), the singleton type ( 1), sum types ( 𝜏 + 𝜏 ), product types ( 𝜏 * 𝜏 ), function types ( 𝜏  𝜏 ), and generator types ( Gen 𝜏 ). Intuitively, the type Gen 𝜏 is the type of generators which produce elements of the type 𝜏 . The set of terms contains many standard constructs including variables ( 𝑥 ), left and right injections ( inl , inr ), eliminations for values of the empty type ( absurd 𝑡 ), case analysis ( match 𝑡 with inl 𝑥 . 𝑡 | inr 𝑥 . 𝑡 ), the singleton value ( () ), tuples ( (𝑡, 𝑡 )), anonymous functions ( fun 𝑥 :𝜏 . 𝑡 ), function application ( 𝑡 𝑡 ), effect-free computations (return 𝑡 ), and sequential composition ( let 𝑥 ← 𝑡 in 𝑡 ). We derive some common constructs in Figure 9. In addition to standard constructs, Hedgehog has the following effectful operations: (1) The biased coin flip operation flip 𝑝 generates true with probability 𝑝 and false with probability 1 − 𝑝 .(2) The shrinking operation shrink may be applied to an 𝑛 -tuple (𝑡 0, 𝑡 1, . . . , 𝑡 𝑛 ). The operation 
+
+shrink (𝑡 0, 𝑡 1, . . . 𝑡 𝑛 ) behaves like 𝑡 0 during the testing stage, but attempts each of 𝑡 1, . . . , 𝑡 𝑛 
+
+in order during the shrinking stage.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 9
+
+Bool = 1 + 1 true = inl () false = inr () 
+
+if 𝑡 1 then 𝑡 2 else 𝑡 3 = match 𝑡 1 with inl 𝑥 . 𝑡 2 | inr 𝑥 . 𝑡 3 (𝑡 1, 𝑡 2, . . . , 𝑡 𝑛 ) = (𝑡 1, (𝑡 2, . . . , 𝑡 𝑛 )) 
+
+not 𝑡 1 = if 𝑡 1 then false else true 𝑡 1 = 𝑡 2 = if 𝑡 1 then 𝑡 2 else not 𝑡 2
+
+𝑡 1 and 𝑡 2 = if 𝑡 1 then 𝑡 2 else false 
+
+Fig. 9. Derived Constructs. 
+
+Γ, 𝑥 : 𝜏 ⊢ 𝑥 : 𝜏 
+
+Γ ⊢ 𝑡 : 𝜏 1
+
+Γ ⊢ inl 𝑡 : 𝜏 1 + 𝜏 2
+
+Γ ⊢ 𝑡 : 𝜏 2
+
+Γ ⊢ inr 𝑡 : 𝜏 1 + 𝜏 2
+
+Γ ⊢ 𝑡 : 0
+
+Γ ⊢ absurd 𝑡 : 𝜏 𝑥 1, 𝑥 2 ∉ Dom Γ Γ ⊢ 𝑡 0 : 𝜏 1 + 𝜏 2
+
+Γ, 𝑥 1 : 𝜏 1 ⊢ 𝑡 1 : 𝜏 3 Γ, 𝑥 2 : 𝜏 2 ⊢ 𝑡 2 : 𝜏 3
+
+Γ ⊢ match 𝑡 0 with inl 𝑥 1. 𝑡 1 | inr 𝑥 2. 𝑡 2 : 𝜏 3 Γ ⊢ () : 1
+
+Γ ⊢ 𝑡 1 : 𝜏 1 Γ ⊢ 𝑡 2 : 𝜏 2
+
+Γ ⊢ (𝑡 1, 𝑡 2) : 𝜏 1 * 𝜏 2
+
+Γ ⊢ 𝑡 : 𝜏 1 * 𝜏 2
+
+Γ ⊢ fst 𝑡 : 𝜏 1
+
+Γ ⊢ 𝑡 : 𝜏 1 * 𝜏 2
+
+Γ ⊢ snd 𝑡 : 𝜏 2
+
+𝑥 ∉ Dom Γ Γ, 𝑥 : 𝜏 1 ⊢ 𝑡 : 𝜏 2
+
+Γ ⊢ fun 𝑥 : 𝜏 1. 𝑡 : 𝜏 1  𝜏 2
+
+Γ ⊢ 𝑡 : 𝜏 
+
+Γ ⊢ return 𝑡 : Gen 𝜏 
+
+Γ ⊢ flip 𝑝 : Gen Bool 
+
+𝑥 ∉ Dom Γ Γ ⊢ 𝑡 1 : Gen 𝜏 1 Γ, 𝑥 : 𝜏 1 ⊢ 𝑡 2 : Gen 𝜏 2
+
+Γ ⊢ let 𝑥 ← 𝑡 1 in 𝑡 2 : Gen 𝜏 2
+
+Γ ⊢ shrink : 𝜏 * · · · * 𝜏  Gen 𝜏 
+
+Fig. 10. Hedgehog’s Typing Rules. 
+
+Example 3.2. We recast our examples from Section 1 in our chosen syntax, modelling bool_ as 
+
+flip 1/2:
+
+coin 1 = let 𝑥 ← flip 1/2 in let 𝑦 ← flip 1/2 in return 𝑥 = 𝑦 
+
+coin 2 = let 𝑥 ← flip 1/2 in return 𝑥 
+
+Definition 3.3 (Hedgehog Environments and Typing). An environment Γ ∈ Î𝑥 ∈Dom Γ Type is a family mapping variables from a finite domain Dom Γ ⊆ Var to types. The set of environments is denoted by Env , and the singleton environment is written 𝑥 : 𝜏 . The typing relation (− ⊢ − :
+
+−) ⊆ Env × Term × Type is the smallest relation satisfying the rules in Figure 10. If 𝑡 has no free variables, we write 𝑡 : 𝜏 in place of ∀Γ, Γ ⊢ 𝑡 : 𝜏 , since the environment has no bearing on whether 𝑡 
+
+is typed. Not every term is sensible (e.g., consider ‘ fst () ’). The typing relation Γ ⊢ 𝑡 : 𝜏 describes exactly which terms are sensible within a given environment. 
+
+3.2 Semantics 
+
+Definition 3.4 (Hedgehog Interpretation and Semantics). A Hedgehog interpretation is a pre-monad 
+
+𝐹 : Qbs → Qbs equipped with additional operations 
+
+flip 𝐹 : [0, 1] → Q 𝐹 B shrink 𝑛 𝐹 :
+
+> 𝑛
+
+Ö
+
+> 𝑖 =0
+
+𝐴 →Q 𝐹 𝐴.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 10 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+Type and Environment Semantics 
+
+⟦0⟧𝐹 = 0 ⟦1⟧𝐹 = 1 ⟦𝜏 1 + 𝜏 2⟧𝐹 = ⟦𝜏 1⟧𝐹 + ⟦ 𝜏 2⟧𝐹 ⟦𝜏 1 * 𝜏 2⟧𝐹 = ⟦𝜏 1⟧𝐹 × ⟦ 𝜏 2⟧𝐹 
+
+⟦𝜏 1  𝜏 2⟧𝐹 = ⟦𝜏 1⟧𝐹 →Q ⟦𝜏 2⟧𝐹 ⟦Gen 𝜏 ⟧𝐹 = 𝐹 ⟦𝜏 ⟧𝐹 ⟦Γ⟧𝐹 =
+
+Ö  
+
+> 𝑥 ∈Dom Γ
+
+⟦Γ𝑥 ⟧𝐹 
+
+Term Semantics 
+
+⟦Γ, 𝑥 : 𝜏 ⊢ 𝑥 : 𝜏 ⟧𝐹 𝜌 = 𝜌 𝑥 ⟦Γ ⊢ () : 1⟧𝐹 𝜌 = () ⟦Γ ⊢ absurd 𝑡 : 𝜏 ⟧𝐹 𝜌 = ! (⟦ Γ ⊢ 𝑡 : 0⟧𝐹 𝜌 )(⟦ Γ ⊢ fst 𝑡 : 𝜏 1⟧𝐹 𝜌, ⟦Γ ⊢ snd 𝑡 : 𝜏 2⟧𝐹 𝜌 ) = ⟦Γ ⊢ 𝑡 : 𝜏 1 * 𝜏 2⟧𝐹 𝜌 
+
+⟦Γ ⊢ (𝑡 1, 𝑡 2) : 𝜏 1 * 𝜏 2⟧𝐹 𝜌 = (⟦ Γ ⊢ 𝑡 1 : 𝜏 1⟧𝐹 𝜌, ⟦Γ ⊢ 𝑡 2 : 𝜏 2⟧𝐹 𝜌 )⟦Γ ⊢ inl 𝑡 : 𝜏 1 + 𝜏 2⟧𝐹 = 𝜄 1 ◦ ⟦ Γ ⊢ 𝑡 : 𝜏 1⟧𝐹 ⟦Γ ⊢ inr 𝑡 : 𝜏 1 + 𝜏 2⟧𝐹 = 𝜄 2 ◦ ⟦ Γ ⊢ 𝑡 : 𝜏 2⟧𝐹 
+
+⟦Γ ⊢ match 𝑡 0 with inl 𝑥 1. 𝑡 1 | inr 𝑥 2. 𝑡 2 : 𝜏 3⟧𝐹 𝜌 
+
+=
+
+(
+
+⟦Γ, 𝑥 1 : 𝜏 1 ⊢ 𝑡 1 : 𝜏 3⟧𝐹 (𝜌 𝑥 )𝑥 ∈Dom Γ∪{ 𝑥 1 } if ⟦Γ ⊢ 𝑡 0 : 𝜏 1 + 𝜏 2⟧𝐹 𝜌 = 𝜄 1 𝜌 𝑥 1
+
+⟦Γ, 𝑥 2 : 𝜏 2 ⊢ 𝑡 2 : 𝜏 3⟧𝐹 (𝜌 𝑥 )𝑥 ∈Dom Γ∪{ 𝑥 2 } if ⟦Γ ⊢ 𝑡 0 : 𝜏 1 + 𝜏 2⟧𝐹 𝜌 = 𝜄 2 𝜌 𝑥 2
+
+where Γ ⊢ 𝑡 0 : 𝜏 1 + 𝜏 2, Γ, 𝑥 1 : 𝜏 1 ⊢ 𝑡 1 : 𝜏 3, Γ, 𝑥 2 : 𝜏 2 ⊢ 𝑡 2 : 𝜏 3
+
+⟦Γ ⊢ fun 𝑥 : 𝜏 1. 𝑡 : 𝜏 1  𝜏 2⟧𝐹 𝜌 = 𝜌 𝑥 ↦ → ⟦ Γ, 𝑥 : 𝜏 1 ⊢ 𝑡 : 𝜏 2⟧𝐹 (𝜌 𝑦 )𝑦 ∈Dom Γ∪{ 𝑥 }
+
+⟦Γ ⊢ 𝑡 1 𝑡 2 : 𝜏 2⟧𝐹 𝜌 = ⟦Γ ⊢ 𝑡 1 : 𝜏 1  𝜏 2⟧𝐹 𝜌 (⟦ Γ ⊢ 𝑡 2 : 𝜏 1⟧𝐹 𝜌 )
+
+where Γ ⊢ 𝑡 1 : 𝜏 1  𝜏 2, Γ ⊢ 𝑡 2 : 𝜏 1
+
+⟦Γ ⊢ return 𝑡 : Gen 𝜏 ⟧𝐹 𝜌 = unit (⟦ Γ ⊢ 𝑡 : 𝜏 ⟧𝐹 𝜌 )⟦Γ ⊢ let 𝑥 ← 𝑡 1 in 𝑡 2 : Gen 𝜏 2⟧𝐹 𝜌 
+
+= bind 𝐹 (𝜌 𝑥 ↦ → ⟦ Γ, 𝑥 : 𝜏 1 ⊢ 𝑡 2 : Gen 𝜏 2⟧𝐹 (𝜌 𝑦 )𝑦 ∈Dom Γ∪{ 𝑥 } ) (⟦ Γ ⊢ 𝑡 1 : Gen 𝜏 1⟧𝐹 𝜌 )
+
+where Γ ⊢ 𝑡 1 : Gen 𝜏 1, Γ, 𝑥 : 𝜏 1 ⊢ 𝑡 2 : Gen 𝜏 2
+
+⟦Γ ⊢ flip 𝑝 : Gen Bool ⟧𝐹 𝜌 = flip 𝐹 𝑝 ⟦Γ ⊢ shrink : 𝜏 * · · · * 𝜏 
+
+| {z } 
+
+> 𝑛 +1times
+
+Gen 𝜏 ⟧𝐹 𝜌 = shrink 𝑛 𝐹 
+
+Fig. 11. Semantics of Hedgehog. 
+
+An interpretation induces (1) a type and environment semantics ⟦−⟧ 𝐹 : Type ∪ Env → Qbs and (2) for all Γ ⊢ 𝑡 : 𝜏 a term semantics ⟦Γ ⊢ 𝑡 : 𝜏 ⟧𝐹 : ⟦Γ⟧𝐹 →Q ⟦𝜏 ⟧𝐹 (see Figure 11). When 𝑡 has no free variables, we write ⟦𝑡 : 𝜏 ⟧𝐹 in place of ⟦() ⊢ 𝑡 : 𝜏 ⟧𝐹 () . We also omit the type ascription ( : 𝜏 )when it can be inferred from the surrounding context. The semantics of most types and terms are standard, where types denote suitable quasi-Borel spaces and terms denote quasi-measurable functions over variable assignments (i.e., elements of 
+
+⟦Γ⟧ = Î𝑥 ∈Dom Γ Γ𝑥 ). An interpretation specifies the semantics of generator types and terms ( Gen ,
+
+return , let , flip , and shrink ). We only require that an interpretation 𝐹 is a pre-monad, and not a monad: QuickCheck generators are known not to form a monad [Claessen and Hughes 2000], and Hedgehog’s sampling interpretation (Definition 3.5) inherits this property. An important feature of  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 11
+
+ℭ 𝐴 = (S→Q Tree 𝐴 ) unit ℭ 𝑎 = 𝜎 ↦ →unit 𝑎 bind ℭ 𝑓 𝑚 = 𝜎 ↦ →bind (𝑎 ↦ → 𝑓 𝑎 (𝜋 𝑟 𝜎 )) ( 𝑚 (𝜋 𝑙 𝜎 )) 
+
+flip ℭ 𝑝 = 𝜎 ↦ → unit (𝜎 < 𝑝 ) shrink 𝑛  
+
+> ℭ
+
+(𝑎 0, 𝑎 1, . . . , 𝑎 𝑛 ) = 𝜎 ↦ → node (𝑎 0, unit 𝑎 1 :: . . . :: unit 𝑎 𝑛 :: 𝜖 )
+
+> Fig. 12. Hedgehog’s Sampling Interpretation.
+
+Definition 3.4 is that it is compositional , i.e., the semantics of a term is uniquely determined by the semantics of its immediate sub-terms. 
+
+Definition 3.5 (Hedgehog Sampling Interpretation). The sampling interpretation ℭ : Qbs → Qbs of Hedgehog is defined in Figure 12. Definition 3.5 closely mirrors the actual implementation of Hedgehog. We describe each compo-nent of the sampling interpretation as follows: (1) Generators ( Gen 𝜏 ) are represented as deterministic functions from the sample space S to rose trees (i.e., generators are random variables). Intuitively, the probabilistic behaviour of a generator arises by feeding it a uniformly distributed random sample, and the resulting tree (called a shrink tree ) describes a value and all the ways it can be shrunk. (2) The “pure” computation return 𝑡 ignores its sample and returns a tree with a single node labelled by the value of 𝑡 .(3) Sequential composition let 𝑥 ← 𝑡 1 in 𝑡 2 splits its sample, passing a different half to 𝑡 1 and 𝑡 2.(4) The probabilistic choice operation flip 𝑝 returns true if its sample lies in the range [0, 𝑝 ).(5) The shrink operation shrink ignores its sample and returns a shrink tree comprising of its arguments. 
+
+Example 3.6. The semantics of coin 1, coin 2 : Gen Bool , given in Example 3.2, are as follows: 
+
+⟦coin 1⟧ℭ 𝜎 = unit (𝜋 𝑙 𝜎 < 1/2 ⇔ 𝜋 𝑙 (𝜋 𝑟 𝜎 ) < 1/2) ⟦coin 2⟧ℭ 𝜎 = unit (𝜋 𝑙 𝜎 < 1/2)
+
+While coin 1 and coin 2 intuitively represent the same distribution of values, they are not equivalent under the sampling semantics: ℭ is overly fine-grained .
+
+3.3 Program Transformations 
+
+We often talk about term equivalence under an interpretation (e.g., does ⟦coin 1⟧𝐹 = ⟦coin 2⟧𝐹 for some other interpretation 𝐹 ?), so we define a shorthand in Definition 3.7. 
+
+Definition 3.7 (Hedgehog Semantic Equivalence). Two Hedgehog terms Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏 are semanti-cally equivalent under an interpretation 𝐹 (written Γ ⊢ 𝑡 1 =𝐹 𝑡 2 : 𝜏 ) if ⟦Γ ⊢ 𝑡 1 : 𝜏 ⟧𝐹 = ⟦Γ ⊢ 𝑡 2 : 𝜏 ⟧𝐹 .We write 𝑡 1 =𝐹 𝑡 2 : 𝜏 for () ⊢ 𝑡 1 =𝐹 𝑡 2 : 𝜏 and omit the type ascription ( : 𝜏 ) when it can be inferred from the surrounding context. To further illustrate how the sampling interpretation is unsuitable for semantic equivalence proofs, we show that several common program transformations are not permitted under ℭ. 
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 12 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+Theorem 3.8. The following equivalences do not hold (whenever both sides of the equivalence have the same type): 
+
+Γ ⊢ let 𝑥 ← return 𝑡 in 𝑓 𝑥 =ℭ 𝑓 𝑡 (1) 
+
+Γ ⊢ let 𝑥 ← 𝑡 in return 𝑥 =ℭ 𝑡 (2) 
+
+Γ ⊢ let 𝑦 ← (let 𝑥 ← 𝑡 in 𝑓 𝑥 ) in 𝑔 𝑦 =ℭ let 𝑥 ← 𝑡 in let 𝑦 ← 𝑓 𝑥 in 𝑔 𝑦 (3) 
+
+Γ ⊢ let 𝑥 ← flip 𝑝 in 𝑡 =ℭ 𝑡 (4) 
+
+Γ ⊢ let 𝑥 ← flip 𝑝 in let 𝑦 ← 𝑡 in 𝑓 𝑥 𝑦 =ℭ let 𝑦 ← 𝑡 in let 𝑥 ← flip 𝑝 in 𝑓 𝑥 𝑦 (5) 
+
+Γ ⊢ let 𝑥 ← flip 𝑝 in 𝑓 (not 𝑥 ) =ℭ let 𝑥 ← flip (1 − 𝑝 ) in 𝑓 𝑥 (6) 
+
+Γ ⊢ let 𝑥 ← flip 𝑝 in let 𝑦 ← flip 𝑞 in 𝑓 (𝑥 and 𝑦 ) =ℭ let 𝑥 ← flip (𝑝 · 𝑞 ) in 𝑓 𝑥 (7) Intuitively, none of these transformations are sound under the sampling interpretation because, similar to Example 3.6, they all change how samples are interpreted. We discuss each equation in detail: 
+
+• Equation (1) states that an effect-free computation, when let -bound to a variable, can be inlined. This is an optimization: removing a let expression reduces the number of sample splits under the sampling semantics. Equation (1) is a form of constant folding [Aho et al .2006]. 
+
+• Equation (2) formalizes the intuition that return 𝑥 is a “no-op”. Like equation (1), equation (2) is an optimization and reduces the number of sample splits under the sampling semantics. 
+
+• Equation (3) states that the order in which multiple sequential compositions are formed does not matter as long as the overall order of computations remains the same. While not strictly an optimization by itself, equation (3) is necessary to justify further optimizations. For example, if equations (3) and (4) hold then 
+
+let 𝑥 ← (let 𝑦 ← 𝑡 1 in flip ) in 𝑡 2 = let 𝑦 ← 𝑡 1 in let 𝑥 ← flip in 𝑡 2
+
+= let 𝑦 ← 𝑡 1 in 𝑡 2.
+
+Equations (1) to (3) are essentially the monad laws, and hence ℭ is not a monad. 
+
+• Equation (4) is a standard property of probabilistic choice [Culpepper and Cobb 2017], and states that a flip statement whose result is unused can be removed. This is also an optimization that reduces the number of sample splits under the sampling semantics. 
+
+• Equation (5) is another standard property of probabilistic choice [Staton 2017], and states that the order in which a random value is generated is irrelevant. While not an optimization by itself, equation (5) is necessary to justify further optimizations. For example, if equations (4) and (5) hold then 
+
+©«
+
+let 𝑥 ← flip 𝑝 in let 𝑦 ← shrink . . . in let 𝑧 ← flip 𝑞 in 
+
+𝑓 (𝑥 and 𝑧 )
+
+ª®®®¬
+
+=
+
+©«
+
+let 𝑥 ← flip 𝑝 in let 𝑧 ← flip 𝑞 in let 𝑦 ← shrink . . . in 
+
+𝑓 (𝑥 and 𝑧 )
+
+ª®®®¬
+
+= ©«
+
+let 𝑥 ← flip (𝑝 · 𝑞 ) in let 𝑦 ← shrink . . . in 
+
+𝑓 𝑥 
+
+ª®¬
+
+.
+
+• Equation (6) states that flipping a biased coin with parameter 𝑝 is the same as flipping a biased coin with parameter 1 − 𝑝 and interchanging the results. Since 𝑝 is a constant in our setting, equation (6) is an optimization because it eliminates a negation ( not ). 
+
+• Equation (7) provides a condition for merging two calls to flip . Since flip ’s parameter is a constant in our setting, equation (7) is an optimization because it reduces the number of sample splits under the sampling semantics.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 13
+
+In contrast to Theorem 3.8, the following transformations are permitted under ℭ.
+
+Theorem 3.9. The following equivalences hold: 
+
+Γ ⊢ let 𝑥 ← return 𝑡 in shrink (𝑓 1 𝑥 ) . . . (𝑓 𝑛 𝑥 ) =ℭ shrink (𝑓 1 𝑡 ) . . . (𝑓 𝑛 𝑡 ) (8) 
+
+Γ ⊢ let 𝑥 ← shrink 𝑡 0 . . . 𝑡 𝑛 in return 𝑥 =ℭ shrink 𝑡 0 . . . 𝑡 𝑛 (9) 
+
+Γ ⊢ shrink 𝑡 =ℭ return 𝑡 (10) 
+
+Γ ⊢ if 𝑡 1 then 𝑡 2 else 𝑡 2 =ℭ 𝑡 2 (11) 
+
+Γ ⊢ if true then 𝑡 1 else 𝑡 2 =ℭ 𝑡 1 (12) 
+
+Γ ⊢ if false then 𝑡 1 else 𝑡 2 =ℭ 𝑡 2 (13) 
+
+Γ ⊢ flip 0 =ℭ return false (14) 
+
+Γ ⊢ flip 1 =ℭ return true (15) 
+
+Γ ⊢ ©«
+
+let 𝑦 ← (let 𝑥 ← shrink 𝑡 0 . . . 𝑡 𝑛 
+
+in shrink (𝑓 1 𝑥 ) . . . (𝑓 𝑚 𝑥 )) 
+
+in shrink (𝑔 0 𝑦 ) . . . (𝑔 𝑘 𝑦 )
+
+ª®¬
+
+=ℭ ©«
+
+let 𝑥 ← shrink 𝑡 0 . . . 𝑡 𝑛 in let 𝑦 ← shrink (𝑓 1 𝑥 ) . . . (𝑓 𝑚 𝑥 ) in shrink (𝑔 0 𝑦 ) . . . (𝑔 𝑘 𝑦 )
+
+ª®¬
+
+(16) We describe each equation as follows: 
+
+• Equations (8), (9) and (16) are essentially special cases of Equations (1) to (3) where the computations involved only exhibit shrinking effects. 
+
+• Equation (10) states that a shrink term with only one argument (i.e., no specified shrinks) is identical to a pure computation ( return ). 
+
+• Equations (11) to (13) are common optimizations of if expressions. Unlike the other equations we discuss, these equations hold under any interpretation. 
+
+• Equations (14) and (15) state that flip ’s behaviour is deterministic when its parameter is either zero or one. From Theorems 3.8 and 3.9 we infer that the sampling interpretation only permits transformations of non-probabilistic terms . Since generators are primarily probabilistic programs, this renders the sampling interpretation unsuitable for program optimization. Particularly problematic is the failure of Equations (1) and (3), which apply frequently as a result of inlining. For example, consider the program coin ′
+
+> 1
+
+, which is just coin 1 with flip replaced with 
+
+coin 2:
+
+coin ′ 
+
+> 1
+
+= let 𝑥 ← coin 2 in let 𝑦 ← coin 2 in return 𝑥 = 𝑦.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 14 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+Aggressively applying Equations (1) and (3) gives the following sequence of simplifications: 
+
+coin ′ 
+
+> 1
+
+=ℭ let 𝑥 ← coin 2 in let 𝑦 ← coin 2 in return 𝑥 = 𝑦 (by definition) 
+
+=ℭ let 𝑥 ← (let 𝑧 ← flip 1/2 in return 𝑧 ) in let 𝑦 ← (let 𝑤 ← flip 1/2 in return 𝑤 ) in return 𝑥 = 𝑦 
+
+(by definition) 
+
+=ℭ let 𝑧 ← flip 1/2 in let 𝑥 ← return 𝑧 in let 𝑤 ← flip 1/2 in let 𝑦 ← return 𝑤 in return 𝑥 = 𝑦 
+
+(by Equation (3)) 
+
+=ℭ let 𝑧 ← flip 1/2 in let 𝑤 ← flip 1/2 in return 𝑧 = 𝑤 
+
+(by Equation (1)) The optimized term is faster because the original term will split the input seed four times, while the optimized term will only split it twice. Richey et al . [2026] identify random number generation (which includes seed splitting) as the “hottest part of the hot path” in generator execution, so the failure of Equations (1) and (3) means we lose out on a potentially high impact optimization. 
+
+3.4 Distributions 
+
+We have presented in Definitions 3.4 and 3.5 a sampling semantics which closely mirrors the actual implementation of Hedgehog. However, the specifics of how samples are turned into values are irrelevant from the user’s perspective. Users are more concerned with a generator’s distribution, which determines how well the input space of the SUT is covered. To this end, the sampling semantics is not suitable for proving optimization soundness because it is too fine-grained (e.g., see Example 3.6). 
+
+Definition 3.10 (Hedgehog Distribution Semantics). The distribution semantics of any 𝑡 : Gen Bool 
+
+is given by the function 
+
+L−M : Term → Dist B
+
+L𝑡 M = map ⟦𝑡 ⟧ℭ 𝜆. 
+
+Since generators represent random variables, we obtain a distribution via the push-forward operation. 
+
+Example 3.11. We compute the distributions of coin 1, coin 2 : Gen Bool given in Example 3.2: 
+
+Lcoin 1M = 1/2 · unit (unit true ) + 1/2 · unit (unit false )
+
+Lcoin 2M = 1/2 · unit (unit true ) + 1/2 · unit (unit false )
+
+Terms coin 1 and coin 2 both produce single-node trees. Each tree is labelled by either true or false 
+
+with probability 1/2.Building on Example 3.11, we show that Hedgehog’s distribution semantics is non-compositional, i.e., it cannot be represented as an interpretation. Define 
+
+discrim : Gen Bool  Gen Bool discrim = fun 𝑚 : Gen Bool . let 𝑏 ← shrink (true , false ) in if 𝑏 then 𝑚 else coin 1 
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 15
+
+and consider the sampling semantics of discrim coin 1 and discrim coin 2. On one hand, we have 
+
+discrim coin 1 =ℭ let 𝑏 ← shrink (true , false ) in if 𝑏 then coin 1 else coin 1
+
+=ℭ let 𝑏 ← shrink (true , false ) in coin 1.
+
+During shrinking, the sample fed to coin 1 does not change, so any tree produced by discrim coin 1
+
+will have identical node labels. Hence, 
+
+Ldiscrim coin 1M = 1/2 · unit (node (true , unit true :: 𝜖 )) + 1/2 · unit (node (false , unit false :: 𝜖 )) 
+
+On the other hand, we have 
+
+discrim coin 2 =ℭ let 𝑏 ← shrink (true , false )
+
+in if 𝑏 then coin 2 else coin 1
+
+=ℭ let 𝑏 ← shrink (true , false )
+
+in if 𝑏 then let 𝑥 ← flip 1/2
+
+in return 𝑥 
+
+else let 𝑦 ← flip 1/2 in let 𝑧 ← flip 1/2 in return 𝑦 = 𝑧. 
+
+During shrinking, the values of 𝑥 and 𝑦 will be identical (as they obtain their values from the same part of the sample), but there is only a 50% chance that 𝑦 = 𝑧 . Hence, 
+
+Ldiscrim coin 2M = 1/4 · unit (node (true , unit true :: 𝜖 )) + 1/4 · unit (node (true , unit false :: 𝜖 )) + 1/4 · unit (node (false , unit true :: 𝜖 )) + 1/4 · unit (node (false , unit false :: 𝜖 )) 
+
+If distribution semantics can be represented as an interpretation, then Lcoin 1M = Lcoin 2M implies 
+
+Ldiscrim coin 1M = Ldiscrim coin 2M. Hence, no such interpretation exists. 
+
+Proposition 3.12 (Non-Compositionality of Distribution Semantics). There is no interpre-tation 𝐹 such that ⟦𝑡 ⟧𝐹 = L𝑡 M whenever 𝑡 : Gen Bool .
+
+3.5 Contextual Equivalence 
+
+The sampling interpretation given in Definition 3.5 induces a compositional semantics, but does not accurately model user-level reasoning and is too fine-grained to be useful for generator equivalence proofs (Example 3.6). Conversely, the distribution semantics given in Definition 3.10 has neither of these drawbacks but is non-compositional. Can we obtain a coarse-grained interpretation that more closely models user-level reasoning? To answer this question, we first define what it means for an interpretation to be correct .In the denotational approach to semantics, two standard tasks are to show that a particular denotational semantics is sound and complete with respect to an existing operational semantics [Plotkin 1977]. A denotational semantics is sound if any two denotationally equal programs are contextually equivalent, i.e., they produce the same result in any context under the operational semantics. Soundness rules out “bad” interpretations (such as the one where all terms are equal) and ensures that all conclusions made using the denotational semantics are valid in the operational semantics. Conversely, a denotational semantics is complete if any two contextually equivalent programs are denotationally equal. Completeness rules out excessively fine interpretations (such as one where terms are equal iff they are syntactically equal) and ensures that all conclusions that can be made using the operational semantics can also be made using the denotational semantics (i.e., there are no “blind spots” in the reasoning power of the denotational semantics). In the context of Hedgehog, we consider distribution semantics as an operational semantics, and define  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 16 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+contextual equivalence accordingly. Then, a correct (i.e., sound and complete) interpretation is one that coincides with contextual equivalence. 
+
+Definition 3.13 (Contexts and Contextual Equivalence). The set of contexts Ctx is generated by 
+
+𝐶 F □ | absurd 𝐶 | inl 𝐶 | inr 𝐶 | match 𝐶 with inl 𝑥 . 𝑡 | inr 𝑥 . 𝑡 
+
+| match 𝑡 with inl 𝑥 . 𝐶 | inr 𝑥 . 𝑡 | match 𝑡 with inl 𝑥 . 𝑡 | inr 𝑥 . 𝐶 
+
+| (𝐶, 𝑡 ) | (𝑡, 𝐶 ) | fst 𝐶 | snd 𝐶 | fun 𝑥 : 𝜏 . 𝐶 | 𝐶 𝑡 | 𝑡 𝐶 | return 𝐶 
+
+| let 𝑥 ← 𝐶 in 𝑡 | let 𝑥 ← 𝑡 in 𝐶. 
+
+The substitution 𝐶 [𝑡 ] of a term 𝑡 into a context 𝐶 is obtained by substituting the (unique) instance of □ in 𝐶 for 𝑡 . We write 𝐶 : (Γ ⊢ 𝜏 ) −→ ( Γ′ ⊢ 𝜏 ′) when Γ′ ⊢ 𝐶 [𝑡 ] : 𝜏 ′ for all terms Γ ⊢ 𝑡 : 𝜏 . Two terms Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏 are contextually equivalent (written Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 ) if L𝐶 [𝑡 1]M = L𝐶 [𝑡 2]M for all contexts 𝐶 : (Γ ⊢ 𝜏 ) −→ (() ⊢ 𝜏 ′), where 𝜏 ′ ∈ Type . We write 𝑡 1 ≈ 𝑡 2 : 𝜏 in place of () ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 
+
+and omit the type ascription ( : 𝜏 ) when it can be inferred from the surrounding context. Intuitively, Definition 3.13 states that two terms are contextually equivalent if one can be substituted for the other in any context without changing the overall distribution of the term. For example, we refer to Example 3.11, from which we conclude coin 1 and coin 2 are not contextually equivalent: they produce different distributions in the context discrim □.We now define our correctness criteria for interpretations. 
+
+Definition 3.14. An interpretation 𝐹 is (1) sound if Γ ⊢ 𝑡 1 =𝐹 𝑡 2 : 𝜏 =⇒ Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 , and (2) complete if Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 =⇒ Γ ⊢ 𝑡 1 =𝐹 𝑡 2 : 𝜏 .The sampling interpretation ℭ is trivially sound (generators which represent the same random variables have the same distribution). Surprisingly, ℭ is also complete! We sketch our completeness proof for terminating generator terms with no free variables. We proceed by contraposition. In essence, the problems we have observed in Examples 3.2, 3.6 and 3.11 generalize to terms other than coin 1 and coin 2. Suppose we have two terms 𝑡 1, 𝑡 2 : Gen 𝜏 
+
+such that 𝑡 1̸ =ℭ 𝑡 2. Then there exists some 𝜎 ∈ S such that ⟦𝑡 1⟧ℭ 𝜎 ≠ ⟦𝑡 2⟧ℭ 𝜎 . Define 
+
+discrim ′ : (() ⊢ Gen 𝜏 ) −→ (() ⊢ Gen 𝜏 )
+
+discrim ′ = let 𝑏 ← shrink (true , false ) in if 𝑏 then □ else 𝑡 1.
+
+First, we consider the case of discrim ′ [𝑡 1]:
+
+discrim ′ [𝑡 1] =ℭ let 𝑏 ← shrink (true , false ) in if 𝑏 then 𝑡 1 else 𝑡 1
+
+=ℭ let 𝑏 ← shrink (true , false ) in 𝑡 1
+
+The first shrink produced by discrim ′ [𝑡 1] is always the same element returned during the testing phase, as 𝑏 first shrinks from true to false . More concretely, for any 𝜎 ′ ∈ S,
+
+⟦discrim ′ [𝑡 1]⟧ ℭ 𝜎 ′ = node (𝑏, node (𝑏, 𝑥𝑠 ) :: 𝑥𝑠 ) (†)where node (𝑏, 𝑥𝑠 ) = ⟦𝑡 1⟧ℭ (𝜋 𝑟 𝜎 ′). Now consider the case of discrim ′ [𝑡 2]:
+
+discrim ′ [𝑡 2] =ℭ let 𝑏 ← shrink (true , false ) in if 𝑏 then 𝑡 2 else 𝑡 1.
+
+Without loss of generalization, assume 𝜎 = 𝜋 𝑟 𝜎 ′ for some 𝜎 ′ ∈ S. Then 
+
+⟦discrim ′ [𝑡 2]⟧ ℭ 𝜎 ′ = node (𝑎, node (𝑏, 𝑦𝑠 ) :: 𝑥𝑠 )
+
+where (𝑎, 𝑥𝑠 ) = ⟦𝑡 2⟧ℭ𝜎 and (𝑏, 𝑦𝑠 ) = ⟦𝑡 1⟧ℭ𝜎 . Since ⟦𝑡 1⟧ℭ𝜎 ≠ ⟦𝑡 2⟧ℭ𝜎 , either 𝑎 ≠ 𝑏 or 𝑥𝑠 ≠
+
+𝑦𝑠 . In either case, the result of ⟦discrim ′ [𝑡 1]⟧ ℭ 𝜎 ′′ is not of the form described in ( †). Thus  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 17
+
+node (𝑎, node (𝑏, 𝑦𝑠 ) :: 𝑥𝑠 ) occurs with positive probability under Ldiscrim ′ [𝑡 2]M but occurs with zero probability under Ldiscrim ′ [𝑡 1]M.
+
+Theorem 3.15. The sampling interpretation ℭ is sound and complete. 
+
+Proof. Soundness. Suppose Γ ⊢ 𝑡 1 =ℭ 𝑡 2 : 𝜏 and 𝐶 : (Γ ⊢ 𝜏 ) −→ (() ⊢ Bool ). Since ℭ is (by definition) compositional, we have Γ ⊢ 𝐶 [𝑡 1] =ℭ 𝐶 [𝑡 2] : 𝜏 . Hence L𝐶 [𝑡 1]M = L𝐶 [𝑡 2]M.
+
+Completeness. Let 
+
+𝑃 𝜏 ≡ ∀ Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏, Γ ⊢ 𝑡 1 ≈ 𝑡 2 =⇒ Γ ⊢ 𝑡 1 =ℭ 𝑡 2 : 𝜏 . 
+
+Given 𝜏 , we prove 𝑃 𝜏 by structural induction on 𝜏 .
+
+• Cases 𝜏 = 0 and 𝜏 = 1. These cases are trivial by the fact that all elements of these types are equal. 
+
+• Case 𝜏 = 𝜏 1 * 𝜏 2. Suppose Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1 * 𝜏 2, where Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏 1 * 𝜏 2, and suppose the inductive hypotheses 𝑃 𝜏 1 and 𝑃 𝜏 2. It suffices to show Γ ⊢ fst 𝑡 1 =ℭ fst 𝑡 2 : 𝜏 1 and 
+
+Γ ⊢ snd 𝑡 1 =ℭ snd 𝑡 2 : 𝜏 2, which, by the inductive hypotheses, reduces to showing Γ ⊢
+
+fst 𝑡 1 ≈ fst 𝑡 2 : 𝜏 1 and Γ ⊢ snd 𝑡 1 ≈ snd 𝑡 2 : 𝜏 2, which follows from Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1 * 𝜏 2.
+
+• Case 𝜏 = 𝜏 1  𝜏 2. Suppose Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1  𝜏 2, where Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏 1  𝜏 2, and suppose the inductive hypotheses 𝑃 𝜏 1 and 𝑃 𝜏 2. It suffices to show Γ ⊢ 𝑡 1 𝑡 3 =ℭ 𝑡 2 𝑡 3 : 𝜏 2 for all Γ ⊢ 𝑡 3 : 𝜏 1.By the inductive hypothesis, it suffices to show Γ ⊢ 𝑡 1 𝑡 3 ≈ 𝑡 2 𝑡 3 : 𝜏 2, which follows from 
+
+Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1  𝜏 2.
+
+• Case 𝜏 = 𝜏 1 + 𝜏 2. Suppose Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1 + 𝜏 2, where Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏 1 + 𝜏 2, and suppose the inductive hypotheses 𝑃 𝜏 1 and 𝑃 𝜏 2. We consider, by cases, whether there exists terms 𝑡 3 : 𝜏 1
+
+and 𝑡 4 : 𝜏 2.
+
+– Case 𝑡 3 exists and 𝑡 4 exists . It suffices to show 
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 =ℭ match 𝑡 2 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 : 𝜏 1
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑡 4 | inr 𝑥 . 𝑥 =ℭ match 𝑡 2 with inl 𝑥 . 𝑡 4 | inr 𝑥 . 𝑥 : 𝜏 2,
+
+which, by the inductive hypotheses, reduce to 
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 ≈ match 𝑡 2 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 : 𝜏 1
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑡 4 | inr 𝑥 . 𝑥 ≈ match 𝑡 2 with inl 𝑥 . 𝑡 4 | inr 𝑥 . 𝑥 : 𝜏 2,
+
+which both follow from Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1 + 𝜏 2.
+
+– Case 𝑡 3 exists and 𝑡 4 does not exist. If 𝑡 4 does not exist, then 𝜏 2 is isomorphic to 0, and hence there is an alternate term 𝑥 : 𝜏 2 ⊢ 𝑡 ′ 
+
+> 4
+
+: 𝜏 1 involving absurd . It suffices to show 
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 =ℭ match 𝑡 2 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 : 𝜏 1
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑡 ′  
+
+> 4|
+
+inr 𝑥 . 𝑥 =ℭ match 𝑡 2 with inl 𝑥 . 𝑡 ′  
+
+> 4|
+
+inr 𝑥 . 𝑥 : 𝜏 2,
+
+which, by the inductive hypotheses, reduce to 
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 ≈ match 𝑡 2 with inl 𝑥 . 𝑥 | inr 𝑥 . 𝑡 3 : 𝜏 1
+
+Γ ⊢ match 𝑡 1 with inl 𝑥 . 𝑡 ′  
+
+> 4|
+
+inr 𝑥 . 𝑥 ≈ match 𝑡 2 with inl 𝑥 . 𝑡 ′  
+
+> 4|
+
+inr 𝑥 . 𝑥 : 𝜏 2,
+
+which both follow from Γ ⊢ 𝑡 1 ≈ 𝑡 2 : 𝜏 1 + 𝜏 2.
+
+– Case 𝑡 3 does not and 𝑡 4 exists. Symmetric to the previous case. 
+
+– Case 𝑡 3 does not and 𝑡 4 does not exist. In this case, 𝜏 1 and 𝜏 2 are isomorphic to 0, and hence 
+
+𝜏 1 + 𝜏 2 is isomorphic to 0. Thus Γ ⊢ 𝑡 1 =ℭ 𝑡 2 : 0 trivially.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 18 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+• Case 𝜏 = Gen 𝜏 ′. We proceed by contraposition. Suppose Γ ⊢ 𝑡 1̸ =ℭ 𝑡 2. Then there exists some 
+
+𝜌 ∈ ⟦ Γ⟧ and 𝜎 ∈ S such that ⟦𝑡 1⟧ℭ 𝜌 𝜎 ≠ ⟦𝑡 2⟧ℭ 𝜌 𝜎 . We proceed using discrim ′ as described above. Thus (1) for all 𝜌 and 𝜎 , ⟦discrim ′ [𝑡 2]⟧ ℭ 𝜌 1 𝜎 1 = (𝑎, node (𝑎, 𝑥𝑠 ), 𝑥𝑠 ) for some 𝑎 and 𝑥𝑠 , and (2) ⟦discrim ′ [𝑡 2]⟧ ℭ 𝜌 2 𝜎 2 = (𝑎, node (𝑏, 𝑦𝑠 ), 𝑥𝑠 ) for some 𝜌 , 𝜎 , 𝑎 ≠ 𝑏 and 𝑦𝑠 ≠ 𝑥𝑠 .Since our terms represent terminating programs, the set of choices of 𝜎 2 must be infinite and of non-zero measure. Thus Ldiscrim ′ [𝑡 1]M = Ldiscrim ′ [𝑡 2]M, which completes the proof. 
+
+□
+
+Corollary 3.16. Let 𝐹 be a sound and complete interpretation. Then two terms Γ ⊢ 𝑡 1, 𝑡 2 : 𝜏 are semantically equivalent under 𝐹 iff they are semantically equivalent under ℭ, i.e., 
+
+Γ ⊢ 𝑡 1 =𝐹 𝑡 2 ⇐⇒ Γ ⊢ 𝑡 1 ≈ 𝑡 2.
+
+3.6 Summary 
+
+We have formalized Hedgehog’s syntax as well as its sampling and distribution semantics with an eye towards proving program optimizations sound. The sampling semantics is compositional but unusably fine-grained: many common program optimizations are unsound under the sampling semantics (Theorem 3.8). On the other hand, the distribution semantics is coarse-grained but non-compositional. By Corollary 3.16, every (sound and complete) compositional semantics must identify the exact same set of terms as the sampling semantics. Thus, none of the transformations discussed in Theorem 3.8 are permitted under any sound interpretation of Hedgehog, which renders Hedgehog a poor target for optimization. We stress that Theorem 3.15 is a consequence of combining probabilistic and shrinking effects: if either flip or shrink are removed from Hedgehog, then Theorem 3.15 no longer holds. 
+
+4 Hedgehog →
+
+In Section 3, we demonstrated that Hedgehog is unsuited for performing generator optimizations. In particular, any two programs with identical distributions can be distinguished within a pathological context, discrim ′, unless they have identical sampling semantics. To overcome this flaw, we propose to instead work with Hedgehog →, a restricted version of Hedgehog based on the arrow calculus [Lindley et al. 2010] which rules out such pathological contexts. Intuitively, discrim ′ exploits hidden statistical dependence between generators in different branches. This dependence is a direct result of both sides of a match term being evaluated with the same sample. Thus, Hedgehog → rules out this behaviour by ensuring that each branch of a case analysis ( match ) receives different samples. This is achieved by (1) redefining the semantics of case analysis and (2) adding additional type system restrictions. In this section, we define the Hedgehog → language. This section is structurally similar to Section 3. We first define Hedgehog →’s syntax and type system as a modification of Hedgehog’s (Definition 4.1, Definition 4.2). We then define a sampling semantics for Hedgehog → (Definition 4.5) and derive from it a distribution semantics (Definition 4.9). Unlike Hedgehog, Hedgehog →’s distribution semantics is compositional (we show it in Theorem 4.14). 
+
+4.1 Syntax 
+
+Definition 4.1 (Hedgehog → Types and Terms). The set of Hedgehog → types (denoted by Type •) is defined by the following modifications to Type (Definition 3.1): 
+
+𝜏 F . . . | Gen 𝜏 | 𝜏 ⇝ 𝜏  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 19
+
+The set of Hedgehog → terms (denoted by Term •) is defined identically to Term (Definition 3.1), but types are drawn from Type • instead of Type (e.g., in fun 𝑥 : 𝜏 . 𝑡 ). Hedgehog → replaces the generator type Gen 𝜏 with a generator function type 𝜏 1 ⇝ 𝜏 2. Intuitively, an element of 𝜏 1 ⇝ 𝜏 2 is a function that (1) takes in an element of type 𝜏 1, (2) performs some probabilistic and shrinking effects, and then (3) returns a value of type 𝜏 2. In other words, 𝜏 1 ⇝ 𝜏 2
+
+is analogous to 𝜏 1  Gen 𝜏 2. At the term level, Hedgehog → reuses the existing function application (𝑡 1 𝑡 2) and anonymous function constructs ( fun 𝑥 : 𝜏 . 𝑡 ) for generator functions. The most significant changes are in the typing rules (Definition 4.2). 
+
+Definition 4.2 (Hedgehog → Typing). The set of environments Env • and the typing relation (− ⊢ •
+
+− : −) ⊆ Env • × Term • × Type • are defined analogously to Definition 3.3, but we remove the rules for let , return , flip , and shrink , and add 
+
+Γ; 𝑥 : 𝜏 1 ⊢• 𝑡 ! 𝜏 2
+
+Γ ⊢• fun 𝑥 : 𝜏 1. 𝑡 : 𝜏 1 ⇝ 𝜏 2 Γ ⊢• flip 𝑝 : 1 ⇝ Bool Γ ⊢• shrink : 𝜏 × · · · × 𝜏 ⇝ 𝜏 
+
+where the command typing relation (− ; − ⊢ • − ! −) ⊆ Env • × Env • × Term • × Type • is mutually defined to be the smallest relation satisfying 
+
+Γ, Δ ⊢• 𝑡 : 𝜏 
+
+Γ; Δ ⊢• return 𝑡 ! 𝜏 𝑥 ∉ Dom Δ Γ; Δ ⊢• 𝑡 1 ! 𝜏 1 Γ; Δ, 𝑥 : 𝜏 1 ⊢• 𝑡 2 ! 𝜏 2
+
+Γ; Δ ⊢• let 𝑥 ← 𝑡 1 in 𝑡 2 ! 𝜏 2
+
+Γ ⊢• 𝑡 1 : 𝜏 1 ⇝ 𝜏 2 Γ; Δ ⊢• 𝑡 2 ! 𝜏 1
+
+Γ; Δ ⊢• 𝑡 1 𝑡 2 ! 𝜏 2
+
+𝑥 1, 𝑥 2 ∉ Dom Δ Γ, Δ ⊢• 𝑡 0 : 𝜏 1 + 𝜏 2
+
+Γ; Δ, 𝑥 1 : 𝜏 1 ⊢• 𝑡 1 ! 𝜏 3 Γ; Δ, 𝑥 2 : 𝜏 2 ⊢• 𝑡 2 ! 𝜏 3
+
+Γ; Δ ⊢• match 𝑡 0 with inl 𝑥 1. 𝑡 1 | inr 𝑥 2. 𝑡 2 ! 𝜏 3
+
+.
+
+Hedgehog →’s typing rules divide terms into two classes: normal terms (satisfying − ⊢ • − : −)and command terms (satisfying −; − ⊢ • − ! −). Command terms only occur inside an anonymous function with a generator function type. Command terms include effect-free computations ( return ), sequential composition ( let ), effectful function application ( 𝑡 1 𝑡 2), and case analyses which result in commands ( match ). The typing rules for command terms have two contexts: one for normal values ( Γ) and one for values produced by the result of another command or given as an input to the function ( Δ). In an effectful function application 𝑡 1 𝑡 2, only the argument term 𝑡 2 can refer to any variable in Δ. This rules out command terms such as 
+
+let 𝑓 ← 𝑡 1 in let 𝑥 ← 𝑡 2 in 𝑓 𝑥, 
+
+where the effects performed by the last term ( 𝑓 𝑥 ) are determined by the (arbitrarily complex) behaviour of 𝑡 1, i.e. the control flow of a command term is fixed .
+
+Example 4.3. The terms coin 1 and coin 2 (Example 3.2) are still typed in Hedgehog →, but they are command terms instead of normal terms, i.e., 
+
+Γ; Δ ⊢• coin 1 ! Bool Γ; Δ ⊢• coin 2 ! Bool .
+
+To form normal terms, we place each term inside an anonymous function: 
+
+coin • 
+
+> 1
+
+: 1 ⇝ Bool coin • 
+
+> 1
+
+= fun 𝑢 : 1. let 𝑥 ← flip 1/2 in let 𝑦 ← flip 1/2 in return 𝑥 = 𝑦 
+
+coin • 
+
+> 2
+
+: 1 ⇝ Bool coin • 
+
+> 2
+
+= fun 𝑢 : 1. let 𝑥 ← flip 1/2 in return 𝑥 .  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 20 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+⟦Γ; Δ ⊢• return 𝑥 : 𝜏 ⟧𝐹 𝜌 = arr (𝜌 ′ ↦ → ⟦ Γ, Δ ⊢• 𝑥 : 𝜏 ⟧𝐹 (𝜌, 𝜌 ′)) ⟦Γ; Δ ⊢• let 𝑥 ← 𝑡 1 in 𝑡 2 : 𝜏 2⟧𝐹 𝜌 
+
+= ⟦Γ; Δ, 𝑥 : 𝜏 1 ⊢• 𝑡 2 : 𝜏 2⟧𝐹 𝜌 
+
+◦ arr (( 𝜌 ′, 𝜌 ′ 
+
+> 𝑥
+
+) ↦ → ( 𝜌 ′ 
+
+> 𝑦
+
+)𝑦 ∈Dom Δ∪{ 𝑥 } )◦ first (⟦ Γ; Δ ⊢• 𝑡 1 : 𝜏 1⟧𝐹 𝜌 )◦ arr (𝜌 ′ ↦ → ( 𝜌 ′, 𝜌 ′)) 
+
+where Γ; Δ ⊢• 𝑡 1 ! 𝜏 1, Γ; Δ, 𝑥 : 𝜏 1 ⊢• 𝑡 2 ! 𝜏 2
+
+⟦Γ; Δ ⊢• 𝑡 1 𝑡 2 : 𝜏 2⟧𝐹 𝜌 = ⟦Γ ⊢• 𝑡 1 : 𝜏 1 ⇝ 𝜏 2⟧𝐹 𝜌 ◦ ⟦ Γ; Δ ⊢• 𝑡 2 : 𝜏 1⟧𝐹 𝜌 
+
+where Γ ⊢• 𝑡 1 : 𝜏 1 ⇝ 𝜏 2, Γ; Δ ⊢• 𝑡 2 ! 𝜏 1
+
+⟦Γ; Δ ⊢• match 𝑡 0 with inl 𝑥 1. 𝑡 1 | inr 𝑥 2. 𝑡 2 : 𝜏 3⟧𝐹 𝜌 
+
+= arr (( 𝑎, 𝑏 ) ↦ → ( 𝑏, 𝑎 )) ◦ left (⟦ Γ; Δ, 𝑥 2 : 𝜏 2 ⊢• 𝑡 2 : 𝜏 3⟧𝐹 𝜌 )◦ arr (( 𝑎, 𝑏 ) ↦ → ( 𝑏, 𝑎 )) ◦ left (⟦ Γ; Δ, 𝑥 1 : 𝜏 1 ⊢• 𝑡 1 : 𝜏 3⟧𝐹 𝜌 )◦ arr (𝜌 ′ ↦ → distrib (𝜌 ′, ⟦Γ, Δ ⊢• 𝑡 0 : 𝜏 1 + 𝜏 2⟧𝐹 (𝜌, 𝜌 ′))) 
+
+where Γ, Δ ⊢• 𝑡 0 : 𝜏 1 + 𝜏 2, Γ; Δ, 𝑥 1 : 𝜏 1 ⊢• 𝑡 1 ! 𝜏 3, Γ; Δ, 𝑥 2 : 𝜏 2 ⊢• 𝑡 2 ! 𝜏 3
+
+Fig. 13. Hedgehog → Command Semantics. 
+
+We similarly wrap the function discrim as 
+
+discrim • : (1 ⇝ Bool )  (1 ⇝ Bool )
+
+discrim • = fun 𝑓 : 1 ⇝ Bool . fun 𝑢 : 1. let 𝑏 ← shrink (true , false ) in if 𝑏 then 𝑓 () else coin • 
+
+> 1()
+
+.
+
+4.2 Semantics 
+
+Definition 4.4 (Hedgehog → Interpretation and Semantics). A Hedgehog → interpretation 𝐹 : Qbs ×
+
+Qbs → Qbs is a pre-arrow equipped with additional operations 
+
+flip 𝐹 : [0, 1] → Q 𝐹 (1, B) shrink 𝑛 𝐹 ∈ 𝐹 (Î𝑛 𝑖 =0 𝐴, 𝐴 ).
+
+An interpretation induces a type and environment semantics ⟦−⟧ 𝐹 : Type • ∪ Env • → Qbs , defined analogously to Definition 3.4, but with 
+
+⟦𝜏 1 ⇝ 𝜏 2⟧𝐹 = 𝐹 (⟦ 𝜏 1⟧𝐹 , ⟦𝜏 2⟧𝐹 ).
+
+An interpretation also induces, for all Γ ⊢• 𝑡 : 𝜏 , a term semantics ⟦Γ ⊢• 𝑡 : 𝜏 ⟧𝐹 : ⟦Γ⟧𝐹 →Q ⟦𝜏 ⟧𝐹 
+
+defined analogously to Definition 3.4 with 
+
+⟦Γ ⊢• fun 𝑥 : 𝜏 1. 𝑡 : 𝜏 1 ⇝ 𝜏 2⟧𝐹 = ⟦Γ; 𝑥 : 𝜏 1 ⊢• 𝑡 : 𝜏 2⟧𝐹 ⟦Γ ⊢• flip 𝑝 : 1 ⇝ Bool ⟧𝐹 𝜌 = flip 𝐹 𝑝 
+
+⟦Γ ⊢• shrink : 𝜏 * · · · * 𝜏 
+
+| {z } 
+
+> 𝑛 +1times
+
+⇝𝜏 ⟧𝐹 𝜌 = shrink 𝑛 𝐹 
+
+where the function ⟦Γ; Δ ⊢• 𝑡 : 𝜏 ⟧𝐹 : ⟦Γ⟧𝐹 →Q 𝐹 (⟦ Δ⟧𝐹 , ⟦𝜏 ⟧𝐹 ) is defined for all Γ; Δ ⊢• 𝑡 ! 𝜏 in Figure 13. The semantics for terms are adapted from Lindley et al . [2010]. The semantics of Hedgehog →
+
+terms are defined analogously to Hedgehog, where an interpretation provides implementations of  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 21
+
+ℭ• (𝐴, 𝐵 ) = (S × 𝐴 →Q Tree 𝐵 ) arr ℭ• 𝑓 (𝜎, 𝑎 ) = unit (𝑓 𝑎 )(𝑓 ◦ℭ• 𝑔 ) ( 𝜎, 𝑎 ) = bind (𝑏 ↦ → 𝑓 (𝜋 𝑟 𝜎, 𝑏 )) ( 𝑔 (𝜋 𝑙 𝜎, 𝑎 )) first ℭ• 𝑓 (𝜎, (𝑎, 𝑐 )) = map (− , 𝑐 ) ( 𝑓 (𝜎, 𝑎 )) 
+
+left ℭ• 𝑓 (𝜎, 𝜄 1 𝑎 ) = map 𝜄 1 (𝑓 (𝜎, 𝑎 )) left ℭ• 𝑓 (𝜎, 𝜄 2 𝑏 ) = unit (𝜄 2 𝑏 )
+
+flip ℭ• 𝑝 (𝜎, ()) = unit (𝜎 < 𝑝 ) shrink 𝑛  
+
+> ℭ•
+
+(𝜎, (𝑎 0, 𝑎 1, . . . , 𝑎 𝑛 )) = node (𝑎 0, unit 𝑎 1 :: . . . :: unit 𝑎 𝑛 :: 𝜖 )
+
+> Fig. 14. Hedgehog →’s Sampling Interpretation.
+
+command terms. One significant difference is that the semantics of match (specifically within a command term) is now also defined by the interpretation. As with Definition 3.4, we only require an interpretation to be a pre-arrow and not an arrow, since our sampling interpretation is not an arrow. 
+
+Definition 4.5 (Hedgehog → Sampling Interpretation). The sampling interpretation ℭ• : Qbs ×
+
+Qbs → Qbs of Hedgehog → is defined in Figure 14. Hedgehog’s sampling semantics defines generators as random variables, and Hedgehog → anal-ogously defines generator functions as random functions. The remaining definitions also mirror Definition 3.4, e.g., where composition 𝑓 ◦ℭ• 𝑔 splits its sample between arguments 𝑓 and 𝑔 .
+
+Remark 4.6. Only redefining the semantics of match is not sufficient to rule out pathological contexts such as discrim ′. Hedgehog →’s additional type system restrictions are necessary due to the presence of higher-order computation. For example, recall from Proposition 3.12, 
+
+discrim coin 2 =ℭ let 𝑏 ← shrink (true , false ) in if 𝑏 then coin 1 else coin 2.
+
+This can be expressed equivalently — without any case analysis — as 
+
+let 𝑚 ← shrink (coin 1, coin 2) in 𝑚. 
+
+The Hedgehog → version of this term is 
+
+let 𝑚 ← shrink (coin •
+
+> 1
+
+, coin • 
+
+> 2)
+
+in 𝑚 () 
+
+which does not satisfy the typing relation because let -bound variables (i.e., 𝑚 ), cannot appear on the left hand side of a function application (as in 𝑚 () ). 
+
+Example 4.7. The sampling semantics of coin •
+
+> 1
+
+, coin • 
+
+> 2
+
+: 1 ⇝ Bool (Example 4.3) are nearly identical to their counterparts in Example 3.6: 
+
+⟦coin •
+
+> 1
+
+⟧ℭ•
+
+(𝜎, 𝑢 ) = unit (𝜎 1 < 1/2 ⇔ 𝜎 2 < 1/2) ⟦coin •
+
+> 2
+
+⟧ℭ•
+
+(𝜎, 𝑢 ) = unit (𝜎 1 < 1/2)
+
+where 𝜎 1, 𝜎 2 ∈ S obtained from 𝜎 by some sequence of invocations of 𝜋 𝑙 and 𝜋 𝑟 . The exact sequences are unimportant, but they are much longer than in Example 3.6 because the semantics of let (Figure 13) involves a large number of compositions ( ◦ℭ• ). Hughes [2004, §4.2] describes how these redundant compositions can be eliminated. On the other hand, the semantics of discrim • coin • 
+
+> 1
+
+is 
+
+⟦discrim • coin •
+
+> 1
+
+⟧ℭ•
+
+𝜎 = node (𝜎 1 < 1/2 ⇔ 𝜎 2 < 1/2, unit (𝜎 3 < 1/2 ⇔ 𝜎 4 < 1/2) :: 𝜖 )
+
+where 𝜎 1, 𝜎 2, 𝜎 3, 𝜎 4 ∈ S are also obtained from 𝜎 by some sequence of invocations of 𝜋 𝑙 and 𝜋 𝑟 .Unlike Hedgehog, Hedgehog → ensures that each branch in discrim • receives an independent sample, so discrim • coin • 
+
+> 1
+
+does not return trees where all nodes are identically labelled. This example also demonstrates that the command term if 𝑡 then 𝑡 ′ else 𝑡 ′ is generally not identical to 𝑡 ′, i.e., Equation (11) does not hold in Hedgehog →. 
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 22 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+𝔇 (𝐴, 𝐵 ) = Dist (𝐴 →Q Tree 𝐵 ) arr 𝔇 𝜇 = unit (unit ◦ 𝜇 )
+
+𝜇 1 ◦𝔇 𝜇 2 = bind (𝑎 2 ↦ → map (𝑎 1 ↦ → bind 𝑎 1 ◦ 𝑎 2) 𝜇 1) 𝜇 2
+
+first 𝔇 𝜇 = map (𝜇 ′ ↦ → ( 𝑎, 𝑐 ) ↦ → map (− , 𝑐 ) ( 𝜇 ′𝑎 )) 𝜇 left 𝔇 𝜇 = map (𝜇 ′ ↦ → [ map 𝜄 1 ◦ 𝜇 ′, 𝜄 2]) 𝜇 
+
+flip 𝔇 𝑝 = map (( 𝜎, ()) ↦ → 𝜎 < 𝑝 ) 𝜆 
+
+shrink 𝑛  
+
+> 𝔇
+
+= unit (( 𝑎 0, 𝑎 1, . . . , 𝑎 𝑛 ) ↦ → node (𝑎 0, unit 𝑎 1 :: . . . :: unit 𝑎 𝑛 :: 𝜖 )) 
+
+Fig. 15. Hedgehog →’s Distribution Interpretation. 
+
+Like Hedgehog, Hedgehog → interpretations induce a semantic equivalence relation. 
+
+Definition 4.8 (Hedgehog → Semantic Equivalence). Two Hedgehog → terms Γ ⊢• 𝑡 1, 𝑡 2 : 𝜏 are seman-tically equivalent with respect to an interpretation 𝐹 (written Γ ⊢• 𝑡 1 =𝐹 𝑡 2 : 𝜏 ) if ⟦Γ ⊢• 𝑡 1 : 𝜏 ⟧𝐹 =
+
+⟦Γ ⊢• 𝑡 2 : 𝜏 ⟧𝐹 . We write 𝑡 1 =𝐹 𝑡 2 : 𝜏 for () ⊢ • 𝑡 1 =𝐹 𝑡 2 : 𝜏 and omit the type ascription ( : 𝜏 ) when it can be inferred from the surrounding context. 
+
+4.3 Distributions 
+
+Definition 4.9 (Hedgehog → Distribution Semantics). The distribution semantics of term 𝑡 : 1⇝Bool 
+
+is given by the function 
+
+L−M• : Term • → Dist (1 →Q B)
+
+L𝑡 M• = map (curry ⟦𝑡 ⟧ℭ•
+
+) 𝜆. 
+
+Definition 4.9 is the Hedgehog → analogue of Definition 3.10. 
+
+Example 4.10. We compute the distributions of coin •
+
+> 1
+
+, coin • 
+
+> 2
+
+: 1 ⇝ Bool given in Example 4.3: 
+
+Lcoin •
+
+> 1
+
+M• = 1/2 · unit (() ↦ → unit true ) + 1/2 · unit (() ↦ → unit false )
+
+Lcoin •
+
+> 2
+
+M• = 1/2 · unit (() ↦ → unit true ) + 1/2 · unit (() ↦ → unit false )
+
+These distributions are essentially identical to the ones given in Example 3.11. 
+
+Definition 4.11 (Hedgehog → Distribution Interpretation). The distribution interpretation 𝔇 : Qbs →
+
+Qbs is defined in Figure 15. 
+
+Proposition 4.12. The interpretation 𝔇 is an arrow. 
+
+Proof. Follows from the fact that Dist is a monad and (− → Q Tree −) is an arrow. □
+
+Lemma 4.13. The following equations hold: 
+
+map (curry (arr ℭ• 𝑓 )) 𝜆 = arr 𝔇 𝑓 (17) 
+
+map (curry (first ℭ• 𝑓 )) 𝜆 = first 𝔇 (map (curry 𝑓 𝜆 )) (18) 
+
+map (curry (left ℭ• 𝑓 )) 𝜆 = left 𝔇 𝑓 (19) 
+
+map (curry (𝑓 ◦ℭ• 𝑔 )) 𝜆 = map (curry 𝑓 ) 𝜆 ◦𝔇 map (curry 𝑔 ) 𝜆 (20) 
+
+map (curry (flip ℭ• 𝑝 )) 𝜆 = flip 𝔇 𝑝 (21) 
+
+map (curry shrink 𝑛  
+
+> ℭ•
+
+) 𝜆 = shrink 𝑛  
+
+> 𝔇
+
+(22) 
+
+Proof.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 23
+
+(17) 
+
+map (curry (arr ℭ• 𝑓 )) 𝜆 = map (𝜎 ↦ → 𝑎 ↦ → arr ℭ• 𝑓 (𝜎, 𝑎 )) 𝜆 
+
+= map (𝜎 ↦ → 𝑎 ↦ → unit (𝑓 𝑎 )) 𝜆 
+
+= unit (𝑎 ↦ → unit (𝑓 𝑎 )) 
+
+= arr 𝔇 𝑓 
+
+(18) 
+
+map (curry (first ℭ• 𝑓 )) 𝜆 = map (𝜎 ↦ → ( 𝑎, 𝑐 ) ↦ → first ℭ• 𝑓 (𝜎, (𝑎, 𝑐 ))) 𝜆 
+
+= map (𝜎 ↦ → ( 𝑎, 𝑐 ) ↦ → map (− , 𝑐 ) ( 𝑓 (𝜎, 𝑎 ))) 𝜆 
+
+= map (𝜎 ↦ → ( 𝑎, 𝑐 ) ↦ → map (− , 𝑐 ) ( curry 𝑓 𝜎 𝑎 )) 𝜆 
+
+= map (𝑓 ′ ↦ → ( 𝑎, 𝑐 ) ↦ → map (− , 𝑐 ) ( 𝑓 ′𝑎 )) ( map (curry 𝑓 ) 𝜆 )
+
+= first 𝔇 (map (curry 𝑓 ) 𝜆 )
+
+(19) 
+
+map (curry (left ℭ• 𝑓 )) 𝜆 = map (𝜎 ↦ → [ map 𝜄 1 ◦ curry 𝑓 𝜎, unit ◦ 𝜄 2]) 𝜆 
+
+= map (𝑓 ′ ↦ → [ map 𝜄 1 ◦ 𝑓 ′, 𝜄 2]) ( map (curry 𝑓 ) 𝜆 )
+
+= left 𝔇 (map (curry 𝑓 ) 𝜆 )
+
+(20) 
+
+map (curry (𝑓 ◦ℭ• 𝑔 )) 𝜆 
+
+= map (𝜎 ↦ → 𝑎 ↦ → bind (𝑏 ↦ → 𝑓 (𝜋 𝑟 𝜎, 𝑏 )) ( 𝑔 (𝜋 𝑙 𝜎, 𝑎 ))) 𝜆 
+
+= bind (𝜎 ↦ → unit (𝑎 ↦ → bind (𝑏 ↦ → 𝑓 (𝜋 𝑟 𝜎, 𝑏 )) ( 𝑔 (𝜋 𝑙 𝜎, 𝑎 )))) 𝜆 
+
+= bind (𝜎 1 ↦ → bind (𝜎 2 ↦ → unit (𝑎 ↦ → bind (𝑏 ↦ → 𝑓 (𝜎 2, 𝑏 )) ( 𝑔 (𝜎 1, 𝑎 )))) 𝜆 ) 𝜆 
+
+= bind (𝜎 1 ↦ → map (𝜎 2 ↦ → 𝑎 ↦ → bind (𝑏 ↦ → 𝑓 (𝜎 2, 𝑏 )) ( 𝑔 (𝜎 1, 𝑎 ))) 𝜆 ) 𝜆 
+
+= bind (𝜎 1 ↦ → map (𝜎 2 ↦ → bind (curry 𝑓 𝜎 2) ◦ curry 𝑔 𝜎 1) 𝜆 ) 𝜆 
+
+= bind (𝑎 2 ↦ → map (𝜎 ↦ → bind (curry 𝑓 𝜎 ) ◦ 𝑎 2) 𝜆 ) ( map (curry 𝑔 ) 𝜆 )
+
+= bind (𝑎 2 ↦ → map (𝑎 1 ↦ → bind 𝑎 1 ◦ 𝑎 2) ( map (curry 𝑓 ) 𝜆 )) ( map (curry 𝑔 ) 𝜆 )
+
+= map (curry 𝑓 ) 𝜆 ◦𝔇 map (curry 𝑔 ) 𝜆 
+
+□
+
+Theorem 4.14. Suppose () ⊢ • 𝑡 : 1 ⇝ Bool . Then L𝑡 M• = ⟦𝑡 ⟧𝔇 .
+
+Proof. Follows from Lemma 4.13. □
+
+Theorem 4.14 states that, unlike Hedgehog’s distribution semantics, Hedgehog →’s distribution semantics are compositional, as witnessed by the interpretation 𝔇 . Under 𝔇 , generator functions are interpreted as distributions of functions into shrink trees. Note that, in Theorem 4.14, 𝑡 is a command term and therefore represents an effectful computation. 
+
+Theorem 4.15. Equations (1) to (16) (Theorems 3.8 and 3.9) all hold for Hedgehog → terms under 𝔇 ,
+
+except for equation (11) .
+
+Theorem 4.15 demonstrates that Hedgehog → is considerably more suited for program optimiza-tion than Hedgehog. The only transformation which is not valid (as demonstrated in Example 4.7) is equation (11). However, we can recover a special case.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 24 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+Types 
+
+⟨1⟩ty = 1 ⟨0⟩ty = 0 ⟨𝜏 1 + 𝜏 2⟩ty = ⟨𝜏 1⟩ty + ⟨𝜏 2⟩ty ⟨𝜏 1 * 𝜏 2⟩ty = ⟨𝜏 1⟩ty * ⟨𝜏 2⟩ty 
+
+⟨𝜏 1  𝜏 2⟩ty = ⟨𝜏 1⟩ty  ⟨𝜏 2⟩ty ⟨𝜏 1 ⇝ 𝜏 2⟩ty = ⟨𝜏 1⟩ty  Gen ⟨𝜏 2⟩ty 
+
+Environments 
+
+⟨𝑥 1 : 𝜏 1, . . . , 𝑥 𝑛 : 𝜏 𝑛 ⟩env = 𝑥 1 : ⟨𝜏 1⟩ty , . . . , 𝑥 𝑛 : ⟨𝜏 𝑛 ⟩ty 
+
+Terms 
+
+⟨𝑥 ⟩tm = 𝑥 ⟨absurd 𝑡 ⟩tm = absurd ⟨𝑡 ⟩tm ⟨() ⟩tm = () ⟨inl 𝑡 ⟩tm = inl ⟨𝑡 ⟩tm 
+
+⟨inr 𝑡 ⟩tm = inr ⟨𝑡 ⟩tm 
+
+⟨match 𝑡 1 with inl 𝑥 1. 𝑡 2 | inr 𝑥 2. 𝑡 3⟩tm 
+
+= match ⟨𝑡 1⟩tm with inl 𝑥 1. let 𝑦 ← ⟨𝑡 2⟩tm in return 𝑦 
+
+> |
+
+inr 𝑥 2. let 𝑦 ← return () in ⟨𝑡 3⟩tm 
+
+⟨(𝑡 1, 𝑡 2)⟩tm = (⟨𝑡 1⟩tm , ⟨𝑡 2⟩tm ) ⟨fst 𝑡 ⟩tm = fst ⟨𝑡 ⟩tm ⟨snd 𝑡 ⟩tm = snd ⟨𝑡 ⟩tm 
+
+⟨fun 𝑥 : 𝜏 . 𝑡 ⟩tm = fun 𝑥 : ⟨𝜏 ⟩ty . ⟨𝑡 ⟩tm ⟨𝑡 1 𝑡 2⟩tm = ⟨𝑡 1⟩tm ⟨𝑡 2⟩tm ⟨return 𝑡 ⟩tm = return ⟨𝑡 ⟩tm 
+
+⟨let 𝑥 ← 𝑡 1 in 𝑡 2⟩tm = let 𝑥 ← ⟨𝑡 1⟩tm in ⟨𝑡 2⟩tm ⟨flip 𝑝 ⟩tm = flip 𝑝 ⟨shrink ⟩tm = shrink 
+
+Fig. 16. Translation from Hedgehog → to Hedgehog. 
+
+Proposition 4.16. The following equivalence holds: 
+
+let 𝑥 ← flip 𝑝 in if 𝑥 then 𝑡 else 𝑡 =𝔇 𝑡 (11 ′)Intuitively, Proposition 4.16 demonstrates that equation (11) holds whenever the condition term does not shrink. 
+
+4.4 From Hedgehog → to Hedgehog 
+
+Definition 4.17. The translation from Hedgehog → types, environments, and terms to Hedgehog types, environments, and terms is given by the functions ⟨−⟩ ty : Type • →Type , ⟨−⟩ env : Env • →Env ,and ⟨−⟩ tm : Term • → Term defined in Figure 16. Definition 4.17 defines our translation from Hedgehog → terms to Hedgehog terms. The only changes performed by ⟨−⟩ tm are (1) replacing every instance of 𝜏 1 ⇝ 𝜏 2 with 𝜏 1  Gen 𝜏 2, and (2) adding additional return computations to match terms. 
+
+Proposition 4.18. The following statements hold: (1) Suppose Γ ⊢• 𝑡 : 𝜏 . Then ⟨Γ⟩env ⊢ ⟨ 𝑡 ⟩tm : ⟨𝜏 ⟩ty .(2) Suppose Γ; Δ ⊢• 𝑡 ! 𝜏 . Then ⟨Γ⟩env , ⟨Δ⟩env ⊢ ⟨ 𝑡 ⟩tm : ⟨𝜏 ⟩ty .
+
+Proposition 4.18 shows that our translation preserves typing. As shown in Example 4.7, it is not the case that our translation preserves sampling semantics. However, distribution semantics is preserved. 
+
+Lemma 4.19. Suppose () ; () ⊢ • 𝑡 1 =𝔇 𝑡 2 : Bool . Then L⟨𝑡 1⟩tm M = L⟨𝑡 2⟩tm M.
+
+4.5 Summary 
+
+We have introduced Hedgehog →, a restricted variant of Hedgehog with a compositional distribution semantics (Theorem 4.14). Hedgehog → achieves this by forcing different branches in a case analysis                                                                               
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 25 1coin1 ∷Gen () Bool
+> 2coin1 =proc () →do
+> 3x←bool_ ⤙()
+> 4y←bool_ ⤙()
+> 5returnA ⤙x== y
+> 6coin2 ∷Gen () Bool
+> 7coin2 =proc () →do
+> 8x←bool_ ⤙()
+> 9returnA ⤙x
+> 10 discrim ∷Gen () Bool →Gen () Bool
+> 11 discrim m=proc () →do
+> 12 x←shrinkTo ⤙(True ,[False ])
+> 13 if xthen m⤙() else coin1 ⤙()
+
+Fig. 17. Example 4.3 translated to Haskell. 
+
+(match ) to produce statistically independent values. This cannot be a simple semantic change due to the presence of higher-order computation, so Hedgehog → also places restrictions on (effectful) function application in the style of the arrow calculus [Lindley et al . 2010]. The resulting language admits nearly all the program transformations discussed in Theorems 3.8 and 3.9, except for one which holds in a restricted context. We provide a simple translation from Hedgehog → back to Hedgehog, which indicates that any Hedgehog program which corresponds to some Hedgehog →
+
+program is equally amenable to optimization. 
+
+5 Evaluation 
+
+In Section 4, we described a modification of the Hedgehog language, Hedgehog →, which has a com-positional distribution semantics which supports a much wider variety of program transformations than Hedgehog (Theorem 4.15). We now evaluate the effects of Hedgehog →’s design with respect to other practical considerations. Given that the Hedgehog → language obtains a compositional semantics by placing syntactic restrictions on the form of Hedgehog programs, the goal of our evaluation is to answer the following research questions: 
+
+RQ1: To what extent can a Hedgehog →-based language express existing generators? 
+
+RQ2: What is the impact of Hedgehog →’s design on program size? 
+
+5.1 Setup 
+
+We have implemented Hedgehog → as a companion library to Hedgehog. The library, hedgehog-arrow , includes a type Gen a b of effectful functions from a to b. The Glasgow Haskell Compiler (GHC) includes syntactic extensions for arrows [Paterson 2001], which allows programs to be written in a syntax similar to what is presented in Section 4. For example, we translate Example 4.3 to Haskell in Figure 17. Anonymous generator functions are constructed using the proc keyword, sequential composition is denoted using do notation, and generator function application is explicitly denoted using the operator “ ”. In addition to the two basic operators flip and shrink presented in Sections 3 and 4, hedgehog-arrow also includes the following primitives: (1) Operations getSize :: Gen a Size and resize :: Gen a b → Gen (Size, a) b for con-trolling the size of generated values. (2) An operation freeze :: Gen a b → Gen a (Tree b) which runs its argument, capturing all of its shrinking behaviour and saving it to a tree. The first feature comes from QuickCheck and solves certain termination issues [Claessen and Hughes 2000]. The second feature is used to modify or eliminate existing shrinking behaviour. For example, the function prune , which eliminates all shrinking behaviour from its argument, is implemented using freeze in Figure 18. Intuitively, prune behaves exactly like freeze but discards everything except the root value in the resulting tree (line 4). We perform our experiments on Hedgehog’s Hedgehog.Gen module. The Hedgehog.Gen module contains a large collection of common generators and generator combinators. We provide analogues for each of these generators and combinators in hedgehog-arrow . We also perform experiments                            
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 26 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik 1prune ∷Gen ab→Gen ab
+> 2prune g=proc x→do
+> 3y←freeze g⤙x
+> 4returnA ⤙treeLabel y
+
+Fig. 18. The prune Function. 
+
+Module # Expressible Module Size  
+
+> Hedgehog.Gen
+
+2/4/70 (76) N/A  
+
+> Test.Example.Basic
+
+0/5/13 (18) 417/393 (6.1%)  
+
+> Test.Example.Confidence
+
+0/0/1 (1) 35/37 (-5.4%)  
+
+> Test.Example.Coverage
+
+0/0/7 (7) 251/261 (-3.8%)  
+
+> Test.Example.Exception
+
+0/0/3 (3) 82/85 (-3.5%)  
+
+> Test.Example.QuasiShow
+
+0/0/2 (2) 63/60 (5%)  
+
+> Test.Example.Resource
+
+0/0/3 (3) 398/401 (-0.7%)  
+
+> Test.Example.RoundTrip
+
+0/3/0 (6) 225/216 (4.2%)  
+
+> Test.Example.STLC
+
+0/15/1 (16) 425/402 (5.7%) 
+
+Table 1. Numbers of expressible generators per module and module sizes. Generator counts are reported as number of (not expressible/semi-expressible/fully-expressible (total)) generators. Module sizes are reported as (Hedgehog →/Hedgehog) module AST nodes. 
+
+on several modules from Hedgehog’s example repository 2. We rewrote each of these modules to use hedgehog-arrow . Our full module set is given in Table 1. The source code for our implementation, examples, and experiments is available at https://github. com/hedgehog-arr/hedgehog-arr. 
+
+5.2 Results 
+
+RQ1: To what extent can a Hedgehog →-based language express existing generators? Hedgehog → is intuitively a restricted version of Hedgehog, hence we investigate the impact this restriction has on expressivity in practice. Table 1 lists, per module, how many generators and combinators within those modules (1) cannot be expressed in Hedgehog →,(2) are semi-expressible , i.e., can be expressed using non-expressible generators, and (3) are expressible in Hedgehog →.We observed only two combinators in the first category: choice and frequency . To illustrate why these combinators are not expressible, we present a simplified implementation of choice in Figure 19. Intuitively, choice xs selects a random generator x from xs and executes it. During shrinking, choice xs may behave like any x’ in xs which occurs earlier than x. Operationally, 
+
+choice xs works by selecting a random integer n (line 4) and then executing the nth element of xs (line 5). The reason choice cannot be implemented is because it always passes the same sample to its selection xs !! n, which introduces a statistical dependency, which is explicitly disallowed by Hedgehog → (see Remark 4.6). The frequency combinator exhibits the same issue. We provide alternative implementations of choice and frequency in hedgehog-arrow which guarantee statistical independence during shrinking. Note that combinators are not generators themselves, but functions used to construct other generators: to our knowledge, no generator deliberately depends on the original behaviour of choice and frequency .
+
+Summary: hedgehog-arrow expresses almost all generators in our evaluation corpus, including those used in practical examples.                                     
+
+> 2Commit 4e9045fafa9b50efdc68326cd9f643c0d8383a18 , Vol. 1, No. 1, Article . Publication date: June 2026. Compositional Generator Equivalence (Extended Version) 27 1choice ∷MonadGen m⇒[ma]→ma
+> 2choice [] =error "Hedgehog.Gen.choice: used with empty list "
+> 3choice xs =do n←integral (Range .constant 0(length xs -1))
+> 4xs !! n
+
+Fig. 19. The implementation of choice in Hedgehog. 
+
+RQ2: What is the impact of Hedgehog →’s design on program size? The restrictions Hedgehog →
+
+places on command terms may require users to employ verbose workarounds. We determine whether this is the case by measuring the impact of Hedgehog →’s design on program size. Table 1 lists the size (in AST nodes) of both the Hedgehog and hedgehog-arrow version of each module. We do not compare the Hedgehog.Gen module because the Hedgehog.Gen primarily consists of re-exported internal code. Our results show that using hedgehog-arrow has a negligible impact on program size. 
+
+Summary: hedgehog-arrow programs are not significantly larger than their Hedgehog counter-parts. 
+
+5.3 Threats to Validity 
+
+Our example set is entirely written in Haskell, which is a lazy and purely functional language. Our results may not generalize to strict, imperative languages. Our example set, while fairly large, does not include any particularly large examples (the largest being 122 lines), so our conclusions may not hold for larger programs. 
+
+6 Related Work 
+
+Property-Based Testing and Shrinking. Property-based testing was popularized by the QuickCheck [Claessen and Hughes 2000] framework for Haskell, which features a probabilistic eDSL for spec-ifying generators. In QuickCheck, a shrinker for a type a is specified separately as a function  
+
+> shrinks
+
+:: a → [a] from values to their immediate shrinks. In contrast, Hedgehog → employs 
+
+generator-based shrinking , where shrinkers are derived from annotated generator specifications. Generator-based shrinking approaches were introduced by QuviQ QuickCheck [Claessen et al .2009] for Erlang. QuviQ QuickCheck implements generator-based shrinking using integrated shrinking , where generators are represented as tree-valued random variables. Integrated shrinking is used by Hedgehog [Stanley 2024] (and hence Hedgehog →) and many property-based testing frameworks in other languages such as RapidCheck [Eriksson 2024] for C++. The Hypothesis [Maciver and Hatfield-Dodds 2019] library for Python implements a different approach to generator-based shrinking called internal shrinking , where generators are represented as random variables drawing from a space of infinite bit sequences, and shrinks are obtained by re-executing generators on modified bit sequences obtained via a set of built-in heuristics. While hypothesis often produces better shrinks than approaches based on integrated shrinking for programs with no user annotations, hypothesis provides no mechanism for user control over shrinking. This is less than ideal when the built-in heuristics are insufficient. The falsify library for Haskell [de Vries 2023] rectifies this downside while retaining the advantages of internal shrinking by allowing users to specify custom shrinking behaviour. De Vries [2023] identify the primary advantage of internal shrinking as hierarchical shrinking behaviour, where shrinking is allowed to backtrack. The Hedgehog language actually exhibits hierarchical shrinking for generators implemented using Applicative functor operations [Mcbride and Paterson 2008]. Applicative functors and arrows are closely related [Mcbride and Paterson 2008]. Integrating hierarchical shrinking into Hedgehog → is left as future work.  
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026. 28 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik
+
+Reflective generators [Goldstein et al . 2023] extend normal generators with partial monadic profunctor operations. Goldstein et al . [2023] show how this extension lends itself to a number of features, including the ability to run a generator “backwards” to obtain a random seed from a user-provided test case. The reflective generator framework does not mandate a particular interpretation, but is incompatible with Hedgehog →’s semantics since Hedgehog →’s explicitly disallows the general (monadic) form of sequential composition that reflective generators support. The formal semantics of generator-based shrinking languages have not been explored in detail prior to this work and hence these languages lack sound, formally-specified, compositional rules for reasoning about combined generator and shrinker behaviour. 
+
+Optimizing Generator Execution Time. The abstractions used by property-based testing libraries introduce a non-trivial amount of overhead. Richey et al . [2026] describe how to use staging techniques to eliminate this overhead. In another vein, QuickerCheck [Krook et al . 2023] is an implementation of QuickCheck which achieves significant performance improvements by running test cases in parallel. Both works are orthogonal to ours: Krook et al . [2023] and Richey et al . [2026] focus on optimizing the execution of generators, while our work enables optimizing generators themselves. 
+
+Semantics of Probabilistic Programming Languages. Quasi-Borel Spaces [Heunen et al . 2017] form a semantic model of higher-order probabilistic programs, which we use to justify our various semantics. Quasi-Borel Pre-Domains [Vákár et al . 2019] combine quasi-Borel spaces with 𝜔 -complete partial orders [Abramsky and Jung 1995] to allow modelling probabilistic programs with recursion. All of our results generalize to this setting except for (possibly) Theorem 3.15. The proof of Theorem 3.15 relies on the fact that, whenever ⟦𝑡 ⟧ℭ 𝜎 = 𝑥 , then ⟦𝑡 ⟧ℭ 𝜎 ′ = 𝑥 for all 𝜎 ′ in some set of positive measure. This holds for all terminating programs, but not necessarily for non-terminating programs. Investigating this case is left for future work. Note that a failure to generalize does not reduce the impact of Theorem 3.15 since it still applies to all terminating programs. 
+
+Semantics of Probabilistic and Nondeterministic Programming Languages. Shrinking can be viewed as a form of nondeterminism, and there is a large body of work addressing the combination of probabilistic and nondeterministic effects [Bandini and Segala 2001; Chen and Sanders 2009; Gibbons and Hinze 2011; Mislove et al . 2004; Varacca and Winskel 2006]. Various authors [Gibbons and Hinze 2011; Mislove et al . 2004; Varacca and Winskel 2006] observe that allowing probabilistic choice to distribute over nondeterministic choice, combined with the idempotence of probabilistic choice, leads to unexpected behaviour. Theorem 3.15 provides a similar type of observation, specific to Hedgehog. Placing this result in a more general setting is left to future work. 
+
+Arrows. Arrows are a generalization of monads [Moggi 1991] introduced to functional program-ming by Hughes [2000]. Arrows model languages with more restricted control flow than monads allow, which is crucial for our solution. Arrows alone do not model languages with case analysis: the  
+
+> ArrowChoice
+
+class [Hughes 2000] in Haskell extends arrows with this ability, and corresponds to the left function required by Hedgehog → interpretations. Hedgehog → is built on the arrow calculus 
+
+[Lindley et al . 2010], which provides a more familiar presentation of arrows and their equational properties. Paterson [2001] describes a similar notation for Haskell, on which our implementation is based. 
+
+7 Conclusion and Future Work 
+
+Existing languages that feature user-controlled generator-based shrinking lack sound, compositional semantics for reasoning about generator equivalence. In this paper, we showed that this problem is 
+
+> , Vol. 1, No. 1, Article . Publication date: June 2026.
+
+Compositional Generator Equivalence (Extended Version) 29 
+
+inherent to the design of existing languages, using Hedgehog as a canonical example. We defined Hedgehog →, a restricted version of Hedgehog, and showed that it has an appropriate compositional semantics. We also showed that Hedgehog → is expressive enough in practice by translating a large set of existing programs into Hedgehog →, and showed that Hedgehog → programs are not significantly more tedious to write than Hedgehog programs. Generator-based shrinking is frequently much slower than manual shrinking [Lyngle 2019; Tweedale 2020], which begs the question: why not use manual shrinking if performance is a concern? Anecdotally, we have found falsify to be up to an order of magnitude faster than Hedgehog in some cases (although not quite as fast as QuickCheck), which indicates that poor performance with generator-based shrinking is largely a product of Hedgehog’s implementation strategy of representing generators as tree-valued random variables. In principle, generator-based shrinking should not induce additional overhead during the testing stage, as shrinking is not even performed on the vast majority of (successful) test cases. Implementation strategies aside, our work demonstrates that generators written using Hedgehog-style generator-based shrinking frameworks are inherently less optimizable than equivalent gen-erators written in frameworks with manual shrinking, as many common optimizations are only allowed in the latter (Theorems 3.8 and 3.15). On the other hand, we have shown that many common optimizations are valid within Hedgehog → (Theorem 4.15). Implementing these optimizations (e.g. with rewrite rules [Reinders 2024] or a compiler plugin [Farmer et al . 2012] for Haskell programs) remain as future work. As mentioned in Section 6, integrating falsify-style [de Vries 2023] hierarchical shrinking into Hedgehog → is also left as future work. 
+
+Data Availability Statement 
+
+The source code for our implementation, examples, and experiments is available at https://github. com/hedgehog-arr/hedgehog-arr. 
+
+References 
+
+Samson Abramsky and Achim Jung. 1995. Domain theory . Oxford University Press, Inc., USA, 1–168. Alfred V. Aho, Monica S. Lam, Ravi Sethi, and Jeffrey D. Ullman. 2006. Compilers: Principles, Techniques, and Tools (2nd Edition) . Addison-Wesley Longman Publishing Co., Inc., USA. Emanuele Bandini and Roberto Segala. 2001. Axiomatizations for Probabilistic Bisimulation. In Proceedings of the 28th International Colloquium on Automata, Languages and Programming, (ICALP ’01) . Springer-Verlag, Berlin, Heidelberg, 370–381. Yifeng Chen and J. W. Sanders. 2009. Unifying Probability with Nondeterminism. In FM 2009: Formal Methods , Ana Cavalcanti and Dennis R. Dams (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 467–482. Koen Claessen and John Hughes. 2000. QuickCheck: a lightweight tool for random testing of Haskell programs. In Proceedings of the Fifth ACM SIGPLAN International Conference on Functional Programming (ICFP ’00), Montreal, Canada, September 18-21, 2000 , Martin Odersky and Philip Wadler (Eds.). ACM, New York, NY, 268–279. doi:10.1145/351240.351266 Koen Claessen, Michal Palka, Nicholas Smallbone, John Hughes, Hans Svensson, Thomas Arts, and Ulf Wiger. 2009. Finding race conditions in Erlang with QuickCheck and PULSE. SIGPLAN Not. 44, 9 (Aug. 2009), 149–160. doi:10.1145/1631687. 1596574 Ryan Culpepper and Andrew Cobb. 2017. Contextual Equivalence for Probabilistic Programs with Continuous Random Variables and Scoring. In Programming Languages and Systems: 26th European Symposium on Programming, ESOP 2017, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2017, Uppsala, Sweden, April 22–29, 2017, Proceedings (Uppsala, Sweden). Springer-Verlag, Berlin, Heidelberg, 368–392. doi:10.1007/978-3-662-54434-1_14 Ugo Dal Lago, Giulio Guerrieri, and Willem Heijltjes. 2020. Decomposing Probabilistic Lambda-Calculi. In Foundations of Software Science and Computation Structures: 23rd International Conference, FOSSACS 2020, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2020, Dublin, Ireland, April 25–30, 2020, Proceedings (Dublin, Ireland). Springer-Verlag, Berlin, Heidelberg, 136–156. doi:10.1007/978-3-030-45231-5_8 Edsko de Vries. 2023. falsify: Internal Shrinking Reimagined for Haskell. In Proceedings of the 16th ACM SIGPLAN International Haskell Symposium, Haskell 2023, Seattle, WA, USA, September 8-9, 2023 , Trevor L. McDonell and Niki Vazou (Eds.). ACM, , Vol. 1, No. 1, Article . Publication date: June 2026. 30 Anthony Vandikas, Kiarash Sotoudeh, and Marsha Chechik 
+
+New York, NY, 97–109. doi:10.1145/3609026.3609733 Emil Eriksson. 2024. RapidCheck. github.com/emil-e/rapidcheck. Claudia Faggian and Simona Ronchi della Rocca. 2019. Lambda Calculus and Probabilistic Computation. In 2019 34th Annual ACM/IEEE Symposium on Logic in Computer Science (LICS) . 1–13. doi:10.1109/LICS.2019.8785699 Andrew Farmer, Andy Gill, Ed Komp, and Neil Sculthorpe. 2012. The HERMIT in the machine: a plugin for the interactive transformation of GHC core language programs. In Proceedings of the 2012 Haskell Symposium (Copenhagen, Denmark) 
+
+(Haskell ’12) . Association for Computing Machinery, New York, NY, USA, 1–12. doi:10.1145/2364506.2364508 Jeremy Gibbons and Ralf Hinze. 2011. Just do it: simple monadic equational reasoning. SIGPLAN Not. 46, 9 (Sept. 2011), 2–14. doi:10.1145/2034574.2034777 Harrison Goldstein, Samantha Frohlich, Meng Wang, and Benjamin C Pierce. 2023. Reflecting on Random Generation. 
+
+Proceedings of the ACM on Programming Languages 7, ICFP (2023), 322–355. Chris Heunen, Ohad Kammar, Sam Staton, and Hongseok Yang. 2017. A convenient category for higher-order probability theory. In Proceedings of the 32nd Annual ACM/IEEE Symposium on Logic in Computer Science (Reykjavík, Iceland) (LICS ’17) . IEEE Press, Article 77, 12 pages. John Hughes. 2000. Generalising monads to arrows. Sci. Comput. Program. 37, 1–3 (May 2000), 67–111. doi:10.1016/S0167-6423(99)00023-4 John Hughes. 2004. Programming with arrows. In Proceedings of the 5th International Conference on Advanced Functional Programming (Tartu, Estonia) (AFP’04) . Springer-Verlag, Berlin, Heidelberg, 73–129. doi:10.1007/11546382_2 Robert Krook, Nicholas Smallbone, Bo Joel Svensson, and Koen Claessen. 2023. QuickerCheck: Implementing and Evaluating a Parallel Run-Time for QuickCheck (IFL 2023) .Sam Lindley, Philip Wadler, and Jeremy Yallop. 2010. The arrow calculus. J. Funct. Program. 20, 1 (2010), 51–69. doi:10.1017/ S095679680999027X Jason Lyngle. 2019. Proptest. altsysrq.github.io/proptest-book/print.html#differences-between-quickcheck-and-proptest David Maciver and Zac Hatfield-Dodds. 2019. Hypothesis: A new approach to property-based testing. J. Open Source Softw. 
+
+4, 43 (2019), 1891. doi:10.21105/JOSS.01891 Conor Mcbride and Ross Paterson. 2008. Applicative programming with effects. J. Funct. Program. 18, 1 (Jan. 2008), 1–13. doi:10.1017/S0956796807006326 Michael Mislove, Joël Ouaknine, and James Worrell. 2004. Axioms for probability and nondeterminism. Electronic Notes in Theoretical Computer Science 96 (2004), 7–28. Eugenio Moggi. 1991. Notions of Computation and Monads. Inf. Comput. 93, 1 (1991), 55–92. doi:10.1016/0890-5401(91)90052-4Ross Paterson. 2001. A new notation for arrows. SIGPLAN Not. 36, 10 (Oct. 2001), 229–240. doi:10.1145/507669.507664 Gordon D. Plotkin. 1977. LCF Considered as a Programming Language. Theor. Comput. Sci. 5, 3 (1977), 223–255. doi:10.1016/ 0304-3975(77)90044-5 Jaro Reinders. 2024. Higher Order Patterns for Rewrite Rules. In Proceedings of the 17th ACM SIGPLAN International Haskell Symposium (Milan, Italy) (Haskell 2024) . Association for Computing Machinery, New York, NY, USA, 14–26. doi:10.1145/3677999.3678275 Cynthia Richey, Joseph W. Cutler, Harrison Goldstein, and Benjamin C. Pierce. 2026. Fail Faster: Staging and Fast Randomness for High-Performance PBT. Proceedings of the ACM on Programming Languages (2026). Jacob Stanley. 2024. Hedgehog. hackage.haskell.org/package/hedgehog. Sam Staton. 2017. Commutative Semantics for Probabilistic Programming. In Programming Languages and Systems: 26th European Symposium on Programming, ESOP 2017, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2017, Uppsala, Sweden, April 22–29, 2017, Proceedings (Uppsala, Sweden). Springer-Verlag, Berlin, Heidelberg, 855–879. doi:10.1007/978-3-662-54434-1_32 Fraser Tweedale. 2020. Migrating from QuickCheck to Hedgehog: mixed results. frasertweedale.github.io/blog-fp/posts/2020-03-31-quickcheck-hedgehog.html#shrinking-performance Matthijs Vákár, Ohad Kammar, and Sam Staton. 2019. A domain theory for statistical probabilistic programming. Proc. ACM Program. Lang. 3, POPL, Article 36 (Jan. 2019), 29 pages. doi:10.1145/3290349 Daniele Varacca and Glynn Winskel. 2006. Distributing probability over non-determinism. Mathematical structures in computer science 16, 1 (2006), 87–113. , Vol. 1, No. 1, Article . Publication date: June 2026.
