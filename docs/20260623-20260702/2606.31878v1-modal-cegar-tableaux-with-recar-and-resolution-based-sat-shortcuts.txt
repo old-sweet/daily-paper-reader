@@ -1,0 +1,947 @@
+Title: Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts
+
+URL Source: https://arxiv.org/pdf/2606.31878v1
+
+Published Time: Wed, 01 Jul 2026 01:24:51 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+> M. Bílková, M. Gattinger, I. van der Giessen, M. Girlando, Y. Wang (Eds.): Advances in Modal Logic 2026 (AiML 2026) EPTCS 447, 2026, pp. 427–444, doi:10.4204/EPTCS.447.24 © Rajeev Goré & Cormac Kikkert This work is licensed under the Creative Commons Attribution License.
+
+# Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+Rajeev Goré 
+
+> Faculty of Information Technology, Monash University, Australia
+> rajeev.gore@monash.edu
+
+Cormac Kikkert 
+
+> Cormac Kikkert Research
+
+We investigate two approaches for extending CEGAR-tableaux with SAT-shortcuts using a previ-ously known approach called RECAR but also a totally new approach using the modal resolution theorem prover KSP as an oracle. Our experiments using our C++ implementation CEGARBox++ of CEGAR-tableaux show that: (1) CEGARBox++ with RECAR SAT-shortcuts is not competitive (2) 
+
+CEGARBox++ using KSP to provide SAT-shortcuts is superior to both CEGARBox++ and KSP , particu-larly on large satisfiable problems. As far as we know, this is the first effective integration of SAT, tableaux and resolution methods for modal satisfiability which performs better than its parts. 
+
+# 1 Introduction 
+
+Propositional modal, temporal and description logics are of fundamental importance in logic-based ar-tificial intelligence, hardware and software verification [22] and knowledge representation and reason-ing [1]. Thus efficient decision procedures for modal logic are an important area of research. Such research has not matched the advances in SAT-solving, until recently, when various authors independently used SAT-solvers for modal satisfiability [19, 8, 13, 14, 9] using a technique originally due to Claessen and Rosén [5] for propositional intuitionistic logic, which was, itself, “inspired” by the work of Goré et al. on “modal clause learning” using binary decision diagrams [11]. We previously [9] presented a new type of tableaux calculus which uses a SAT-solver and the stan-dard counter-example guided abstraction refinement (CEGAR) methodology [6] to search for a rooted Kripke model for a given formula in modal clausal normal form (mcnf). We showed how to modify the initial mcnf to “compile in” the axioms T and 4 via a preprocessing stage, adding a standard loop-check for termination when required. Our Haskell implementation CEGARBox was, overall, the best over the standard benchmarks for the modal logics K, KT and S4, sometimes by orders of magnitude. Indeed, the only benchmark where CEGARBox did not win were the K-MQBF benchmarks, where the modal resolu-tion theorem prover KSP solved approximately 50 (out of 1000) more problems in 32 seconds each [9]: see Figure 3. When using SAT-solvers as oracles, we usually first create a formula of classical propositional logic (cpl) which is an approximation of the given (modal) formula ϕ0. The approximation is an under-approximation ˇϕ0 if its cpl-UNSATisfiability implies the modal unsatisfiability of ϕ0, giving us an 
+
+EUNSAT-shortcut. The approximation is an over-approximation ˆϕ0 if its cpl-SATisfiability implies the modal satisfiability of ϕ0, giving us a ESAT-shortcut. Here we report on two ways to add ESAT-shortcuts to CEGAR-tableaux: the RECAR approach and a totally new approach using the resolution-based solver KSP as an oracle. Using our new C++ implemen-tation CEGARBox++ , our experiments show that: (1) CEGARBox++ with RECAR ESAT-shortcuts is not competitive; and (2) CEGARBox++ using KSP to provide ESAT-shortcuts is superior to each, particularly on large satisfiable problems. 428 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+M, w ⊩ ⟨α⟩ϕ iff ∃v, Rα (w, v) & M, v ⊩ ϕ
+
+M, w ⊩ [ α ]ϕ iff ∀v, Rα (w, v) ⇒ M, v ⊩ ϕ
+
+Figure 1: Semantics of multi-modal logic K n (aka ALC) 
+
+# 2 Preliminaries: syntax, semantics and modal clausal normal form 
+
+Let Ag be a non-empty finite set of agent names. Let Atm be a set of atomic formulae with Atm ∩ Ag = /0. Consider the language of formulae defined from atoms p ∈ Atm and α ∈ Ag by the BNF grammar: 
+
+ϕ :: = ⊥ | ⊤ | p | ¬ ϕ | ϕ ∧ ϕ | ϕ ∨ ϕ | [ α ]ϕ | ⟨ α⟩ϕ
+
+Define (ϕ1 → ϕ2) := ( ¬ϕ1 ∨ ϕ2) and (ϕ1 ↔ ϕ2) := (( ϕ1 → ϕ2) ∧ (ϕ2 → ϕ1)) . Let [ α ]0ϕ := ϕ and 
+
+[ α ]n+1ϕ := [ α ][ α ]nϕ. The modal-depth of a formula is the maximum number of nested modalities in it. For a finite set Γ = {ϕ1, · · · , ϕk} of formulae, let bΓ = ( ϕ1 ∧ · · · ∧ ϕk) and let [ α ]Γ = {[ α ]ϕ1, · · · , [ α ]ϕk}.The Kripke semantics for these multimodal (description) logics use Kripke models consisting of triples M := ⟨W, {Rα }α∈Ag , ϑ ⟩ over some non-empty set W (of possible worlds), and binary relations 
+
+Rα over W for every agent α ∈ Ag , and a valuation ϑ (w, p) ⊆ W × Atm telling us the truth value of each atomic formula p at each world w ∈ W . Truthhood at world w in model M, written as M, w ⊩ ϕ, extends the usual truth-tables for classical propositional logic (cpl): see Figure 1. A formula ϕ is K n-satisfiable if there is a Kripke model M containing a world w such that M, w ⊩ ϕ.A formula ϕ is K n-valid if ¬ϕ is not K n-satisfiable. Formulae ϕ and ψ are logically equivalent if ϕ ↔ ψ
+
+is K n-valid, and are equi-satisfiable if ϕ is K n-satisfiable iff ψ is K n-satisfiable. 
+
+2.1 Separated modal clausal normal form for Kn
+
+A positive literal is an atomic formula p. A negative literal is a negated atomic formula ¬p. A literal is a positive literal p or else a negative literal ¬p. We use a to f and l and r for literals. We use A, B, C and 
+
+D for a set of literals. Let ¯ l := ¬p if l = p and ¯ l := p if l = ¬p so that ¯¯l = l. A formula is in negation normal form (NNF) if it is implication-free and negations appear only in front of atomic formulae. An NNF can be created with a linear descent of the formula. 
+
+Proposition 2.1. A formula ϕ0 of modal depth κ can be converted into a logically equivalent formula nn f (ϕ0) in NNF which is at most polynomially longer. 
+
+A modal clause is any formula of one of the following forms [21, 15, 10]: cpl-clause: a formula (l1 ∧ · · · ∧ li) → (r1 ∨ · · · ∨ r j) of literals; box-clause: a formula a → [ α ]b with literals a and b and agent name α ∈ Ag ;dia-clause: a formula c → ⟨ α⟩d with literals c and d and agent name α ∈ Ag .Using semicolon to indicate a set-union, an arbitrary set C = ( C cpl ; C box ; C dia ), of modal-clauses can be partitioned into the cpl-clauses C cpl and box-clauses C box and dia-clauses C dia as defined above. Our modal clausal normal form requires notation to succinctly express finite sequences of modalities such as [ α1 ][ α2 ] · · · [ αk ] which naturally correspond to all finite paths w1Rα1 w2Rα2 · · · Rαk wk in a Kripke model. We therefore abuse notation to extend the language of formulae using constructs from regular expressions even though they are not part of the official syntax. We use the composition operator “;” from regular expressions with ε for the empty regular expression obeying (ε; α) = ( α; ε) = α. We let α0 = ε and αk>0 = ( α; αk−1). We write [ α1; α2; · · · ; αk ] instead of Rajeev Goré & Cormac Kikkert 429 
+
+[ α1 ][ α2 ] · · · [ αk ], write [ αn; β m ] for [ α ]n[ β ]m and write w1Rα1;··· ;αk wk for w1Rα1 w2Rα2 · · · Rαk wk. Let 
+
+Ag ∗ be the set of all finite regular expressions over Ag that use only “;” and let Ag k be the set of all finite regular expressions of length k over Ag that use only “;”. 
+
+Proposition 2.2. A formula ϕ0 of modal depth κ can be put into an equi-satisfiable modal clausal normal form r ∧ \SNF mc (ϕ0) by naming subformulae using new atomic propositions, using r as the name for ϕ0,and where each C below is a finite set of modal clauses (essentially the SNF ml of Nalon et al. [17] who prove this proposition in detail): SNF mc (ϕ0) := Cε ; S  
+
+> σ∈Ag 1
+
+[ σ ]Cσ ; · · · ; S  
+
+> σ∈Ag κ
+
+[ σ ]Cσ
+
+Example 2.3. Consider the negation ϕ0 := ¬([ α ]( p → q) → ([ α ]p → [ α ]q)) of the K axiom with modal depth κ = 1. Its NNF is [ α ]( ¬p ∨ q) ∧ [ α ]p ∧ ⟨ α⟩¬ q. Putting r as the name for ϕ0 gives us: 
+
+Cε := r → [ α ]b ; r → [ α ]p ; r → ⟨ α⟩¬ q and Cα := b → ¬ p ∨ q with SNF mc (ϕ0) = Cε ; [ α ]Cα .Note, the set Cε excludes r so we must add it explicitly to form (r ; SNF mc (ϕ0)) .
+
+# 3 SAT-solvers with internal state as CPL-oracles 
+
+CEGAR-tableaux [9] assume we have access to a SAT-solver s, with internal state, to which we can add a cpl-clause ϕ via addClause(s, ϕ), and which accepts a set A of literals, called unit assumptions, such as MiniSAT [7]. Intuitively, we want all literals in A to be assigned to true. When pre-loaded with a set C cpl of cpl-clauses and called with solve(s, A), such a SAT-solver returns one of two results: 
+
+(sat , ϑ): if (A ; C cpl ) is true under some cpl-valuation ϑ ⊇ A or-else 
+
+(unsat ,UC ): if UC ⊆ A is a, not necessarily unique, minimal “unsatisfiable core” of A such that 
+
+(UC ; C cpl ) is cpl-unsatisfiable, and hence so is (A ; C cpl ).
+
+UC itself may be cpl-satisfiable but the term “unsatisfiable core” is standard. Since SAT-solvers handle classical propositional logic, they should return a cpl-valuation ϑ ⊆ Atm .That is, strictly speaking, a cpl-valuation ϑ is just a set of atomic formulae. But in concrete applications, it may be more useful for a user to assert “I know that atomic formula c is false”, which can be achieved with ¬c ∈ A. Thus, the valuations returned by a SAT-solver are actually a subset of the set of all literals that appear in (A ; C cpl ).We can then easily extend such a set of literals to a valuation over all atoms that appear in an mcnf by putting all missing atoms to false. 
+
+Example 3.1. From our previous example, ϕ0 is equi-satisfiable with (r ; Cε ; [ α ]Cα ). Create a SAT-solver s0 for modal depth 0, pre-load s0 with C cpl  
+
+> ε
+
+= /0, the cpl-part of Cε , put Aε = {r} because r must be true at modal depth 0, and call solve(s0, Aε ): it must return (sat , ϑε ) where ϑε = {r} ⊇ Aε since (Aε ; C cpl  
+
+> ε
+
+) = ( r ; / 0) = {r} is true under ϑε = {r}.Create a SAT-solver s1 for modal depth 1, pre-load s1 with C cpl  
+
+> α
+
+= {b → ¬ p ∨ q}, the cpl-part of Cα ,put Aα = {b, p, ¬q}, and call solve(s1, Aα ): it must return (unsat ,UC α ) where UC α = {b, p, ¬q} ⊆ 
+
+Aα since ( UC α ; C cpl  
+
+> σ
+
+) = {b, p, ¬q, b → ¬ p ∨ q} is cpl-unsatisfiable but every proper subset is cpl-satisfiable. Finally, add ¬r to s0 via addClause(s0, ¬r), and restart it via solve(s0, Aε ): it must return 
+
+(unsat ,UC ε ) where UC ε = {r} ⊆ Aε because (UC ε ; (C cpl  
+
+> ε
+
+; ¬r)) = ( r ; ¬r) is cpl-unsatisfiable but no proper subset is so. 430 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+Algorithm 1 CEGAR TAB (A, Trie[ σ ]) 
+
+> 1:
+
+{Inputs: A is a set of unit assumptions, 
+
+Trie[ σ ] is a node in our Trie containing modal clauses and a SAT-solver.}  
+
+> 2:
+
+Let tσ := solve( Trie[ σ ].sat , A) { is C cpl  
+
+> σ
+
+cpl-satisfiable } 
+
+> 3:
+
+if tσ = (unsat, UC σ ) then  
+
+> 4:
+
+return Unsatisfiable( UC σ ) { because Cσ is Kn-unsatisfiable } 
+
+> 5:
+
+else if tσ = (sat, ϑσ ) then  
+
+> 6:
+
+{Check box and diamond clauses that fire under classical valuation ϑσ } 
+
+> 7:
+
+for (c → ⟨ α⟩d) ∈ Trie[ σ ].DiaCl with c ∈ ϑσ do  
+
+> 8:
+
+Let B = {b | (a → [ α ]b) ∈ Trie[ σ ].BoxCl and a ∈ ϑσ } 
+
+> 9:
+
+{evaluate the next α-successor using the jump rule } 
+
+> 10:
+
+if CEGAR TAB ((d; B), Trie[ σ ].child( α)) = Unsatisfiable( UC σ ;α ) then  
+
+> 11:
+
+CS := {c} ∪ { a | (a → [ α ]b) ∈ Trie[ σ ].BoxCl and a ∈ ϑσ and b ∈ UC σ ;α } 
+
+> 12:
+
+Let ϕ := W 
+
+> l∈CS
+
+¬l 
+
+> 13:
+
+addClause( Trie[ σ ].sat , ϕ) { Learn new clause ϕ := ¬ VCS } 
+
+> 14:
+
+return CEGAR TAB (A, Trie[ σ ]) { apply (restart) } 
+
+> 15:
+
+end if  
+
+> 16:
+
+end for  
+
+> 17:
+
+return Satisfiable { because every fired diamond is fulfilled } 
+
+> 18:
+
+end if 
+
+Figure 2: Algorithm of C EGAR TAB for multi-modal (description) logic K n (ALC) 
+
+# 4 CEGAR-tableaux for multi-modal logic Kn (aka ALC) 
+
+We now describe the CEGAR-tableaux [9] procedure extended to multi-modal logic K n (aka ALC) without local (ABox) and global (TBox) assumptions. Conceptually, the extension from mono-modal logic K to multi-modal logic K n is easy because there are no interactions between the different modalities, so we just have n “copies” of K, one for each modality [ α ] for every agent α ∈ Ag .We give the extension of the main C EGAR TAB algorithm from Goré and Kikkert [9] as Algorithm 1 in Figure 2, and make the connection to the general form of SNF mc (ϕ0) but with a non-singleton Ag :SNF mc (ϕ0) := Cε ; S  
+
+> σ∈Ag 1
+
+[ σ ]Cσ ; · · · ; S  
+
+> σ∈Ag κ
+
+[ σ ]Cσ
+
+Because C EGAR TAB handled only mono-modal logics, the mcnf of a given formula ϕ0 of modal depth κ was as below for a singleton Ag = {α} (say) : SNF mc (ϕ0) := Cε ; [ α ]Cα ; [ α2 ]Cα2 ; · · · ; [ ακ ]Cακ
+
+Conceptually, these “modal contexts” were stored in a linear Trie (a.k.a. prefix tree) data structure with 
+
+Node[0] initialised to contain Cε and node Node[i] , for i > 0, initialised to contain Cαi , eliding the box-prefix [ αi ] without loss of generality, but saving quadratic space. In the multi-modal case, we use a multi-dimensional trie and all trie-edges are labelled by an agent name and the trie-root is labelled with ε. For a regular expression σ , we write Trie [σ ] for the corre-sponding TrieNode . For example, from the trie-root node Trie [ε] = Cε there is a trie-path labelled by an α-edge followed by a β -edge to the trie-node Trie [α; β ] = Cα;β .Rajeev Goré & Cormac Kikkert 431 In Algorithm 1 in Figure 2, and in the implementation, each Cσ is stored at trie-position Trie [σ ] in four fields by partitioning it into its three disjoint components Cσ = ( C cpl  
+
+> σ
+
+; C dia  
+
+> σ
+
+; C box  
+
+> σ
+
+) and adding “next” pointers as follows: 1. Trie [σ ].sat is a dedicated SAT-solver for this trie-node pre-loaded with C cpl 
+
+> σ
+
+2. Trie [σ ].DiaCl contains C dia  
+
+> σ
+
+:= S
+
+> α∈Ag
+
+{c → ⟨ α⟩d | (c → ⟨ α⟩d) ∈ Cσ }
+
+3. Trie [σ ].BoxCl contains C box  
+
+> σ
+
+:= S
+
+> α∈Ag
+
+{a → [ α ]b | (a → [ α ]b) ∈ Cσ }
+
+4. Trie [σ ].Child( α) is (a pointer to) the node Trie [σ ; α], for each α ∈ Ag .The second and third fields are structured further so that we can select the dia-clauses and box-clauses for a particular agent α ∈ Ag via Trie [σ ].DiaCl( α) and Trie [σ ].BoxCl( α), respectively. We often write “formula in a TrieNode ” or even “ ϕ ∈ Trie[ σ ]" to refer to formulae that are stored in one of these fields. Recall that r names the initial formula but it is not in the root Trie[ ε]. Now we simply start by calling C EGAR TAB ({r}, Trie[ ε]) as shown in Figure 2. 
+
+Example 4.1. Let us continue with our example. We know that ϕ0 is equi-satisfiable with r ; Cε ; [ α ]Cα ,where C cpl  
+
+> ε
+
+= /0 and C dia  
+
+> ε
+
+= ( r → ⟨ α⟩¬ q) and C box  
+
+> ε
+
+= ( r → [ α ]b ; r → [ α ]p), meaning Trie [ε].sat is 
+
+s0 . We also have C cpl  
+
+> α
+
+= ( b → ¬ p ∨ q) and C dia  
+
+> α
+
+= /0 and C box  
+
+> α
+
+= /0, meaning Trie[ α].sat is s1 .
+
+Recursion 0. The initial call to C EGAR TAB ({r}, Trie[ ε]) sets σ := ε and A := {r} = Aε so line 2 is solve(s0, Aε ): it returns (sat , ϑε ) where ϑε = {r} so we enter the “then” part of line 5. At line 7, there is only one “fired” dia-clause (r → ⟨ α⟩¬ q) ∈ Trie[ ε].DiaCl = C dia  
+
+> ε
+
+with r ∈ ϑε , so 
+
+c := r and d := ( ¬q) and we know that ⟨α⟩¬ q must be (modally) true at modal depth 0. Under ϑε =
+
+{r}, every box-clause in C box  
+
+> ε
+
+“fires”, thus the set {[ α ]b, [ α ]p} is (modally) true at modal depth 0, and hence the set B = {b, p} formed at line 8 must be classically true at some Rα -successor for ¬q at modal depth 1. To evaluate this Rα -successor, we compute (d; B) = {b, p, ¬q} at line 10 and recurse via CEGAR TAB ({b, p, ¬q}, Trie[ α].Child( α)). 
+
+Recursion 1. So σ := α and A := {b, p, ¬q} = Aα and the relevant SAT-solver is the “next” one so 
+
+Trie[ α].sat = s1 . Line 2 calls this SAT-solver, so this is the call solve(s1, Aα ): it must return 
+
+(unsat ,UC α ) where UC α = {b, p, ¬q} so we return Unsatisfiable( {b, p, ¬q}) at line 4 and pop the recur-sion stack. 
+
+Recursion 0. We return to line 11 where σ := ε and so (σ ; α) = α, so UC σ ;α = UC α = {b, p, ¬q}. We know the chosen ϑε at modal depth 0 caused a clash at modal depth 1 involving {b, p, ¬q}, and hence that {[ α ]b, [ α ]p, ⟨α⟩¬ q} cannot be jointly true at modal depth 0. At line 11 we trace the relevant box-and dia-clauses to find the conflict set CS = {r} at modal depth 0. To avoid this “mistake”, we compute the “refinement” ϕ = ¬r at line 12 of recursion level 0. Line 13 is then just addClause(s0, ¬r) so 
+
+C cpl  
+
+> ε
+
+= {¬ r}. The refined SNF mc (ϕ0) demands r is false at the root. At line 14, we call C EGAR TAB ({r},
+
+Trie[ ε]) but we stay at the current SAT-solver at modal depth 0 thereby restarting s0 .
+
+Recursion 1. Line 2 calls solve(s0, Aε ): it returns (unsat ,UC ε ) where UC ε = r which returns Unsatisfiable( {r}) to line 14 of Recursion 0: our final answer. 
+
+Theorem 4.2. If Trie contains SNF mc (ϕ0) and r names ϕ0 then CEGAR TAB ({r}, Trie[ ε]) terminates, and returns Satisfiable iff ϕ0 is Kn-satisfiable. 432 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+Figure 3: Performance of CEGARBox++ and KSP on the MQBF benchmarks. Problems on the top/right edge indicate a timeout for CEGARBox++ /KSP respectively. 
+
+Proof. A simple modification of the proofs for mono-modal K from Goré and Kikkert [9] which proceed by induction on the number of restarts. 
+
+# 5 CEGAR-tableaux with different ( ESAT) shortcuts 
+
+We previously showed [9] that CEGARBox outperformed all solvers we tested on the extended LWB K-benchmarks, and 3CNF K-benchmarks, mostly by orders of magnitude. However, on the MQBF K-benchmarks, CEGARBox loses to KSP by about 50 problems. We first determine why and then explore two solutions. 
+
+5.1 Why does CEGARBox++ not win on the MQBF benchmarks? 
+
+Figure 3 shows that CEGARBox++ solves all unsatisfiable benchmarks but struggles on the satisfiable ones, while KSP solves all satisfiable benchmarks but struggles on the unsatisfiable ones. KSP performs better overall as there are 617 satisfiable and 399 unsatisfiable problems in the MQBF benchmarks. By inspecting the individual (satisfiable) benchmarks that CEGARBox++ struggles on, we saw that 
+
+CEGARBox++ learns few clauses, and instead spends most of its time building a large model. That is, because CEGARBox++ explicitly builds a satisfying model, a huge model can cause it to timeout. This is particularly noticeable in benchmarks with lots of branching, as it can result in satisfying models having Rajeev Goré & Cormac Kikkert 433 an exponential number of worlds with respect to the size of the original benchmark. KSP on the other hand doesn’t need to explicitly build a model to deem a formula as satisfiable, it simply applies rules until saturation .This is a fundamental weakness in not just C EGAR TAB , but the CEGAR procedure itself. For a formula ϕ, we first test whether an under-approximation ˇ ϕ consisting of the cpl-clauses of its mcnf is cpl-satisfiable. If ˇ ϕ is cpl-unsatisfiable, we can perform an ( EUNSAT) shortcut by immediately returning UNSAT as ϕ must also be modally unsatisfiable. However, there is no corresponding ( ESAT) shortcut. Our observation is not new. Brummayer [3] devised an under-approximation for SMT that allows for early termination in the UNSAT case. Wang et al. [23] used induction to show the existence of large counter-models in model-checking. These frameworks are domain specific, so it is unlikely their insights would apply to C EGAR TAB . However, for SAT-solving, Lagniez et al. [12] presented a general variant of CEGAR, which allows for both ( ESAT) and ( EUNSAT) shortcuts. We first analyse the RECAR approach of Lagniez et al. [12]. We have previously shown [9] their implementation was unsound and their benchmarks were incorrect, but the theory of RECAR is sound so we incorporate their ideas [12] to create our own variant of RECAR-Tableaux. We also create our own novel approach by detecting fixpoints in our under-approximation. Al-though it is specific to recursive CEGAR algorithms, we show that it works exceptionally well, allowing 
+
+CEGARBox++ to solve all problems in the MQBF benchmark set bar one. Our approach combines KSP 
+
+with CEGARBox++ , giving a solver that elegantly combines SAT, tableaux and resolution methods, which previously were the three competing methods for K-satisfiability. 
+
+5.2 Background on modal resolution and RECAR 
+
+We first give some background on modal resolution and the RECAR framework. 
+
+5.2.1 Modal clausal resolution ( KSP ). 
+
+Recalling the definition of SNF mc , we briefly outline the modal calculus rules of KSP [16] for multi-modal Kn, which is a resolution prover that operates on SNF ml , a close variant of SNF mc .
+
+Proposition 5.1. A formula ϕ0 of modal depth κ can be put into the equi-satisfiable separated normal form with modal layers SNF ml (ϕ0) of Nalon et al [17], who prove this proposition in detail, and where each Ci below is a set of modal clauses: SNF ml (ϕ0) := C0 ; [ ] 1C1 ; · · · ; [ ] κ Cκ
+
+Informally, but not exactly because KSP requires extra clauses that are not required by CEGARBox++ ,we have Cl ≈ S  
+
+> σ∈Ag l
+
+Cσ , where Cσ is from our SNF mc (ϕ0). That is, each Cl is the “union” formed by taking a “horizontal slice” across layer l =| σ | of our “vertical tree-like” SNF mc (ϕ0), where | σ | is the length of the Trie-path σ . But now, SNF ml (ϕ0) can be implemented as a linear trie, rather than a branching trie as for SNF mc (ϕ0). Let us write n : ψ to indicate the clause ψ is stored at the n-th node in the (linear) trie, where the root is element 0. Using this notation, the resolution rules used by KSP are presented in Figure 4. They differ from normal resolution as clauses are now labelled by their modal layer. Applying these rules will either derive an empty clause, meaning ϕ0 is K n-unsatisfiable, or terminate after saturation, meaning ϕ0 is K n-satisfiable. Observe the following close connection between modal resolution and CEGAR TAB : all resolvents in KSP are classical clauses as are all learnt clauses in C EGAR TAB . We will use this insight to combine both these approaches. 434 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+[LRES] n : D ∨ l n : D′ ∨ ¬ ln : D ∨ D′ [MRES] n : l1 ⇒ [ α ] l n : l2 ⇒ ⟨ α⟩¬ ln : ¬l1 ∨ ¬ l2
+
+[GEN1] n : l′ 
+
+> 1
+
+⇒ [ α ] ¬l1, · · · , n : l′ 
+
+> m
+
+⇒ [ α ] ¬lm, n : l′ ⇒ ⟨ α⟩ ¬ t, n + 1 : l1 ∨ · · · ∨ lm ∨ tn : ¬l′ 
+
+> 1
+
+∨ · · · ∨ ¬ l′ 
+
+> m
+
+∨ ¬ l′
+
+[GEN2] n : l′ 
+
+> 1
+
+⇒ [ α ] l1 n : l′ 
+
+> 2
+
+⇒ [ α ] ¬l1 n : l′ 
+
+> 3
+
+⇒ ⟨ α⟩ l2
+
+n : ¬l′ 
+
+> 1
+
+∨ ¬ l′ 
+
+> 2
+
+∨ ¬ l′
+
+> 3
+
+[GEN3] n : l′ 
+
+> 1
+
+⇒ [ α ] ¬l1, · · · , n : l′ 
+
+> m
+
+⇒ [ α ] ¬lm, n : l′ ⇒ ⟨ α⟩ l, n + 1 : l1 ∨ · · · ∨ lm
+
+n : ¬l′ 
+
+> 1
+
+∨ · · · ∨ ¬ l′ 
+
+> m
+
+∨ ¬ l′
+
+Figure 4: The resolution rules used by KSP [16]. 
+
+5.2.2 The RECAR framework ( MOSAIC ). 
+
+RECAR (Recursive Explore and Check Abstraction Refinement) is an extension of the CEGAR approach which introduces a recursive step to allow for an additional shortcut [12]. There are two vaiants, RECAR-under, where the main CEGAR loop contains an UNSAT shortcut ( EUNSAT), whilst the recursive step allows for a SAT shortcut ( ESAT), and RECAR-over where the main CEGAR loop contains a SAT shortcut ( ESAT), whilst the recursive step allows for an UNSAT shortcut. We present just the RECAR-under algorithm here, as the main “CEGAR” loop of the RECAR-under framework has ( EUNSAT) shortcuts, like CEGAR-tableaux. This will help motivate our own application of RECAR later but note that the RECAR-over algorithm can be defined analogously (and is what is used in MOSAIC [12]). We require the following assumptions, see Figure 5, where RC is a Boolean function that determines whether or not a recursive call occurs: 
+
+Definition 5.2. Assumptions for RECAR-under [12] 1. Function ‘check’ is a sound, complete and terminating implementation that decides if an input formula is K-unsatisfiable. 2. Function refine (ϕ) is a function that constrains ϕ with more clauses so that: (a) If the under-approximation ˇ ϕ is K-unsatisfiable, then so is refine ( ˇϕ).(b) There exists an n ∈ N such that refine n( ˇϕ) is K-satisfiable iff ϕ is so. 3. If the over-approximation ˆ ϕ is K-satisfiable, then so is ϕ.4. Let over (ϕ) = ˆϕ. There exists n ∈ N such that RC (over n(ϕ), over n+1(ϕ)) evaluates to false (guar-anteeing termination). 
+
+Proposition 5.3. RECAR-under is sound, complete and terminating [12]. 
+
+The RECAR framework was implemented in the solver MOSAIC [12]. Briefly, the over-approximation involves checking if some formula ϕ is K-satisfiable with ≤ n worlds via a naive SAT translation, with 
+
+O(Atom (ϕ) × n + n2) variables, where Atom (ϕ) denotes the number of atoms in ϕ. The translation has variables for each world, as well as extra variables indicating which worlds are accessible from each Rajeev Goré & Cormac Kikkert 435 recar (ϕ)
+
+UNSAT (UNSAT) 
+
+ψ ← ˇϕ
+
+> check (ψ)
+
+ϑ ?
+
+|= ϕ
+
+sat , ϑ
+
+SAT 
+
+yes no 
+
+ψ ← refine (ψ)
+
+RC (ϕ, ˆϕ)
+
+unk .
+
+recar ( ˆϕ)
+
+(SAT) yes unsat Figure 5: The RECAR-under framework [12]. other. Over the course of the algorithm, n will increase until it reaches the bound n = Atom (ϕ)depth (ϕ)
+
+where K-satisfiability can be determined as ϕ is K-satisfiable if and only if it has a model with n
+
+worlds [18]. The under-approximation involves “removing” conjuncts in ϕ. Thus both the under-approximation and over-approximation involve reasoning about the formula ϕ in its entirety via a SAT-solver. This is exactly what CEGAR-tableaux aim to avoid by using a SAT-solver to only determine worlds (and not models), thus requiring only O(n) variables in a SAT-solver. 
+
+5.3 RECAR TAB : Extending CEGAR-tableaux with RECAR 
+
+We now extend CEGAR-tableaux with RECAR ( ESAT)-shortcuts. First, we must take some liberties when applying RECAR to CEGAR-tableaux. Note our under-approximation ˇ ϕ := C cpl (ϕ) is a classical logic formula, whilst ϕ is a modal logic formula. As the algorithm progresses, ˇ ϕ will be refined with classical clauses only, and so whilst there exists an n where refine n( ˇϕ) is K-satisfiable iff ϕ is so, we are unable to detect when we have reached this n. This differs from MOSAIC , where the upper bound n = UB (ϕ) can be pre-calculated by recursively counting the number of diamond sub-formulae in ϕ. Second, CEGAR-tableaux already have a recursive step because they are based on recursive CEGAR loops, unlike RECAR which is based on just one CEGAR loop. These differences arise because C EGAR TAB considers only one world of the Kripke model at a time, as opposed to naive SAT-translation approaches that translate the whole input modal formula. We believe that keeping worlds separate is one of the main factors of C EGAR TAB ’s success, and so we keep the 436 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+under-approximation as is. Thus, instead of implementing a faithful RECAR algorithm, we shall instead perform RECAR on each world. Our under-approximation is unchanged, but our over-approximation is best motivated by an example. 
+
+Algorithm 3 Algorithm of R ECAR TAB for incorporating ( ESAT) shortcuts  
+
+> 1:
+
+{Inputs: A is a set of unit assumptions, 
+
+Trie[ σ ] is a node in our Trie containing modal clauses and a SAT-solver.}  
+
+> 2:
+
+Let tσ := solve( Trie[ σ ].sat , A) { is C cpl  
+
+> σ
+
+cpl-satisfiable } 
+
+> 3:
+
+if tσ = (unsat, UC σ ) then  
+
+> 4:
+
+return Unsatisfiable( UC σ ) { because Cσ is Kn-unsatisfiable } 
+
+> 5:
+
+else if tσ = (sat, ϑσ ) then  
+
+> 6:
+
+Let L = {l | (c →l ⟨α⟩d) ∈ Trie[ σ ].DiaCl and c ∈ ϑσ } 
+
+> 7:
+
+{Check box and diamond clauses that fire under classical valuation ϑσ } 
+
+> 8:
+
+for i ∈ L do  
+
+> 9:
+
+Let D = {d | (c →l ⟨α⟩d) ∈ Trie[ σ ].DiaCl and c ∈ ϑσ and l = i} 
+
+> 10:
+
+Let B = {b | (a → [ α ]b) ∈ Trie[ σ ].BoxCl and a ∈ ϑσ } 
+
+> 11:
+
+{evaluate the next α-successor using the jump rule on all fired diamonds } 
+
+> 12:
+
+if RECAR TAB (D ∪ B, Trie[ σ ].child( α)) = Unsatisfiable( UC σ ;α ) then  
+
+> 13:
+
+Let DUC := UC σ ;α ∩ D { How many diamonds in conflict set? } 
+
+> 14:
+
+if |DUC | = 1 then  
+
+> 15:
+
+{Normal clause learning } 
+
+> 16:
+
+Find c →l ⟨α⟩d where d ∈ DUC  
+
+> 17:
+
+CS := {c} ∪ { a | (a → [ α ]b) ∈ Trie[ σ ].BoxCl , a ∈ ϑσ , b ∈ UC σ ;α } 
+
+> 18:
+
+Let ϕ := W 
+
+> l∈CS
+
+¬l 
+
+> 19:
+
+addClause( Trie[ σ ].sat , ϕ) { Learn new clause ϕ := ¬ VCS } 
+
+> 20:
+
+else if |DUC | < 1 then  
+
+> 21:
+
+{No diamond in conflict — pick random d ∈ D and simulate normal clause learning } 
+
+> 22:
+
+Pick arbitrary d ∈ D 
+
+> 23:
+
+Find c →l ⟨α⟩d 
+
+> 24:
+
+CS := {c} ∪ { a | (a → [ α ]b) ∈ Trie[ σ ].BoxCl , a ∈ ϑσ , b ∈ UC σ ;α } 
+
+> 25:
+
+Let ϕ := W 
+
+> l∈CS
+
+¬l 
+
+> 26:
+
+addClause( Trie[ σ ].sat , ϕ) 
+
+> 27:
+
+else  
+
+> 28:
+
+{ (ESAT) shortcut failed: multiple conflicting diamonds } 
+
+> 29:
+
+for (c →l ⟨α⟩d) ∈ Trie[ σ ].DiaCl with c ∈ ϑσ , l = i, d ∈ UC σ ;α do  
+
+> 30:
+
+Replace l with a fresh label l′ in c →l ⟨α⟩d 
+
+> 31:
+
+end for  
+
+> 32:
+
+end if  
+
+> 33:
+
+return RECAR TAB (A, Trie[ σ ]) { apply (restart) } 
+
+> 34:
+
+end if  
+
+> 35:
+
+end for  
+
+> 36:
+
+return Satisfiable { because every fired diamond is fulfilled } 
+
+> 37:
+
+end if Rajeev Goré & Cormac Kikkert 437 Suppose we are creating a model with depth n, and each world is ‘firing’ two diamond clauses. This results in creating O(2n) worlds, and as C EGAR TAB must iterate over each of these worlds, this will clearly timeout for large n. Instead, let us create an over-approximation that will aim to reduce the number of successors for each node. Instead of creating two worlds for ⟨α⟩p ∧ ⟨ α⟩q, one for p and one for q, we will attempt to create one α-successor with ( p ; q). If this fails we will get a conflict A′, and if {p, q} ⊆ A′, we know we must separate these diamond clauses. Otherwise, we have just managed to create a model for w0 that has one successor, not two. If every world succeeds in grouping diamond clauses we can create a model with O(n) worlds instead of O(2n) worlds, as formalised next. 
+
+5.4 RECAR TAB : the RECAR-tableaux over-approximation algorithm 
+
+We begin by annotating each dia-clause with a ‘label’, initialised to 1: i.e. we replace a → ⟨ α⟩b with 
+
+a →1 ⟨α⟩b, for all dia-clauses. Now, we create a sole successor for each fired label , instead of each fired 
+
+dia-clause . The number of labels will increase as the algorithm progresses so let the set of labels be L.
+
+Theorem 5.4. Algorithm 3 for RECAR TAB is a sound and complete decision procedure for Kn.Proof. 
+
+Termination: Separating diamond clauses can happen only finitely many times. Thus for RECAR-tableaux to not terminate, it must either jump or restart infinitely, but both are impossible by the proofs for CEGAR-tableaux [9]. 
+
+Soundness: Any clause learned by R ECAR TAB is of the form ¬c ∨ ¬ a1 ∨ · · · ∨ ¬ am as in line 17 and 24 and is a logical consequence of the discovery that for some label l, the set {c, a1, · · · , am, c →l
+
+⟨α⟩d, a1 →l [ α ]b1, · · · , am →l [ α ]bm} is K-unsatisfiable just as they are in C EGAR TAB , so it is sound to learn such a clause. But when the conflict set contains multiple diamonds, as in line 28, we separate these conflicting diamonds using different labels, and restart, which will reduce the cardinality of L at line 6. This corresponds to finding that (⟨α⟩D; [ α ]B) is K-unsatisfiable and then attempting to K-satisfy (⟨α⟩D′; [ α ]B) for some D′ ⊂ D instead. The move is sound because we maintain the requirement for ( ESAT)-shortcuts that if (⟨α⟩D′; [ α ]B) is K-satisfiable then so is each individual set (⟨α⟩d′; [ α ]B) for all d′ ∈ D′. In the worst case, this will lead to every dia-clause having its own label, meaning that R ECAR TAB will just simulate C EGAR TAB , which we know to be sound. 
+
+Completeness Suppose R ECAR TAB returns Satisfiable and proceed by induction on the number of jumps on the maximal sequence of jumps. If there are no jumps the Kripke model is just a dead-end wε with ϑε . Otherwise, consider the first jump from this root world on this sequence for any i ∈ L. The fired diamonds consist of some set ⟨α⟩D = {⟨ α⟩d1, · · · , ⟨α⟩dn>0} while the fired boxes are [ α ]B = {[ α ]b1, · · · , [ α ]bm≥0}. We jump to a child containing the assumptions 
+
+(D; B) = {d1, · · · , dn, b1, · · · , bm} and the recursive call at line 12 must have returned Satisfiable so this child wi 
+
+> α
+
+must be K-satisfiable by the induction hypothesis. Thus (⟨α⟩D; [ α ]B) is K-satisfiable at wε in the K-model obtained by putting wε Rα wi 
+
+> α
+
+. But then so must each set (⟨α⟩d; [ α ]B) for every d ∈ D since ⟨α⟩(p ∧ q) → ⟨ α⟩p ∧ ⟨ α⟩q is K-valid. Thus each i ∈ L generates such an Rα -child for its corresponding diamond jump and the for-loop over these i ∈ L at line 8 succeeds only when all such children return Satisfiable, meaning K-satisfiable. Thus every (⟨α⟩d; [ α ]B) fired by 
+
+ϑε has a K-satisfiable witness, giving a K-model for SNF mc (ϕ0).438 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts       
+
+> 1
+> 2
+> 4
+> 89
+> 5
+> 10 11
+> 3
+> 6
+> 12 13
+> 7
+> 14 15
+> 1
+> 2
+> 4
+> 89
+> 5
+> 3
+
+KSP 
+
+CEGAR TAB CEGAR TAB (KSP )
+
+Figure 6: A comparison of the search process of C EGAR TAB and C EGAR TAB (KSP ). C EGAR TAB eval-uates worlds with a pre-order traversal, and in the meantime, KSP saturates layers bottom-up. So CEGAR TAB (KSP ) generates no successors for “fixpoint” worlds 5 and 3 giving scenarios where C E-
+
+> GAR
+
+TAB (KSP ) evaluates a linear number of worlds, whilst C EGAR TAB evaluates an exponential number. We report on experiments on RECAR-Tableaux at the end of this section, but let us first propose our own approach to achieving ( ESAT) shortcuts. 
+
+5.5 (ESAT) shortcuts via fixpoint detection using KSP 
+
+One of the main issues with R ECAR TAB is that it explicitly generates the model, meaning it suffers from the same shortcomings as regular CEGAR-tableaux. Sure, it uses heuristics to find smaller models, but there is no guarantee these smaller models exist, and this “optimism” might lead to wasted work. We propose a different method of finding ( ESAT) shortcuts. Instead of explicitly creating a model, we simply check if one exists by searching for fixpoints in the C EGAR TAB under-approximation where, intuitively, a fixpoint is a set of clauses which will never be refined with any new clauses by C EGAR TAB .
+
+Lemma 5.5 (Fixpoints are Satisfiable) . If Aσ is a set of unit assumptions, and CEGAR TAB will not refine 
+
+C cpl  
+
+> σ
+
+with any clauses in the future, then Aσ ; C cpl  
+
+> σ
+
+is classically satisfiable iff Aσ ; C cpl  
+
+> σ
+
+; C box  
+
+> σ
+
+; C dia 
+
+> σ
+
+is Kn-satisfiable. Proof. If Aσ ; C cpl  
+
+> σ
+
+; C box  
+
+> σ
+
+; C dia  
+
+> σ
+
+is K n-satisfiable then its subset Aσ ; C cpl  
+
+> σ
+
+is clearly classically satisfi-able. If Aσ ; C cpl  
+
+> σ
+
+is classically satisfiable then C EGAR TAB (A , Trie [σ ]) will find a classical valuation, then iterate over diamonds. For a contradiction, suppose a diamond jump returns Unsatisfiable. Then we learn a clause to add to C cpl  
+
+> σ
+
+, contradicting that C cpl  
+
+> σ
+
+is a fixpoint. Thus all diamonds must be ful-filled, and so C EGAR TAB (A , Trie [σ ]) returns Satisfiable. By the correctness of C EGAR TAB , the set 
+
+Aσ ; C cpl  
+
+> σ
+
+; C box  
+
+> σ
+
+; C dia  
+
+> σ
+
+is K n-satisfiable. Lemma 5.5 allows C EGAR TAB to skip the potentially expensive process of generating a model if we know there are no clauses left to learn. This helps when a satisfying model is large, but “easy” to produce. But how to determine whether C cpl  
+
+> σ
+
+is a fixpoint? To this end we use KSP , as explained next. 
+
+5.6 CEGAR-tableaux with a resolution-based oracle 
+
+Recall that KSP uses SNF ml rather than SNF mc and that SNF ml leads to a linear Trie data structure, as explained previously. Nevertheless, Lemma 5.5 still applies. Rajeev Goré & Cormac Kikkert 439 
+
+Algorithm 4 CEGAR TAB (KSP )( A, Trie[ l]) 
+
+> 1:
+
+{Inputs: A is a set of unit assumptions, 
+
+Trie[ l] contains the set Cl of modal clauses from SNF ml (ϕ0) and a SAT-solver.}  
+
+> 2:
+
+{Merge Step: Check if external KSP process has saturated layer l wrt layer l + 1 (bottom-up) } 
+
+> 3:
+
+if exists KSP-output-file for layer l then  
+
+> 4:
+
+Add new KSP clauses to Trie[ l].sat  
+
+> 5:
+
+Fixpoint := true  
+
+> 6:
+
+end if  
+
+> 7:
+
+Let tl := solve( Trie[ l].sat , A) { is C cpl l cpl-satisfiable } 
+
+> 8:
+
+if tl = (unsat, UC l ) then  
+
+> 9:
+
+return Unsatisfiable( UC l ) { because Cl is Kn-unsatisfiable } 
+
+> 10:
+
+else if tl = (sat, ϑl ) then  
+
+> 11:
+
+if Fixpoint = true then  
+
+> 12:
+
+return Satisfiable { Fixpoint reached by KSP: skip child generation } 
+
+> 13:
+
+end if  
+
+> 14:
+
+{Check box and diamond clauses that fire under classical valuation ϑl } 
+
+> 15:
+
+for every (c → ⟨ α⟩d) ∈ Trie[ l].DiaCl with c ∈ ϑl do  
+
+> 16:
+
+Let B = {b | (a → [ α ]b) ∈ Trie[ l].BoxCl and a ∈ ϑl } 
+
+> 17:
+
+{evaluate the next layer using the jump rule on α} 
+
+> 18:
+
+if CEGAR TAB ((d; B), Trie[ l + 1]) ) = Unsatisfiable( UC l+1) then  
+
+> 19:
+
+CS := {c} ∪ { a | (a → [ α ]b) ∈ Trie[ l].BoxCl and a ∈ ϑl and b ∈ UC l+1} 
+
+> 20:
+
+Let ϕ := W 
+
+> l∈CS
+
+¬l 
+
+> 21:
+
+addClause( Trie[ l].sat , ϕ) { Learn new clause ϕ := ¬ VCS } 
+
+> 22:
+
+return CEGAR TAB (A, Trie[ l]) { apply (restart) } 
+
+> 23:
+
+end if  
+
+> 24:
+
+end for  
+
+> 25:
+
+return Satisfiable { because every fired diamond is fulfilled } 
+
+> 26:
+
+end if 
+
+Figure 7: Algorithm of C EGAR TAB (KSP ) on SNF ml showing the integration of fixpoint detection. 
+
+Theorem 5.6 (KSP produces C EGAR TAB fixpoints) . Suppose that a saturated derivation from SNF ml (ϕ0)
+
+by KSP results in a new set C ′ 
+
+> l
+
+of modal clauses (at layer l). Then C ′ 
+
+> l
+
+is a fixpoint of CEGAR TAB .Proof. If C ′ 
+
+> l
+
+is not a C EGAR TAB fixpoint, the restart rule is applicable. Then the learnt clause cor-responds exactly to one of the [GEN] resolution rule applications from Figure 4 by KSP , so the set of clauses is not saturated: contradiction. Our algorithm for “fixpoint detecting” CEGAR-Tableaux is C EGAR TAB (KSP ) but our implementation is CEGARBox++ (KSP ). For simplicity, CEGARBox++ (KSP ) is multithreaded , running CEGARBox++ and KSP 
+
+independently, with naive communication via file writing/reading. We thank Cláudia Nalon for adjusting 
+
+KSP to make this possible. The approach is as follows where both CEGARBox++ and KSP use the linear Trie for SNF ml , not the tree-like Trie for SNF mc , see Figure 6 and Figure 7: 1. Run KSP on an input formula ϕ0, and have it print out SNF ml (ϕ0);440 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+2. KSP then performs (layered) resolution, from deepest ( κ) to shallowest layers (0), and after fully saturating a layer, prints out all classical clauses it has learned; 3. C EGAR TAB runs independently on SNF ml (ϕ0), from shallowest (0 ) to deepest ( κ) layers, but when it receives clauses from KSP at layer l, it adds them to C cpl l (at modal layer l), marks the layer as a fixpoint and ignores the jump rule at that layer (sound by Lemma 5.5). There are some subtle points in this integration which deserve noting. At any particular time, KSP 
+
+is saturating some layer l with respect to layer l + 1 using the resolution rules and adding cpl-clauses to layer l as required to avoid the jumps that would cause a clash at layer l + 1. If CEGARBox++ arrives at layer l from layer i − 1 before before KSP has saturated layer l wrt layer l + 1, then the flag Fixpoint will be false and line 12 will be skipped, so CEGARBox++ (KSP ) mimics CEGARBox++ at layer l. Else, if KSP 
+
+has already saturated layer l wrt layer l + 1, and printed out new cpl-clauses, then Fixpoint is put to true at line 5. CEGARBox++ therefore imports the new cpl-clauses at line 4 and calls the SAT-solver at layer 
+
+l at line 7 with the assumptions A. That is, CEGARBox++ checks whether the assumptions A demanded by the jump from layer l − 1 to layer l are jointly cpl-satisfiable wrt the old cpl-clauses of layer l (inside the SAT-solver at layer l) plus these new cpl-clauses, But surely, KSP has already told us that layer l is satisfiable, so why do we need this check? Not quite: it is perfectly possible that the new cpl-clauses make layer l cpl-unsatisfiable under assumptions A as demanded by layer l −1, since KSP has not checked this possibility (yet). Thus the call to the SAT-solver at line 7 is essential in both cases. At worst, this algorithm should be as strong as C EGAR TAB . As we shall see, the combination works surprisingly well, despite the rather naive integration. 
+
+5.7 Experimental evaluation of the two new approaches 
+
+Our experiments used an Intel i7-11700F@2.50 GHz CPU with 16GB of RAM. We used the same K-benchmarks as in our original paper [9]. Our code can be found here: https://github.com/ cormackikkert/CEGARBoxCPP . We used MiniSAT [7] as our SAT-solver, preliminary results showed that using other SAT-solvers leads to negligible performance differences. Using CEGARBox++ as our control, we tested our two variants that implement ( ESAT) shortcuts: 
+
+CEGARBox++ (KSP ) and RECARBox . Finally, as CEGARBox++ (KSP ) runs an instance of KSP “under the hood”, we compare against KSP too. We use KSP (0.1.6), whereas our previous work [9] used version 0.1.3 (the latest at that time). Since CEGARBox++ (KSP ) uses multi-threading, CPU-time is not an appropriate measure of perfor-mance, so all reported times are “wall time”, not CPU-time. Figure 8 shows that in all cases RECARBox is worse than CEGARBox++ , likely meaning that the extra work required to look for smaller models is wasted. On the other hand we see that CEGARBox++ (KSP )outperforms CEGARBox++ by a large margin on the MQBF benchmarks and is equal on the 3CNF bench-marks. However, CEGARBox++ outperforms CEGARBox++ (KSP ) on the LWB-K benchmarks. This results in both provers being about equal overall. RECARBox performs better than CEGARBox++ (KSP ) on the LWB-K benchmarks, which we believe is due to the presence of massive formulae in these benchmarks: see our conclusion. 
+
+Synergy vs. Parallelism Finally, as the integration involves multithreading, one might wonder whether the performance gains are due to the parallelism itself (effectively “cheating” by doubling resources). Specifically for the MQBF benchmarks, is CEGARBox++ helping to solve the satisfiable problems, or is it simply just KSP solving them all (since it is best on satisfiable formulae)? Rajeev Goré & Cormac Kikkert 441 
+
+Figure 8: Performance of solvers on the standard K benchmarks To this end, we compare CEGARBox++ (KSP ) with KSP in Figure 9. We can see that on hard satisfiable benchmarks, CEGARBox++ (KSP ) outperforms KSP , meaning that CEGARBox++ is contributing. We can see no satisfiable timeouts for CEGARBox (KSP ), and even see a 100x improvement in some satisfiable problems, refuting the possibility that this improvement comes just from the doubling of resources due to parallelisation. This highlights a distinction between a simple portfolio approach and our integration. While KSP 
+
+and CEGARBox++ generally excel at different problem types (satisfiable vs. unsatisfiable), the integration appears to be better than the sum of their parts. Communicating fixpoints has allowed us to achieve results that a non-communicating portfolio could not. 
+
+# 6 Conclusions 
+
+We can see that RECAR-tableaux doesn’t perform that well. We believe this is because it operates on a much stricter form of ( ESAT) shortcuts, where it tries to create smaller models, as opposed to CEGAR TAB (KSP ), which doesn’t create models, but just shows they exist. Creating smallest models is intractable [4, 24] in general, and if they don’t exist, RECAR-tableaux simply wastes its time. 442 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+Figure 9: Performance of CEGARBox++ (KSP ) and KSP on the MQBF benchmarks. Problems on the top edge and the right edge indicate a timeout for CEGARBox++ (KSP ) and KSP respectively. Problems in the bottom right triangle/top left triangle are solved by CEGARBox++ (KSP ) / KSP quickest. Our approach, C EGAR TAB (KSP ), for dealing with ( ESAT) shortcuts shows a lot of promise, outper-forming all solvers on the MQBF benchmarks. We believe a better implementation would result in CEGAR TAB (KSP ) outperforming C EGAR TAB across the board. In particular, the issue with the current approach is that the KSP normal forming procedure produces approximately two times as many clauses as CEGAR TAB , resulting in slowdowns on massive formulae, which are present in the LWB-K benchmarks. These are why RECARBox performs better than CEGARBox++ (KSP ) on the LWB-K benchmarks. KSP can simplify this normal form (resulting in a smaller number of clauses than C EGAR TAB ), but on these mas-sive formulae the simplification times out. A more polished integration would use C EGAR TAB ’s normal forming procedure, and have better and more real-time communication protocols. We imagine this would be capable of outperforming C EGAR TAB on the 3CNF and LWB-K benchmarks, whilst also full-solving the MQBF benchmarks. An implementation of such is easier said than done as KSP has certain re-quirements on its normal form and must produce extra clauses that are not needed for C EGAR TAB . An alternative would be to instead optimise the simplification process of KSP , so it can produce reasonable normal forms quickly. In general, this idea of searching for fixpoints is simply a method of detecting if ˇ ϕ and ϕ are equi-satisfiable, a normal idea in classical CEGAR, but more difficult in complicated CEGAR algorithms, where the under-approximation is a different type to the input (in our case a classical formula vs a modal formula). This fixpoint approach will be generally useful for other recursive CEGAR algorithms, such as Rajeev Goré & Cormac Kikkert 443 CAQE [20], or PDR [2], though of course it is most effective in applications such as C EGAR TAB where branching is involved, meaning any ( ESAT) shortcut can possibly result in an exponential improvement in speed. Whilst any approach could be used for fix-point detection, it is interesting to consider the implications of using resolution here. Previously, SAT-based, tableaux-based and resolution-based solvers were the state-of-the-art solvers used for reasoning in modal K. Now, C EGAR TAB (KSP ), is an elegant combination of all these approaches, that is greater than the sum of its parts. In particular, this highlights a key similarity of C EGAR TAB and resolution methods. In C EGAR TAB we learn clauses when we need to (i.e. 
+
+lazily ), whereas KSP learns clauses iteratively (i.e. eagerly ). We used KSP as an oracle for C EGAR TAB . From discussion with Cláudia Nalon, Clare Dixon, Ullrich Hustadt, and Fabio Papacchini, creating an efficient implementation by reversing the roles is not obvious. 
+
+# References 
+
+[1] Franz Baader, Ian Horrocks & Ulrike Sattler (2008): Description logics . Foundations of Artificial Intelligence 
+
+3, pp. 135–179. [2] Aaron R. Bradley (2011): SAT-Based Model Checking without Unrolling . In Ranjit Jhala & David A. Schmidt, editors: Verification, Model Checking, and Abstract Interpretation - 12th International Conference, VMCAI 2011, Austin, TX, USA, January 23-25, 2011. Proceedings , Lecture Notes in Computer Science 
+
+6538, Springer, pp. 70–87, doi:10.1007/978-3-642-18275-4_7. [3] Robert Brummayer & Armin Biere (2009): Effective Bit-Width and Under-Approximation . In Roberto Moreno-Díaz, Franz Pichler & Alexis Quesada-Arencibia, editors: Computer Aided Systems Theory - EU-ROCAST 2009, 12th International Conference, Las Palmas de Gran Canaria, Spain, February 15-20, 2009, Revised Selected Papers , Lecture Notes in Computer Science 5717, Springer, pp. 304–311, doi:10.1007/978-3-642-04772-5_40. [4] T. Y. Chen, Jean-Louis Lassez & Graeme S. Port (1986): Maximal Unifiable Subsets and Minimal Nonunifi-able Subsets . New Gener. Comput. 4(2), pp. 133–152, doi:10.1007/BF03037439. [5] Koen Claessen & Dan Rosén (2015): SAT Modulo Intuitionistic Implications . In Martin Davis, Ansgar Fehnker, Annabelle McIver & Andrei Voronkov, editors: Logic for Programming, Artificial Intelligence, and Reasoning - 20th International Conference, LPAR-20 2015, Suva, Fiji, November 24-28, 2015, Proceedings ,
+
+Lecture Notes in Computer Science 9450, Springer, pp. 622–637, doi:10.1007/978-3-662-48899-7_43. [6] Edmund M. Clarke, Orna Grumberg, Somesh Jha, Yuan Lu & Helmut Veith (2003): Counterexample-guided abstraction refinement for symbolic model checking . J. ACM 50(5), pp. 752–794, doi:10.1145/876638.876643. [7] Niklas Eén (2006): The Minisat page . http: // minisat. se/ .[8] Luca Geatti, Nicola Gigante & Angelo Montanari (2021): BLACK: A Fast, Flexible and Reliable LTL Satis-fiability Checker . In Dario Della Monica, Gian Luca Pozzato & Enrico Scala, editors: Proceedings of the 3rd Workshop on Artificial Intelligence and Formal Verification, Logic, Automata, and Synthesis hosted by the Twelfth International Symposium on Games, Automata, Logics, and Formal Verification (GandALF 2021), Padua, Italy, September 22, 2021 , CEUR Workshop Proceedings 2987, CEUR-WS.org, pp. 7–12. Available at https://ceur-ws.org/Vol-2987/paper2.pdf .[9] Rajeev Goré & Cormac Kikkert (2021): CEGAR-Tableaux: Improved Modal Satisfiability via Modal Clause-Learning and SAT . In Anupam Das & Sara Negri, editors: Automated Reasoning with Analytic Tableaux and Related Methods - 30th International Conference, TABLEAUX 2021, Birmingham, UK, September 6-9, 2021, Proceedings , Lecture Notes in Computer Science 12842, Springer, pp. 74–91, doi:10.1007/978-3-030-86059-2_5. 444 Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts 
+
+[10] Rajeev Goré & Linh Anh Nguyen (2009): Clausal Tableaux for Multimodal Logics of Belief . Fundam. Informaticae 94(1), pp. 21–40, doi:10.3233/FI-2009-115. [11] Rajeev Goré & Jimmy Thomson (2013): An Improved BDD Method for Intuitionistic Propositional Logic: BDDIntKt System Description . In Maria Paola Bonacina, editor: Automated Deduction - CADE-24 - 24th International Conference on Automated Deduction, Lake Placid, NY, USA, June 9-14, 2013. Proceedings ,
+
+Lecture Notes in Computer Science 7898, Springer, pp. 275–281, doi:10.1007/978-3-642-38574-2_19. [12] Jean-Marie Lagniez, Daniel Le Berre, Tiago de Lima & Valentin Montmirail (2017): A Recursive Shortcut for CEGAR: Application To The Modal Logic K Satisfiability Problem . In Carles Sierra, editor: Proceedings of the Twenty-Sixth International Joint Conference on Artificial Intelligence, IJCAI 2017, Melbourne, Australia, August 19-25, 2017 , ijcai.org, pp. 674–680, doi:10.24963/ijcai.2017/94. [13] Jianwen Li, Shufang Zhu, Geguang Pu & Moshe Y. Vardi (2015): SAT-Based Explicit LTL Reasoning . In Nir Piterman, editor: Hardware and Software: Verification and Testing - 11th International Haifa Verification Conference, HVC 2015, Haifa, Israel, November 17-19, 2015, Proceedings , Lecture Notes in Computer Science 9434, Springer, pp. 209–224, doi:10.1007/978-3-319-26287-1_13. [14] Jianwen Li, Shufang Zhu, Geguang Pu, Lijun Zhang & Moshe Y. Vardi (2019): SAT-based explicit LTL reasoning and its application to satisfiability checking . Formal Methods Syst. Des. 54(2), pp. 164–190, doi:10.1007/S10703-018-00326-5. [15] Grigori Mints (1988): Gentzen-type systems and resolution rules part I propositional logic . In: International Conference on Computer Logic , Springer, pp. 198–231, doi:10.1007/3-540-52335-9_55. [16] Cláudia Nalon, Clare Dixon & Ullrich Hustadt (2019): Modal Resolution: Proofs, Layers, and Refinements .
+
+ACM Trans. Comput. Log. 20(4), pp. 23:1–23:38, doi:10.1145/3331448. [17] Cláudia Nalon, Ullrich Hustadt & Clare Dixon (2017): KSP: A Resolution-based Prover for Multimodal K, Abridged Report . In Carles Sierra, editor: Proceedings of the Twenty-Sixth International Joint Conference on Artificial Intelligence, IJCAI 2017, Melbourne, Australia, August 19-25, 2017 , ijcai.org, pp. 4919–4923, doi:10.24963/ijcai.2017/694. [18] Linh Anh Nguyen (1999): A New Space Bound for the Modal Logics K4, KD4 and S4 . In Miroslaw Kuty-lowski, Leszek Pacholski & Tomasz Wierzbicki, editors: Mathematical Foundations of Computer Science 1999, 24th International Symposium, MFCS’99, Szklarska Poreba, Poland, September 6-10, 1999, Proceed-ings , Lecture Notes in Computer Science 1672, Springer, pp. 321–331, doi:10.1007/3-540-48340-3_29. [19] Thomas Pagram (2015): Using decision diagrams for modal and intuitionisic theorem proving . Australian National University. [20] Markus N. Rabe & Leander Tentrup (2015): CAQE: A Certifying QBF Solver . In Roope Kaivola & Thomas Wahl, editors: Formal Methods in Computer-Aided Design, FMCAD 2015, Austin, Texas, USA, September 27-30, 2015 , IEEE, pp. 136–143, doi:10.1109/FMCAD.2015.7542263. [21] Grigori S Tseitin (1983): On the complexity of derivation in propositional calculus . Automation of reasoning: 2: Classical papers on computational logic 1967–1970 , pp. 466–483, doi:10.1007/978-3-642-81955-1_28. [22] Moshe Y. Vardi (2009): From Philosophical to Industrial Logics . In Ramaswamy Ramanujam & Sundar Sarukkai, editors: Logic and Its Applications, Third Indian Conference, ICLA 2009, Chennai, India, January 7-11, 2009. Proceedings , Lecture Notes in Computer Science 5378, Springer, pp. 89–115, doi:10.1007/978-3-540-92701-3_7. [23] Chao Wang, Aarti Gupta & Franjo Ivancic (2007): Induction in CEGAR for Detecting Counterex-amples . In: Formal Methods in Computer-Aided Design, 7th International Conference, FMCAD 2007, Austin, Texas, USA, November 11-14, 2007, Proceedings , IEEE Computer Society, pp. 77–84, doi:10.1109/FAMCAD.2007.21. [24] David A. Wolfram (1989): Intractable Unifiability Problems and Backtracking . J. Autom. Reason. 5(1), pp. 37–47, doi:10.1007/BF00245020.

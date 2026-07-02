@@ -1,0 +1,491 @@
+Title: Evidence-Driven LLM Agent for C-to-Synthesizable-C Conversion and Verification
+
+URL Source: https://arxiv.org/pdf/2606.28409v1
+
+Published Time: Tue, 30 Jun 2026 00:03:59 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+> IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 1
+
+# Evidence-Driven LLM Agent for C-to-Synthesizable-C Conversion and Verification 
+
+Zhe Zhao * , Hongbing Lang *, Zhihan Xiao , Luke Ztz Hu , John Imoleayo Adebisi ,and Songping Mai, Member, IEEE 
+
+Abstract —Software-compilable C programs routinely fail to complete the four-stage pipeline of a high-level synthesis (HLS) toolchain—compilation, C simulation (CSim), synthesis, and C/RTL co-simulation (CoSim)—because HLS accepts only a syn-thesizable subset of C (HLS-C). Yet most existing large language model (LLM) systems built for HLS code repair only cover the early pipeline stages and feed raw tool logs directly to the model, yielding brittle and hard-to-reproduce fixes. We formulate C-to-HLS-C conversion as a closed-loop generation–verification– diagnosis–repair problem on an HLS tool (Xilinx Vitis), con-tributing three components: an end-to-end workflow of cooperat-ing agents closed by the four-stage verifier under strict evidence isolation; a Progressive Mismatch Localization Chain (PMLC) that localizes CSim/CoSim mismatches through log normaliza-tion, AST backward slicing, and dual-trace instrumentation; and a typed-query, two-stage evidence RAG backed by a self-evolving, family-routed repair-card pool. Experimental results show that the proposed workflow substantially outperforms all comparable state-of-the-art models. 
+
+Index Terms —high-level synthesis, large language models, syn-thesizable C, C-to-HLS-C conversion, program repair, design automation, verification. 
+
+I. I NTRODUCTION 
+
+# HIGH-level synthesis (HLS) raises the abstraction of hard-ware design from RTL to the C/C++ level, delegating synthesizable RTL generation to the toolchain [1], [2], [3]. Mainstream HLS tools, however, accept only a restricted sub-set that we call high-level synthesizable C (HLS-C): arbitrary recursion, dynamic memory, STL containers, irregular point-ers, and several interface idioms typically lie outside it, so a program that compiles cleanly under GCC often fails the four-stage HLS pipeline of compile, C simulation (CSim), synthe-sis, and C/RTL co-simulation (CoSim). A natural alternative— letting a large language model (LLM) emit HDL directly—is constrained by the scarcity of HDL training corpora (Star-Coder reports HDL at roughly 1/40 of the C volume [4]) and tends to yield high error rates and uneven quality [5], [6], [7], [8], [9]. A more practical compromise lets the LLM synthesize HLS-C that a mature toolchain already accepts and then lowers it into functionally consistent Verilog, combining the semantic reasoning of LLMs with the engineering-grade 
+
+Zhe Zhao and Hongbing Lang contributed equally to this work. (Corre-sponding author: Songping Mai.) 
+
+Zhe Zhao, Zhihan Xiao, Luke Ztz Hu, and Songping Mai are with the Shenzhen International Graduate School, Tsinghua Univer-sity, Shenzhen 518055, China (e-mail: zhaoz24@mails.tsinghua.edu.cn; mai.songping@sz.tsinghua.edu.cn). Hongbing Lang is with Shenzhen Belon Technology Co., Ltd., Shenzhen 518055, China (e-mail: hblang@belon.cn). This work was supported by the Shenzhen Science and Technology Inno-vation Bureau under Grant ZDCY20250901110707008. 
+
+constraint solving of HLS. Fig. 1 contrasts the four paradigms; this paper focuses on paradigm (d). 
+
+Fig. 1. Four hardware-design paradigms compared. (a) hand-written RTL is mature but slow and hard to debug; (b) direct LLM-to-HDL is constrained by the scarcity of HDL training corpora; (c) the standard HLS toolchain accepts C/C++ as a hardware entry point, yet C-to-HLS-C rewriting is still largely manual; (d) our work automates C-to-HLS-C generation with an LLM and drives evidence-grounded repair through a four-stage HLS verifier in closed loop. 
+
+A growing body of LLM-for-HLS work spans C-to-HLS-C translation, benchmarking, debugging prompts, and agentic workflows [10], [11], [12], [13] (compared in Section II), yet three gaps remain. First, most stop at compile or CSim, while a deployable HLS-C must also pass synthesis and CoSim, the latter guaranteeing cycle-level equivalence between the gen-erated Verilog and the original C. Second, on a CSim/CoSim mismatch the raw log reports only which cycle and output failed, never the root cause; feeding the entire log back gen-erally yields low repair success and unbounded iterations. Third, the few RAG-based systems treat the knowledge base as a static rule book, neither aligned with toolchain failure families nor evolved over the system’s own experiments. The underlying difficulty is intrinsic: handing GCC-clean C to Vitis HLS can trigger coupled rewrites cascading across compile 
+
+→ CSim → synthesis → CoSim along five dimensions— interface/signature, memory/pointers, non-synthesizable con-trol flow, bitwidth/numerics, and timing/cycle alignment—so that single-point patches rarely suffice (a concrete walkthrough appears in Section IV-C). Building on these observations, this paper formulates LLM-driven conversion of standard C into HLS-C—the C-to-HLS-C task—as a closed-loop generation–diagnosis–repair prob-lem governed by the four-stage Vitis HLS verifier rather than as one-shot translation. The workflow is distinguished by three principled choices—evidence-grounded prompt iso-lation under hard discipline, progressive evidence localization for CSim/CoSim mismatches, and a self-evolving MoE RAG drawn from audited experiments—each anchoring one contri- 
+
+> arXiv:2606.28409v1 [cs.AR] 25 Jun 2026 IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 2
+
+bution below. All baselines are reproduced under gpt-5-mini and Vitis HLS 2022.1 with a shared manifest and repair budget K=3 (Section V-A).  
+
+> •
+
+An end-to-end closed-loop workflow for C-to-HLS-C-to-Verilog. We target Vitis HLS with the four-stage all-pass of compile/CSim/synthesis/CoSim as the sole headline metric; the deliverable is functionally consistent Verilog, not a snippet that merely compiles. Evidence admitted into the LLM context is strictly limited to a compact task brief, the current failing code, the failing stage, the raw error excerpt, and a local code window, while refer-ence HLS solutions, testbench labels, and baseline private outputs stay audit-only (Section III-B). On CFull107 (107 designs, gpt-5-mini, K=3), the workflow reaches 94/107 (87.85%) four-stage all-pass—a +53.27% absolute gain over the strongest baseline (37/107), with the all-pass rate reaching 2.5x that baseline under the protocol reported here (Table II).  
+
+> •
+
+PMLC: a three-layer mismatch evidence chain. For CSim/CoSim mismatches—the hardest failure family—a Progressive Mismatch Localization Chain composes log normalization, AST backward slicing, and selective in-strumentation with dual-trace alignment, packaging them with the failing code and a must-preserve contract into a repair brief that shrinks the search space to a few suspect lines, anchoring repair to checkable runtime observations rather than black-box guessing. On the mismatch-dense subset M (|M| = 24 ) it lifts four-stage all-pass from the strongest baseline’s 20.83% to 70.83% (17/24).  
+
+> •
+
+An MoE-style two-stage evidence RAG (MoE RAG) with a self-evolving card pool. A repair-only RAG hard-routes typed queries to family-specific card subsets and then runs structured exact matching plus GraphRAG-style cross-case linking, returning hints only when stage, family, and symbol match exactly and otherwise short-circuiting to an empty hit. The pool grows from human-audited repair chains, forming a self-evolving loop of run-experiment → extract-evidence → human-audit →
+
+enrich-knowledge → improve-retrieval, and reduces the average repair-iteration count from ≈ 2.8 for the base-lines to 1.577. The remainder of the paper is organized as follows. Sec-tions II and III review related work and formalize the problem under the four-stage verifier; Section IV unfolds the closed-loop workflow, PMLC, and the MoE RAG; Section V reports the CFull107 main table, cross-model robustness, and compo-nent ablations; Section VI concludes. II. R ELATED WORK 
+
+This section organizes the literature along two threads— generation–translation–repair, and RAG with multi-agent— that together respond to the three shared gaps highlighted in Section I (stopping at compile/CSim, feeding raw logs back unchanged, and treating the knowledge base as a static rule book). For each thread we name representative works and lo-cate the differences from this paper, with emphasis on axes related to system-level closed-loop and repair fidelity; a six-axis method portrait is summarized in Table I. Classical HLS automation has established the C/C++-to-RTL pipeline—scheduling, pipelining, pragma insertion, mem-ory partitioning, and design-space exploration [1], [2], [3], [14], [15], [16], [17]—with standard benchmarks such as CH-Stone [18], MachSuite [19], Rosetta [20], and HLSyn [21]. These efforts hold that engineering value requires synthesis through a commercial toolchain followed by co-simulation; we adopt the same position and confine our headline metric to the four-stage all-pass under Vitis HLS. LLM-for-HLS generation, translation, and repair forms the closest comparison to this paper. On the generation/translation side, C2HLSC [10] provides a first feasibility study of LLM-driven C-to-HLS-C; HLSTrans [11] couples MCTS-style search with DSE to assemble a 23K-variant supervised corpus; ChatHLS [12] performs multi-agent repair and op-timization with SFT-tuned Llama3-8B agents (implemented via LoRA); HLSPilot [22] chains profiling, rewrite, and DSE; HLS-Eval [13] is an evaluation suite; SAGE-HLS [23] and SynthAI [24] represent syntax-aware fine-tuning and multi-agent forward design, respectively. On the repair side, the auto-repair line [25], [26] typically drives a single round of fixing from compile-log signals (HLSRewriter is the journal-extended version), HLSDebugger [27] performs supervised lo-calization on a pre-labeled bug pool, and CorrectHDL [28] injects HLS-side golden HDL into the prompt for differential repair. Our closed-loop repair is structurally aligned with the LLM-APR thread [29], [30], [31], [32]; complementary LLM-for-RTL studies [5], [6], [7], [8], [9] often expose the failure modes of generating HDL directly. RAG and multi-agent systems form a second thread. Ver-iMoA [33] aggregates parallel proposers under a mixture-of-agents framework; DeepV [34] offers a model-agnostic RAG framework on the Verilog side; LIFT [35] and TimelyHLS [36] target pragma insertion and timing-aware optimization, respec-tively; AgentTTS [37] discusses test-time compute budget-ing from an agent perspective; the limits of reasoning mod-els in hardware design are reported by [38]. General-purpose RAG [39], [40], [41], agent frameworks [42], [43], [44], and EDA-question-answering RAG [45], [46] provide conceptual reference points. The knowledge bases in these works are typically either static high-quality corpora or tool manuals; the principled difference of our approach is that the card pool is distilled from the system’s own four-stage verification ex-periments and admitted only after human audit, with retrieval routed by failure family through a lightweight classifier rather than by similarity alone. Method portrait and differentiation are summarized in Ta-ble I, which characterizes representative works along six at-tributes: tool, weight training, cycle-level mismatch localiza-tion, four-stage all-pass, independence from reference HLS or bug labels, and verifier closed-loop repair. Among them, ours is one of the few simultaneously satisfying the comprehensive triple of end-to-end closure to CoSim, no reliance on reference HLS or bug labels, and a knowledge base distilled from the system’s own experiments. IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 3                                                                                
+
+> TABLE I METHOD PORTRAIT OF PRIOR LLM-FOR -HLS W ORKS ON SIX CAPABILITY AXES (✓SUPPORTED ,×NOT SUPPORTED ,−OUT OF SCOPE ).
+> Method [ref] Tool Train Cycle-level Mism. Loc. 4-Stage All-Pass No Ref-HLS / Bug Label Verifier Closed-Loop Notes
+> ChatHLS [12] Vitis SFT ×partial ×partial Multi-agent repair + QoR HLSDebugger [27] in-house SFT ××××Supervised top-kranking C2HLSC [10] Catapult none ××✓×One-shot prompt + raw log HLSPilot [22] Vitis none ××✓×Profiling →DSE HLS-Eval [13] Vitis none ×partial ✓×Static evaluation only Auto-repair [25] Catapult none ××✓✓Compile-log single round CorrectHDL [28] Catapult none ×partial ×partial Differential vs. golden HDL VeriMoA [33] iverilog none −−✓partial RTL path; multi-proposer
+> This work Vitis none ✓✓✓✓4-agent loop + PMLC + MoE RAG
+
+III. P ROBLEM FORMULATION 
+
+This section fixes the formal objects shared by Sec-tions IV–V—task instances, the four-stage verifier, the prompt-facing/artifact-only evidence split, and the repair recursion— which aim at substantial auditability and serve as the princi-pled basis for the claims that follow; baseline reproduction-fidelity labels appear in Section V-A. 
+
+A. Task Instances and the Four-Stage Verifier 
+
+For item i in manifest D, the input is xi = ( ci, Λi, q i):the C/C++ program ci, the public HLS testbench/TCL con-text Λi, and the externally visible top-function and interface contract qi (must-preserve signature, ports, types, timing). An agent Gθ produces a candidate y(0)  
+
+> i
+
+from a compact brief 
+
+bi = P (ci, Λi, q i), where P is lossy yet interface-lossless; the full hard-isolation statement is in Section III-B. The four-stage HLS verifier runs the stages in S =
+
+{compile , csim , synth , cosim }. For each stage s ∈ S, the ver-ifier component Vs returns a Boolean indicator vs and the raw log ℓs:
+
+Vs(yi) = (vs(yi), ℓ s(yi)), s ∈ S. (1) Stages run in the order of S and short-circuit on the first failure (unexecuted stages set vs = 0 by convention), giv-ing the four-stage all-pass indicator and earliest failing stage 
+
+s∗(yi) = arg min s{s : vs(yi) = 0 }:
+
+AllPass( yi) = ∏
+
+> s∈S
+
+⊮[vs(yi) = 1] . (2) A repair budget K ∈ Z>0 bounds the loop ( K = 3 on CFull107; any directly comparable baseline shares the same 
+
+K); with y(k) 
+
+> i
+
+the candidate after round k and σi the execution trace, the round count follows the stopping rule 
+
+Ki = min {k ≤ K ∣∣ AllPass( y(k) 
+
+> i
+
+) = 1 ∨ k = K}. (3) The success rate is SR( D) = 1
+
+> |D|
+
+∑ 
+
+> i
+
+AllPass( y(Ki) 
+
+> i
+
+), and lift over the strongest baseline uses 
+
+∆rel (a, b ) = SR a − SR b
+
+SR b
+
+, (4) computed only when the two rows share manifest, model, and budget with SR b > 0; transfer rows that adopt a prior paper’s own manifest generally report only the absolute difference, with a caveat. 
+
+B. Prompt-Facing Evidence vs. Artifact-Only Trace 
+
+Within all persisted payloads Ω(k) 
+
+> i
+
+at round k (excluding the LLM’s hidden state), we split the prompt-facing evidence 
+
+E(k) 
+
+> i
+
+from the audit-only artifacts A(k) 
+
+> i
+
+:
+
+E(k) 
+
+> i
+
+⊆ Ω(k) 
+
+> i
+
+, A(k) 
+
+> i
+
+⊆ Ω(k) 
+
+> i
+
+, E(k) 
+
+> i
+
+∩ A (k) 
+
+> i
+
+= ∅. (5) 
+
+E(k) 
+
+> i
+
+admits only five items: the brief bi; the current candidate 
+
+y(k) 
+
+> i
+
+; the failing stage s∗(y(k) 
+
+> i
+
+); a truncated first-error excerpt ̂
+
+ℓs∗ (default 80 lines); and a local window W (k) 
+
+> i
+
+of radius 8
+
+around the log-anchored symbols. On the mismatch stage it additionally admits the three layers 
+
+E(k), mismatch  
+
+> i
+
+= ( L1, L 2, L 3), (6) with L1 output-level (failed outputs and first failing cy-cle), L2 source-level (a backward slice around the named symbols of L1), and L3 runtime evidence (a value spec-trum inside the L2 scope); budgets κj and schemas ap-pear in Section IV. The artifact-only set A(k) 
+
+> i
+
+holds the full log, the reference HLS yref  
+
+> i
+
+, testbench labels Λlabel  
+
+> i
+
+, man-ual repairs ymanual  
+
+> i
+
+, baseline private outputs, and the full trace σi. We impose hard isolation from the leakage channel 
+
+Lleak = {yref  
+
+> i
+
+, Λlabel  
+
+> i
+
+, y manual  
+
+> i
+
+, {ybaseline ,m i }} , stated formally as Proposition 2 (Section IV-E)—typically the principled dis-tinction from baselines depending on reference HLS or pre-labeled bugs. Concretely, the admitted Λi is only the verifi-cation harness—the I/O wrapper, the driver/TCL, the stimulus generator, and the top-function signature—authored from the original C and its specification before any HLS-C exists, so it encodes no HLS-C-specific solution; its golden reference is 
+
+ci executed at run time rather than a stored expected-output table, while the stored golden labels Λlabel  
+
+> i
+
+stay in A(k) 
+
+> i
+
+. Hence 
+
+Λi adds no information about correct behavior beyond what 
+
+ci already specifies and merely pins down the must-preserve contract qi; a degenerate “hardcode-the-outputs” HLS-C is not constructible from E(k) 
+
+> i
+
+and, even if attempted, would fail synthesis, the interface contract, and cycle-level CoSim over the full stimulus set. Our prompt-facing leakage surface is therefore strictly smaller than that of baselines admitting reference HLS or pre-labeled bugs. IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 4
+
+C. Repair Recursion and Failure Analysis 
+
+Each round ( k ≥ 1) updates the candidate by 
+
+y(k) 
+
+> i
+
+= Rθ
+
+(
+
+y(k−1)  
+
+> i
+
+, A θ
+
+(E(k−1) 
+
+> i
+
+), q i
+
+)
+
+, (7) where Rθ and Aθ are the LLM repair and failure-analysis operators, E(k−1)  
+
+> i
+
+is the isolated failure evidence under (5) (mismatch rounds use (6)), and qi is the must-preserve con-tract. Crucially, Aθ and Rθ never see the full trace σi—only the most recent compressed failure—which generally avoids long-context drift and historical hallucination; cross-round his-tory is retained only in the audit ledger inside A(k) 
+
+> i
+
+. These definitions fix tasks, metrics, and symbol boundaries but do not constitute a convergence proof; the agent implementation and three-layer evidence are detailed in Section IV. IV. M ETHOD 
+
+This section instantiates the formal objects of Section III— task instances, the four-stage verifier, the stopping rule, and the 
+
+E(k) 
+
+> i
+
+/A(k) 
+
+> i
+
+split—as concrete operators and data structures, organized as the closed-loop workflow, the prompt contract, PMLC, the MoE RAG, and an evidence-sufficiency argument. 
+
+A. Overall Closed-Loop Workflow with Role-Specialized Agents 
+
+As shown in Fig. 2, the system distributes work across four lightweight agents. The planner projects the compact task brief 
+
+bi while preserving the interface contract πq (bi) = qi; the programmer generates the candidate y(0)  
+
+> i
+
+from bi; Vitis HLS verifies in the order compile, CSim, synthesis, CoSim; and on any failing stage the orchestrator invokes the evidence-extraction layer to produce E(k) 
+
+> i
+
+, which the failure analyst Aθ
+
+turns into a repair brief and the programmer applies through 
+
+Rθ . The reviewer performs only a contract and sanity audit after each patch and does not rewrite programmer outputs. We treat Vitis HLS as the controller of the repair loop rather than a mere pass/fail oracle: a verifier wrapper applies the short-circuit semantics of Section III-A so that any stage failure halts the rest, while the CoSim stage carries a triple-watchdog (total duration, stdout-silence interval, and subprocess liveness) that distinguishes a long simulation from a deadlock and, when triggered, re-enters the repair loop. The whole process obeys the hard isolation of Section III-B and the stopping rule of (3). The role split is intended to reduce prompt contamination: the programmer in repair mode sees only the current failing code and the most recent failure evidence (the stateless update of (7)), which generally avoids the hallucination drift caused by accumulating history. In contrast to multi-agent forward-design decompositions [24], [33], the principled goal of our split is to compress the information reaching the LLM at prompt time and to fix role boundaries, not to add richer intermediate representations. 
+
+B. Prompt Contract and Information Isolation 
+
+Our prompt design instantiates the E(k) 
+
+> i
+
+admission set of Section III-B over two prompt classes. The initial generation prompt ( k = 0) carries the source C/C++, a public test-bench/TCL summary (the harness and interface only, not the golden expected outputs), the required top-function signature, and the minimal brief bi. The repair prompt ( k ≥ 1) car-ries the current candidate, the earliest failing stage s∗, the truncated raw tool error ̂ ℓs∗ , the failure-analyst summary, the patch scope, and the must-preserve contract; the PMLC three layers are attached on the mismatch stage, while the full exe-cution trace σi and cross-round history are excluded. For the compile and synthesis stages we additionally admit a length-capped project-log hint extracted from the HLS project direc-tory (trailing tool-log lines, TCL conversion fragments, and the testbench interface signature), delivering signals the toolchain has already written without ingesting the full log. The failure-analyst output is fixed to four structured fields— the truncated raw error excerpt, the failure-family label, the named-symbol set, and the repair intent—plus a must-preserve contract. These serve both the repair prompt and the typed RAG query of Section IV-D, so that each round poses only three concrete questions: why the current code fails, where the minimal edit should land, and which contracts must not move. 
+
+C. PMLC: Progressive Mismatch Localization Chain 
+
+Compile and synthesis errors are typically already address-able from s∗,̂ ℓs∗ , and the local window W (k) 
+
+> i
+
+. CSim/CoSim mismatches are harder: a 2000-line cycle-by-cycle comparison log tells the LLM only which cycle output failed, not why or where, and replaying it verbatim tends to induce irrelevant edits on loop bounds or unrelated variables. We therefore intro-duce PMLC (Progressive Mismatch Localization Chain), three evidence layers L1, L 2, L 3 as in (6) that progressively shrink the repair search space from the entire HLS-C to a few suspect lines (monotone shrinkage formalized in Proposition 1). The chain runs as follows (Fig. 3). L1 normalizes the simu-lation log into output-side evidence (matched/total counts, the first failing cycle, the failed-output list, and a few mismatch examples), with a standalone predicate that separates genuine mismatches from compile/tool errors. L2 parses the HLS-C syntax tree and runs an AST backward slice rooted at the failed outputs, yielding a key-variable map of related variables, assignment and control sites, and merged suspect line ranges; recursion depth is bounded so the slice stays precise. L3 then selectively instruments only those sites with lightweight probes (assignments, loop iterations, branch outcomes, variable snap-shots) and, when the original C is available as a golden ref-erence, places co-located probes on both C and HLS-C to align the two traces and localize the first-divergence cycle and the diverging variables. A packager bundles the three layers, the failing code window, the project-log summary, the raw error excerpt, and the must-preserve contract into the repair brief. Conceptually L2/L 3 align with spectrum-based fault localization and program slicing, but lift the localization ob-ject from program variables to the differential between HLS-C and testbench expectations; we use this analogy under a IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 5         
+
+> Fig. 2. C-to-HLS-C closed loop. The planner projects an interface-lossless brief bi(πq(bi) = qi), the programmer emits a candidate, and the Vitis HLS verifier short-circuits along compile/CSim/synthesis/CoSim; on a failure at s∗the failure analyst builds a repair brief from the prompt-facing evidence E(k)
+> i
+> and the programmer applies a minimal patch, with PMLC layers L1+L2+L3appended on mismatches.
+
+constrained scope and claim no equivalent guarantees. The principled difference is that PMLC binds mismatch repair to verifiable runtime observations, contrasting with [10] that re-plays raw logs verbatim, with [25] driven only by compile-log signals, and with [27] that depends on supervised pre-labeled bug pools. A small set of engineering budgets κj (slice depth, line-merge/expansion thresholds, snapshot retention, and the 
+
+80 -line error excerpt with radius-8 window) keeps the prompt-facing set E(k) 
+
+> i
+
+decoupled from the input design size (Propo-sition 1). 
+
+D. MoE-Style Two-Stage Evidence RAG with Typed-Query Routing 
+
+RAG is, in our system, neither a replacement for the verifier nor a silent rewriter but an independent repair-only enhancement track, organized as an MoE-style two-stage retrieval (Fig. 4). Stage 1 performs rule-based clas-sification routing from the structured failure-analyst output: by failing stage, failure-family label, and the mismatch-only flag, the failure is hard-routed to a family-specific sub-pool (mismatch-evidence, interface/synthesis-constraint, type/header, or preprocessing/reproduction-boundary experts). Stage 2 runs structured exact matching inside that sub-pool on stage, family, and named-symbol set, plus optional GraphRAG-style cross-case linking; it returns up to khint ≤ 3
+
+hints only when stage, family, and at least one symbol match exactly, otherwise short-circuiting to an empty hit so that generic rules are never injected. Here MoE-style refers only to hard routing by family label: Stage 1 is a classifier, not a learnable gate, and we do not train expert weights. The knowledge base holds repair success cards (plus a few baseline-knowledge cards for toolchain compatibility and do-main common sense), each carrying six required fields: ob-served failing stage, validated passing stage, permitted re-trieval range, truncated error excerpt, before/after code win-dow, and truncated repair diff. By self-evolving we mean a data-side loop rather than online weight updates: only after a complete failure-to-repair chain is human-audited line by line—confirming no leakage of reference HLS, testbench la-bels, or manual repairs—is the case promoted into the formal pool, while incomplete cases are recorded in an audit ledger (empty hit, named-symbol gap, cross-case linkage gap) as an auditable record of retrieval blind spots. This forms the loop run-experiment → extract-evidence → human-audit → enrich-knowledge → improve-retrieval, keeping retrieval results close to a small set of citable evidence rather than long generic rules. 
+
+E. Evidence Sufficiency and Auditable Absence of Leakage 
+
+We do not claim a convergence proof for the LLM-driven loop. The two propositions below are not theorems but au-ditable implementation-level observations on information con-trol and evidence size, verifiable externally through the audit ledger. 
+
+Proposition 1 (Bounded evidence size and monotone shrinkage). 
+
+The size of all three evidence layers is controlled by enumer-able budgets κj and does not grow with input size; more-over the indicated source-code line sets satisfy Lines( L3) ⊆
+
+Lines( L2) ⊆ Lines( L1) ⊆ Lines( y), shrinking monotonically. These are finite-projection properties of E(k) 
+
+> i
+
+, not an existence proof; the empirical support is the full50 localization ablation (Section V-B), a controlled diagnostic set of 50 mismatch cases with known ground-truth fault locations, kept separate from CFull107 and used only to score layer-wise accuracy, on which L1/L 2 reach 50/50 and L3 dual-trace first-divergence localization reaches 45/50. IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 6                 
+
+> Fig. 3. PMLC three-layer evidence chain. L1normalizes the mismatch log into a structured failure object; L2runs an AST backward slice (depth ≤2) to a key-variable map and merged suspect lines; L3aligns the C golden trace with the HLS-C trace to localize the first-divergence cycle. The layers shrink the search space monotonically, Lines( L3)⊆Lines( L2)⊆Lines( L1)⊆Lines( y(k)
+> i)(Proposition 1). In-figure numbers illustrate one accumulator-order case from CFull107.
+
+Proposition 2 (Auditable absence of reference and label leakage). 
+
+Let Lleak := {yref  
+
+> i
+
+, Λlabel  
+
+> i
+
+, y manual  
+
+> i
+
+, {ybaseline ,m i }} . Our imple-mentation satisfies 
+
+∀ k ≥ 0, L leak ∩ E(k) 
+
+> i
+
+= ∅, (8) which can be audited in both the prompt-construction code and the audit ledger. The input schemas of the four agents and the RAG retriever contain none of the four leakage channels; the initial and re-pair prompts are built from two non-overlapping schemas, and cross-round failure information is retained only in the audit ledger inside A(k) 
+
+> i
+
+, so the condition is statically checkable. This is the substantial difference from [28], which injects golden HDL into the prompt, and from [27], which uses super-vised pre-labeled bug pools; it is also the method-level carrier of the hard isolation of Section III-B. Fig. 5 visualizes the partition and locates Propositions 1 and 2. V. E XPERIMENTAL EVALUATION 
+
+We organize the experiments along three concentric layers: (i) an end-to-end comparison against LLM-driven baselines on CFull107 (Section V-B); (ii) a decomposition of workflow gain versus model gain through cross-model and zero-shot rows (Section V-C); and (iii) a transferability check on two public HLS benchmarks (Section V-D). PMLC and RAG ablations are embedded at the end of Section V-B. 
+
+A. Experimental Setup Benchmark. CFull107 is our benchmark of 107 distinct C/HLS-C design pairs. We build it from several established HLS datasets and benchmarks (e.g., MachSuite, PP4FPGA, ForgeBench, and Chrysalis-HLS-style corpora): each pair comprises a standard C program, a reference HLS-C imple-mentation, and an automatically generated, coverage-driven testbench whose golden reference is the original C executed at run time (rather than a stored expected-output table). Con-struction proceeds in three steps: (i) parameterized augmen-tation (array dimensions and loop-unrolling factors) for struc-tural diversity; (ii) dual-consistency filtering that retains only pairs satisfying both functional equivalence and coverage ad-equacy; and (iii) de-duplication of templated and parameter-ized variants, leaving 107 functionally independent designs that span five semantic subsets—pointer/memory, loop-heavy, array-access, crypto/DSP, and control-heavy. During conver-sion the agent receives only the harness and the top-function signature, never the golden outputs. 
+
+Models. The main configuration uses gpt-5-mini with temperature=0 and deterministic decoding; the cross-model rows additionally run gpt-4o-mini, DeepSeek v4-flash, and DeepSeek v4-pro under the same workflow. All baselines are reproduced with gpt-5-mini and the official prompts of each method. 
+
+Repair budget and headline metric. We adopt pass@1 eval-uation (a single sample per case, no n-best reranking) together IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 7      
+
+> Fig. 4. Self-evolving MoE RAG. A typed query qrover the fields stage, family, symbols, intent, and preserve hard-routes to one expert bucket (Stage 1) and returns up to khint ≤3exact-matched repair cards, or an empty hit on any miss (Stage 2). Offline, human-audited repair chains (no reference HLS, testbench labels, or manual repairs) are promoted into the buckets while audit-failed cases enter the audit ledger, forming a data-side closed loop rather than online weight updates.
+
+with at most K=3 verifier-driven repair iterations: pass@1 is the within-round sampling protocol, while K=3 is the cross-round iteration cap, and the two are orthogonal. The headline metric is four-stage all-pass (compile, CSim, synthesis, and CoSim all passing); auxiliary diagnostics include per-stage pass rates, the average repair-iteration count, and per-case to-ken / wall-clock cost. Synthesis and co-simulation use Vitis HLS 2022.1. 
+
+Baselines. We select three LLM-driven HLS workflows: C2HLSC [10], HLSTrans [11], and ChatHLS [12]. C2HLSC is reproduced at the method level because no executable in-ference repository is available; HLSTrans and ChatHLS are re-run under their official prompts with gpt-5-mini and Vitis HLS 2022.1. 
+
+B. CFull107 Main Comparison Headline result. On CFull107 (107 designs, gpt-5-mini, K=3), our workflow reaches a four-stage all-pass of 94/107 (87.85%). Against the strongest LLM baseline C2HLSC at 37/107 (34.58%), this corresponds to an absolute gap of +53.27% and, by (4), an all-pass rate that is approximately 2.5x the baseline (Table II). Under the protocol reported here, the gain is robust: the average repair-iteration count drops from               
+
+> Fig. 5. Information stratification between prompt-facing ( E(k)
+> i) and artifact-only ( A(k)
+> i) (Section III-B) and the visual locations of Propositions 1 and 2. The forbidden injection in the middle is the constraint of (8), while the three nested layers on the left depict the monotone shrinkage of Lines( Lj)in Proposition 1.
+> compile CSim Synth CoSim
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> pass rate (%)
+> Ours (gpt-5-mini) C2HLSC HLSTrans ChatHLS
+> Fig. 6. Per-stage pass rates on CFull107. Ours stays at ≥87% across all four stages, while the three LLM baselines visibly attrit at the compile stage (42.99%–51.40%) and cannot recover at later stages.
+
+2.76–2.89 for the baselines to 1.577, with 35.51% (38/107) of designs clearing all four stages on the first round, while baselines typically exhaust the K=3 budget across the board. 
+
+Per-stage attrition. Fig. 6 reports per-stage pass rates. Ours stays at 87.85%–95.33% across all four stages, with the largest drop at CSim →synthesis (non-synthesizable array/interface id-ioms), whereas the three baselines already sit at 42.99%– 51.40% at compile and cannot recover. The compile and CSim pass counts coincide within each row because compile/CSim failures are predominantly C-level semantic errors that the rea-soning backbone repairs reliably inside K=3; genuine attrition thus concentrates at the HLS-specific synthesis and CoSim stages. The zero-shot rows of Table V, produced in a single shot, accordingly show a visible compile →CSim drop. 
+
+Mismatch-dense subset. We define the mismatch-dense sub-set M ⊆ CFull107 ( |M| = 24 ) by an objective, method-agnostic criterion on the design, not on which method wins: a design enters M if it clears compile and synthesis but ex-poses a cycle-level mismatch (“CSim pass, CoSim fail” or an analogous CSim numerical deviation) under at least one IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 8                                                              
+
+> TABLE II CF ULL 107 M AIN RESULTS UNDER SHARED PROTOCOL (|D| =107 , V ITIS HLS 2022.1, PASS @1, K=3).
+> Method Model Compile CSim Synth All-Pass Tok/Case ∗Time/Case
+> Ours+RAG gpt-5-mini 95.33% 95.33% 89.72% 87.85% 18.8K 140s Ours+RAG gpt-4o-mini 84.11% 84.11% 77.57% 74.77% 16.5K 121s Ours+RAG DeepSeek v4-flash 95.33% 93.46% 93.46% 91.59% 19.2K 131s Ours+RAG DeepSeek v4-pro 95.33% 95.33% 95.33% 95.33% 21.5K 165s C2HLSC [10] gpt-5-mini 51.40% 51.40% 43.93% 34.58% 14.5K 137s HLSTrans [11] gpt-5-mini 42.99% 42.99% 38.32% 29.91% 15.6K 177s ChatHLS [12] gpt-5-mini 44.86% 44.86% 38.32% 28.97% 60.6K 335s
+> ∗Tok/Case reflects each method’s original prompting strategy. The gpt-5-mini row is the protocol-aligned headline; the remaining three Ours rows show cross-model robustness.
+
+configuration. This isolates the regime where the bottleneck is genuinely the mismatch-repair path rather than a front-stage blocker; it depends only on whether a design ever reaches the mismatch regime, and all methods are scored on the identi-cal 24 designs, so the comparison stays symmetric. A purely source-feature definition would be less faithful, since whether a mismatch is exposed is a runtime property of co-simulation. On M, ours reaches 17/24 (70.83%), versus C2HLSC 5/24 (20.83%), ChatHLS 3/24 (12.50%), and HLSTrans 0/24. The relative advantage ( ≈ 3.40 ×) is harder-won than the main table’s 2.54 × yet remains robust, indicating that the PMLC benefit is generally not diluted by easy front-stage cases but operates where the mismatch is genuinely exposed. 
+
+Ablation contrast (PMLC and RAG). We run two compo-nent ablations in parallel. The three-layer PMLC localization is measured on full50, a controlled diagnostic suite of 50 mismatch cases with known ground-truth fault locations, kept separate from CFull107 so that layer-wise localization can be scored against a reference the end-to-end runs do not expose: 
+
+L1 and L2 reach 50/50 (100%) on the failed outputs and first faulty assignment, and L3 dual-trace alignment reaches 45/50 (90%) on the first-divergence cycle, grounding Proposition 1 (Section IV-E). The RAG vs. no-RAG ablation (Table III) shows RAG reaching 70.83% on M versus 41.67% for no-RAG (+29.17%), as typed queries hit the relevant family pre-cisely on exposed-mismatch cases. Aggregate all-pass moves from 78.50% to 87.85% (+9.35%); the RAG-equipped agent spends round 1 on evidence collection and writes the grounded patch in round 2, completing more final repairs at a lower iteration count (1.577 vs. 1.85) at the cost of +1.7K tokens per case (+9%). This matches the design intent of Section IV-D, where RAG is a mismatch-dense enhancement track rather than an unconditional aggregate lift. 
+
+Difficult subsets. Table IV breaks down the headline gpt-5-mini result by source-code feature. Ours holds 78.3%–90.0% across the four data-flow-intensive subsets, well ahead of the baselines. The control-heavy subset is generally harder for all methods, and ours scores 3/8 (37.5%); because N=8 on this subset, the gap should be read as a qualitative observation rather than a quantitative claim. The root cause and mitigation directions are discussed in Section VI.                                                       
+
+> TABLE III RAG VS . N O-RAG A BLATION ON CF ULL 107 ( GPT -5-MINI , K=3).
+> Config. All-Pass (/107) M∗(/24) Tok/Case Ours+RAG 87.85% 70.83% 18.8K Ours no-RAG 78.50% 41.67% 17.1K
+> ∆(RAG) +9.35% +29.17% +1 .7K
+> ∗Mis the mismatch-dense subset: the 24 of 107 designs that expose a CSim/CoSim mismatch under at least one configuration. All-Pass and Tok/Case are measured over all 107 designs. RAG’s benefit concentrates on
+> M(+29 .17% ); because the RAG-equipped agent uses round 1 for evidence collection and writes the grounded patch in round 2, the average repair-iteration count drops from 1.85 to 1.577. TABLE IV FOUR -S TAGE ALL -P ASS BREAKDOWN ON DIFFICULT SUBSETS OF
+> CF ULL 107 (O URS = O URS +RAG WITH GPT -5-MINI ).
+> Subset ∗NOurs C2HLSC HLSTrans ChatHLS
+> Pointer/Memory 46 78.3% 15.2% 4.3% 13.0% Loop-heavy 54 87.0% 11.1% 3.7% 9.3% Array-access 50 90.0% 14.0% 4.0% 10.0% Crypto/DSP 20 90.0% 10.0% 5.0% 10.0% Control-heavy 837.5% 12.5% 0.0% 25.0%
+> ∗Subsets are defined by deterministic source-code features; a design may belong to more than one subset, so the counts overlap.
+
+C. Cross-Model Robustness and Zero-Shot Decomposition Workflow gain dominates model gain. Switching the same workflow’s backbone to gpt-4o-mini, DeepSeek v4-flash, and v4-pro keeps four-stage all-pass in 74.77%–95.33% (Table II); even the weakest gpt-4o-mini (74.77%) sits markedly above the strongest baseline (34.58%). To separate the “reasoning backbone” and “closed-loop workflow” sources, we run two single-generation references for the four models (no agent loop, no repair; Table V). A minimal zero-shot with a one-line “translate this C to HLS-C” prompt collapses to 0% four-stage all-pass—only 4–7 of 107 designs even compile and none pass CSim, synthesis, or CoSim—confirming that naive prompting does not produce synthesizable HLS-C. A stronger HLS-aware zero-shot, adding a minimal HLS-aware system prompt and the interface contract, raises all-pass to 20.56%–28.04%, with the strongest v4-pro still below the weakest baseline ChatHLS; we take this HLS-aware regime as the matched single-shot reference. The workflow gain over it, ∆workflow ∈ [+54 .21 , +67 .29] %, is substantially larger than IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 9
+
+TABLE V ZERO -S HOT BASELINES ON CF ULL 107 ( |D| =107 , SINGLE DIRECT GENERATION , NO AGENT LOOP , NO REPAIR ). 
+
+Model Compile CSim Synth All-Pass 
+
+Minimal zero-shot (one-line prompt) 
+
+gpt-5-mini 5.61% 0% 0% 0% gpt-4o-mini 3.74% 0% 0% 0% DeepSeek v4-flash 5.61% 0% 0% 0% DeepSeek v4-pro 6.54% 0% 0% 0% 
+
+HLS-aware zero-shot (system prompt + interface contract) 
+
+gpt-5-mini 46.73% 33.64% 28.04% 22.43% gpt-4o-mini 44.86% 32.71% 26.17% 20.56% DeepSeek v4-flash 51.40% 37.38% 30.84% 25.23% DeepSeek v4-pro 56.07% 42.06% 35.51% 28.04% The Minimal group uses a one-line “translate this C to HLS-C” prompt; the HLS-aware group adds a minimal HLS-aware system prompt and the interface contract. Adding the proposed closed-loop workflow lifts four-stage all-pass by 54 –67 % over the HLS-aware zero-shot across these four models—substantially larger than the 7.48 % cross-model spread in HLS-aware zero-shot all-pass—indicating that the lift is driven by the closed-loop workflow rather than model capacity. The minimal zero-shot collapses to 0% all-pass (only 4–7 of 107 designs even compile), confirming that naive prompting does not yield synthesizable HLS-C. TABLE VI CROSS -P APER EXTERNAL BENCHMARK TRANSFER (E ACH SOURCE 
+
+PAPER ’S OWN FUNCTION /S YNTHESIS METRICS ). 
+
+Benchmark Ours Original 
+
+Func. Synth. Func. Synth. ChatHLS HLSFixer612 86% 86% 83% —HLSTrans 17 apps 88% 85% 64.7% 58.8% 
+
+the 7.48% cross-model zero-shot spread, indicating that the all-pass uplift is principally driven by the closed-loop workflow rather than backbone scale. 
+
+D. Cross-Paper External Benchmark Transfer 
+
+To check transferability beyond CFull107, we re-run our workflow on two public LLM-for-HLS benchmarks: ChatHLS HLSFixer612 (612 logic-bug repair cases) and HLSTrans 17 apps. Both source papers report Function and Synthesis as their main metrics, so we adopt the same metrics for direct comparability rather than our four-stage all-pass. As Table VI shows, ours leads on both benchmarks—most markedly on HLSTrans 17 apps (Function 88% vs. 64.7%, Synthesis 85% vs. 58.8%)—indicating that the workflow remains robust on external benchmarks. VI. C ONCLUSION 
+
+This paper formulates C-to-HLS-C as a generation– verification–diagnosis–repair problem closed by the four-stage Vitis HLS 2022.1 verifier, contributing a three-layer Progressive Mismatch Localization Chain (PMLC), an MoE RAG with a self-evolving repair-success card pool, and an auditable evidence-isolation discipline. On CFull107 the workflow reaches a substantial 87.85% four-stage all-pass, a 
+
++53 .27 % gain over the strongest LLM baseline, and stays robust across four reasoning backends ( 74 .77% –95 .33% ) and two external benchmarks, suggesting the end-to-end gain derives chiefly from the verifier-closed loop and evidence grounding rather than from backbone scale. The main limitations are the harder control-heavy subset, where data-flow-biased localization weakens, and the single-toolchain pass@1/ K=3 protocol; extending evidence extraction to control-dominated designs and to cross-toolchain, PPA-aware repair are natural next steps. REFERENCES [1] R. Nane, V.-M. Sima, C. Pilato, J. Choi, B. Fort, A. Canis, Y. T. Chen, H. Hsiao, S. Brown, F. Ferrandi et al. , “A survey and evaluation of fpga high-level synthesis tools,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 35, no. 10, pp. 1591– 1604, 2015. [2] S. Lahti, P. Sjövall, J. Vanne, and T. D. Hämäläinen, “Are we there yet? a study on the state of high-level synthesis,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 38, no. 5, pp. 898–911, 2018. [3] J. Cong, J. Lau, G. Liu, S. Neuendorffer, P. Pan, K. Vissers, and Z. Zhang, “Fpga hls today: successes, challenges, and opportunities,” 
+
+ACM Transactions on Reconfigurable Technology and Systems (TRETS) ,vol. 15, no. 4, pp. 1–42, 2022. [4] R. Li, L. B. Allal, Y. Zi, N. Muennighoff, D. Kocetkov, C. Mou, M. Marone, C. Akiki, J. Li, J. Chim et al. , “Starcoder: may the source be with you!” arXiv preprint arXiv:2305.06161 , 2023. [5] S. Thakur, B. Ahmad, H. Pearce, B. Tan, B. Dolan-Gavitt, R. Karri, and S. Garg, “Verigen: A large language model for verilog code generation,” 
+
+ACM Transactions on Design Automation of Electronic Systems , vol. 29, no. 3, pp. 1–31, 2024. [6] M. Liu, N. Pinckney, B. Khailany, and H. Ren, “Verilogeval: Evaluating large language models for verilog code generation,” in 2023 IEEE/ACM International Conference on Computer Aided Design (ICCAD) . IEEE, 2023, pp. 1–8. [7] Y. Lu, S. Liu, Q. Zhang, and Z. Xie, “Rtllm: An open-source benchmark for design rtl generation with large language model,” in 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 2024, pp. 722–727. [8] S. Liu, W. Fang, Y. Lu, Q. Zhang, H. Zhang, and Z. Xie, “Rtlcoder: Outperforming gpt-3.5 in design rtl generation with our open-source dataset and lightweight solution,” in 2024 IEEE LLM Aided Design Workshop (LAD) . IEEE, 2024, pp. 1–5. [9] Y. Tsai, M. Liu, and H. Ren, “Rtlfixer: Automatically fixing rtl syntax errors with large language model,” in Proceedings of the 61st ACM/IEEE Design Automation Conference , 2024, pp. 1–6. [10] L. Collini, S. Garg, and R. Karri, “C2hlsc: Leveraging large language models to bridge the software-to-hardware design gap,” ACM Transac-tions on Design Automation of Electronic Systems , vol. 30, no. 6, pp. 1–24, 2025. [11] Q. Zou, N. Chen, Y. Chen, B. He, and W. Wong, “Hlstrans: Dataset for c-to-hls hardware code synthesis,” arXiv preprint arXiv:2507.04315 ,2025. [12] R. Li, J. Xiong, X. He, J. Zhao, J. Lv, H. Fang, L. Qi, and X. Wang, “Chathls: Towards systematic design automation and optimization for high-level synthesis,” arXiv preprint arXiv:2507.00642 , 2025. [13] S. Abi-Karam and C. Hao, “Hls-eval: A benchmark and framework for evaluating llms on high-level synthesis design tasks,” in 2025 IEEE International Conference on LLM-Aided Design (ICLAD) . IEEE, 2025, pp. 219–226. [14] B. C. Schafer and Z. Wang, “High-level synthesis design space explo-ration: Past, present, and future,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 39, no. 10, pp. 2628– 2639, 2019. [15] F. Ferrandi, V. G. Castellana, S. Curzel, P. Fezzardi, M. Fiorito, M. Lat-tuada, M. Minutoli, C. Pilato, and A. Tumeo, “Bambu: an open-source research framework for the high-level synthesis of complex applica-tions,” in 2021 58th ACM/IEEE Design Automation Conference (DAC) .IEEE, 2021, pp. 1327–1330. [16] L. Josipovi´ c, A. Guerrieri, and P. Ienne, “From c/c++ code to high-performance dataflow circuits,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 41, no. 7, pp. 2142–2155, 2021. IEEE TRANSACTIONS ON COMPUTER-AIDED DESIGN OF INTEGRATED CIRCUITS AND SYSTEMS, VOL. XX, NO. X, MONTH YEAR 10 
+
+[17] A. Sohrabizadeh, C. H. Yu, M. Gao, and J. Cong, “Autodse: Enabling software programmers to design efficient fpga accelerators,” ACM Trans-actions on Design Automation of Electronic Systems (TODAES) , vol. 27, no. 4, pp. 1–27, 2022. [18] Y. Hara, H. Tomiyama, S. Honda, H. Takada, and K. Ishii, “Chstone: A benchmark program suite for practical c-based high-level synthesis,” in 
+
+2008 IEEE International Symposium on Circuits and Systems (ISCAS) .IEEE, 2008, pp. 1192–1195. [19] B. Reagen, R. Adolf, Y. S. Shao, G.-Y. Wei, and D. Brooks, “Mach-suite: Benchmarks for accelerator design and customized architectures,” in 2014 IEEE International Symposium on Workload Characterization (IISWC) . IEEE, 2014, pp. 110–119. [20] Y. Zhou, U. Gupta, S. Dai, R. Zhao, N. Srivastava, H. Jin, J. Feath-erston, Y.-H. Lai, G. Liu, G. A. Velasquez et al. , “Rosetta: A realistic high-level synthesis benchmark suite for software programmable fpgas,” in Proceedings of the 2018 ACM/SIGDA International Symposium on Field-Programmable Gate Arrays , 2018, pp. 269–278. [21] Y. Bai, A. Sohrabizadeh, Z. Qin, Z. Hu, Y. Sun, and J. Cong, “To-wards a comprehensive benchmark for high-level synthesis targeted to fpgas,” Advances in Neural Information Processing Systems , vol. 36, pp. 45 288–45 299, 2023. [22] C. Xiong, C. Liu, H. Li, and X. Li, “Hlspilot: Llm-based high-level syn-thesis,” in Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design , 2024, pp. 1–9. [23] M. Z. S. Khan, N. Mashnoor, M. Akyash, K. Azar, and H. Kamali, “Sage-hls: Syntax-aware ast-guided llm for high-level synthesis code generation,” in 2025 IEEE 43rd International Conference on Computer Design (ICCD) . IEEE, 2025, pp. 574–581. [24] S. A. Sheikholeslam and A. Ivanov, “Synthai: A multi agent generative ai framework for automated modular hls design generation,” arXiv preprint arXiv:2405.16072 , 2024. [25] K. Xu, G. L. Zhang, X. Yin, C. Zhuo, U. Schlichtmann, and B. Li, “Automated c/c++ program repair for high-level synthesis via large lan-guage models,” in Proceedings of the 2024 ACM/IEEE International Symposium on Machine Learning for CAD , 2024, pp. 1–9. [26] K. Xu, G. L. Zhang, X. Yin, C. Zhuo, U. Schlichtmann, and B. Li, “Hlsrewriter: Efficient refactoring and optimization of c/c++ code with llms for high-level synthesis,” ACM Transactions on Design Automation of Electronic Systems , vol. 31, no. 4, pp. 1–21, 2026. [27] J. Wang, S. Liu, Y. Lu, and Z. Xie, “Hlsdebugger: Identification and cor-rection of logic bugs in hls code with llm solutions,” in 2025 IEEE/ACM International Conference On Computer Aided Design (ICCAD) . IEEE, 2025, pp. 1–9. [28] K. Xu, G. L. Zhang, U. Schlichtmann, and B. Li, “Correcthdl: Agentic hdl design with llms leveraging high-level synthesis as reference,” arXiv preprint arXiv:2511.16395 , 2025. [29] M. Monperrus, “Automatic software repair: A bibliography,” ACM Com-puting Surveys (CSUR) , vol. 51, no. 1, pp. 1–24, 2018. [30] C. S. Xia, Y. Wei, and L. Zhang, “Automated program repair in the era of large pre-trained language models,” in 2023 IEEE/ACM 45th International Conference on Software Engineering (ICSE) . IEEE, 2023, pp. 1482–1494. [31] H. Joshi, J. C. Sanchez, S. Gulwani, V. Le, G. Verbruggen, and I. Radiˇ cek, “Repair is nearly generation: Multilingual program repair with llms,” in Proceedings of the AAAI Conference on Artificial Intelli-gence , vol. 37, no. 4, 2023, pp. 5131–5140. [32] I. Bouzenia, P. Devanbu, and M. Pradel, “Repairagent: An autonomous, llm-based agent for program repair,” in 2025 IEEE/ACM 47th Interna-tional Conference on Software Engineering (ICSE) . IEEE, 2025, pp. 2188–2200. [33] H. Ping, A. Bhattacharjee, P. Zhang, S. Li, W. Yang, A. Cheng, X. Zhang, J. Thomason, A. Jannesari, N. Ahmed et al. , “Verimoa: A mixture-of-agents framework for spec-to-hdl generation,” arXiv preprint arXiv:2510.27617 , 2025. [34] Z. Ibnat, P. E. Calzada, R. M. Ihtemam, S. K. Saha, J. Zhou, F. Farahmandi, and M. Tehranipoor, “Deepv: a model-agnostic retrieval-augmented framework for verilog code generation with a high-quality knowledge base,” arXiv preprint arXiv:2510.05327 , 2025. [35] N. Prakriya, Z. Ding, Y. Sun, and J. Cong, “Lift: Llm-based pragma insertion for hls via gnn supervised fine-tuning,” arXiv preprint arXiv:2504.21187 , 2025. [36] N. Mashnoor, M. Akyash, H. Kamali, and K. Azar, “Timelyhls: Llm-based timing-aware and architecture-specific fpga hls optimization,” in 
+
+2025 IEEE International Conference on Omni-layer Intelligent Systems (COINS) . IEEE, 2025, pp. 1–6. [37] F. Wang, H. Liu, Z. Dai, J. Zeng, Z. Zhang, Z. Wu, C. Luo, Z. Li, X. Tang, Q. He et al. , “Agenttts: Large language model agent for test-time compute-optimal scaling strategy in complex tasks,” Advances in Neural Information Processing Systems , vol. 38, pp. 98 396–98 433, 2026. [38] L. Collini, A. Hennessee, R. Karri, and S. Garg, “Can reasoning models reason about hardware? an agentic hls perspective,” in 2025 IEEE In-ternational Conference on LLM-Aided Design (ICLAD) . IEEE, 2025, pp. 188–194. [39] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, H. Küt-tler, M. Lewis, W.-t. Yih, T. Rocktäschel et al. , “Retrieval-augmented generation for knowledge-intensive nlp tasks,” Advances in neural in-formation processing systems , vol. 33, pp. 9459–9474, 2020. [40] A. Asai, Z. Wu, Y. Wang, A. Sil, and H. Hajishirzi, “Self-rag: Learn-ing to retrieve, generate, and critique through self-reflection,” in Inter-national conference on learning representations , vol. 2024, 2024, pp. 9112–9141. [41] D. Edge, H. Trinh, N. Cheng, J. Bradley, A. Chao, A. Mody, S. Truitt, D. Metropolitansky, R. O. Ness, and J. Larson, “From local to global: A graph rag approach to query-focused summarization,” arXiv preprint arXiv:2404.16130 , 2024. [42] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao, “React: Synergizing reasoning and acting in language models,” arXiv preprint arXiv:2210.03629 , 2022. [43] A. Madaan, N. Tandon, P. Gupta, S. Hallinan, L. Gao, S. Wiegreffe, U. Alon, N. Dziri, S. Prabhumoye, Y. Yang et al. , “Self-refine: Iter-ative refinement with self-feedback,” Advances in neural information processing systems , vol. 36, pp. 46 534–46 594, 2023. [44] Q. Wu, G. Bansal, J. Zhang, Y. Wu, B. Li, E. Zhu, L. Jiang, X. Zhang, S. Zhang, J. Liu et al. , “Autogen: Enabling next-gen llm applications via multi-agent conversation,” arXiv preprint arXiv:2308.08155 , 2023. [45] L. Shi, M. Kazda, B. Sears, N. Shropshire, and R. Puri, “Ask-eda: A design assistant empowered by llm, hybrid rag and abbreviation de-hallucination,” in 2024 IEEE LLM Aided Design Workshop (LAD) .IEEE, 2024, pp. 1–5. [46] A. Kaintura, S. S. Luar, I. I. Almeida et al. , “Orassistant: A cus-tom rag-based conversational assistant for openroad,” arXiv preprint arXiv:2410.03845 , 2024. 
+
+Zhe Zhao is currently pursuing the M.E. degree in integrated circuits and systems with the Shenzhen International Graduate School, Tsinghua Univer-sity, Shenzhen, China. His research interests include high-level synthesis and large language models. 
+
+Hongbing Lang is with Shenzhen Belon Technology Co., Ltd., Shenzhen, China. His research interests include integrated circuit and system design related to the Internet of Things. 
+
+Zhihan Xiao is currently pursuing the M.E. degree in integrated circuits and systems with the Shenzhen International Graduate School, Tsinghua Univer-sity, Shenzhen, China. His research interests include large language models and high-level synthesis verification. 
+
+Luke Ztz Hu is a Ph.D. student at the Shenzhen International Graduate School, Tsinghua University, Shenzhen, China. His research lies at the in-tersection of AI and hardware design, investigating large language models for code generation, verification, and optimization within electronic design automation. 
+
+John Imoleayo Adebisi is currently pursuing the M.E. degree in integrated circuits and systems with the Shenzhen International Graduate School, Ts-inghua University, Shenzhen, China. His research interests include high-level synthesis and large language models. 
+
+Songping Mai (Member, IEEE) received the B.S. degree in electronic infor-mation from Wuhan University, Hubei, China, in 2003, and the Ph.D. degree in electronic engineering from Tsinghua University, Beijing, China, in 2008. Since 2008, he has been with the Shenzhen International Graduate School, Tsinghua University, Shenzhen, China, where he is currently an Associate Professor. His research interests include algorithm theory, system architec-ture, and integrated circuit design for optical 3-D measurement and imaging, medical robotics, and brain–computer interfaces.

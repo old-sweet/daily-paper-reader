@@ -6,24 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-29
-- 运行时间：2026-06-29 22:03:00 UTC
+- 最新运行日期：2026-06-23 ~ 2026-07-02
+- 运行时间：2026-07-02 02:36:48 UTC
 - 运行状态：成功
-- 本次总论文数：1
-- 精读区：0
-- 速读区：1
+- 本次总论文数：5
+- 精读区：2
+- 速读区：3
 
 ### 今日简报（AI）
-今日阅读1篇论文，聚焦组合生成器等价性。该文探讨了生成器在组合结构下的等价判定。建议对形式化方法与生成器理论感兴趣的读者重点了解。
-- 详情：[/202606/29/README](/202606/29/README)
+今日精选两篇9.0高分论文，聚焦LLM驱动功能安全断言生成与C代码综合验证。  
+最值得关注SafeGen中LLM生成断言与故障严重性评估方法，以及Evidence-Driven Agent实现C到可综合RTL的转换验证流程。  
+建议深入阅读这两篇精读论文，了解LLM在安全关键系统和硬件综合中的具体技术细节与评估框架。
+- 详情：[/20260623-20260702/README](/20260623-20260702/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [SafeGen: LLM-Driven Assertion Generation and Fault Criticality Evaluation for Functional Safety](/20260623-20260702/2606.25296v1-safegen-llm-driven-assertion-generation-and-fault-criticality-evaluation-for-functional-safety)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：LLM驱动的硬件功能安全断言生成
+2. [Evidence-Driven LLM Agent for C-to-Synthesizable-C Conversion and Verification](/20260623-20260702/2606.28409v1-evidence-driven-llm-agent-for-c-to-synthesizable-c-conversion-and-verification)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：LLM智能体用于C到可综合C的转换及HLS流程中的验证
 
 ### 速读区论文标签
-1. [Compositional Generator Equivalence (Extended Version)](/202606/29/2606.22616v1-compositional-generator-equivalence-extended-version)  
+1. [On Parameterized Verification Over Tree Topologies](/20260623-20260702/2606.27172v1-on-parameterized-verification-over-tree-topologies)  
    标签：评分：6.0/10、query:fsh
-   evidence：可应用于硬件验证的属性测试技术
+   evidence：适用于硬件系统的参数化验证技术
+2. [Structural Certification for Reliable Physical Design with Language Models](/20260623-20260702/2606.30107v1-structural-certification-for-reliable-physical-design-with-language-models)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：语言模型用于物理设计可靠性认证
+3. [Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts](/20260623-20260702/2606.31878v1-modal-cegar-tableaux-with-recar-and-resolution-based-sat-shortcuts)  
+   标签：评分：6.0/10、query:fsh
+   evidence：CEGAR-tableaux方法可迁移至硬件形式验证
 
 
 <div class="dpr-home-promo-card">
