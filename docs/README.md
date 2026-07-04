@@ -6,37 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-23 ~ 2026-07-02
-- 运行时间：2026-07-02 02:36:48 UTC
+- 最新运行日期：2026-07-04
+- 运行时间：2026-07-04 21:22:11 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：2
-- 速读区：3
+- 本次总论文数：6
+- 精读区：1
+- 速读区：5
 
 ### 今日简报（AI）
-今日精选两篇9.0高分论文，聚焦LLM驱动功能安全断言生成与C代码综合验证。  
-最值得关注SafeGen中LLM生成断言与故障严重性评估方法，以及Evidence-Driven Agent实现C到可综合RTL的转换验证流程。  
-建议深入阅读这两篇精读论文，了解LLM在安全关键系统和硬件综合中的具体技术细节与评估框架。
-- 详情：[/20260623-20260702/README](/20260623-20260702/README)
+今日收录6篇论文，精读1篇聚焦硬件安全验证，速读涉及形式化方法、SAT证书验证与物理设计可靠性。重点推荐《VeriChat》中基于Agent的对话式硬件安全验证助手，以及LLM增强的自然语言转LTL控制方法。建议优先关注AI在硬件安全与形式化验证领域的交叉应用。
+- 详情：[/202607/04/README](/202607/04/README)
 
 ### 精读区论文标签
-1. [SafeGen: LLM-Driven Assertion Generation and Fault Criticality Evaluation for Functional Safety](/20260623-20260702/2606.25296v1-safegen-llm-driven-assertion-generation-and-fault-criticality-evaluation-for-functional-safety)  
-   标签：评分：9.0/10、query:llm-hw-fv
-   evidence：LLM驱动的硬件功能安全断言生成
-2. [Evidence-Driven LLM Agent for C-to-Synthesizable-C Conversion and Verification](/20260623-20260702/2606.28409v1-evidence-driven-llm-agent-for-c-to-synthesizable-c-conversion-and-verification)  
-   标签：评分：9.0/10、query:llm-hw-fv
-   evidence：LLM智能体用于C到可综合C的转换及HLS流程中的验证
+1. [VeriChat: An Agentic Conversational AI Assistant for Hardware Security Verification](/202607/04/2607.01668v1-verichat-an-agentic-conversational-ai-assistant-for-hardware-security-verification)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：基于大语言模型的硬件安全验证对话助手
 
 ### 速读区论文标签
-1. [On Parameterized Verification Over Tree Topologies](/20260623-20260702/2606.27172v1-on-parameterized-verification-over-tree-topologies)  
-   标签：评分：6.0/10、query:fsh
-   evidence：适用于硬件系统的参数化验证技术
-2. [Structural Certification for Reliable Physical Design with Language Models](/20260623-20260702/2606.30107v1-structural-certification-for-reliable-physical-design-with-language-models)  
+1. [End-to-End Abstraction-Based Control with LLM-Enhanced NL-to-LTL Translation](/202607/04/2606.30163v1-end-to-end-abstraction-based-control-with-llm-enhanced-nl-to-ltl-translation)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：LLM增强的自然语言到LTL翻译用于形式综合
+2. [LRAT-Catcher: Importing SAT Solver Certificates into Lean4 by Reflection](/202607/04/2607.00815v1-lrat-catcher-importing-sat-solver-certificates-into-lean4-by-reflection)  
+   标签：评分：7.0/10、query:fsh
+   evidence：SAT求解器证书导入用于形式验证
+3. [Structural Certification for Reliable Physical Design with Language Models](/202607/04/2606.30107v1-structural-certification-for-reliable-physical-design-with-language-models)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：语言模型用于物理设计可靠性认证
-3. [Modal CEGAR-tableaux with RECAR and resolution-based SAT-shortcuts](/20260623-20260702/2606.31878v1-modal-cegar-tableaux-with-recar-and-resolution-based-sat-shortcuts)  
-   标签：评分：6.0/10、query:fsh
-   evidence：CEGAR-tableaux方法可迁移至硬件形式验证
+   evidence：语言模型用于可靠物理设计认证
+4. [AxDafny: Agentic Verified Code Generation in Dafny](/202607/04/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：大语言模型辅助形式验证代码生成，可迁移至硬件验证
+5. [SINA: A Fully Automated Circuit Schematic Image to Netlist Generator Using Artificial Intelligence](/202607/04/2607.01609v1-sina-a-fully-automated-circuit-schematic-image-to-netlist-generator-using-artificial-intelligence)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：使用大语言模型将原理图转为网表以支持验证
 
 
 <div class="dpr-home-promo-card">
