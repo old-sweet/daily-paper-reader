@@ -6,38 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-04
-- 运行时间：2026-07-04 21:22:11 UTC
+- 最新运行日期：2026-07-05
+- 运行时间：2026-07-05 21:33:20 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：1
-- 速读区：5
+- 本次总论文数：4
+- 精读区：0
+- 速读区：4
 
 ### 今日简报（AI）
-今日收录6篇论文，精读1篇聚焦硬件安全验证，速读涉及形式化方法、SAT证书验证与物理设计可靠性。重点推荐《VeriChat》中基于Agent的对话式硬件安全验证助手，以及LLM增强的自然语言转LTL控制方法。建议优先关注AI在硬件安全与形式化验证领域的交叉应用。
-- 详情：[/202607/04/README](/202607/04/README)
+今日速读4篇论文，聚焦Dafny智能代码生成与Theoria推理状态改写验证。  
+两项研究均获7.0分，值得关注《AxDafny》的智能验证代码生成及《Theoria》的非形式推理状态改写方法。  
+建议进一步精读这两篇，把握智能体辅助验证和推理状态改写技术的前沿动态。
+- 详情：[/202607/05/README](/202607/05/README)
 
 ### 精读区论文标签
-1. [VeriChat: An Agentic Conversational AI Assistant for Hardware Security Verification](/202607/04/2607.01668v1-verichat-an-agentic-conversational-ai-assistant-for-hardware-security-verification)  
-   标签：评分：8.0/10、query:llm-hw-fv
-   evidence：基于大语言模型的硬件安全验证对话助手
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [End-to-End Abstraction-Based Control with LLM-Enhanced NL-to-LTL Translation](/202607/04/2606.30163v1-end-to-end-abstraction-based-control-with-llm-enhanced-nl-to-ltl-translation)  
+1. [AxDafny: Agentic Verified Code Generation in Dafny](/202607/05/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny)  
    标签：评分：7.0/10、query:llm-hw-fv
-   evidence：LLM增强的自然语言到LTL翻译用于形式综合
-2. [LRAT-Catcher: Importing SAT Solver Certificates into Lean4 by Reflection](/202607/04/2607.00815v1-lrat-catcher-importing-sat-solver-certificates-into-lean4-by-reflection)  
-   标签：评分：7.0/10、query:fsh
-   evidence：SAT求解器证书导入用于形式验证
-3. [Structural Certification for Reliable Physical Design with Language Models](/202607/04/2606.30107v1-structural-certification-for-reliable-physical-design-with-language-models)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：语言模型用于可靠物理设计认证
-4. [AxDafny: Agentic Verified Code Generation in Dafny](/202607/04/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：大语言模型辅助形式验证代码生成，可迁移至硬件验证
-5. [SINA: A Fully Automated Circuit Schematic Image to Netlist Generator Using Artificial Intelligence](/202607/04/2607.01609v1-sina-a-fully-automated-circuit-schematic-image-to-netlist-generator-using-artificial-intelligence)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：使用大语言模型将原理图转为网表以支持验证
+   evidence：基于LLM的智能体代码生成用于Dafny形式验证，与LLM辅助定理证明强方法匹配
+2. [Theoria: Rewrite-Acceptability Verification over Informal Reasoning States](/202607/05/2607.01223v1-theoria-rewrite-acceptability-verification-over-informal-reasoning-states)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：基于LLM的推理步骤验证架构
+3. [Theoria: Rewrite-Acceptability Verification over Informal Reasoning States](/202607/05/2607.01223v2-theoria-rewrite-acceptability-verification-over-informal-reasoning-states)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：基于LLM的推理步骤验证架构
+4. [CornerCase: Automated Extremal Testing of Protocol Implementations using LLMs](/202607/05/2606.29124v1-cornercase-automated-extremal-testing-of-protocol-implementations-using-llms)  
+   标签：评分：6.0/10、query:fsh
+   evidence：LLM引导的协议边界测试fuzzing
 
 
 <div class="dpr-home-promo-card">
