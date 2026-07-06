@@ -1,6 +1,11 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-07-06 <!--dpr-date:20260706-->
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/06/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny" data-sidebar-item="{&quot;title&quot;: &quot;AxDafny: Agentic Verified Code Generation in Dafny&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;在Dafny中使用LLM智能体进行可验证代码生成；直接展示了LLM辅助形式验证的能力&quot;}">AxDafny: Agentic Verified Code Generation in Dafny</a>
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/06/2607.01504v1-kani-a-model-checker-for-rust" data-sidebar-item="{&quot;title&quot;: &quot;Kani: A Model Checker for Rust&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2607.01504v1-kani-a-model-checker-for-rust&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;fsh&quot;}], &quot;evidence&quot;: &quot;基于CBMC的Rust模型检查器；符号执行和有界模型检查可直接迁移至硬件验证&quot;}">Kani: A Model Checker for Rust</a>
   * 2026-07-05 <!--dpr-date:20260705-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202607/05/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny" data-sidebar-item="{&quot;title&quot;: &quot;AxDafny: Agentic Verified Code Generation in Dafny&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;基于LLM的智能体代码生成用于Dafny形式验证，与LLM辅助定理证明强方法匹配&quot;}">AxDafny: Agentic Verified Code Generation in Dafny</a>

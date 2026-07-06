@@ -6,35 +6,28 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-05
-- 运行时间：2026-07-05 21:33:20 UTC
+- 最新运行日期：2026-07-06
+- 运行时间：2026-07-06 21:24:23 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：0
-- 速读区：4
+- 本次总论文数：2
+- 精读区：1
+- 速读区：1
 
 ### 今日简报（AI）
-今日速读4篇论文，聚焦Dafny智能代码生成与Theoria推理状态改写验证。  
-两项研究均获7.0分，值得关注《AxDafny》的智能验证代码生成及《Theoria》的非形式推理状态改写方法。  
-建议进一步精读这两篇，把握智能体辅助验证和推理状态改写技术的前沿动态。
-- 详情：[/202607/05/README](/202607/05/README)
+今日精读高分论文《AxDafny》，探讨智能体辅助的Dafny验证代码生成，速读Rust模型检查器Kani。  
+最值得关注的是智能体驱动形式化验证的新范式，以及如何用Kani为Rust代码提供自动模型检查。  
+建议开发者尝试将AxDafny的智能体方法用于自己项目的验证，并关注Kani对异步Rust代码的检查能力。
+- 详情：[/202607/06/README](/202607/06/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [AxDafny: Agentic Verified Code Generation in Dafny](/202607/06/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：在Dafny中使用LLM智能体进行可验证代码生成；直接展示了LLM辅助形式验证的能力
 
 ### 速读区论文标签
-1. [AxDafny: Agentic Verified Code Generation in Dafny](/202607/05/2606.32007v1-axdafny-agentic-verified-code-generation-in-dafny)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：基于LLM的智能体代码生成用于Dafny形式验证，与LLM辅助定理证明强方法匹配
-2. [Theoria: Rewrite-Acceptability Verification over Informal Reasoning States](/202607/05/2607.01223v1-theoria-rewrite-acceptability-verification-over-informal-reasoning-states)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：基于LLM的推理步骤验证架构
-3. [Theoria: Rewrite-Acceptability Verification over Informal Reasoning States](/202607/05/2607.01223v2-theoria-rewrite-acceptability-verification-over-informal-reasoning-states)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：基于LLM的推理步骤验证架构
-4. [CornerCase: Automated Extremal Testing of Protocol Implementations using LLMs](/202607/05/2606.29124v1-cornercase-automated-extremal-testing-of-protocol-implementations-using-llms)  
-   标签：评分：6.0/10、query:fsh
-   evidence：LLM引导的协议边界测试fuzzing
+1. [Kani: A Model Checker for Rust](/202607/06/2607.01504v1-kani-a-model-checker-for-rust)  
+   标签：评分：7.0/10、query:fsh
+   evidence：基于CBMC的Rust模型检查器；符号执行和有界模型检查可直接迁移至硬件验证
 
 
 <div class="dpr-home-promo-card">
