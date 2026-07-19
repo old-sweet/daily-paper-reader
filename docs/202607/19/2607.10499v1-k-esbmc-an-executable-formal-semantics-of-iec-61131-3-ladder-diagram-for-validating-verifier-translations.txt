@@ -1,0 +1,585 @@
+Title: K-ESBMC: An Executable Formal Semantics of IEC 61131-3 Ladder Diagram for Validating Verifier Translations
+
+URL Source: https://arxiv.org/pdf/2607.10499v1
+
+Published Time: Tue, 14 Jul 2026 02:03:10 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# K-ESBMC: A N EXECUTABLE FORMAL SEMANTICS OF 
+
+# IEC 61131-3 L ADDER DIAGRAM FOR VALIDATING VERIFIER 
+
+# TRANSLATIONS 
+
+A P REPRINT 
+
+Pierre Dantas *
+
+Department of Computer Science The University of Manchester Manchester, UK 
+
+pierre.dantas@manchester.ac.uk 
+
+ORCID: 0000-0001-6390-9340 
+
+Lucas Cordeiro *
+
+Department of Computer Science The University of Manchester Manchester, UK 
+
+lucas.cordeiro@manchester.ac.uk 
+
+ORCID: 0000-0002-6235-4272 
+
+Waldir Junior *
+
+Electrical Engineering Federal University of Amazonas (UFAM) Manaus, AM, Brazil 
+
+waldirjr@ufam.edu.br 
+
+ORCID: 0000-0003-3095-0042 July 2026 
+
+# ABSTRACT 
+
+Automated verifiers for IEC 61131-3 Ladder Diagram (LD) enhance safety by translating diagrams into model-checker inputs. Still, their unverified front-end translations risk silently returning incorrect results (missing violations or raising false alarms) when they diverge from the standard. We address this gap with K-ESBMC , an executable formal semantics of IEC 61131-3 LD built in the K framework. K-ESBMC models contacts, coils, timers, counters, edge blocks, and the retentive scan cycle, generating both an interpreter and a deductive verifier from a single definition. Validated scan-for-scan against OpenPLC/MATIEC; K-ESBMC serves as an independent reference oracle to test the ESBMC-PLC LD →GOTO translation differentially. It agrees with ESBMC on most programs and reproduces injected violations with concrete witnesses. Every disagreement exposes a genuine ESBMC defect – confirmed by OpenPLC and two other verifiers – revealing two failure modes: an unsound skip that certifies unsafe programs, and an imprecise havoc that produces spurious counterexamples. For the combinational and latch fragment, we machine-check in kprove 
+
+that K-ESBMC ’s rules implement the standard’s input/output relation, elevating the correctness argument from empirical to formal. K-ESBMC provides a reusable, standard-faithful oracle for auditing any LD verifier’s translation, offering a general approach to verifying the soundness of translation-based verification tools. 
+
+Keywords executable formal semantics · K framework · IEC 61131-3 · Ladder Diagram · PLC · reference oracle ·
+
+differential testing · translation validation · scan cycle · function blocks · ESBMC · BMC · model checking · OpenPLC ·
+
+PLCopen XML 
+
+> ∗
+
+The authors contributed equally to this research. arXiv:2607.10499v1 [cs.PL] 11 Jul 2026 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+# 1 Introduction 
+
+Programmable Logic Controllers (PLCs) run much of the world’s safety-critical automation, and Ladder Diagram (LD) – the graphical, relay-inspired notation of International Electrotechnical Commission (IEC) 61131-3 – remains the language in which that logic is most often written and certified. Because a PLC fault can injure people or damage a plant, LD programs are natural targets for formal verification. A line of automated tools now checks safety properties of IEC 61131-3 programs by translating them into the input language of a model checker. The ESBMC-PLC family [ 6, 7, 8 ], for instance, lowers an LD diagram into a GOTO Intermediate Representation (IR) and discharges the resulting verification conditions with Satisfiability Modulo Theories (SMT)-based Bounded Model Checking (BMC) and k-induction. 
+
+1.1 The Trust Gap 
+
+Every such tool rests on an unstated assumption: that its front-end – the translation from the diagram to the verifier’s model – faithfully reflects IEC 61131-3 . A verifier is only as sound as this translation, yet the translation is itself unverified code. In the ESBMC-PLC line, the LD →GOTO rules were designed to match an informal reference formalization, but were never proven equivalent to the standard. When the translation and the standard disagree, the verifier can silently return the wrong answer: it can certify a hazardous program as safe (if the translation drops behavior that the standard mandates) or raise false alarms (if it admits behavior that the standard forbids). Neither failure is detectable from within the tool, because there is no independent, executable account of what the diagram means .
+
+1.2 An Executable Reference Semantics 
+
+We close this gap with K-ESBMC , an executable formal semantics of IEC 61131-3 LD defined in the K framework. K lets one write an operational semantics as a set of rewrite rules and obtain, for free, both an interpreter ( krun )and a program verifier ( kprove ) from the same definition. K-ESBMC extends K-ST [ 21 ], the K semantics of IEC 61131-3 Structured Text (ST), to the graphical LD language: it models normally-open and normally-closed contacts, energize/latch/unlatch coils, the input-solve-output scan cycle with cross-scan state retention, the on-/off-delay and pulse timers ( TON , TOF , TP ), the up/down counters ( CTU , CTD ), and the edge-detection function blocks ( R_TRIG ,
+
+> F_TRIG
+
+). Being executable, K-ESBMC is not a paper artifact: it runs diagrams scan by scan, so its fidelity can be checked directly against a reference PLC runtime (Fig. 1). 
+
+1.3 Grounding and Using the Semantics 
+
+We confirm K-ESBMC ’s fidelity and then put it to work. First, we validate K-ESBMC scan-for-scan against the reference function-block implementations that OpenPLC executes – the MATIEC-compiled C that is the de facto behavioral standard for these constructs – so that K-ESBMC ’s timers and counters agree with real PLC execution on every scan. Second, we use K-ESBMC as an independent reference oracle to validate the ESBMC-PLC differentially LD →GOTO translation on a suite of benchmark controllers. For each program, we compare the verifier’s verdict against the ground truth obtained by executing the diagram under K-ESBMC . Third, for the combinational and latch fragments, we go beyond execution and machine-check in kprove that K-ESBMC ’s rules implement the IEC 61131-3 input/output relation for each construct. This combination makes the reference semantics explicit, executable, and independently checkable. 
+
+1.4 Why These Defects Matter 
+
+An LD program is not free-standing software: it is the controller of a physical process, executed on the cyclic scan 
+
+that couples computation to physical time. The constructs on which we find defects – the timers – are precisely the ones that encode that coupling, turning elapsed physical time into control decisions (an off-delay that keeps a light on, an on-delay that sequences a traffic phase, a debounce that gates an actuator). A translation error in a timer is therefore not a cosmetic issue, yet a misprediction of the controller’s real behavior with safety consequences: in one of our benchmarks, the verifier certifies as safe a stairwell controller whose light, driven by an off-delay, stays on while the corridor is empty, because the front-end drops the timer and still reports the program verified. Catching such a defect requires a semantics that models the scan cycle and function-block timing faithfully enough to reproduce what the controller actually does, and validating that semantics requires checking it against the runtime deployed on real hardware. That is what K-ESBMC provides. The differential study is revealing. On the benchmark suite, K-ESBMC and Efficient SMT-based Context-Bounded Model Checker (ESBMC) agree on the vast majority of programs. For the unsafe variants, K-ESBMC independently 2K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT        
+
+> X0
+> NO
+> X1
+> NC
+> Y0
+> coil
+> a graphical IEC 61131-3 LD rung
+> K-ESBMC
+> an executable formal semantics of LD, written as a set of K rewrite rules (extending K-ST , the K semantics of ST)
+> modelled, rung by rung
+> krun ⇒interpreter
+> runs the diagram scan by scan
+> kprove ⇒verifier
+> machine-checked proofs
+> one definition, both tools
+> for free
+> reference PLC runtime (OpenPLC/IEC 61131-3 compiler (MATIEC))
+> scan-for-scan fidelity check
+> properties discharged (e.g. scan determinism, safety)
+
+Figure 1: K-ESBMC in one picture. A graphical LD rung is given an operational meaning as a set of K rewrite rules – extending K-ST , the K semantics of ST, with contacts, coils, the scan cycle, timers, counters, and edge blocks. From that single definition, K yields, for free, both an interpreter ( krun ) that runs diagrams scan by scan and a program verifier ( kprove ). Because K-ESBMC executes, its fidelity is checked directly, scan for scan, against a reference PLC runtime. reproduces every violation, localizing it to the offending property with a concrete witness. Every disagreement ,however, is a genuine ESBMC defect that K-ESBMC exposes and OpenPLC confirms – and they fall into two opposite classes, both rooted in ESBMC’s incomplete handling of timer function blocks. On graphical diagrams ESBMC 
+
+skips the timer path and thereby misses a real violation , certifying as safe a program that violates its own stated property (an unsound, dangerous error). In the simple diagram format, it instead leaves the timer outputs unconstrained ,yielding counterexamples that no real timer can produce (a false alarm that wastes engineering effort). An executable, standard-faithful semantics is exactly the instrument needed to tell these apart from true defects. 
+
+1.5 Contributions 
+
+This paper yields: 1. K-ESBMC , an executable formal semantics of IEC 61131-3 LD in K (§4), extending K-ST to the graphical language: contacts, coils and latches, the retentive scan cycle, timers ( TON /TOF /TP ), counters ( CTU /CTD ), and edge function blocks. From one definition, we obtain both an interpreter and a deductive verifier. 2. Fidelity comparison against OpenPLC/MATIEC : K-ESBMC ’s function-block semantics are shown to agree scan-for-scan with the reference implementations that OpenPLC executes, grounding K-ESBMC as a behavioral reference for real PLCs. 3. A differential validation of the ESBMC-PLC LD →GOTO translation using K-ESBMC as an indepen-dent oracle (§5), over a benchmark suite covering the full construct fragment and both simple and graphical diagram formats. We report broad agreement and three discrepancies – each corroborated by the Open-PLC runtime and, on the timer mechanism they share, by two further independent verification engines (MATIEC →C+Bounded Model Checking for ANSI-C Programs (CBMC) and NuSMV) – and classify them into ESBMC’s two timer-translation failure modes: unsound skip (missed bugs) and imprecise havoc (false alarms). 4. Machine-checked construct-correctness lemmas for the combinational and latch fragment, discharged in  
+
+> kprove
+
+(§4.3), raising the correctness argument for that fragment from empirical to formally proven. 3K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 1: Notation and conventions used throughout the paper.                                      
+
+> Symbol Meaning
+> Ladder elements (contacts and coils)
+> XIC normally-open contact – passes power when its variable is ⊤
+> XIO normally-closed contact – passes power when its variable is ⊥
+> OTE energize coil – copies the rung condition to its variable
+> OTL ,OTU latch / unlatch coils – set / reset, retained across scans
+> Function blocks
+> TON ,TOF ,TP on-delay, off-delay, and pulse timers
+> CTU ,CTD up and down counters
+> R_TRIG ,F_TRIG rising- and falling-edge detectors
+> Values and logic
+> ⊤,⊥Boolean true / false (energized / de-energized)
+> ¬,∧,∨negation; series (conjunction) and parallel (disjunction) of contacts
+> Timing and block parameters
+> ∆tscan cycle time – physical time elapsed per scan
+> PT ,ET timer – Preset Time and Elapsed Time
+> PV ,CV counter - Preset Value and Current Value
+> ⌈PT /∆t⌉number of scans after which a timer fires
+> Semantics (K framework)
+> ⟨c⟩a configuration cell (e.g. ⟨image ⟩,⟨timers ⟩,⟨dt ⟩)
+> image [X]current Boolean value of signal Xin the retained image
+> ⇒K rewrite – one term reduces to another
+> ⇝K sequencing of computations
+> LD →GOTO the ESBMC front-end translation under validation
+
+1.6 Roadmap 
+
+§2 reviews LD and the scan cycle, the K framework and K-ST , the OpenPLC/MATIEC toolchain, and the ESBMC-PLC translation, and §3 surveys related work. §4 presents K-ESBMC, its testing against OpenPLC (RQ1), and the mechanized construct lemmas (RQ4); §5 reports the differential study (RQ2/RQ3); §6 works through two case studies; and §7–§9 discuss implications, limitations, and conclusions. 
+
+1.7 Notation and Conventions 
+
+Table 1 collects the notation used throughout. For LD elements we use the familiar contact/coil mnemonics ( XIC , XIO ,
+
+> OTE
+
+, OTL , OTU ) and the IEC 61131-3 standard function-block names ( TON , TOF , TP , CTU , CTD , R_TRIG , F_TRIG ). Boolean signal values are written ⊤ (true / energized) and ⊥ (false / de-energized). The symbols ⇒ and ⇝ denote K’s rewrite and sequencing relations, and ⟨c⟩ denotes a configuration cell c of the semantics. 
+
+# 2 Background 
+
+2.1 Ladder Diagram (LD) and the Scan Cycle 
+
+An IEC 61131-3 LD program is a ladder of rungs drawn between two power rails. Along a rung, contacts test Boolean signals – a normally-open contact ( XIC ) passes power when its variable is true, a normally-closed contact ( XIO ) when it is false – and series and parallel arrangements of contacts realize conjunction and disjunction. Power reaching the right rail drives a coil : an energize coil ( OTE ) copies the rung condition to its variable, while latch and unlatch coils ( OTL /OTU )set or reset it and retain the value across scans. Rungs may also contain function-block instances – timers ( TON , TOF , TP ), counters ( CTU , CTD ), and edge detectors ( R_TRIG , F_TRIG ) – each carrying private state. A PLC executes a program by the cyclic scan : it samples the inputs, solves every rung top to bottom, writes the outputs, and repeats. State that is not recomputed each scan – latched coils, timer accumulators, counter values – persists between scans, which is precisely what makes timing and sequencing behavior possible and what a faithful semantics 4K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+must model. Diagrams are exchanged in the PLCopen XML format, which encodes each rung as a netlist of contact, coil, and block elements wired by identifier references; the benchmarks used here are PLCopen XML documents. 
+
+2.2 System and Timing Model 
+
+The system we reason about is a PLC in closed interaction with a physical plant: each scan reads sensor inputs, computes the control logic, and writes actuator outputs, and the plant evolves in the interval before the next scan. We adopt the standard synchronous scan-cycle abstraction of this cyber-physical loop. Inputs are sampled once per scan and held constant during the solve; outputs take effect at the end of the scan; and physical time is discretized into scans of uniform cycle time ∆t, so that a function block’s elapsed time advances by exactly ∆t per scan. Under this model, a timer with preset PT acts after ⌈PT /∆t⌉ scans – the point at which computation and physical timing meet, and, as §5 shows, the point at which a verifier’s front-end most easily departs from the physical behavior of the controller. Two assumptions delimit the scope. First, we model the control-logic layer at the granularity exposed by the standard and PLC runtime – Boolean signals, retained function-block state, and the scan schedule – and abstract continuous dynamics and sub-scan jitter, as standard for scan-cycle verification. Safety properties are consequently over the controller’s I/O behavior per scan (e.g., “the light is on only while the sensor is active”), which is where the discrepancies of §5 live. Second, we assume no faults or adversary: the failures we expose are translation defects in the verifier, not plant faults or attacks. This timing model is exactly what K-ESBMC implements (§4) and the reference against which we validate it using the runtime deployed on real open hardware (§4.2). 
+
+2.3 The K Framework and K-ST 
+
+The K framework [ 20 ] is a semantic framework in which the formal semantics of a language is given as a configuration (a structured collection of cells) together with rewrite rules over it. From a single definition, K generates an executable interpreter and a reachability-logic prover ( kprove ), so the same artifact both runs programs and proves properties about them – an excellent match for a reference semantics that must be simultaneously trustworthy and checkable. K has been used to give complete executable semantics to C, Java, JavaScript, and the Ethereum Virtual Machine (EVM), among others. Closest to our work, Wang et al. [21] define K-ST , a K semantics for IEC 61131-3 ST. K-ESBMC adopts the same framework and scan-cycle discipline but targets the graphical LD language and its function blocks, which K-ST does not cover (Fig. 2).          
+
+> The K framework. Aconfiguration of cells (⟨k⟩ ⟨ env ⟩ ⟨ scan ⟩. . . ) + rewrite rules; from it K derives one artifact that both runs (krun ) and proves (kprove ).
+> K-ST
+> ST (textual) Wang et al. [21]
+> K-ESBMC
+> (this work) LD (graphical) + function blocks
+> shared:
+> K framework + scan-cycle discipline
+
+Figure 2: Where K-ESBMC fits in K. K defines a language as a configuration (cells) plus rewrite rules, deriving both an interpreter ( krun ) and a prover ( kprove ) from one definition. K covers C, Java, JavaScript, and the EVM. For IEC 61131-3, Wang et al. [21] give K-ST for ST; K-ESBMC shares the framework and scan cycle but adds LD and its function blocks, which K-ST omits. 
+
+2.4 OpenPLC, MATIEC, and Reference Behavior 
+
+OpenPLC is a widely used open-source PLC runtime; it compiles IEC 61131-3 programs to C using MATIEC [ 11 ] and executes them on a scan loop. Crucially, MATIEC ships reference C implementations of the standard function blocks – the TON , TOF , TP , CTU , and CTD bodies – driven by a controlled notion of elapsed time. Because these implementations are what actually run on deployed open-hardware PLCs, we treat their per-scan behavior as the behavioral reference 5K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+against which K-ESBMC ’s function blocks are validated, and as the tie-breaker whenever a verifier and K-ESBMC disagree (Fig. 3).       
+
+> IEC 61131-3 program (ST/LD)
+> MATIEC compiles to C
+> scan loop on deployed open-hardware PLC
+> OpenPLC executes
+> The behavioral reference
+> MATIEC’s reference C function-block bodies
+> TON TOF TP CTU CTD
+> driven by a controlled notion of elapsed time ( ∆t)
+
+Figure 3: OpenPLC/MATIEC as behavioral reference. OpenPLC uses MATIEC [ 11 ] to compile IEC 61131-3 to C and runs it on a scan loop. MATIEC supplies reference C implementations of standard function blocks ( TON , TOF , TP , CTU ,
+
+> CTD
+
+) driven by elapsed time. As these run on deployed open-hardware PLCs, their per-scan behavior is the reference for validating K-ESBMC’s blocks, and the tie-breaker when a verifier and K-ESBMC disagree. 
+
+2.5 Verifying LD: ESBMC-PLC and the Translation Gap 
+
+ESBMC [ 16 ] is a mature SMT-based BMC and k-induction tool for C and other languages. The ESBMC-PLC line adds an LD front-end that parses PLCopen XML, lowers each rung into a GOTO IR modeling one scan, wraps it in a scan loop, and checks user-supplied safety properties. The lowering is designed to agree with an informal reference formalization of LD [ 12 ], but there is no proof that it preserves IEC 61131-3 semantics. This is the gap K-ESBMC addresses: it supplies the missing executable and a standard-faithful account of LD against which the lowering can be checked – empirically via differential testing and partially via machine-checked lemmas. 
+
+# 3 Related Work 
+
+3.1 Formal Semantics of IEC 61131-3 
+
+Formal treatments of IEC 61131-3 date back two decades [ 15 ], using timed automata, transition systems, and abstract state machines to enable model checking of ST, Instruction List (IL) [ 2], or Sequential Function Charts (SFCs). These semantics are typically defined on paper or embedded in a specific model checker, and serve a single tool. K-ST [21 ]is the first K semantics for the family and the direct ancestor of this work; K-ESBMC extends the framework to the graphical LD language and its function blocks. Unlike semantics built solely to feed a model checker, an executable K definition doubles as a reference interpreter, which is what makes the differential validation of another tool possible. 
+
+3.2 PLC Verification Tools 
+
+A range of tools verify IEC 61131-3 controllers – among them PLCverif [ 10 , 9], Arcade.PLC [ 1], and SMV/nuXmv-based flows [ 3], some scaled to industrial-sized programs [ 14 ] – each translating the program into a model checker’s input. Table 2 contrasts them with K-ESBMC along the axes that matter here. All of these tools are verifiers : they consume a diagram and emit a verdict; each therefore embeds a source-to-model front-end whose fidelity is assumed rather than verified. None is an executable reference semantics, and none validates its own translation against an independent account of LD. K-ESBMC is deliberately not another verifier: it is the reference oracle against which such a translation can be scrutinized, and we apply it to ESBMC-PLC .2 Unlike PLCverif and Arcade.PLC, which is tied to specific backends, K-ESBMC is back-end-agnostic and, being executable, is validated against the runtime (OpenPLC) on which the deployed controllers actually run.   
+
+> 2We apply the differential to ESBMC-PLC rather than to these other tools because none can ingest our PLCopen XML LD benchmarks without a further trusted translation: PLCverif’s only PLC front-end targets Siemens Step7 (SCL/STL), and Arcade.PLC is no longer distributed. Instead, we support the disagreements using verification engines whose decision procedures are independent of K-ESBMC (§5.3).
+
+6K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 2: K-ESBMC versus representative IEC 61131-3 semantics and verification tools. “Executable” = runs programs to produce concrete traces; “Oracle” = usable to validate another tool’s translation; “Runtime-validated” = checked against a deployed PLC runtime.                                       
+
+> LD Function Execu-Reference Runtime-graphical blocks table oracle validated PLCverif partial yes no no no Arcade.PLC yes yes no no no SMV/nuXmv flows partial yes no no no K-ST [21] (ST) n/a no yes (unused) no ESBMC-PLC family yes partial no no no
+> K-ESBMC yes yes yes yes yes
+
+3.3 Translation Validation, Differential Testing, and Semantics in K 
+
+Establishing that a front-end or compiler preserves semantics is the subject of translation validation [ 19 ] and verified compilation [ 18 ]. Full verified compilation of a PLC front-end would require a automated semantics of both the source diagram and the verifier’s IR; we take the lighter, high-coverage route of differential testing [22 ] against an executable reference – the same principle by which compiler bugs are found by comparing implementations – complemented by machine-checked per-construct lemmas. Using an executable K semantics for both testing and proving is enabled by K’s dual interpreter/prover generation. It parallels how complete K semantics of mainstream languages – C [ 13 ] and the EVM [ 17 ] among them – have been used to find and rule out discrepancies in real implementations. What is new here is turning that reference-semantics methodology on a verifier’s front-end in the cyber-physical PLC setting, where the discrepancies remain safety-relevant.                 
+
+> TESTING VERIFICATION
+> empirical, lightweight, high coverage
+> mechanized, heavyweight, complete
+> Differential testing
+> Yang et al. [22]
+> Verified compilation & translation validation
+> Pnueli et al. [19] , Leroy [18]
+> K-ESBMC (this work)
+> differential testing against an executable K reference
+> +machine-checked per-construct lemmas (enabled by K’s dual krun /kprove generation)
+> New: the reference-semantics method turned on averifier’s front-end , in the cyber-physical PLC setting – where the discrepancies are safety-relevant
+
+Figure 4: Positioning on the assurance/effort spectrum. Rather than full verified compilation [ 18 ] or translation validation [ 19 ], we adopt differential testing [ 22 ] against an executable reference, supported by machine-checked per-construct lemmas. K’s dual generation of interpreter and prover from a single semantics – as with C [ 13 ] and the EVM [ 17 ] – enables both testing and proving. Our contribution is adapting this approach to a verifier’s front-end in a safety-critical domain. 
+
+# 4 The K-ESBMC Semantics and Its Validation 
+
+Our evaluation follows one principle: an oracle must be shown trustworthy before it is used to judge another tool, and its judgment is most convincing when it is grounded in real execution and, where tractable, proven. This principle fixes four research questions and the order in which they must be answered, each with a specific purpose: • RQ1 (§4.2) – is K-ESBMC faithful to IEC 61131-3 ? – grounds the instrument : we validate K-ESBMC scan-for-scan against the code OpenPLC executes, because any verdict from an unfaithful oracle would be worthless. 7K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+• RQ2 (§5.2) – does K-ESBMC , used as an oracle, agree with the ESBMC LD →GOTO translation on programs both handle? – tests the oracle’s credibility as an independent second opinion. • RQ3 (§5.3) – where they disagree, which engine is correct and why? – exercises the oracle’s diagnostic power ,the payoff of the whole exercise, by adjudicating each disagreement against real execution and classifying the translation defects it exposes. • RQ4 (§4.3) – can K-ESBMC ’s construct rules be machine-checked ? – hardens the foundation , so the oracle rests on proof, not only on execution, wherever the proof is tractable. In short, RQ1 grounds the instrument, RQ2 and RQ3 apply it, and RQ4 certifies it; RQ1 and RQ4 are answered in this section, RQ2 and RQ3 in the differential study of §5. 
+
+4.1 The Semantics in K 
+
+K-ESBMC is a configuration of cells rewritten scan by scan. The retained state is a single Boolean image (⟨image ⟩)mapping every input, coil, and function-block done-bit to its current value; alongside it, ⟨timers ⟩ and ⟨counters ⟩ hold per-instance function-block state, and ⟨dt ⟩ is the cycle time ∆t. The driver cell ⟨k⟩ runs the scan loop over an input trace ⟨inputs ⟩ (one Boolean assignment per scan), logging the image after each scan to ⟨trace ⟩. One scan overlays the next input, solves the program’s rungs top to bottom against the image, and appends the result:  
+
+> #run
+
+⇒ P ⇝ #endScan ⇝ #run (consuming one input, per scan). Contacts read the image ( XIC (X) ⇒ image [X]; XIO (X) ⇒ ¬ image [X]), series and parallel compose by conjunction and disjunction, and OTE /OTL /OTU write, set, or retain their coil. Because only recomputed coils change each scan while latches and function-block state persist in their cells, cross-scan retention – the crux of timing and sequencing – is modeled directly. The timers are a faithful port of the standard state machine: each carries (ET , STATE , prevIN) with 
+
+STATE ∈ { idle , timing , done }, and elapsed time is measured from the trigger edge ( ET = 0 on the edge scan), so a  
+
+> TON
+
+fires exactly ⌈PT /∆t⌉ scans after its input rises. From this one definition, K yields both the interpreter ( krun ) used below and the prover ( kprove ) used in §4.3. 
+
+4.2 RQ1: An Executable Semantics Faithful to IEC 61131-3 Metric 
+
+For each function block, whether K-ESBMC ’s per-scan done-bit sequence corresponds to the OpenPLC/MATIEC reference on every scan of the trace – a per-block pass/fail, not an aggregate score. 
+
+Method: Checking Against OpenPLC 
+
+The behavioral reference for the function blocks is the C that OpenPLC actually executes: MATIEC’s reference implementations ( iec_std_FB.h ) of TON , TOF , TP , CTU , and CTD . We extract those bodies unmodified into a small harness that, for a chosen input trace, zero-initializes the block instance and, on each scan, sets its inputs, advances the block’s time input by a fixed ∆t, invokes the reference body, and records the done bit. The traces exercise each block’s characteristic behavior: an input held, then released ( TON , TOF ); a pulse ( TP ); and count/reset edge sequences ( CTU ,
+
+> CTD
+
+). We then run K-ESBMC on the same program, and the same trace, with the same ∆t, and compare the two done-bit sequences scan for scan. Because the harness drives the block’s own time input rather than wall-clock time, both engines see identical timing, and the comparison is exact and deterministic. Executing the same reference code deployed on open-hardware PLCs means agreement confirms that K-ESBMC matches real PLC behavior, not simply a paper specification. 
+
+Result: Exact Agreement 
+
+Table 3 shows the outcome for the five function blocks (preset 3 for timers, 2 for counters, ∆t = 1 ). K-ESBMC reproduces the OpenPLC/MATIEC done-bit trace exactly, scan for scan , in every case. The combinational and latch constructs are likewise confirmed: an AND rung follows its contacts in both polarities, and a set/reset latch yields the retention trace ⟨⊤ , ⊤, ⊥, ⊥⟩ – the light stays latched after its set input drops, exactly as OTL /OTU require. 
+
+The Validation is Discriminating 
+
+That the check is meaningful – not a tautology – is shown by the defects it caught while K-ESBMC was being written. An early version of all three timers fired one scan too early : it counted the trigger scan itself as one ∆t of elapsed time, 8K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 3: RQ1 – K-ESBMC vs the OpenPLC/MATIEC reference, done-bit trace per scan (timers PT = 3 , counters 
+
+PV = 2 , ∆t = 1 ; ⊤/⊥ for true/false). K-ESBMC equals the executed reference on every scan of every block.                    
+
+> Block Done-bit trace (K-ESBMC =OpenPLC) Match
+> TON (on-delay) ⊥ ⊥ ⊥ ⊤ ⊥ ✓
+> TOF (off-delay) ⊤ ⊤ ⊤ ⊤ ⊤ ⊥ ✓
+> TP (pulse) ⊥ ⊤ ⊤ ⊤ ⊥ ⊤ ✓
+> CTU (count up) ⊥ ⊥ ⊥ ⊥ ⊤ ⊥ ⊥ ✓
+> CTD (count down) ⊥ ⊥ ⊥ ⊥ ⊤ ⊤ ⊥ ✓
+
+Table 4: RQ4 – construct-correctness lemmas machine-checked in kprove . All seven discharge ( ⊤).                                        
+
+> Lemma Property proved kprove
+> L1 series contacts ⇒coil =bit (a)∧bit (b)✓
+> L2 parallel contacts ⇒coil =bit (a)∨bit (b)✓
+> L3 XIO ⇒coil =¬bit (a)✓
+> L4 OTL sets the coil on a true rung ✓
+> L5 OTL retains the coil on a false rung ✓
+> L6 OTU resets the coil on a true rung ✓
+> L7 OTU retains the coil on a false rung ✓
+
+whereas the standard (and MATIEC) measure elapsed time from the trigger edge. A second version let CTU increment past its preset instead of saturating. Both differed from the reference and were flagged by this exact comparison; the timers were then rewritten as a direct port of the reference state machine, and CTU was capped, after which the traces coincide, as shown in Table 3. A validation that catches such off-by-one and saturation errors is a genuine test of fidelity and is what licenses the use of K-ESBMC as the reference oracle in §5. 
+
+4.3 RQ4: Machine-Checked Construct Lemmas Metric 
+
+The number of per-construct correctness lemmas kprove discharges against the semantics – each either proved ( kprove 
+
+returns ⊤) or not – and the fragment of LD they cover. RQ1 grounds K-ESBMC by execution ; RQ4 goes further and 
+
+proves , in kprove , that K-ESBMC ’s rules implement the IEC 61131-3 input/output relation for each construct. We emphasize scope: we do not mechanize a full K-ESBMC ↔GOTO equivalence, which would require formalizing ESBMC’s IR as well; the translation is validated empirically in §5, and RQ4 instead furnishes machine-checked correctness of the oracle itself .
+
+Per-Construct Correctness 
+
+For a construct, we state a reachability claim: from an image with symbolic bit values, executing the construct’s rung yields exactly the standard-mandated coil value. Each is discharged against the semantics by kprove (Haskell backend). Table 4 lists the seven lemmas proved for the combinational and latch fragment – contacts (series, parallel, negation), 
+
+> OTE
+
+, and OTL /OTU in both their acting and their retaining cases – all discharged ( kprove returns ⊤). 
+
+Lemma 1 (Per-Construct Correctness, Representative Case) . For all identifiers and all bit values va, v b, executing the rung OTE (q) := XIC (a) * XIC (b) from an image binding a 7 → va, b 7 → vb terminates with q 7 → va ∧ vb; the analogous statements hold for parallel contacts ( ∨), XIO (¬), and for OTL /OTU setting/resetting on a true rung and retaining the coil on a false one. 
+
+Boundary of the Mechanized Guarantee 
+
+The timer and counter constructs are not yet mechanized: their correctness is a multi-scan property requiring induction over the input list, and the current scan-loop encoding is not discharged automatically by kprove (the prover does not narrow the symbolic input list into the constructor forms the scan rule matches, so the induction does not start). We state this plainly as the boundary of the proof: the combinational and latch fragment is machine-checked , while the timer and counter constructs are execution-validated against OpenPLC (RQ1) and empirically validated through the differential study (§5). Closing the inductive lemmas – by a list case-split lemma or a narrowing-friendly reformulation of the scan driver – is the natural next step. It would lift the full fragment to an automated guarantee. 9K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Threats to Validity (RQ1, RQ4) 
+
+For RQ1, the fidelity check exercises each block with representative traces rather than its full input space; we counter this by choosing traces that drive the discriminating behaviors (elapsed-time firing, saturation, edge counting), which is what surfaced the defects reported above. We take MATIEC’s reference implementations as ground truth because they are the code actually executed on open-hardware PLCs – the operative behavior a verifier must match – and timing uses a controlled cycle time ∆t, abstracting real-time jitter as the standard scan-cycle model does. For RQ4, the guarantee is scoped to the combinational and latch constructs in isolation, not to whole programs, and the lemmas are stated for arbitrary distinct identifiers; their soundness rests on the trust base of the K reachability prover, as with any kprove 
+
+result. These are the reasons RQ1 and RQ4 are complemented by – not substituted for – the end-to-end differential evidence of §5. 
+
+# 5 Differential Validation of the LD →GOTO Translation 
+
+Having established that K-ESBMC is a faithful executable model of IEC 61131-3 (§4.2), we use it as a reference oracle for the ESBMC LD →GOTO translation. This section answers two questions: on the benchmark suite, does ESBMC agree with K-ESBMC (RQ2), and where they disagree, which engine is correct and why (RQ3). Figure 5 shows the workflow.  
+
+> PLCopen XML benchmark (+ props.yaml )
+> K-ESBMC front-ends (simple / graphical)
+> K-ESBMC interpreter
+> ESBMC LD →GOTO
+> OpenPLC/MATIEC runtime
+> compare verdicts
+> tie-break RQ1
+
+Figure 5: The three-engine differential. Each PLCopen benchmark is verified by ESBMC (the translation under test) and, independently, executed by the K-ESBMC oracle via frontends that never reuse ESBMC’s parser; verdicts are compared. On any disagreement, the OpenPLC/MATIEC runtime – against which K-ESBMC is validated scan-for-scan (RQ1) – is the external tie-breaker. 
+
+5.1 Experimental Setup Benchmarks 
+
+We use the public ESBMC-PLC benchmark suite: 13 LD programs drawn from eight controllers – tank level control, bottle filling, elevator, traffic light, stairs light, water control, and two Beremiz examples – several of which ship in a SAFE and a deliberately UNSAFE variant. Ten programs are combinational or latch controllers; the remaining ones exercise timers, counters, and edge blocks. The suite spans both diagram encodings: a simple linear <rung> format and the full graphical PLCopen netlist. Each program comes with a props.yaml file of safety properties specified with a kind : invariant (must always hold), absence (a bad condition that must never hold), or mutual_exclusion (of a variable set, at most one true). One further example is a Functional Block Diagram (FBD) body and is out of scope; timer presets that a benchmark leaves unspecified are instantiated with a fixed default, which affects only when a timer fires (§5.5). Because the public suite exercises the construct fragment only incidentally – its one timer is dead code (§5.4) – we complement it with a controlled synthetic family of 15 small programs (bringing the corpus to 28), each targeting one construct or interaction – contact networks, latch and seal-in, TON chains, TOF /TP holds, CTU /CTD saturation, and edge detection – with a property that observes that construct. A coverage matrix (provided with the artifact) records that every construct and every property kind is exercised; this family drives the coverage and fault-injection study of §5.4. 
+
+Three Engines 
+
+Each program is checked by (i) ESBMC, invoked as esbmc <prog>.ld –ld-props <props>.yaml –unwind 6 –no-unwinding-assertions , which returns SUCCESSFUL /FAILED with a per-property counterexample on failure; 10 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+(ii) the K-ESBMC interpreter ( krun ); and, for any disagreement, (iii) OpenPLC’s runtime (MATIEC-generated C), whose reference function-block semantics K-ESBMC was validated against scan-for-scan in §4.2. Engine (iii) is the external tie-breaker: it decides which of ESBMC and K-ESBMC matches real PLC execution. 
+
+Two Independent Front-Ends 
+
+To keep K-ESBMC an independent oracle we never reuse ESBMC’s parser. A translator lowers each PLCopen XML program into K-ESBMC Domain-Specific Language (DSL), reading the interface to classify variables as inputs, outputs, or locals (by section, or by the %IX /%QX located address). A simple path handles the linear <rung> format (series contacts = AND, coils’ storage set/reset → latch/unlatch); a graphical path resolves the netlist by tracing refLocalId 
+
+wires backward from each coil – power rails = TRUE , chained contacts = AND, multiple incoming wires = OR – and emits TON /TOF /TP and CTU /CTD blocks, with rising/falling edge contacts lowered to prev-value R_TRIG /F_TRIG helper rungs. The translators carry no verification semantics; they only re-express the diagram. We confirmed the graphical path against a manual translation of one program, obtaining an identical K-ESBMC program. 
+
+The Differential Procedure 
+
+ESBMC verifies over a bounded scan horizon, so K-ESBMC is exercised comparably and, crucially, its inputs are driven nondeterministically . For a program with k free inputs, we build one input trace : the 2k input combinations concatenated and repeated over three sweeps (so latch, timer, and counter state evolve across cycles); when 2k > 48 
+
+we sample 48 combinations, always including the all-false and all-true assignments. K-ESBMC runs the translated program on this trace in a single execution, logging the complete variable image after every scan; we then evaluate each property on every logged image, interpreting the kind field exactly as ESBMC’s –ld-props does. A program is UNSAFE for K-ESBMC iff some scan falsifies some property, and that scan is reported as the witness; otherwise it is SAFE up to the horizon. Running one long trace rather than per-transition queries amortizes interpreter start-up while still, at each scan, exploring the program’s response to every input assignment – a bounded exploration directly comparable to ESBMC’s –unwind . Timing uses one time unit per scan ( ∆t = 1 ). 
+
+Reproducibility 
+
+The K-ESBMC , both front-ends, the differential driver, the OpenPLC/MATIEC validation harness, and the kprove 
+
+specifications are provided as an artifact; each row of Table 5 and each validation trace is reproduced by a single command, and the toolchain runs in a container so results do not depend on a local install. The driver also admits auxiliary corroboration engines – the diagram compiled to C by MATIEC and checked with CBMC, and NuSMV on a Binary Decision Diagrams (BDD) encoding – used in §5.3 to double-check the timer mechanism with decision procedures independent of K-ESBMC. 
+
+5.2 RQ2: K-ESBMC Agrees with ESBMC on Well-Modeled Programs Metric 
+
+The fraction of programs on which K-ESBMC and ESBMC return the same SAFE /UNSAFE verdict, and – on the  
+
+> UNSAFE
+
+programs – whether K-ESBMC additionally localizes the violation to specific properties with a witness. Table 5 reports all 13 benchmark programs. On 10 of 13 , the two engines return the same verdict. The agreements span the full construct fragment: combinational interlocks ( tank_level_control ), sealed-in logic ( water_control ), and timer- and edge-driven controllers ( bottle_filling , elevator , beremiz_traffic_light ). Crucially, on every UNSAFE 
+
+variant K-ESBMC not only matches ESBMC’s pass/fail but localises the violation to specific properties with a concrete witness image – for example, the unsafe bottle_filling flags P1 (valve open with no bottle) and P2 (valve open when full), while correctly keeping P3 ,P5 safe because the emergency-stop guard still propagates through System_Running 
+
+within a scan. This per-property, witness-bearing verdict is strictly more informative than ESBMC’s aggregate result. 
+
+5.3 RQ3: Every Disagreement Is an ESBMC Timer Defect Metric 
+
+For each disagreement, which engine-independent execution (OpenPLC) confirms, and its root cause – yielding a classification of the translation defects the oracle exposes. The three disagreeing runs – traffic_light in both its safe and unsafe variants, plus the graphical stairs_light – reduce to two defect classes on two distinct programs, and all involve timer function blocks; OpenPLC confirms K-ESBMC in every case, and on the controlled probe below two 11 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 5: Three-engine differential over the benchmark suite. K-ESBMC verdicts list the violated properties. Rows marked × disagree; all three are resolved in K-ESBMC’s favor in §5.3.                                                             
+
+> Program Fmt K-ESBMC ESBMC Agree tank_level_control rung SAFE SAFE ✓
+> tank_level_control (unsafe) rung UNSAFE P1,P2,P3 UNSAFE ✓
+> bottle_filling rung SAFE SAFE ✓
+> bottle_filling (unsafe) rung UNSAFE P1,P2,P4,P6 UNSAFE ✓
+> elevator rung SAFE SAFE ✓
+> elevator (unsafe) rung UNSAFE P1–P6 UNSAFE ✓
+> traffic_light (safe) rung SAFE SAFE ✓
+> water_control graph SAFE SAFE ✓
+> beremiz_traffic_light graph SAFE SAFE ✓
+> dimmer_light_control graph SAFE SAFE ✓
+> stairs_light graph UNSAFE P1 SAFE ×
+> traffic_light rung SAFE UNSAFE ×
+> traffic_light (unsafe) rung SAFE UNSAFE ×
+
+Table 6: Controlled timer probe Btn →TON →Light , invariant A: “ !Light || Btn ”. Four independent accounts – an executable oracle, two verifiers with unrelated decision procedures, and the deployed runtime – agree the property holds under a faithful timer; only ESBMC, which havocs the timer output, reports a violation. NuSMV’s BDD proof is unbounded.               
+
+> Engine Method A
+> ESBMC-PLC SMT-BMC (havocs timer) VIOLATED
+> K-ESBMC executable reachability SAFE
+> MATIEC →C+CBMC SAT-BMC SAFE
+> NuSMV BDD symbolic (unbounded) SAFE
+> OpenPLC/MATIEC concrete execution SAFE
+
+further verification engines corroborate K-ESBMC as well (Table 6). They expose two opposite defects in ESBMC’s incomplete timer translation (Table 7). 
+
+A Controlled Probe 
+
+We first isolate the mechanism with a minimal program: Btn →TON (PT) →Light . Under a faithful timer, the invariant A:“!Light || Btn ” holds – Light follows the done bit, and a TON holds its output only while its input is high. K-ESBMC proves A safe; ESBMC reports it violated , with a counterexample in which the done bit is true while the input is false – a state a TON can never reach, since a low input resets it. ESBMC therefore leaves the timer output unconstrained 
+
+(havoc), an over-approximation that manufactures false alarms. 
+
+Independent Cross-Engine Corroboration 
+
+The probe’s verdict does not rest on K-ESBMC alone. We re-check the invariant A with two engines that share no code with either ESBMC or K-ESBMC and that use different decision procedures: the diagram compiled to C by MATIEC and discharged by CBMC [ 5] – a distinct SAT-based BMC backend – and NuSMV [ 4 ], whose BDD-based symbolic model checking is unrelated to bounded unrolling. Both report A SAFE , and NuSMV’s proof is unbounded – a fixpoint over all reachable states, not simply up to a horizon. Together with the OpenPLC runtime, four accounts – differing in decision procedure – thus agree against ESBMC (Table 6), isolating its timer havoc as the sole cause of the false alarm. We are precise about what this independence remains and is not: it rules out an artifact of K-ESBMC ’s modeling or of BMC in particular, but it is not a fully independent second account of the standard – the OpenPLC and MATIEC–CBMC engines both execute MATIEC’s function-block semantics (against which K-ESBMC was itself validated, §4.2), and the NuSMV model encodes the same faithful timer. ESBMC is the outlier, and the only engine here with an independent source-to-model front-end. Beyond the probe, NuSMV independently confirms the two decisive benchmarks themselves: on faithful models it proves traffic_light SAFE (the green-conflict mutual exclusion holds, by an unbounded fixpoint) and finds stairs_light UNSAFE (P1 violated), matching K-ESBMC against ESBMC on the real programs – not only the abstract probe. The differential harness also admits these engines to the remaining benchmarks. 12 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 7: Discrepancy taxonomy. Every disagreement is an ESBMC timer-translation defect; K-ESBMC is correct in all three, corroborated by OpenPLC.                    
+
+> Program ESBMC K-ESBMC ESBMC defect
+> stairs_light SAFE UNSAFE skips the FB path (graphical) →under-approx. →missed bug
+> (unsound)
+> traffic_light UNSAFE SAFE havocs the FB output (rung) →over-approx. →false alarm
+
+Discrepancy 1 – Havoc False Alarms ( traffic_light ). The real traffic_light controller sequences four phases through a chain of four TON s. ESBMC declares it UNSAFE on the green-conflict mutual-exclusion property; its counterexample asserts all four phases active in the same scan . A real TON chain fires one phase at a time, so this state is unreachable – it arises only because ESBMC havocs the four done bits. Executed under K-ESBMC , the controller exhibits zero mutual-exclusion violations across a full multi-cycle horizon (indeed it deadlocks in the north–south phase, a liveness defect that violates no safety property). K-ESBMC ’s SAFE verdict is correct, and independent of the timer preset. 
+
+Discrepancy 2 – Skipped Rimers Miss Real Bugs ( stairs_light ). The graphical stairs_light benchmark drives its light through an off-delay ( TOF ) so that a single PIR detection keeps the light on for the preset. Its front-end warns that “FB/timer outputs on rail →coil paths are not yet modeled” and skips the timer path, after which ESBMC certifies the program SAFE . But that skip is exactly where the violation lives: once the PIR clears while the light is still held on by the off-delay, invariant P1 (“light on implies PIR active or button state on”) is falsified. K-ESBMC , modeling the TOF , reports P1 UNSAFE with the light-on/PIR-off witness, and OpenPLC reproduces the same light activity. Here ESBMC is unsound : it returns SAFE for a program that violates its own stated property. 
+
+5.4 Fault Injection: The Property-Adequacy Gap 
+
+A clean agreement (RQ2) is only as strong as the properties that could have exposed a disagreement. To examine this, we inject single-point translation-rule faults into the benchmark programs and ask two questions of each mutant: does it change the program’s observable behavior – the per-scan trace K-ESBMC computes – and does it flip any of the benchmark’s own safety properties? The gap between the two answers is the finding. 
+
+Method 
+
+We define five mutation operators, each emulating a class of front-end fault: contact-polarity swap ( XIC ↔XIO ), coil-operation change ( OTE →OTL ), guard-contact drop (remove one series contact), latch-retention drop ( OTL /OTU →OTE ), and timer-kind swap (TON ↔TOF ). We generate every single-point mutant of a combinational benchmark (tank_level_control ) and a timer benchmark ( bottle_filling ) – 60 mutants – and classify each as behaviorally detected if its trace differs from the baseline, and as property-detected if it flips a benchmark safety property. 
+
+Result 
+
+K-ESBMC distinguishes every behaviorally distinct mutant: 40 of the 60 mutants (67%) change the observable trace, and the oracle flags all of them; the remaining 20 are semantically equivalent (no observable effect, the ceiling for any behavioral method). The benchmark properties , however, detect only 11 of those 40 behavior-changing faults – 27% .In other words, most genuine translation faults alter behavior that the shipped safety properties never observe: they touch local variables the properties do not constrain, restrict an output in a direction a “must-not” property cannot see, or – strikingly – affect dead code . In bottle_filling , the timer’s output Filling_Done is overwritten by a later rung, so the TON →TOF swap is behaviorally equivalent and no property moves; this is also precisely why ESBMC’s skipping that timer is harmless for this program .
+
+Why this Matters 
+
+The experiment measures property adequacy , not oracle sensitivity: the oracle sees every observable fault, but a property-based verifier catches a translation defect only when a property happens to constrain the affected variable. This is exactly the blind spot that lets defects slip through – and it explains the pattern in §5.3. When the benchmark properties observe the timer ( stairs_light , traffic_light ), the oracle exposes the ESBMC defects; when they do not (tank , bottle ), a timer-translation fault passes silently. An executable oracle that exposes the whole behavior, rather than only property verdicts, is what makes such faults visible at all. (Two benchmarks are used here; the latch operator 13 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 8: Fault injection over the synthetic family (§5.1): the five translation-fault operators, now all firing. K-ESBMC detects every behaviorally distinct mutant; the shipped properties detect 44% of them.                            
+
+> Op Fault class Mutants Behavioral Property CP contact polarity 49 39 17 CO coil operation 20 20 8LR latch retention 442GC guard drop 963TK timer kind 542
+> Total 87 73 32 ( 44% )
+
+does not fire, as neither uses latched coils, and the timer operator fires once on a dead timer – so the timer/latch classes are under-exercised, which the synthetic family below addresses.) 
+
+A Systematic Campaign on the Synthetic Family 
+
+The two-benchmark study under-exercises the latch and timer operators; the controlled family (§5.1) closes that gap. Running the same five operators over its latch- and timer-heavy programs yields 87 mutants in which the previously inert operators now fire – latch-retention four times (was zero ) and timer-kind five times (was one, on dead code). K-ESBMC again distinguishes every behaviorally distinct mutant ( 73 of 87 change the trace); the shipped properties detect 32 of those 73 – 44% (Table 8). The gap persists even here, where all property was designed to observe its construct: property-detection was 27% on the public benchmarks and 44% on the purpose-built family – in both cases, well under half of the genuine behavioral faults. Property adequacy, not oracle sensitivity, remains the limiting factor. 
+
+5.5 Discussion and Threats What the Oracle Bought 
+
+The differential is decisive precisely because K-ESBMC is an executable IEC-faithful semantics: it does not simply flag a mismatch, it produces the concrete scan-level behavior that shows which engine is right, and OpenPLC confirms it. The two defects are complementary, and both are practically serious – the havoc mode wastes engineering effort on impossible counterexamples. In contrast, the skip mode is unsound and can certify a hazardous program safe. 
+
+Threats to Validity 
+
+(i) The comparison is bounded and input-sampled. Hence, a SAFE /SAFE agreement is agreement up to the horizon , not a proof of joint correctness: in principle, both engines could miss the same violation inside the bound. We reduce this in two ways. Our conclusions rest on the disagreements , not the agreements, and each disagreement is settled by OpenPLC and a preset-independent structural argument rather than by the bounded run alone. The input trace exercises every input assignment at every scan over several cycles, so a missed violation would have to evade the entire enumerated input space at every logged scan. Reported SAFE verdicts should nonetheless be read as safe-up-to-horizon, matching ESBMC’s own bounded model – with one exception at the heart of the disagreements: on the controlled timer probe (§5.3) NuSMV discharges invariant A by an unbounded BDD fixpoint, so there the SAFE verdict holds over all reachable states, not only to the horizon. (ii) Timer presets absent from a benchmark are instantiated with a fixed default; this affects when a timer fires, not the existence of the discrepancies, each of which we tie to a structural argument. (iii) The two front-ends are independent of ESBMC and were cross-checked by reproducing a manually translated benchmark identically, so a divergence cannot be an artifact of a shared parser. (iv) External validity. The study covers 13 programs and one verifier; the specific defects may not generalize, but the oracle and harness are reusable on any LD program and any verifier (§8). 
+
+# 6 Case Studies 
+
+To make the framework concrete, we walk through the two disagreements of §5.3 end to end: from the benchmark diagram, through its independent translation into K-ESBMC , to the per-scan execution that settles which verifier is right. Each illustrates one of ESBMC’s timer-translation failure modes. 14 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 9: stairs_light under K-ESBMC : a PIR pulse and no button pressed. From scan 2, the off-delay holds the light on while the corridor is empty, falsifying P1 .                        
+
+> Scan PIR buttons light P1
+> 0⊥⊥⊥holds 1⊤⊥⊤holds (PIR active) 2⊥⊥⊤violated
+> 3⊥⊥⊤violated
+> 4⊥⊥⊤violated
+
+6.1 Missed Violation: the Stairs Light (unsound skip )
+
+The stairs_light controller (graphical format) turns a stairwell light on when a passer-by is detected and, via an off-delay timer, keeps it on for a preset afterward. Listing 1 is the program our graphical front-end produces from the PLCopen netlist, with no reference to ESBMC. Its last two logic rungs are the crux: the off-delay TOF0_Q is driven by a rising edge of the PIR sensor, and the light is TOF0_Q or the manual button state.             
+
+> 1TOF(TOF0_Q , 20, XIC( rise_stairs_pir_sensor ) *XIO( lights_buttons_state )) ;
+> 2OTE( stairs_light ) := XIC( TOF0_Q) +XIC( lights_buttons_state ) ;
+
+Listing 1: K-ESBMC program for stairs_light , produced by the graphical front-end (edge and previous-value helper rungs elided). The benchmark’s property P1 states that the light is on only if the PIR is active or the button state is set: !stairs_light || stairs_pir_sensor || lights_buttons_state . We execute K-ESBMC on a single PIR pulse alongside the buttons untouched; Table 9 shows the resulting per-scan image. At scan 1, the PIR fires and the light comes on – legitimately, the sensor is active. At scan 2 the person has left ( PIR = ⊥)and no button is latched ( buttons = ⊥), yet the off-delay still holds light = ⊤: this falsifies P1 , and K-ESBMC reports the violation with scan 2 as the witness. ESBMC, however, returns VERIFICATION SUCCESSFUL on this exact program: its front-end warns that the timer block is “not yet modeled” and skips that rung, after which it never sees the light turn on at all. Because K-ESBMC ’s TOF was validated scan-for-scan against OpenPLC (§4.2), and OpenPLC reproduces the same similar behavior, the violation is real: ESBMC has certified as safe a program that violates its own stated property – an unsound outcome, the most dangerous kind for a safety tool. 
+
+6.2 False Alarm: the Traffic Light (imprecise havoc )
+
+The traffic_light controller sequences four phases – north–south green and yellow, then east–west green and yellow – through a chain of four on-delay timers, each phase enabling the next (Listing 2). A mutual-exclusion property requires that the two green phases never coincide: !(NS_Green && EW_Green) .                                          
+
+> 1TON(TON1_Q , 2, XIC( TON1_IN )) ;OTE( Phase_NS_Green ) := XIC( TON1_IN ) ;
+> 2TON(TON2_Q , 2, XIC( TON2_IN )) ;OTE( Phase_NS_Yellow ) := XIC( TON2_IN ) ;
+> 3TON(TON3_Q , 2, XIC( TON3_IN )) ;OTE( Phase_EW_Green ) := XIC( TON3_IN ) ;
+> 4TON(TON4_Q , 2, XIC( TON4_IN )) ;OTE( Phase_EW_Yellow ) := XIC( TON4_IN ) ;
+> 5OTE( NS_Green ) := XIC( Phase_NS_Green ) *XIO( Emergency_Vehicle ) ;
+> 6OTE( EW_Green ) := XIC( Phase_EW_Green ) ;
+
+Listing 2: K-ESBMC program for traffic_light : a chain of four TON s sequences the phases (excerpt). ESBMC declares this program UNSAFE on the green-conflict property. Its counterexample (Table 10, left) asserts that all four phase flags are set in the same scan, so that NS_Green and EW_Green hold together. But that state is unreachable for a real timer chain: the phases are enabled in sequence, one at a time. ESBMC reaches it only because, on the simple diagram format, it leaves the four done bits TON1_Q –TON4_Q unconstrained (havoc). Executing the program under K-ESBMC with Enable held (Table 10, right) shows the true behavior: exactly one phase is active at a time and NS_Green , EW_Green are never simultaneously set – no mutual-exclusion violation occurs over the whole cycle. K-ESBMC ’s SAFE verdict is correct, and independent of the timer preset. ESBMC’s counterexample is a modeling artifact – a false alarm that no real timer can produce. 15 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Table 10: traffic_light , green phases: ESBMC’s counterexample versus the actual K-ESBMC execution. ESBMC needs all phases active at once (from havoc’d timer outputs); K-ESBMC keeps the phases one-hot.                    
+
+> ESBMC (havoc CEX) K-ESBMC (executed) Scan NS_Green EW_Green NS_Green EW_Green
+> s⊤⊤⊤⊥
+> s+1 ––⊥⊥
+> s+2 ––⊥⊥
+> conflict claimed never
+
+6.3 What the Two Cases Show 
+
+The two cases are mirror images. In the stairs light ESBMC models too little – it drops the timer and misses a real violation (unsound). At the traffic light, it admits too much – it interrupts the timer and invents a violation that cannot occur (imprecise). Neither is visible from inside ESBMC: a SAFE verdict and an UNSAFE counterexample look the same whether or not the timer was modeled faithfully. What separates the true result from the artifact in each case is the same thing – an executable, standard-faithful semantics that can be run to produce the actual scan-by-scan behavior, and cross-checked against a real PLC runtime. That is the role K-ESBMC plays, and these two controllers show it playing it. 
+
+# 7 Discussion 
+
+What an executable reference bought 
+
+The central lesson of §5 is not the raw count of discrepancies yet how they were settled. A disagreement between two verifiers, or between a verifier and a paper specification, is inconclusive: either side might be wrong, and neither can be run. Because K-ESBMC is executable and validated against the very C that OpenPLC runs, each disagreement resolves to a concrete scan-level trace that shows which engine departs from IEC 61131-3 – and OpenPLC then reproduces that trace as an independent third witness. An executable, standard-faithful semantics is thus not simply another checker but an arbiter : it converts “the tools disagree” into “here is the scan on which the translation violates the standard.” 
+
+Two failure modes, both practically serious 
+
+ESBMC’s incomplete timer translation fails in opposite directions, and the distinction matters to an engineer. In graphical diagrams, it skips the timer path and can therefore certify as safe a program that, in fact, violates its own stated property – an unsound outcome, the most dangerous kind for a safety tool, because the user receives a green light for a hazardous controller. On the simple format, it instead havocs the timer output and manufactures counterexamples that no real timer can produce – a false alarm that, while sound, erodes trust and wastes triage effort on impossible scenarios. Neither is visible from inside the tool: only an external account of what the diagram means can separate a true defect from a modeling artifact, which is precisely the role K-ESBMC plays. 
+
+A layered correctness argument 
+
+K-ESBMC supports a graded notion of assurance that we are careful to keep honest. The combinational and latch fragment is machine-checked in kprove (§4.3); the timer and counter function blocks are execution-validated scan-for-scan against the OpenPLC/MATIEC reference (§4.2); and the end-to-end LD →GOTO translation is empirically validated by the differential study (§5). Each layer is weaker than the one before but covers more, and together they close the ESBMC-PLC trust gap far more tightly than the prior state, in which the translation’s fidelity rested only on its having been designed to match an informal formalization. 
+
+Generality 
+
+Nothing in the method is specific to ESBMC. K-ESBMC is a stand-alone reference interpreter for IEC 61131-3 LD; the differential harness compares any verifier’s verdicts against K-ESBMC ’s ground truth, and the two independent front-ends read the same PLCopen XML that the tools consume. The same instrument could scrutinize other LD verifiers, regression-test a verifier’s front-end across releases, or serve as the executable oracle in a conformance test suite for IEC 61131-3 tooling. 16 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+Impact 
+
+A formal verifier is itself an unverified program, and its soundness rests on a translation that has, until now, had no independent executable account of the source language to be checked against. The transferable contribution of this work is a way to close that loop: build an executable, standard-faithful reference semantics, use it as a differential oracle to 
+
+audit a translation against real execution, and machine-check the reference where tractable – so that trust in a toolchain becomes something one tests, adjudicates, and in part proves rather than assumes. The pattern applies wherever a tool verifies a language by lowering it into a model checker, a setting common far beyond PLCs. The demonstration also leaves reusable assets for distinct communities: an executable, OpenPLC-validated semantics of IEC 61131-3 LD for control-systems and cyber-physical-systems research, which has largely lacked one; a case study for the semantics-engineering community of a single K definition serving both as the interpreter that tests another tool and the prover that certifies constructs; and, for the testing and certification communities, a concrete instance of finding a genuine soundness defect – a verifier reporting safe a program that is not – by differential testing against a formal reference. In a field that increasingly relies on automated verifiers for safety cases, an oracle that can hold those verifiers to the standard constitutes a step toward auditable, rather than merely asserted, assurance. 
+
+# 8 Limitations and Future Work 
+
+Mechanization boundary 
+
+Our machine-checked lemmas cover the combinational and latch fragment. The timer and counter constructs are multi-scan properties whose proofs require induction over the input sequence, and the current scan-loop encoding is not discharged automatically by kprove (§4.3). Closing these lemmas – via an explicit list case-split lemma or a narrowing-friendly reformulation of the scan driver – would raise the whole section from execution-validated to machine-checked, and is the most direct extension of this work. A full, mechanized K-ESBMC ↔GOTO equivalence would additionally require a formal semantics of ESBMC’s IR; our differential approach deliberately trades that heavyweight goal for high, reproducible coverage. 
+
+Bounded differential and presets 
+
+Like the BMC it validates, the differential is bounded: SAFE verdicts are safe-up-to-horizon. Where a benchmark left a timer preset unspecified, we instantiated a fixed default, which affects when a timer fires but not the existence of the reported discrepancies – each of which we tie to a preset-independent structural argument. Extending to boundless guarantees (e.g. via k-induction over K-ESBMC itself) is future work. 
+
+Coverage and external validity 
+
+Our conclusions rest on 13 differential benchmarks – complemented by a 15-program synthetic family (corpus 28) for construct coverage and fault injection (§5.4) – so the specific defects found may not generalize; the mitigating factor is that the oracle is reusable , and we invite that reuse. Any IEC 61131-3 LD program in the covered fragment – Boolean signals with contacts, coils and latches, TON /TOF /TP , CTU /CTD , and R_TRIG /F_TRIG , in either diagram format – can be adjudicated against K-ESBMC by translating it and running the differential (the artifact does this in one command per program), and against any verifier, not only ESBMC. Outside the fragment – non-Boolean data such as integer or analog arithmetic, non-standard or vendor function blocks (one such block appears in a single benchmark), and Function Block Diagram or Sequential Function Chart bodies (one benchmark) – the front-end flags the unsupported construct instead of returning a wrong answer, and support is added rule by rule in the K definition. Broadening K-ESBMC toward richer data types, and integrating it with the K-ST Structured Text semantics for mixed-language projects, would widen the class of programs the oracle can adjudicate; until then, the covered fragment is precisely the limit within which a practitioner can apply the tool to their own programs today. 
+
+Fault injection 
+
+Beyond the two-benchmark study (§5.4), we ran the same operators over a controlled synthetic family (15 programs, corpus 28) that exercises every construct, observing properties, so that all five operators fire – including the latch and timer operators the public benchmarks left inert (Table 8). The property-adequacy gap holds there too: only 44% of behavior-changing mutants flip a property, despite properties purpose-built to observe their construct. The remaining extension is to mutate a verifier’s translation code directly rather than the diagram, which requires access to each verifier’s front-end source code. That the safety properties shipped with public benchmarks observe so little of a program’s behavior is itself a call for stronger property suites, independent of any single verifier. 17 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+# 9 Conclusion 
+
+Automated verifiers for IEC 61131-3 Ladder Diagram are only as trustworthy as the unverified front-end that lowers a diagram into a model checker. Yet that translation has had no independent, executable account of the standard against which to check it. We presented K-ESBMC , an executable formal semantics of IEC 61131-3 LD in the K framework, extending K-ST to the graphical language and its function blocks, from which a single definition yields both an interpreter and a prover. We validated K-ESBMC scan-for-scan against the OpenPLC/MATIEC reference implementations, used it as an independent oracle to validate the ESBMC differentially-PLC LD →GOTO translation – finding broad agreement, witnessed violations on every unsafe program, and three corroborated defects that fall into two opposite timer-handling failure modes – and machine-checked in kprove that K-ESBMC ’s rules implement the standard’s input/output relation for the combinational and latch fragment. The wider contribution is methodological: a verifier’s front-end is trusted code, and an executable, standard-faithful reference semantics turns that trust into something one can test, adjudicate, and, in part, prove. K-ESBMC is a reusable instrument for doing so, and we hope it functions as an executable reference for IEC 61131-3 LD beyond the single verifier examined here. 
+
+# Acknowledgments 
+
+The authors would like to express their gratitude to the Department of Computer Science at the University of Manchester (UoM) and the Systems and Software Security (S3) Research Group for their invaluable support, collaborative environment, and access to cutting-edge resources, which were instrumental in the success of this research. We conducted this work with partial funding from the Engineering and Physical Sciences Research Council (EPSRC) grants EP/T026995/1, EP/V000497/1, EP/X037290/1, and the Soteria project, awarded by the UK Research and Innovation under the Digital Security by Design (DSbD) Programme. 
+
+# References 
+
+[1] Sebastian Biallas, Jörg Brauer, and Stefan Kowalewski. Arcade.plc: a verification platform for programmable logic controllers. In Proceedings of the 27th IEEE/ACM International Conference on Automated Software Engineering ,ASE’12, page 338–341, Essen, Germany, September 2012. ACM. doi: 10.1145/2351676.2351741. [2] G. Canet, S. Couffin, J.-J. Lesage, A. Petit, and P. Schnoebelen. Towards the automatic verification of plc programs written in instruction list. In SMC 2000 Conference Proceedings. 2000 IEEE International Conference on Systems, Man and Cybernetics. ‘Cybernetics Evolving to Systems, Humans, Organizations, and their Complex Interactions’ (Cat. No.00CH37166) , volume 4 of ICSMC-00 , page 2449–2454, Nashville, TN, USA, 2000. IEEE. doi: 10.1109/icsmc.2000.884359. [3] Roberto Cavada, Alessandro Cimatti, Marco Dorigatti, Alberto Griggio, Alessandro Mariotti, Andrea Micheli, Sergio Mover, Marco Roveri, and Stefano Tonetta. The nuXmv symbolic model checker. In Computer Aided Verification (CAV 2014) , volume 8559 of Lecture Notes in Computer Science , pages 334–345, Vienna, Austria, 2014. Springer. doi: 10.1007/978-3-319-08867-9_22. [4] Alessandro Cimatti, Edmund Clarke, Enrico Giunchiglia, Fausto Giunchiglia, Marco Pistore, Marco Roveri, Roberto Sebastiani, and Armando Tacchella. NuSMV 2: An OpenSource tool for symbolic model checking. In 
+
+Computer Aided Verification (CAV 2002) , volume 2404 of Lecture Notes in Computer Science , pages 359–364, Berlin, Heidelberg, 2002. Springer. doi: 10.1007/3-540-45657-0_29. [5] Edmund Clarke, Daniel Kroening, and Flavio Lerda. A tool for checking ANSI-C programs. In Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2004) , volume 2988 of Lecture Notes in Computer Science , pages 168–176, Barcelona, Spain, 2004. Springer. doi: 10.1007/978-3-540-24730-2_15. [6] Pierre Dantas, Lucas C. Cordeiro, and W. S. Silva Júnior. ESBMC-PLC: Formal verification ofIEC 61131-3 ladder diagram programs, 2026. TACAS 2027 artefact. Reproducible via bash conformance/run_all.sh .[7] Pierre Dantas, Lucas C. Cordeiro, and W. S. Silva Júnior. ESBMC-GraphPLC: Formal verification of graphical PLCopen XML ladder diagram programs using SMT-based model checking, 2026. [8] Pierre Dantas, Lucas C. Cordeiro, and W. S. Silva Júnior. ESBMC-PLC+: Unified IEC 61131-3 formal verification framework with ST frontend and graphical function block support (pull request #5427). GitHub Pull Request #5427, 
+
+esbmc/esbmc , 2026. URL https://github.com/esbmc/esbmc/pull/5427 . Source code and benchmark suite. [9] Dániel Darvas, Borja Fernández Adiego, András Vörös, Tamás Bartha, Enrique Blanco Viñuela, and Víctor M. González Suárez. Formal Verification of Complex Properties on PLC Programs , page 284–299. Springer Berlin Heidelberg, Berlin, Germany, 2014. ISBN 9783662436134. doi: 10.1007/978-3-662-43613-4_18. 18 K-ESBMC: Validating a Ladder-Diagram Verifier’s Front-End A P REPRINT 
+
+[10] Dániel Darvas, Enrique Blanco Vinuela, and Borja Fernández Adiego. Plcverif: A tool to verify plc programs based on model checking techniques. In Proc. 15th Int. Conf. on Accelerator and Large Experimental Physics Control Systems (ICALEPCS) , volume ICALEPCS2015, pages 911–914, Australia, 2015. JACoW, Geneva, Switzerland. doi: 10.18429/JACOW-ICALEPCS2015-WEPGF092. [11] Mário de Sousa. MATIEC: IEC 61131-3 compiler. Open-source software, Beremiz project, 2014. URL 
+
+https://github.com/beremiz/matiec . Accessed June 2026. Tested at commit 7949c0b (Fix -Wvarargs and -Wdouble-promotion ). [12] Ali Ebnenasir. Formalizing ladder logic programs and timing charts for fault impact analysis and verifica-tion of fault tolerance. Technical Report CS-TR-23-01, Michigan Technological University, Department of Computer Science, Houghton, MI, USA, 2023. URL https://www.mtu.edu/cs/research/papers/pdfs/ formalizing-ladder-logic-ali-ebnenasir-tech-rpt-010623-rev.pdf .[13] Chucky Ellison and Grigore Rosu. An executable formal semantics of c with applications. ACM SIGPLAN Notices , 47(1):533–544, January 2012. ISSN 1558-1160. doi: 10.1145/2103621.2103719. [14] Borja Fernandez Adiego, Daniel Darvas, Enrique Blanco Vinuela, Jean-Charles Tournier, Simon Bliudze, Jan Olaf Blech, and Victor Manuel Gonzalez Suarez. Applying model checking to industrial-sized plc programs. IEEE Transactions on Industrial Informatics , 11(6):1400–1410, December 2015. ISSN 1941-0050. doi: 10.1109/tii. 2015.2489184. [15] G. Frey and L. Litz. Formal methods in plc programming. In SMC 2000 Conference Proceedings. 2000 IEEE International Conference on Systems, Man and Cybernetics. ‘Cybernetics Evolving to Systems, Humans, Organizations, and their Complex Interactions’ (Cat. No.00CH37166) , volume 4 of ICSMC-00 , page 2431–2436, Nashville, TN, USA, 2002. IEEE. doi: 10.1109/icsmc.2000.884356. [16] Mikhail R. Gadelha, Rafael S. Menezes, and Lucas C. Cordeiro. ESBMC 6.1: Automated Test Case Generation Using Bounded Model Checking. International Journal on Software Tools for Technology Transfer , 23(6):857–861, May 2020. doi: 10.1007/s10009-020-00571-2. [17] Everett Hildenbrandt, Manasvi Saxena, Nishant Rodrigues, Xiaoran Zhu, Philip Daian, Dwight Guth, Brandon Moore, Daejun Park, Yi Zhang, Andrei Stefanescu, and Grigore Rosu. Kevm: A complete formal semantics of the ethereum virtual machine. In 2018 IEEE 31st Computer Security Foundations Symposium (CSF) , page 204–217, Oxford, UK, July 2018. IEEE. doi: 10.1109/csf.2018.00022. [18] Xavier Leroy. Formal verification of a realistic compiler. Communications of the ACM , 52(7):107–115, 2009. doi: 10.1145/1538788.1538814. [19] A. Pnueli, M. Siegel, and E. Singerman. Translation validation , page 151–166. Springer Berlin Heidelberg, Lisbon, Portugal, 1998. ISBN 9783540697534. doi: 10.1007/bfb0054170. [20] Grigore Ro¸ su and Traian Florin ¸ Serb˘ anu¸ t˘ a. An overview of the k semantic framework. The Journal of Logic and Algebraic Programming , 79(6):397–434, August 2010. ISSN 1567-8326. doi: 10.1016/j.jlap.2010.03.012. URL 
+
+http://dx.doi.org/10.1016/j.jlap.2010.03.012 .[21] Kun Wang, Jingyi Wang, Christopher M. Poskitt, Xiangxiang Chen, Jun Sun, and Peng Cheng. K-ST: A formal executable semantics of the structured text language for PLCs. IEEE Transactions on Software Engineering , 49 (12):5081–5100, 2023. doi: 10.1109/TSE.2023.3315292. [22] Xuejun Yang, Yang Chen, Eric Eide, and John Regehr. Finding and understanding bugs in c compilers. In 
+
+Proceedings of the 32nd ACM SIGPLAN Conference on Programming Language Design and Implementation ,PLDI ’11, page 283–294, San Jose, CA, USA, June 2011. ACM. doi: 10.1145/1993498.1993532. 19

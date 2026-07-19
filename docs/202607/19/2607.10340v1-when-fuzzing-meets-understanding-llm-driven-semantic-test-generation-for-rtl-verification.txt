@@ -1,0 +1,458 @@
+Title: When Fuzzing Meets Understanding: LLM-Driven Semantic Test Generation for RTL Verification
+
+URL Source: https://arxiv.org/pdf/2607.10340v1
+
+Published Time: Tue, 14 Jul 2026 01:11:13 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# When Fuzzing Meets Understanding: LLM-Driven Semantic Test Generation for RTL Verification 
+
+# Kun Wang 
+
+wangkun22@mails.ucas.ac.cn Institute of Computing Technology, Chinese Academy of Sciences China 
+
+# Cangyuan Li 
+
+licangyuan@ict.ac.cn Institute of Computing Technology, Chinese Academy of Sciences China 
+
+# Kaiyan Chang 
+
+changkaiyan@live.com Institute of Computing Technology, Chinese Academy of Sciences China 
+
+# Siyang Cai 
+
+caisiyang23@mails.ucas.ac.cn School of Advanced Interdisciplinary Sciences, University of Chinese Academy of Sciences China 
+
+# Yinhe Han 
+
+yinhes@ict.ac.cn Institute of Computing Technology, Chinese Academy of Sciences China 
+
+# Ying Wang 
+
+wangying2009@ict.ac.cn Institute of Computing Technology, Chinese Academy of Sciences China 
+
+## 1 Abstract 
+
+The growing complexity of modern chips poses significant chal-lenges to hardware verification. In recent years, coverage-guided fuzzing has emerged as a promising approach for improving verifi-cation efficiency. However, existing hardware fuzzers still strug-gle to achieve high coverage and expose corner-case bugs, as they predominantly rely on heuristic strategies with limited abil-ity to reason about the internal logic and semantic behavior of the design under test (DUT). In this work, we propose ChipFuzzer, a hardware fuzzing framework that leverages the semantic rea-soning capabilities of large language models (LLMs) to improve fuzzing effectiveness. ChipFuzzer adopts a dual-stage workflow comprising a Coverage-Guided stage and a Bug-Guided stage. In the Coverage-Guided stage, ChipFuzzer employs control-flow simi-larity and discrepancy analysis to guide LLM-driven testcase gener-ation, thereby improving coverage. In the Bug-Guided stage, Chip-Fuzzer leverages historical bug data to identify bug-prone code regions and prioritize testcase generation for those regions, thus enhancing bug discovery efficiency. Experimental results on three open-source CPU designs show that ChipFuzzer improves average condition coverage by 5.8 percentage points and bug detection rate by 21.1 percentage points over the strongest baseline. 
+
+## 2 Introduction 
+
+As ICs continue to scale in complexity, verification has become the most resource-intensive and time-critical stage of the design cycle, often consuming more than 70% of total project effort [10]. Given the astronomical cost of post-silicon bug fixes, comprehensive pre-silicon verification is indispensable for ensuring design correctness and time-to-market success. To this end, researchers have devel-oped numerous hardware verification techniques, which broadly fall into two categories: (1) formal verification, including theorem proving [8], model checking [7], and information-flow tracking [13]; and (2) simulation-based verification, including random regression [19] and hardware fuzzing [25, 26, 30, 32]. While formal methods promise exhaustive checking, they suffer from state space explosion in large-scale designs. In contrast, coverage-guided fuzzing has gained trac-tion as a scalable and effective methodology for hardware verifi-cation, where automatically generated testcases are iteratively re-fined to improve coverage and expose hidden corner-case bugs. However, hardware fuzzing today inherits fundamental lim-itations from its software origins . Existing hardware fuzzers retain an input-centric methodology and often treat Hardware De-scription Language (HDL) signals and control paths as opaque vari-ables, ignoring their rich structural semantics. This manifests as an excessive focus on test seed generation and mutation strategies, while neglecting the inherent structural characteristics of the DUT. Effective hardware verification, in contrast, should be grounded in a deep comprehension of the DUT’s internal structure to gener-ate targeted testcases. Although coverage-guided approaches have emerged as the predominant paradigm [32] by tracking code cover-age, their understanding of the DUT’s functional semantics and in-ternal architecture remains superficial. As a result, they struggle to exercise hard-to-reach hardware behaviors, achieving only around 80% coverage even on mid-scale CPUs such as RocketCore. Worse, as fuzzing progresses, the coverage growth curve flattens [24], con-suming massive compute resources for marginal gains. The gener-ated testcases also lack diversity, being constrained by fixed seed pools and shallow mutation heuristics. The emergence of LLMs offers a powerful new lens for rethink-ing this problem. LLMs trained on large corpora of HDL code and documentation have shown promise in reasoning about hardware intent, structure, and semantics. They can reason about signal de-pendencies, control flows, and corner conditions, which are ca-pabilities difficult for random mutation-based fuzzers to achieve. This motivates semantic-aware fuzzing , where test generation is context-driven rather than blind. In this paper, we present ChipFuzzer, an LLM-driven hardware fuzzing framework that rethinks hardware fuzzing through semantic-aware test generation. ChipFuzzer implements a dual-stage veri-fication methodology to improve the efficiency of hardware fuzzing. In the Coverage-Guided stage , ChipFuzzer employs control-flow arXiv:2607.10340v1 [cs.AR] 11 Jul 2026 Wang et al. 
+
+similarity indexing to retrieve relevant testcase templates and per-forms discrepancy analysis to iteratively guide LLM-driven test-case generation toward uncovered code regions. Beyond maximiz-ing coverage, we further recognize that coverage alone does not guarantee robust verification. Many elusive design flaws lie in bug-prone patterns repeatedly seen across design iterations. Therefore, ChipFuzzer introduces the Bug-Guided stage . In this stage, Chip-Fuzzer leverages historical bug data to identify bug-prone code re-gions and generate targeted testcases for these regions. ChipFuzzer further applies a semantic-aware seed fusion strategy that com-bines coverage-guided and bug-guided seeds to produce semanti-cally richer testcases for exposing potential design flaws. This bug-guided stage shifts fuzzing beyond coverage-guided exploration alone toward more effective bug discovery. Overall, our main contributions are as follows: 
+
+• We propose ChipFuzzer, an LLM-driven hardware fuzzing framework that leverages the semantic reasoning capabili-ties of LLMs to improve fuzzing effectiveness. ChipFuzzer implements a dual-stage verification methodology consist-ing of a Coverage-Guided stage and a Bug-Guided stage to achieve both comprehensive coverage improvement and effective bug discovery. 
+
+• For the Coverage-Guided stage, we introduce control-flow similarity indexing for template retrieval and discrepancy analysis for identifying missing execution conditions, jointly guiding LLM-driven testcase generation toward uncovered code regions. 
+
+• For the Bug-Guided stage, we propose three strategies for identifying bug-prone code regions based on historical bug data, and a semantic-aware seed fusion strategy that com-bines coverage-guided and bug-guided seeds to improve bug detection efficiency. 
+
+• Experimental results on three open-source CPU designs show that ChipFuzzer improves average condition cover-age by 5.8 percentage points and bug detection rate by 21.1 percentage points over the strongest baseline. 
+
+• We release our code for public access to encourage further research: https://anonymous.4open.science/r/ChipFuzzer-212B. 
+
+## 3 Background & Motivation 3.1 Hardware fuzzing 
+
+Hardware fuzzing is an effective technique for exposing potential design flaws in the DUT, and its typical workflow is illustrated in Figure 1. Starting from an initial seed corpus, the fuzzer iter-atively mutates testcases and executes them on the DUT to ex-plore new behaviors. Generated testcases are evaluated based on coverage feedback, and high-value seeds are retained for further mutation. Through this coverage-guided feedback loop, hardware fuzzing can incrementally expand behavioral exploration and im-prove bug detection efficiency. Originating from software fuzzing, hardware fuzzing was introduced into RTL verification by early works such as RFUZZ [17], which demonstrated that coverage-guided seed mutation can be effectively applied to hardware de-signs. Building on this direction, subsequent fuzzers such as Difuz-zRTL [14], MABFuzz [11], and TheHuzz [15] further enhanced cov-erage efficiency by incorporating hardware-specific feedback sig-nals. More recent methods, including HyPFuzz [6], Cascade [28], BMCFuzz [26] and PSOFuzz [5], integrate formal verification tech-niques or optimization methods to improve coverage. 
+
+Limitations of Existing Hardware Fuzzers. Despite signifi-cant advances in hardware fuzzing, existing approaches still rely predominantly on heuristic strategies without explicit causal rea-soning about the DUT’s internal logic and semantic behavior. Con-sequently, when a testcase succeeds or fails, the fuzzer cannot iden-tify the conditions that activated or precluded the target behav-ior, nor can it systematically infer the input properties required to drive execution toward hard-to-reach code regions. By contrast, human verification engineers reason explicitly about the DUT’s in-ternal structure and triggering conditions when constructing tar-geted testcases. The absence of such causal reasoning leaves exist-ing hardware fuzzers largely dependent on trial-and-error explo-ration, resulting in limited coverage and low verification efficiency in complex CPU designs. yes  
+
+> Seed
+> Generator
+> Seed Corpus
+> Input
+> Program Mutator
+> RTL Simulator
+> ISA Simulator
+> Mismatch?
+> Coverage Feedback
+> Bug
+
+Figure 1: Typical hardware fuzzer flow. 
+
+## 3.2 Large Language Models 
+
+LLMs have achieved remarkable success in natural language pro-cessing (NLP). Their applications have rapidly expanded into the field of Electronic Design Automation (EDA), demonstrating great potential in hardware code generation and verification. In the do-main of LLM-based hardware verification, existing research pri-marily focuses on two directions: testbench generation [18, 22, 35] and assertion generation [16, 31, 33]. These studies demonstrate the potential of LLMs to understand hardware semantics and ver-ification constraints. AutoBench [21] proposed an end-to-end ver-ification framework where LLMs are used to generate all neces-sary verification artifacts, from test plans to testbenches. Building on this framework, CorrectBench [22] and Pro-V [36] extended LLM-based testbench generation with additional mechanisms for validating the correctness of the generated testbenches. However, these methods primarily target IP-level designs and are not readily applicable to processor-scale designs. Additionally, ChatFuzz [24] fine-tuned GPT-2 for CPU fuzzing and reported improved fuzzing effectiveness. However, this approach treats the model merely as a seed generator, failing to fully exploit the model’s potential for semantic guidance. When Fuzzing Meets Understanding: LLM-Driven Semantic Test Generation for RTL Verification                                                       
+
+> Code:
+> 1%000010 if ( mem_resp_valid &traverse &...) begin
+> 2%000002 if (3 ' h0 == r) begin
+> 3%000001 data__0 <= pte_ppn [19:0];
+> 4// ...
+> 5%000000 if (3 ' h4 == r) begin
+> 6%000000 data__4 <= pte_ppn [19:0];
+> 7%000000 if (3 ' h5 == r) begin
+> 8%000000 data__5 <= pte_ppn [19:0];
+> 9// ...
+> 10 %000000 if (3 ' h7 == r) begin
+> 11 %000000 data__7 <= pte_ppn [19:0];
+> 12 // ...
+> LLM reasoning:
+> This code segment resides within the Page Table Walker (PTW) and handles cache refills upon receiving a response during page table traversal. The variable r is deter-mined by the cache replacement policy: if all cache entries are valid, the Pseudo-LRU (PLRU) policy selects the replacement entry; otherwise, the first invalid entry is cho-sen. To cover the target code paths, we need to trigger cache refill where r takes values of 4, 5, 6, or 7. The testcase is: …
+
+Figure 2: LLM-guided reasoning for generating testcases tar-geting uncovered (red) code regions. 
+
+## 3.3 Motivation 
+
+Motivation I: Existing hardware fuzzers are semantics-blind, whereas effective hardware verification requires semantic reasoning over DUT behavior. (1) LLM as a fuzzing generator. Traditional coverage-guided fuzzing relies on structural feedback and random mutation, but does not explicitly reason about the control and state conditions required to reach hard-to-trigger hardware behaviors. As shown in Figure 2, this limits its ability to systematically construct test-cases that satisfy branch conditions such as 3'h5 == r . In partic-ular, mutation-based strategies cannot directly identify the state-preparation steps needed to drive execution toward such condi-tions. By analyzing the code, LLMs can infer that this module man-ages the PTE cache using the PLRU replacement policy, and can further reason that: (1) the condition 3'h5 == r requires both cache saturation and the PLRU state to point to index 5; (2) con-structing this state requires specific virtual-address access sequences to “warm” and “cool” cache entries, thereby steering the internal PLRU state toward the desired index. Leveraging this semantic un-derstanding, LLMs generate targeted testcases that effectively ex-plore uncovered paths, overcoming the inherent limitations of tra-ditional fuzzing approaches. 
+
+(2) LLM as a fuzzing mutator. Traditional fuzzing mutators generate testcases by applying rule-based transformations to in-puts sampled from the seed corpus. This approach suffers from fundamental limitations: due to its inability to comprehend the se-mantics of testcases, it is restricted to simple mutations, such as operand swapping and instruction reordering. Furthermore, while attempting complex transformations, the mutators often introduce syntactic errors. Consequently, such mutators cannot integrate and reorganize testcases with different semantics, making it difficult to trigger complex defect scenarios that require the combination of multiple semantic features. In contrast, LLM-based mutators can combine information from semantically different testcases at a higher level of abstraction and typically preserve syntactic validity and se-mantic coherence better than rule-based mutation, making them a more flexible mechanism for constructing bug-oriented candi-dates. 
+
+Motivation II: Historical bug information provides useful priors for discovering new bugs. The demonstrated effective-ness of leveraging such information in software fuzzing mo-tivates its incorporation into hardware fuzzing to improve bug discovery efficiency. 
+
+Leveraging historical bug data, such as failure traces and patches, has proven highly effective in guiding fuzzers toward new bug dis-covery within software fuzzing [9, 12, 20]. Inspired by this suc-cess, we observe a similar pattern in hardware design: modules that have previously exhibited bugs are often prone to recurring or related faults. Consequently, utilizing historical bug-triggering artifacts in hardware fuzzing allows us to focus test generation on these vulnerable areas, thereby enhancing overall fuzzing ef-ficiency. 
+
+## 4 Method 4.1 Overview 
+
+ChipFuzzer adopts a dual-stage workflow, as illustrated in Figure 3. It begins with a coverage-guided stage and then transitions to a bug-guided stage once the coverage improvement of Stage I be-comes marginal, as defined in Section 5.1. In Stage I, ChipFuzzer performs coverage-guided fuzzing. It first selects target code segments from uncovered code lines in the DUT. For each selected target code segment, ChipFuzzer retrieves from the seed database the testcase template whose exercised control-flow path is most similar to the target path, and then performs dis-crepancy analysis between the target path and the path exercised by the retrieved testcase. The target code segment, the retrieved testcase template, and the discrepancy-analysis results are incorpo-rated into a prompt for the LLM to generate a candidate testcase. The generated testcase is first compiled by the RISC-V toolchain. Compilation failures are repaired by the syntax corrector, whereas executable testcases that still fail to cover the target code segment are refined by the semantic corrector. The corrected testcase is then executed on both RTL and ISA simulators, and a detector module checks whether the target code segment has been covered and whether potential design bugs have been exposed. Testcases that successfully cover the target code segment are stored in the coverage-guided seed database. In Stage II, ChipFuzzer performs bug-guided fuzzing. Instead of selecting targets from uncovered code regions, it identifies bug-prone code regions using three strategies derived from historical bug data and then selects target code segments from these regions. Stage II reuses the same testcase generation, correction, simulation, and detection pipeline as Stage I. Testcases that successfully cover the selected target code segments are stored in the bug-guided seed database. Finally, ChipFuzzer applies a semantic-aware seed fusion strategy to combine the seeds collected from the two stages. 
+
+## 4.2 Coverage-Guided Fuzzing 
+
+Coverage-guided fuzzing improves coverage through an iterative process driven by coverage feedback. At the beginning of Stage I, Wang et al. Extract uncovered code lines 
+
+> Historical Bug Analysis
+> RTL Simulator
+> ISA Simulator
+> Bug
+> Detector
+
+Syntax Corrector 
+
+Semantic Corrector 
+
+> Control Flow
+> Extraction
+
+Stage1:  Coverage-Guided 
+
+Stage2: Bug-Guided 
+
+Testcase Generation  Simulator    
+
+> Target Code Segments LLM Testcase Compiler
+> Bug-prone code regions
+> Covered
+
+?
+
+Seed Fusion 
+
+DUT 
+
+> Seed Database
+> Discrepancy Analysis
+> Pass
+
+?
+
+## `
+
+> prompt
+> yes no
+> no
+> yes
+> Similarity
+> Indexing
+> Testcase Template
+
+Figure 3: Overview. 
+
+ChipFuzzer uses a small set of simple testcases to bootstrap the seed database. These testcases are first executed on the DUT to ob-tain their exercised control-flow paths and initial coverage reports, and each testcase is then stored together with its control-flow path as an initial seed entry. Coverage reports collected from RTL simu-lation are used to identify uncovered code lines in the DUT. Chip-Fuzzer then selects target code segments from the uncovered lines, prioritizing semantically related contiguous segments whenever possible; when no such segments are available, it falls back to ran-dom selection among the remaining uncovered lines. These target code segments are then passed to the testcase generation pipeline (Section 4.2.1) to produce targeted testcases. The resulting testcases are executed and validated in subsequent iterations, forming a closed loop of coverage analysis, target selection, testcase generation, and simulation validation that progressively improves coverage. 
+
+4.2.1 Testcase Generation Pipeline. The testcase generation pipeline takes a selected target code segment as input. It first uses Pyver-ilog [29] to extract the corresponding control-flow path, and then applies the path similarity indexing method (Section 4.2.2) to re-trieve the testcase with the highest control-flow similarity from the seed database. The retrieved testcase serves as the template for prompt construction. ChipFuzzer then performs discrepancy analysis (Section 4.2.3) to compare the target path with the path exercised by the retrieved testcase, thereby identifying the miss-ing conditions or behaviors required to reach the target code seg-ment. The target code segment, the retrieved testcase template, and the discrepancy analysis results are jointly incorporated into the prompt for the large language model. For Chisel-based CPU de-signs, the corresponding Chisel source code is also incorporated into the prompt to provide additional semantic context. The final prompt fed to the LLM is shown in Figure 4. After the LLM generates a candidate testcase, ChipFuzzer first compiles it with the RISC-V toolchain. Compilation failures are re-paired by the syntax corrector, whereas a testcase that compiles successfully but still fails to cover the target code segment is re-vised by the semantic corrector based on discrepancy analysis and execution feedback (Section 4.2.4). The corrected testcase is then executed on both the RTL and the ISA simulators, and its outputs 
+
+You are an RTL verification engineer. Generate a compilable RISC-V testcase to cover the uncovered target code below. Please revise the retrieved testcase template according to the discrepancy analysis.                          
+
+> if ( mem_resp_valid &traverse &...) begin if (3 ' h4 == r) begin
+> data__4 <= pte_ppn [19:0];
+> if (3 ' h5 == r) begin
+> data__5 <= pte_ppn [19:0]; // ...
+> if (3 ' h7 == r) begin
+> data__7 <= pte_ppn [19:0];
+
+The corresponding Chisel/Scala context code is:          
+
+> when ( mem_resp_valid && traverse && can_refill && ...) {... data (r) := pte . ppn plru . access (r) }
+
+The retrieved testcase template is:      
+
+> mv a5 , a0 ...
+> or a5 , a4 , a5
+
+Discrepancy analysis results:        
+
+> - first divergence point: shared prefix: if (mem_resp_valid && traverse && ...); first divergence: if (3'h5 == r) - missing branch/control condition: the target path requires the PTW replacement index r = 5 - required state preparation: write satp, execute sfence.vma, install valid PTEs, load selected virtual-page bases into a0-a3, ... fill PTW cache, ... bias the PLRU state toward victim index 5 - required trigger event : load a new virtual-page address into a4, issue ld/sw through a4 to trigger a PTW miss, ... so that the returned PTE response enters the refill path - legality requirement: preserve valid RISC-V syntax, legal PTEs, correct privilege mode, and consistent satp / CSR settings
+
+Figure 4: Prompt template for testcase generation. 
+
+are subjected to differential analysis by a detector module to iden-tify potential design flaws. If the testcase successfully covers the se-lected target code segment, the testcase together with its exercised When Fuzzing Meets Understanding: LLM-Driven Semantic Test Generation for RTL Verification 
+
+control-flow path is stored in the corresponding seed database. No-tably, a testcase that fails to cover the selected target code segment may still cover other previously uncovered regions. Although such a testcase is regarded as a failure with respect to the current target, it is still retained in the seed database because it may serve as a useful seed for subsequent testcase generation and exploration. 
+
+4.2.2 Path Similarity Indexing. For each selected target code seg-ment, ChipFuzzer uses Pyverilog [29] to extract the correspond-ing target control-flow path and compares it with the control-flow paths stored in the seed database. Each database entry stores a test-case together with the control-flow path exercised by that testcase. The similarity between the target path and a database path is quan-tified as follows: 
+
+𝑆 similarity = 𝑁 common 
+
+𝑁 target 
+
+where 𝑁 common denotes the number of common nodes shared by the two paths, and 𝑁 target denotes the number of nodes in the target path. ChipFuzzer retrieves the testcase with the highest 𝑆 similarity 
+
+score as the template for subsequent discrepancy analysis and test-case generation. Among testcases with identical 𝑆 similarity scores, preference is given to the testcase with lower achieved coverage, since such a testcase typically contains fewer incidental behaviors unrelated to the target path and thus provides a cleaner template for subsequent path-specific generation. 
+
+4.2.3 Discrepancy Analysis. Path similarity indexing retrieves the seed whose exercised path is most similar to the target path. How-ever, this retrieved seed still does not satisfy all the conditions required to reach the target path. ChipFuzzer uses the retrieved testcase as a reference template and performs discrepancy analy-sis between the target path and the path exercised by the retrieved testcase. This analysis is guided by five explicit rules, enabling the LLM to identify the missing execution conditions in a structured manner. Specifically, discrepancy analysis is guided by five rules, as fol-lows. The path-alignment rule aligns the target path with the retrieved execution path and identifies their first divergence point. The branch-condition rule determines the branch predicates or control conditions required to follow the target path from the di-vergence point onward. The state-preparation rule infers the reg-ister values, CSR settings, memory contents, privilege states, or other architectural states that must be prepared before the target path can be reached. The event-trigger rule determines whether exceptions, interrupts, handshakes, valid-response signals, or other trigger events are required to activate the target behavior. The le-gality rule ensures that the inferred modifications remain consis-tent with ISA semantics and compilation constraints. Following these rules, the LLM produces a structured discrepancy analysis that explains why the retrieved testcase fails to reach the target code segment and what conditions remain unsatisfied. This dis-crepancy analysis is then incorporated into prompt construction for subsequent testcase generation. 
+
+4.2.4 Syntax and Semantic Correction. ChipFuzzer includes two correction mechanisms for generated testcases. The syntax correc-tor repairs compilation failures by feeding compiler diagnostics back to the LLM. In practice, syntax failures of LLM-generated test-cases mainly arise from low-level assembly issues, such as invalid register names, unsupported operand combinations, malformed in-struction formats, unresolved labels and branch targets, improper CSR accesses, and privilege-inconsistent instructions. To reduce such errors, ChipFuzzer further provides the LLM with relevant ISA specification information, including legal register names, CSR definitions, operand-format constraints, and privilege-related in-struction requirements. After these errors are repaired, the test-case is recompiled and executed again in the next iteration. The se-mantic corrector is invoked for executable testcases that still fail to cover the target code segment. It starts from the discrepancy anal-ysis used in the initial testcase generation and refines that anal-ysis according to the execution feedback returned by simulation. Guided by the updated discrepancy analysis, the LLM revises the existing testcase rather than regenerating it from scratch. The re-vised testcase is then recompiled and re-executed in the next iter-ation. 
+
+## 4.3 Bug-Guided Fuzzing 
+
+Bug-guided fuzzing improves bug-finding effectiveness by steer-ing testcase generation toward bug-prone code regions. The work-flow proceeds as follows. First, ChipFuzzer employs three strate-gies based on historical bug data to identify bug-prone code re-gions (Section 4.3.1). Next, target code segments are selected from these regions and passed to the testcase generation pipeline (Sec-tion 4.2.1) to generate testcases. Unlike Stage I, which primarily aims to improve coverage, Stage II focuses on targeted testing of these historically bug-prone regions. During this stage, testcases that successfully cover the selected target code segments are stored in the bug-guided seed database. Finally, ChipFuzzer applies the seed fusion strategy (Section 4.3.2) to fuse the coverage-guided and bug-guided seeds, thereby producing semantically richer testcases for exposing potential design flaws in the DUT. 
+
+4.3.1 Bug-Prone Code Regions. Prior work in software fuzzing has shown that historical bug information can provide effective pri-ors for improving bug-finding efficiency [9, 12, 20, 37]. Motivated by this observation, ChipFuzzer incorporates historical bug pri-ors into hardware fuzzing. To this end, we construct a corpus of 128 validated bug-related pull requests (PRs) collected from sev-eral open-source RISC-V CPU projects through keyword-based re-trieval followed by manual inspection. We then use this corpus to derive bug priors for identifying bug-prone code regions in bug-guided fuzzing. Specifically, ChipFuzzer derives bug priors from three complementary sources: historical bug instances, module-level recurrent bug patterns, and signal-level confusion patterns. 
+
+Historical Bug Instances. We analyze the 128 validated bug-related PRs to extract code segments directly associated with his-torical defects, and treat these segments as explicit bug-prone tar-gets. Based on these targets, the LLM generates testcases that re-produce or approximate the corresponding bug-triggering scenar-ios. The resulting testcases are further mutated to exercise nearby code regions that are semantically related to the historical fixes. 
+
+Module-Level Recurrent Bug Patterns. In our collected cor-pus, bug-fixing changes are not uniformly distributed across the design hierarchy. For example, approximately 20% of the validated Wang et al. 
+
+bug-related PRs are associated with cache-related logic, while interconnect-and bus-protocol-handling logic also appears repeatedly in the cor-pus. Based on these observations, ChipFuzzer captures such recur-rence patterns as module-level bug priors and assigns higher pri-ority to code segments in modules that appear more frequently in historical bug fixes, such as cache controllers, coherence logic, and protocol-handling components. 
+
+Signal-Level Confusion Patterns. We also observe that many validated bug-related PRs involve signal-level mistakes. Within our corpus, 85 out of 128 cases involve incorrect signal usage, mis-matched control signals, or erroneous signal interactions. Chip-Fuzzer treats these recurring signal-level error patterns as an addi-tional source of bug priors and prioritizes code segments involving critical control signals. Such signals frequently arise in protocol transitions, exception handling, privilege control, and valid/ready handshakes, where design errors may be more likely to surface. 
+
+4.3.2 Seed Fusion. Coverage-guided seeds and bug-guided seeds provide different but complementary information for testcase con-struction. Coverage-guided seeds capture useful execution patterns and state-setup behaviors from prior exploration, whereas bug-guided seeds capture bug-relevant conditions and behaviors associated with historically bug-prone regions. ChipFuzzer therefore applies a semantic-aware seed fusion strategy to combine the structural usefulness of the former with the bug-oriented information of the latter. For seed fusion, ChipFuzzer first forms two candidate pools. The coverage-guided candidate pool consists of validated seeds collected during the coverage-guided stage, and the bug-guided candidate pool consists of validated seeds collected during the bug-guided stage that cover the current bug-prone region. ChipFuzzer then samples one seed from each candidate pool to form a fusion pair. Given the sampled seed pair, ChipFuzzer constructs a fusion prompt that presents the two seeds as complementary references for the LLM. The prompt instructs the LLM to preserve useful in-struction subsequences and state-setup patterns from the coverage-guided seed, while selectively incorporating bug-related conditions, trigger events, and control-flow-steering patterns from the bug-guided seed. Rather than directly concatenating the two seeds, Chip-Fuzzer performs fusion at the semantic level by asking the LLM to rewrite them into a single compilable testcase. If the fused testcase fails compilation, it is repaired by the syntax correction pipeline described in Section 4.2.4. 
+
+## 5 Evaluation 5.1 Experiment Setup 
+
+We evaluate ChipFuzzer on three widely used open-source RISC-V processors, summarized in Table 1: RocketCore [1] and BOOM [4], both implemented in Chisel [2], and CVA6 [34], implemented in SystemVerilog. These benchmarks cover both in-order and out-of-order microarchitectures and span different design scales, making them suitable for evaluating the generality of ChipFuzzer across diverse CPU implementations. For the evaluation infrastructure, we use PyVerilog for RTL parsing and control-flow extraction, Ver-ilator [27] for RTL simulation, and Spike [23] as the ISA golden 
+
+Table 1: Benchmarks used in our study. OoO denotes out-of-order execution, and BP denotes branch prediction.                         
+
+> Processor Lang. # Latches # Gates Pipeline OoO BP
+> RocketCore Chisel 1.64 × 10 59.24 × 10 55-stage No Yes BOOM Chisel 1.99 × 10 51.26 × 10 67-stage Yes Yes CVA6 SV 2.48 × 10 44.63 × 10 56-stage No Yes
+
+reference model. All experiments are run on Linux servers with Intel Xeon Silver 4314 (2.40 GHz) processors. To assess the impact of model selection on coverage performance, we instantiate ChipFuzzer with three large language models: GPT-5.3, Gemini 3, and DeepSeek-V3. We set the maximum number of iterations for both syntax correction and semantic correction to five. ChipFuzzer transitions from Stage I to Stage II when the cumu-lative condition-coverage gain over 100 consecutive validated test-cases falls below 0.1%. We evaluate performance using three cov-erage metrics: register-toggle coverage, condition coverage, and multiplexer-toggle coverage. We select TheHuzz, Cascade, and BM-CFuzz as the baselines in our experimental comparison. ChatFuzz is not included because its implementation is not publicly available, making it difficult to conduct a fair and reproducible evaluation under the same experimental setting. We further assess bug detec-tion capability on the Encarsia [3] CPU fuzzing platform, which provides a high-quality corpus of buggy hardware designs for fair and reproducible evaluation. The Encarsia bug set used in our eval-uation is strictly excluded from the historical bug corpus used for bug-prior construction. Specifically, there is no bug-instance over-lap between the Encarsia evaluation set and the 128 collected bug-related PRs. 
+
+## 5.2 Coverage Evaluation 
+
+We evaluate the coverage effectiveness of ChipFuzzer under a 24-hour fuzzing budget [3]. As shown in Figure 5, ChipFuzzer achieves the best coverage performance on RocketCore, BOOM, and CVA6 under all three metrics. For condition coverage, ChipFuzzer im-proves over the strongest baseline by 9.1, 1.2, and 7.0 percentage points on RocketCore, BOOM, and CVA6, respectively. On BOOM, existing baselines already achieve high condition coverage, so the remaining room for improvement is limited. In contrast, the base-line methods attain substantially lower condition coverage on CVA6, while ChipFuzzer still improves over the strongest baseline by 7.0 percentage points. This result highlights the advantage of seman-tic testcase generation when reaching complex control conditions is critical for improving coverage. ChipFuzzer also outperforms the baseline methods in register-toggle coverage and multiplexer-toggle coverage. This shows that ChipFuzzer not only covers more control conditions, but also activates more internal signals and data paths. We also observe from the coverage curves in Figure 5 that Chip-Fuzzer increases coverage more slowly in the early fuzzing stage. Its testcase generation throughput is constrained by the latency of LLM inference and is therefore lower than that of mutation-based baselines. However, once the coverage gains of the base-line methods start to plateau, ChipFuzzer continues to make steady When Fuzzing Meets Understanding: LLM-Driven Semantic Test Generation for RTL Verification 
+
+Table 2: Number of testcases required to achieve the condi-tion coverage (75% on RocketCore and 90% on BOOM). Lower values indicate higher efficiency.                    
+
+> Processor Method Testcase Count Rel. to ChipFuzzer
+> RocketCore (75%) ChipFuzzer 645 –BMCFuzz 4,352 6.7 ×
+> Cascade 5,946 9.2 ×
+> TheHuzz 17,126 26.6 ×
+> BOOM (90%) ChipFuzzer 734 –BMCFuzz 5,600 7.6 ×
+> Cascade 7,694 10.5 ×
+> TheHuzz 23,005 31.3 ×
+
+progress and eventually achieves the best overall coverage. These observations suggest that ChipFuzzer is complementary to exist-ing fuzzing approaches. Mutation-based fuzzing can be used in the early stage to rapidly explore easy-to-reach states, and ChipFuzzer can then be applied in the later stage to further improve coverage and bug-finding effectiveness. We further assess testcase efficiency by measuring the num-ber of testcases required to reach a target coverage threshold, as summarized in Table 2. ChipFuzzer requires substantially fewer testcases than BMCFuzz, Cascade, and TheHuzz on both Rocket-Core and BOOM. On RocketCore, ChipFuzzer reaches 75% cov-erage with only 645 testcases, corresponding to 6.7 ×, 9.2 ×, and 26.6 × fewer testcases than BMCFuzz, Cascade, and TheHuzz, re-spectively. On BOOM, ChipFuzzer reaches 90% coverage with 734 testcases, whereas the three baselines require 7.6 ×, 10.5 ×, and 31.3 ×
+
+more testcases. These results show that ChipFuzzer achieves sub-stantially higher coverage efficiency than the baseline methods. This advantage stems from its ability to steer testcase generation toward uncovered code regions and the control conditions required to reach them, allowing it to reach the same coverage with far fewer testcases. We further evaluate the impact of the underlying foundation model by instantiating ChipFuzzer with three foundation models, namely GPT-5.3, Gemini 3, and DeepSeek-V3, while keeping the prompting strategy, fuzzing budget, and execution pipeline unchanged. As shown in Figure 6, the choice of foundation model has a clear impact on the final condition coverage achieved by ChipFuzzer on RocketCore. Among the evaluated models, GPT-5.3 achieves the best result with 89.2% condition coverage, followed by Gemini 3 with 86.7% and DeepSeek-V3 with 84.1%. These results suggest that the choice of foundation model affects the final coverage achieved by ChipFuzzer, while all three ChipFuzzer variants still outperform the baseline methods. 
+
+## 5.3 Bug Evaluation 
+
+Evaluating fuzzing tools based on naturally occurring defect rates presents challenges due to variations in hardware designs and ver-sions, which complicate direct comparisons. To ensure a fair assess-ment, we employ the open-source vulnerability corpus from En-carsia, strictly adhering to their experimental configuration. This benchmark comprises 90 bugs (30 per design) across three CPU ar-chitectures. ChipFuzzer achieves an average bug detection rate of 61.1%, outperforming TheHuzz (36.7%), Cascade (40%), BMCFuzz (40%), as shown in Figure 8. These results indicate that ChipFuzzer significantly enhances bug-finding effectiveness by integrating his-torical bug knowledge into semantically guided testcase genera-tion, and further suggest that the methodology of leveraging his-torical bug information in software fuzzing remains applicable to hardware fuzzing. 
+
+## 5.4 Ablation Study 
+
+In this section, we conduct an ablation study to assess the contri-butions of individual components in ChipFuzzer. We evaluate the impact on both coverage and bug-finding performance under four experimental configurations: (1) LLM Only (LO). The foundational baseline configuration, where fuzzing is driven by the LLM without additional guidance. (2) Coverage-Guided (CG). Fuzzing with only the coverage-guided stage active. (3) Bug-Guided (BG). Fuzzing with only the bug-guided stage active. (4) Coverage and Bug-Guided (CBG). Fuzzing with both coverage-guided and bug-guided stages active. 
+
+Coverage Evaluation. We evaluate the ablation results on Rock-etCore under condition coverage, with the results shown in Fig-ure 7. The BG configuration is omitted in this part, as its objec-tive is bug discovery rather than coverage maximization. The LO 
+
+configuration, which relies solely on unguided LLM-based testcase generation, reaches 61.4% condition coverage. This result remains below TheHuzz (72.21%), Cascade (79.32%), and BMCFuzz (80.06%), indicating that unguided generation alone is insufficient for cover-ing the more complex control conditions in the design. Enabling 
+
+CG raises condition coverage to 88.1%, surpassing all three base-lines and validating the effectiveness of the control-flow-aware guidance and discrepancy analysis adopted in ChipFuzzer. These mechanisms steer testcase generation toward uncovered code re-gions and the control conditions required to reach them, rather than relying on unguided exploration. Adding bug guidance on top of CG further improves the final coverage to 89.2%. Although the additional gain is smaller, it indicates that bug guidance pro-vides a complementary benefit once the main coverage-oriented mechanisms are already in place. 
+
+Bug Evaluation. We evaluate the bug-finding capability of all four configurations, with the results shown in Figure 8. The LO 
+
+configuration fails to detect any bugs. Enabling only CG yields a bug detection rate of 5.6%, indicating that coverage improvement alone contributes only limited bug-finding capability in this set-ting. In contrast, BG raises the detection rate to 38.9%, confirming that bug-guided knowledge is the dominant factor for directing execution toward bug-prone behaviors. The complete CBG config-uration further improves the bug detection rate to 61.1%, demon-strating that coverage-guided exploration and bug-guided gener-ation provide the strongest bug-finding performance when used together. Wang et al. 0 4 8 12 16 20 24 
+
+> Time (h)
+> 70
+> 75
+> 80
+> 85
+> 90
+> Coverage (%)
+
+(a) Rocket Reg-tog       
+
+> 04812 16 20 24
+> Time (h)
+> 70
+> 75
+> 80
+> 85
+
+(b) BOOM Reg-tog       
+
+> 04812 16 20 24
+> Time (h)
+> 40
+> 45
+> 50
+> 55
+
+(c) CVA6 Reg-tog       
+
+> 04812 16 20 24
+> Time (h)
+> 45
+> 60
+> 75
+> 90
+> Coverage (%)
+
+(d) Rocket Cond       
+
+> 04812 16 20 24
+> Time (h)
+> 60
+> 70
+> 80
+> 90
+> 100
+
+(e) BOOM Cond       
+
+> 04812 16 20 24
+> Time (h)
+> 40
+> 50
+> 60
+> 70
+> 80
+
+(f) CVA6 Cond       
+
+> 04812 16 20 24
+> Time (h)
+> 50
+> 60
+> 70
+> 80
+> Coverage (%)
+
+(g) Rocket Mux-tog       
+
+> 04812 16 20 24
+> Time (h)
+> 50
+> 60
+> 70
+> 80
+> 90
+
+(h) BOOM Mux-tog       
+
+> 04812 16 20 24
+> Time (h)
+> 30
+> 40
+> 50
+> 60
+
+(i) CVA6 Mux-tog 
+
+TheHuzz Cascade BMCFuzz ChipFuzzer 
+
+Figure 5: Coverage growth of ChipFuzzer and baseline methods under register-toggle, condition, and multiplexer-toggle cov-erage on RocketCore, BOOM, and CVA6. 0 4 8 12 16 20 24 
+
+Time (h) 
+
+50 
+
+60 
+
+70 
+
+80 
+
+90 
+
+> Condition Coverage (%)
+> TheHuzz
+> Cascade
+> BMCFuzz
+> GPT-5.3
+> Gemini 3
+> DeepSeek-V3
+
+Figure 6: Condition coverage comparison of different foun-dation models and baseline methods on RocketCore. 
+
+## 6 Discussion 
+
+ChipFuzzer can serve as an effective complement to traditional hardware fuzzers rather than a direct replacement. Mutation-based fuzzers are efficient at rapidly exploring easy-to-reach states, whereas ChipFuzzer is better suited for generating semantically targeted testcases for hard-to-reach hardware behaviors. This complemen-tarity is also reflected in the coverage trends: although ChipFuzzer progresses more slowly in the early stage due to LLM inference overhead, it continues to improve coverage after conventional fuzzers begin to plateau. 0 4 8 12 16 20 24 
+
+Time (h) 
+
+50 
+
+60 
+
+70 
+
+80 
+
+90 
+
+> Condition Coverage (%)
+> TheHuzz
+> Cascade
+> BMCFuzz
+> LO
+> CG
+> ChipFuzzer (CBG)
+
+Figure 7: Ablation results on RocketCore under condition coverage. 
+
+At the same time, several limitations remain. ChipFuzzer de-pends on the reasoning quality of the underlying LLM and may still hallucinate hardware semantics, especially for custom instructions or insufficiently documented behaviors. In addition, LLM-based generation introduces nontrivial overhead, which limits testcase throughput in the early stage. Finally, our current evaluation fo-cuses on open-source RISC-V CPU designs, and its effectiveness on broader RTL designs requires further investigation. Future work in-cludes combining LLM-guided generation with formal techniques, When Fuzzing Meets Understanding: LLM-Driven Semantic Test Generation for RTL Verification RocketCore BOOM CVA6      
+
+> Design Under Test (DUT)
+> 0
+> 3
+> 6
+> 9
+> 12
+> 15
+> 18
+> 21
+> Bugs Detected
+> 122
+> 12 12 11
+> 10
+> 15
+> 8
+> 11
+> 15
+> 10
+> 12
+> 16
+> 8
+> 20 20
+> 15
+> CG
+> BG
+> TheHuzz
+> Cascade
+> BMCFuzz
+> ChipFuzzer (CBG)
+
+Figure 8: Bugs detected by baseline fuzzers, ChipFuzzer (CBG), and its CG/BG ablations on three different RISC-V designs. 
+
+designing hybrid workflows with fast mutation-based fuzzers, and studying the transferability of bug priors across different designs. 
+
+## 7 Conclusion 
+
+In this work, we present ChipFuzzer, an LLM-driven hardware fuzzing framework for semantically guided testcase generation. ChipFuzzer adopts a dual-stage workflow comprising a Coverage-Guided stage and a Bug-Guided stage. The Coverage-Guided stage improves ex-ploration by using control-flow similarity and discrepancy analy-sis to guide testcase generation toward uncovered code regions, while the Bug-Guided stage leverages historical bug data to iden-tify bug-prone regions and prioritize testcase generation toward them. Experimental results on three open-source CPU designs and the Encarsia benchmark show that ChipFuzzer improves coverage and bug detection over strong hardware-fuzzing baselines. These findings demonstrate the promise of large language models for en-hancing hardware verification through semantic reasoning and tar-geted fuzzing. 
+
+## References 
+
+[1] Krste Asanović, Rimas Avizienis, Jonathan Bachrach, Scott Beamer, David Bian-colin, Christopher Celio, Henry Cook, Daniel Dabbelt, John Hauser, Adam Izraelevitz, Sagar Karandikar, Ben Keller, Donggyu Kim, John Koenig, Yunsup Lee, Eric Love, Martin Maas, Albert Magyar, Howard Mao, Miquel Moreto, Al-bert Ou, David A. Patterson, Brian Richards, Colin Schmidt, Stephen Twigg, Huy Vo, and Andrew Waterman. 2016. The Rocket Chip Generator . Technical Re-port UCB/EECS-2016-17. http://www2.eecs.berkeley.edu/Pubs/TechRpts/2016/ EECS-2016-17.html [2] Jonathan Bachrach, Huy Vo, Brian Richards, Yunsup Lee, Andrew Waterman, Rimas Avižienis, John Wawrzynek, and Krste Asanović. 2012. Chisel: construct-ing hardware in a scala embedded language. In Proceedings of the 49th annual design automation conference . 1216–1225. [3] Matej Bölcskei, Flavien Solt, Katharina Ceesay-Seitz, and Kaveh Razavi. 2025. Encarsia: Evaluating cpu fuzzers via automatic bug injection. In 34th USENIX Security .[4] Christopher Celio, David A. Patterson, and Krste Asanović. 2015. The Berke-ley Out-of-Order Machine (BOOM): An Industry-Competitive, Synthesizable, Pa-rameterized RISC-V Processor . Technical Report UCB/EECS-2015-167. http: //www2.eecs.berkeley.edu/Pubs/TechRpts/2015/EECS-2015-167.html [5] Chen Chen, Vasudev Gohil, Rahul Kande, Ahmad-Reza Sadeghi, and Jeyavijayan Rajendran. 2023. PSOFuzz: Fuzzing processors with particle swarm optimiza-tion. In 2023 IEEE/ACM International Conference on Computer Aided Design (IC-CAD) . IEEE, 1–9. [6] Chen Chen, Rahul Kande, Nathan Nguyen, Flemming Andersen, Aakash Tyagi, Ahmad-Reza Sadeghi, and Jeyavijayan Rajendran. 2023. {HyPFuzz }:{Formal-Assisted } processor fuzzing. In 32nd USENIX Security Symposium (USENIX Se-curity 23) . 1361–1378. [7] Edmund M Clarke, Thomas A Henzinger, Helmut Veith, Roderick Bloem, et al. 2018. Handbook of model checking . Vol. 10. Springer. [8] David Cyrluk, Sreeranga Rajan, Natarajan Shankar, and Mandayam K Srivas. 1994. Effective theorem proving for hardware verification. In International Con-ference on Theorem Provers in Circuit Design . Springer, 203–222. [9] Yinlin Deng, Chunqiu Steven Xia, Chenyuan Yang, Shizhuo Dylan Zhang, Shujing Yang, and Lingming Zhang. 2023. Large language models are edge-case fuzzers: Testing deep learning libraries via fuzzgpt. arXiv preprint arXiv:2304.02014 (2023). [10] Farimah Farahmandi, Yuanwen Huang, and Prabhat Mishra. 2020. System-on-chip security. Cham, Switzerland: Springer (2020). [11] Vasudev Gohil, Rahul Kande, Chen Chen, Ahmad-Reza Sadeghi, and Jeyavijayan Rajendran. 2024. MABFuzz: Multi-armed bandit algorithms for fuzzing proces-sors. In 2024 Design, Automation & Test in Europe Conference & Exhibition (DATE) .IEEE, 1–6. [12] Christian Holler, Kim Herzig, and Andreas Zeller. 2012. Fuzzing with code frag-ments. In 21st USENIX Security Symposium (USENIX Security 12) . 445–458. [13] Wei Hu, Armaiti Ardeshiricham, and Ryan Kastner. 2021. Hardware information flow tracking. ACM Computing Surveys (CSUR) 54, 4 (2021), 1–39. [14] Jaewon Hur, Suhwan Song, Dongup Kwon, Eunjin Baek, Jangwoo Kim, and By-oungyoung Lee. 2021. Difuzzrtl: Differential fuzz testing to find cpu bugs. In 
+
+2021 IEEE Symposium on Security and Privacy (SP) . IEEE, 1286–1303. [15] Rahul Kande, Addison Crump, Garrett Persyn, Patrick Jauernig, Ahmad-Reza Sadeghi, Aakash Tyagi, and Jeyavijayan Rajendran. 2022. {TheHuzz }: In-struction fuzzing of processors using {Golden-Reference } models for find-ing {Software-Exploitable } vulnerabilities. In 31st USENIX Security Symposium (USENIX Security 22) . 3219–3236. [16] Minwoo Kang, Mingjie Liu, Ghaith Bany Hamad, Syed M Suhaib, and Haoxing Ren. 2025. Fveval: Understanding language model capabilities in formal verifica-tion of digital hardware. In 2025 Design, Automation & Test in Europe Conference (DATE) . IEEE, 1–6. [17] Kevin Laeufer, Jack Koenig, Donggyu Kim, Jonathan Bachrach, and Koushik Sen. 2018. RFUZZ: Coverage-directed fuzz testing of RTL on FPGAs. In 2018 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) . IEEE, 1–8. [18] Ruiyang Ma, Yuxin Yang, Ziqian Liu, Jiaxi Zhang, Min Li, Junhua Huang, and Guojie Luo. 2024. Verilogreader: Llm-aided hardware test generation. In 2024 IEEE LLM Aided Design Workshop (LAD) . IEEE, 1–5. [19] Yehuda Naveh, Michal Rimon, Itai Jaeger, Yoav Katz, Michael Vinov, Eitan s Marcu, and Gil Shurek. 2007. Constraint-based random stimuli generation for hardware verification. AI magazine 28, 3 (2007), 13–13. [20] Soyeon Park, Wen Xu, Insu Yun, Daehee Jang, and Taesoo Kim. 2020. Fuzzing javascript engines with aspect-preserving mutation. In 2020 IEEE Symposium on Security and Privacy (SP) . IEEE, 1629–1642. [21] Ruidi Qiu, Grace Li Zhang, Rolf Drechsler, Ulf Schlichtmann, and Bing Li. 2024. Autobench: Automatic testbench generation and evaluation using llms for hdl design. In Proceedings of the 2024 ACM/IEEE International Symposium on Ma-chine Learning for CAD . 1–10. [22] Ruidi Qiu, Grace Li Zhang, Rolf Drechsler, Ulf Schlichtmann, and Bing Li. 2025. Correctbench: Automatic testbench generation with functional self-correction using llms for hdl design. In 2025 Design, Automation & Test in Europe Conference (DATE) . IEEE, 1–7. [23] Riscv-Software-Src. 2025. Riscv-isa-sim: Spike, a risc-v isa simulator. https: //github.com/riscv-software-src/riscv-isa-sim. Accessed: 2025-11-14. [24] Mohamadreza Rostami, Marco Chilese, Shaza Zeitouni, Rahul Kande, Jeyavi-jayan Rajendran, and Ahmad-Reza Sadeghi. 2024. Beyond random inputs: A novel ML-based hardware fuzzing. In 2024 Design, Automation & Test in Europe Conference & Exhibition (DATE) . IEEE, 1–6. [25] Raghul Saravanan and Sai Manoj Pudukotai Dinakarrao. 2024. The emer-gence of hardware fuzzing: A critical review of its significance. arXiv preprint arXiv:2403.12812 (2024). [26] Shidong Shen, Jinyu Liu, Weizhi Feng, Fu Song, and Zhilin Wu. 2025. BMCFuzz: Hybrid Verification of Processors by Synergistic Integration of Bound Model Checking and Fuzzing. In 2025 IEEE/ACM International Conference On Computer Aided Design (ICCAD) . IEEE, 1–9. [27] Wilson Snyder. 2025. Verilator. https://github.com/verilator/verilator.git Ac-cessed: 2025-11-14. [28] Flavien Solt, Katharina Ceesay-Seitz, and Kaveh Razavi. 2024. Cascade: {CPU }
+
+fuzzing via intricate program generation. In 33rd USENIX Security Symposium (USENIX Security 24) . 5341–5358. [29] Shinya Takamaeda-Yamazaki. 2015. Pyverilog: A python-based hardware de-sign processing toolkit for verilog hdl. In Applied Reconfigurable Computing: 11th International Symposium, ARC 2015, Bochum, Germany, April 13-17, 2015, Proceedings 11 . Springer, 451–460. [30] Timothy Trippel, Kang G Shin, Alex Chernyakhovsky, Garret Kelly, Dominic Rizzo, and Matthew Hicks. 2022. Fuzzing hardware like software. In 31st USENIX Security Symposium (USENIX Security 22) . 3237–3254. [31] Yonghao Wang, Jiaxin Zhou, Hongqin Lyu, Zhiteng Chao, Tiancheng Wang, and Huawei Li. 2025. DeepAssert: An LLM-Aided Verification Framework with Wang et al. 
+
+Fine-Grained Assertion Generation for Modules with Extracted Module Specifi-cations. arXiv preprint arXiv:2509.14668 (2025). [32] Yinan Xu, Sa Wang, Dan Tang, Ninghui Sun, and Yungang Bao. 2024. Pathfuzz: Broadening fuzzing horizons with footprint memory for CPUs. In Proceedings of the 61st ACM/IEEE Design Automation Conference . 1–6. [33] Zhiyuan Yan, Wenji Fang, Mengming Li, Min Li, Shang Liu, Zhiyao Xie, and Hongce Zhang. 2025. Assertllm: Generating hardware verification assertions from design specifications via multi-llms. In Proceedings of the 30th Asia and South Pacific Design Automation Conference . 614–621. [34] Florian Zaruba and Luca Benini. 2019. The cost of application-class processing: Energy and performance analysis of a Linux-ready 1.7-GHz 64-bit RISC-V core in 22-nm FDSOI technology. IEEE Transactions on Very Large Scale Integration (VLSI) Systems 27, 11 (2019), 2629–2640. [35] Zixi Zhang, Balint Szekely, Pedro Gimenes, Greg Chadwick, Hugo McNally, Jianyi Cheng, Robert Mullins, and Yiren Zhao. 2025. Llm4dv: Using large lan-guage models for hardware test stimuli generation. In 2025 IEEE 33rd Annual International Symposium on Field-Programmable Custom Computing Machines (FCCM) . IEEE, 133–137. [36] Yujie Zhao, Zhijing Wu, Hejia Zhang, Zhongming Yu, Wentao Ni, Chia-Tung Ho, Haoxing Ren, and Jishen Zhao. 2025. PRO-V: An Efficient Program Gen-eration Multi-Agent System for Automatic RTL Verification. arXiv preprint arXiv:2506.12200 (2025). [37] Hao Zhong. 2022. Enriching compiler testing with real program from bug re-port. In Proceedings of the 37th IEEE/ACM International conference on automated software engineering . 1–12.
