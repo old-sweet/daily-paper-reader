@@ -1,0 +1,1505 @@
+Combining model checking with simulation-based techniques for
+protocol verification
+Takanori Ishibashi∗
+Kazuhiro Ogata
+School of Information Science,
+Japan Advanced Institute of Science and Technology,
+Asahidai, Nomi, Ishikawa, Japan
+Abstract
+Model checking is a powerful technique for verifying properties of systems or protocols, but
+it often suffers from the state space explosion problem. For protocols such as the Alternating
+Bit Protocol (ABP) and the Sliding Window Protocol (SWP), increasing parameters such as
+channel capacities or window sizes leads to a reachable state space that is infeasible for exhaustive
+model checking. To address this, we propose a technique that combines model checking with
+simulation relations. We focus on three protocols: the Simple Communication Protocol (SCP),
+ABP, and SWP. Formalized as state machines, these protocols are presented in decreasing order
+of abstraction: SCP, ABP, and then SWP, which results in a corresponding increase in reachable
+states. While SCP is verifiable through direct model checking without state space explosion, the
+direct application of model checking to ABP and SWP becomes infeasible as their parameter
+values increase. We demonstrate that ABP satisfies its invariant property by combining model
+checking on SCP with a simulation relation from ABP to SCP. Furthermore, we demonstrate that
+SWP satisfies its invariant property through the composition of simulation relations from SWP
+to ABP and from ABP to SCP, in conjunction with model checking on SCP. These approaches
+enable the formal verification of protocols with large reachable state spaces by conducting model
+checking on a significantly smaller state machine.
+1
+Introduction
+Model checking [1] is a significant achievement in computer science, widely used in the hardware and
+software industries. It is very important to verify the correctness of hardware and software systems
+to ensure their reliability. Model checking is one of the most advanced techniques for verifying that
+a finite-state system satisfies its desired properties. However, model checking has several challenges,
+of which state space explosion is the most notorious. It often makes it infeasible to conduct model
+checking experiments. Many researchers have addressed this problem and developed a variety of
+techniques, such as abstraction [2–9] and partial order reduction [8, 10, 11]. Despite these efforts,
+the challenge remains. It is therefore a critical area for further research. While existing automatic
+abstraction techniques provide some relief, they often face limitations when dealing with complex
+protocol parameters. To address this, we propose a methodology that leverages domain knowledge
+to construct simulation relations, enabling more scalable verification.
+In this paper, we investigate this issue using three protocols: the Simple Communication Protocol
+(SCP) [12], the Alternating Bit Protocol (ABP) [13], and the Sliding Window Protocol (SWP)
+∗takanori.ishibashi@jaist.ac.jp
+1
+arXiv:2607.17453v1  [cs.SE]  20 Jul 2026
+
+
+[14,15]. Detailed informal descriptions of these protocols are omitted for brevity; readers are referred
+to [12–15] for further details. These protocols are characterized by different levels of complexity:
+SCP has the highest degree of abstraction and the smallest number of reachable states, while SWP
+has the lowest degree of abstraction and the largest number of reachable states. ABP serves as
+an intermediate protocol between SCP and SWP in terms of both abstraction and the number of
+reachable states. These protocols are selected as a systematic benchmark suite to demonstrate the
+scalability of our approach. Direct model checking is feasible for SCP but becomes infeasible for ABP
+and SWP due to the state space explosion problem as their parameter values increase. To overcome
+this limitation, we propose a technique that combines model checking with simulation relations.
+A simulation relation ensures that if invariant properties hold on an abstract state machine, the
+corresponding invariant properties are preserved on the more concrete machine.
+In this paper,
+we focus on invariant properties. Invariant properties are state predicates that hold true in each
+initial state and remain true throughout any actions (or state transitions) of systems or protocols,
+remaining unchanged regardless of their reachable states (states reachable from an initial state with
+zero or more state transitions). We first propose a verification methodology that combines model
+checking with simulation relations, enabling the formal verification of protocols that are infeasible
+for direct model checking due to state space explosion. We then extend this approach by introducing
+a methodology for composing simulation relations, which allows for the formal verification of even
+larger and more complex models through hierarchical abstraction.
+Based on these verification
+methodologies, the main contributions of this study are as follows:
+• A methodology that combines model checking with simulation relations to enable the verifica-
+tion of systems or protocols where direct model checking fails due to the state space explosion
+problem.
+• A methodology for the composition of simulation relations, which further extends verification
+capabilities to larger models by linking multiple layers of abstraction.
+All formal specifications and the Maude commands used for verification are available online
+at https://zenodo.org/records/19734839. The primary objective of this study is to determine
+whether our proposed method can effectively mitigate the state space explosion problem. To evaluate
+this, we address the following two research questions:
+• RQ1: Can the problem of being unable to verify that ABP satisfies its invariant property due
+to state space explosion be resolved by combining model checking with the simulation relation
+between ABP and SCP?
+• RQ2: Can the problem of being unable to verify that SWP satisfies its invariant property
+due to state space explosion be resolved through the composition of simulation relations,
+specifically the simulation relations from SWP to ABP and from ABP to SCP?
+By answering these questions, we show that our technique enables the formal verification of
+complex protocols with large reachable state spaces that are otherwise beyond the reach of direct
+model checking. The remaining part of the paper is organized as follows. Section 2 provides the
+foundational concepts required for this study, including state machines, simulation relations, and
+the Maude specification language. We use the Bare Communication Protocol (BCP) [12] as an ex-
+ample to demonstrate the formalization of protocols in Maude and the application of its commands.
+Section 3 presents our two proposed theoretical frameworks: a methodology that combines model
+checking with simulation relations and a methodology for the composition of simulation relations.
+Section 4 verifies the invariant properties of ABP by applying the methodology that combines model
+2
+
+
+checking with simulation relations. Section 5 verifies the invariant properties of SWP by employing
+the composition of simulation relations to establish a hierarchical abstraction. Section 6 mentions
+some existing related work. Section 7 concludes the paper including some future directions.
+2
+Preliminaries
+2.1
+State machines
+Definition 1 (State Machine). A state machine M is ⟨SM, IM, TM⟩such that
+• SM is a set of states.
+• IM ⊆SM is the set of initial states.
+• TM ⊆SM × SM is a binary relation over states. (s, s′) ∈TM may be written as s ⇝M s′,
+called a state transition, where s′ is called a successor state of s.
+For simplicity of notation, the subscript M is omitted if it is clear from the context that a symbol
+refers to the state machine M. ⇝∗
+M is the reflexive transitive closure of ⇝M.
+Definition 2 (Reachable States). The set RM of reachable states with respect to (wrt) M is defined
+as the smallest set satisfying the following conditions:
+(i) IM ⊆RM
+(ii) If s ∈RM and s ⇝M s′, then s′ ∈RM
+Definition 3 (Invariant Property). Let M be a state machine. A state predicate p is an invariant
+property wrt M if p(s) is true for all s ∈RM, i.e. (∀s ∈RM)  p(s).
+That a state machine satisfies an invariant property is equivalent to saying that a state predicate
+is invariant wrt a state machine. A state predicate p can be interpreted as a set PM of states such
+that (∀s ∈PM)  p(s) and (∀s /∈PM)  ¬p(s).
+2.2
+Simulations
+A simulation denotes a relation where one program faithfully executes the computational steps of
+another, maintaining the same logical sequence despite potential differences [16]. The paper [12]
+defines the simulation relation of one state machine to another state machine. A type of state
+machine called Observable Transition Systems (OTS) is used for definitions; however, in this paper
+we use the state machines defined in the previous subsection, rather than OTS.
+Definition 4 (Simulation Relation). Let M and MA be state machines. A relation r : RM ×RMA →
+Bool is called a simulation relation from M to MA if it satisfies the following conditions:
+(i) For each s ∈IM, there exists sA ∈IMA such that r(s, sA).
+(ii) For each s, s′ ∈RM and sA ∈RMA such that r(s, sA) and s ⇝M s′, there exists s′
+A ∈RMA
+such that r(s′, s′
+A) and sA ⇝∗
+MA s′
+A.
+Note that if sA ∈RMA and sA ⇝∗
+MA s′
+A, then s′
+A ∈RMA.
+3
+
+
+Fig 1 shows the diagrams corresponding to the two conditions in Definition 4. When there exists
+a simulation relation r from M to MA, we may say that M is simulated by MA, or MA simulates
+M. Definition 4 does not say explicitly that for each s ∈RM, there exists sA ∈RMA such that
+r(s, sA), and then we need to have the following proposition:
+Proposition 1. Let M and MA be state machines. Suppose that M is simulated by MA, that is,
+there exists a simulation relation from M to MA. Then, for every such simulation relation r from
+M to MA and every state s ∈RM, there exists a state sA ∈RMA such that r(s, sA).
+Proof. By induction on s ∈RM. If s ∈IM, then there exists sA ∈RMA such that r(s, sA) from
+Definition 4 (i). If s ⇝M s′, then there exists sA ∈RMA such that r(s, sA) from the induction
+hypothesis. Then, from Definition 4 (ii), there exists s′
+A ∈RMA such that r(s′, s′
+A) and sA ⇝∗
+MA
+s′
+A.
+Fig 1: A simulation relation r from M to MA.
+If M is simulated by MA, a state predicate pA is an invariant property wrt MA and pA is
+preserved by the simulation relation, then the counterpart state predicate p is an invariant property
+wrt M.
+Theorem 1. Let M and MA be state machines, and let p and pA be state predicates. Suppose that M
+is simulated by MA. Then, for every such simulation relation r from M to MA, if pA(sA) ⇒p(s)
+holds for any states s ∈RM and sA ∈RMA satisfying r(s, sA), the following holds: if pA is an
+invariant property wrt MA, then p is an invariant property wrt M.
+Proof. For an arbitrary s ∈RM, there exists sA ∈RMA with r(s, sA) from Proposition 1. Therefore,
+p(s) holds from the assumption.
+2.3
+Maude
+Maude [17] is a specification and programming language based on rewriting logic. In Maude, func-
+tional modules (fmod) define the data of the target system, such as sorts (data types), operators,
+and equations. In contrast, system modules (mod) define the system’s transition model by allowing
+4
+
+
+rewrite rules in addition to the declarations used in functional modules. States can be represented
+in various forms. In model checking using search command of Maude, we describe a state as a
+braced associative-commutative collection of name-value pairs, where each name may include pa-
+rameters.
+Within the Maude community’s terminology, associative-commutative collections are
+referred to as “soup”, and name-value pairs are referred to as “observable components”. Therefore,
+a state is expressed as a braced soup of observable components. The juxtaposition operator serves
+as the constructor for soups.
+Let oc0, oc1, oc2 be observable components; then oc0 oc1 oc2 con-
+structs the soup containing these three observable components. Consequently, a state is expressed
+as {oc0 oc1 oc2}.
+This associative-commutative nature allows Maude to represent complex state
+structures flexibly. While Maude’s internal engine handles these structures automatically during
+standard model checking, the multiple substitutions resulting from such matching are explicitly ad-
+dressed in our simulation-based approach. This necessitates the systematic case splitting discussed
+in Section 3.
+The state transition relation T is defined using rewrite rules. A standard rewrite rule begins with
+the keyword rl, followed by a label enclosed in square brackets, a colon, two patterns separated by
+=>, and concludes with a period. In contrast, a conditional rewrite rule, initiated with crl, includes
+a condition following the if keyword and ends with a period. An example of a conditional rewrite
+rule is
+crl [lb] :
+t => t′ if c1 /\ . . . /\ cn .
+where lb is the rule’s label, and each ci (for i = 1, . . . , n) is a condition, often represented as
+an equation tci = tci′. The negation of this equation can be expressed as (tci != tci′) = true,
+with the = true part being optional. If the condition c1 /\ . . . /\ cn is satisfied under a certain
+substitution σ, then σ(t) can be replaced with σ(t′). The substitution σ is a function from variables
+to terms that preserves sorts. The substitution σ can be naturally extended as a function from
+terms to terms as follows:
+σ
+ f(t1, . . . , tn)
+
+= f
+ σ(t1), . . . , σ(tn)
+
+for any function symbol f of arity n and terms t1, . . . , tn.
+Maude provides lists as one of its predefined container data types. The lists are parameterized,
+allowing for the construction of lists of elements of any data type. The basic representation of lists
+uses two free constructors: the constant nil for the empty list and the juxtaposition operator for
+list construction. For example, when an element E of the same data type as the elements of list L
+is added to the front of the list, we denote it as E L.
+Maude makes it possible to use fresh constants that represent arbitrary values, thereby enabling
+symbolic execution. For example, a fresh constant x of sort Nat represents an arbitrary natural
+number.
+We describe how to specify a state machine in Maude through the Bare Communication Protocol
+(BCP) [12] as an example. To formalize the BCP as a state machine, we use the following observable
+components.
+• (index:
+i) - i is a number. The sender transmits this number to the receiver.
+• (list:
+l) - l is a list of numbers. The receiver receives numbers from the sender and stores
+them in this list.
+The initial state init is defined as follows:
+{( index: 0) (list: nil)} .
+In the initial state, each value is as follows:
+5
+
+
+• The index number is set to 0. This indicates that the sender is prepared to send a message
+with the index number 0.
+• The list, which the receiver uses to store index numbers received from the sender, is empty
+(nil). This indicates that the receiver has not yet received any index numbers.
+The BCP is specified by a single rewrite rule send. The rewrite rules use the following Maude
+variables:
+• OCs denotes a variable of observable components soups.
+• I denotes a variable of index.
+• L denotes a variable of list.
+The rewrite rule send is defined as follows:
+crl [send] :
+{( index: I) (list: L) OCs} => {( index: s(I)) (list: (I L)) OCs}
+if I <= maxIndex .
+The rewrite rule specifies that if the index number, denoted as I, is less than or equal to the
+predefined maxIndex, the index is incremented by 1 (s(I)) and the index is added to the list ((I
+L)). maxIndex is a natural number.
+It is used to limit the reachable state space during model
+checking.
+The invariant property candidate of BCP is defined in Maude as follows:
+eq BCP -inv(BCP) = mk(getIndex(BCP)) = (getIndex(BCP) getList(BCP)) .
+BCP-inv ensures that the protocol’s state remains consistent and correct. Letting BCP denote the
+protocol’s state, BCP-inv is defined such that mk(getIndex(BCP)) is equal to (getIndex(BCP)
+getList(BCP)). mk takes a natural number k and makes the list (k k −1 . . . 0). The functions
+prefixed with get, including getIndex and getList, serve as accessors to extract the index and list
+components, respectively, from the state. We define a constructor bcp for the data type BCPState,
+which takes two arguments for index and list, to pass the protocol state as an argument to
+functions evaluating invariant property candidates and simulation relation candidates. For instance,
+getList(bcp(index, list)) returns list. For other communication protocols in this paper, we
+define states in the same manner.
+For model checking, Maude provides the search command, which looks for states that are
+reachable from an initial state through state transitions, aiming to find states that meet a certain
+condition. To verify that BCP satisfies its invariant property BCP-inv, the following command is
+executed:
+search [1] in BCP : init =>* {( index: I) (list: L) OCs}
+such that not BCP -inv(bcp(I, L)) .
+Maude returns No solution. This means that the invariant property holds throughout all reachable
+states of the protocol.
+The reduce (or red) command is used for term evaluation, simplifying a specified term using
+the function defined in a module. We will use the function mk, which was used within the function
+known as BCP-inv, as a concrete example. We define the function mk in the module N-LIST, which
+implements lists of natural numbers, as follows:
+eq mk(0) = 0 nil .
+eq mk(s(X)) = s(X) mk(X) .
+6
+
+
+s represents the successor function of natural numbers. We use Maude to reduce mk(3) by using
+the following red command:
+red in N-LIST : mk(3) .
+Maude returns 3 2 1 0. This means that mk(3) is reduced to 3 2 1 0.
+Finally, the srewrite (or srew) command identifies successor states by applying a specific rewrite
+rule to a given state. We use following the srew command, as a concrete example.
+srew in BCP : init
+using
+send .
+This srew command applies the rewrite rule send to the initial state init. The srew command
+identifies {index: 1 list: 0} as the successor state. This means that the initial state init moves
+to the state {index: 1 list: 0} by an application of the rewrite rule send to the initial state.
+3
+Proposed verification methodologies
+3.1
+Combining model checking with simulation relations
+The methodology combining model checking with simulation relations employs model checking to
+demonstrate that a state machine M is simulated by a more abstract state machine MA. It further
+shows that, if M is simulated by MA and a state predicate pA is an invariant property wrt MA, then
+the corresponding state predicate p is an invariant property wrt M. To prove that p is an invariant
+property wrt M using the methodology for the state machines M and MA, and their respective
+state predicates p and pA, we follow three steps:
+1. Conduct model checking to verify that pA is an invariant property wrt MA.
+2. Conjecture a simulation relation candidate r from M to MA, and prove that p can be deduced
+from pA assuming the simulation relation candidate r using static case splitting on data
+structures and reduction.
+3. Demonstrate that M is simulated by MA using transition-based case splitting over rewrite
+rules, model checking, and reduction.
+Fig 2 provides a comprehensive overview of the proposed methodology. The figure illustrates the
+process of verifying an invariant property p of M by leveraging MA and a simulation relation r. As
+shown in the workflow, the verification is structured into three steps. By following these steps, we
+can formally verify that p is an invariant property wrt M even though it is infeasible to directly
+model check that p is an invariant property wrt M. This is useful when M has a large reachable
+state space that leads to state space explosion. MA must have a reachable state space that does not
+lead to state space explosion. If we successfully carry out steps 1 through 3, then we can conclude
+that p is an invariant property wrt M from Theorem 1. In the case studies of this paper, MA is
+manually constructed and is not automatically generated from M.
+We design the technique in step 3 to satisfy Definition 4. We define the simulation relation
+candidate r with an equation in Maude. r takes two states of M and MA respectively as arguments
+and returns a Boolean value. It returns true if r holds between the two states, and false otherwise.
+To demonstrate that Definition 4 (i) holds, we verify that for each s ∈IM, there exists sA ∈IMA
+such that r(s, sA). To do this, we use the red command of Maude. Specifically, human users are
+supposed to construct an initial state sA of MA or choose sA from IA for each s of I and use the
+following command:
+red in SIM : r(s, sA).
+7
+
+
+Fig 2: Overview of the proposed methodology for combining model checking with sim-
+ulation relations to verify invariant properties.
+where SIM is the module in which r is defined and then the formal specifications of M and MA
+in Maude are available. Note that it is straightforward to construct an initial state sA of MA or
+choose sA from IA for each s of I. This command returns a Boolean value. For each s ∈IM, if this
+command returns true, we can conclude that Definition 4 (i) is satisfied. Assuming that MA has
+a reachable state space that does not lead to state space explosion, IA consists of a small number
+of initial states. It is usually very small. For example, all case studies in this paper involve state
+machines with exactly one initial state.
+Next, we describe the technique for demonstrating that Definition 4 (ii) holds. This technique
+requires transition-based case splitting for each state transition of M. Ordinary finite-state model
+checking usually uses specific concrete values.
+However, since we aim to demonstrate that the
+simulation relation is preserved across all state transitions of M with a large reachable state space,
+where state space explosion occurs, we use fresh constants in addition to concrete values.
+We verify that for each state transition of M, for arbitrary states s, s′ of M, and an arbitrary
+state sA of MA such that r(s, sA) and s ⇝M s′, there exists a state s′
+A of MA such that r(s′, s′
+A) and
+sA ⇝∗
+MA s′
+A. In Maude, state transitions are defined by rewrite rules. As described in the Section 2,
+rewrite rules are defined in two ways: as a rewrite rule (rl) and a conditional rewrite rule (crl).
+• rl [lb] :
+t => t′
+• crl [lb] :
+t => t′ if . . . /\ ci /\ . . .
+If the t’ in rl or crl contains an if_then_else_fi expression, a conditional branch occurs. De-
+pending on the condition, different state transitions may occur. We need to do case splitting for
+(conditional) rewrite rules of M. In the case studies of this paper, we use case splitting based on
+the conditions of the conditional rewrite rules and the conditions specified in the if_then_else_fi
+8
+
+
+expression, ensuring that all possible state transitions of M can be taken into account. In addition
+to these cases, other types of case splitting may also be required. For example, when using asso-
+ciative commutative pattern matching, multiple substitutions may be obtained, requiring further
+case splitting based on these substitutions. An arbitrary state before a state transition, caused by
+a single application of a rewrite rule, corresponds to σ(t), and an arbitrary state after the state
+transition, caused by the same application of the same rewrite rule, corresponds to σ(t′), where
+σ(t), σ(t′) ∈SM and σ(t) ⇝M σ(t′). Since reachability is, in general, undecidable, it is not feasible
+to restrict the proof directly to the set of reachable states RM. Therefore, we introduce a super-
+set DM such that RM ⊆DM ⊆SM. Correspondingly, we introduce a superset DMA such that
+RMA ⊆DMA ⊆SMA to serve as the counterpart. We carry out the proof over DM and DMA. To
+ensure the soundness of this approach, we establish that verifying the state transition condition over
+these supersets (DM and DMA) serves as a sufficient condition for satisfying Definition 4 (ii) over
+the original reachable states (RM and RMA). This theoretical foundation is formally provided by
+the following lemma:
+Lemma 1. The logical formula
+(∀s ∈DM)(∀s′ ∈DM)(∀sA ∈DMA)(∃s′
+A ∈DMA)
+(r(s, sA) ∧(s, s′) ∈TM) ⇒(r(s′, s′
+A) ∧sA ⇝∗
+MA s′
+A)
+(1)
+is a sufficient condition for the logical formula
+(∀s ∈RM)(∀s′ ∈RM)(∀sA ∈RMA)(∃s′
+A ∈RMA)
+(r(s, sA) ∧(s, s′) ∈TM) ⇒(r(s′, s′
+A) ∧sA ⇝∗
+MA s′
+A).
+(2)
+Proof. Assume that the logical formula (1) holds. Since RM ⊆DM and RMA ⊆DMA, the following
+holds.
+(∀s ∈RM)(∀s′ ∈RM)(∀sA ∈RMA)(∃s′
+A ∈DMA)
+(r(s, sA) ∧(s, s′) ∈TM) ⇒(r(s′, s′
+A) ∧sA ⇝∗
+MA s′
+A)
+(3)
+We show that the logical formula (3) implies the logical formula (2).
+(i) If (r(s, sA) ∧(s, s′) ∈TM) is false, the implication (r(s, sA) ∧(s, s′) ∈TM) ⇒(r(s′, s′
+A) ∧
+sA ⇝∗
+MA s′
+A) is satisfied. The logical formula (2) holds.
+(ii) If (r(s, sA) ∧(s, s′) ∈TM) is true, there exists s′
+A ∈DMA such that r(s′, s′
+A) ∧sA ⇝∗
+MA s′
+A.
+Since sA ∈RMA and sA ⇝∗
+MA s′
+A, it follows that s′
+A ∈RMA from Definition 2. The logical
+formula (2) holds.
+Hence, in both cases, the logical formula (2) is satisfied whenever the logical formula (1) holds.
+Therefore, The logical formula (1) is a sufficient condition for the logical formula (2).
+This lemma allows us to reason soundly about reachable states by performing verification over
+their respective supersets. To implement this verification in Maude, we execute a three-command
+procedure for each rewrite rule of M.
+First, we find the states resulting from the state transition caused by the application of the
+rewrite rule using the srew command of Maude. Specifically, we use the following command:
+srew in M : σ(t) using lb .
+9
+
+
+where M is the name of the module defining the state machine M, and lb is the label of the rewrite
+rule. This srew command finds σ(t′) that is reachable from σ(t) in M by applying the rewrite rule
+lb. σ(t) is the term that represents the most general state for each case in the case splitting. We
+construct σ(t) using fresh constants. By performing the exhaustive case splitting, we ensure that the
+collection of these terms σ(t) effectively covers the entire state space, representing the most general
+state possible for every transition branch. This comprehensive coverage is essential to guarantee
+that no potential state transition is overlooked during the verification process. For example, if t
+has associativity or commutativity, multiple substitutions can be obtained. It can be observed that
+when multiple substitutions are obtained, further case splitting is required. The point at which the
+srew command is applied is shown as command (i) in Fig 3. This command helps to find σ(t′)
+required to demonstrate Definition 4 (ii).
+Fig 3: Verification of simulation relation for each state transition.
+Next, we verify that sA ∈DMA corresponding to s ∈DM has r using the red command of
+Maude. Specifically, human users are supposed to construct a state sA of MA for each s of M and
+use the following command:
+red in SIM : r(σ(t), σ(tA)) .
+where SIM is the name of the module defining the simulation relation candidate r with an equation.
+There are separate modules defining the states of M and MA, both of which are imported by the
+module SIM. This red command returns a Boolean value. If the command returns true, there is
+r between σ(t) and σ(tA). As with σ(t), we use fresh constants to represent σ(tA). We construct
+a candidate σ(tA) that is expected to hold the r with σ(t), and use the command to verify that
+r holds between σ(t) and σ(tA). The point at which the reduce command is applied is shown as
+command (ii) in Fig 3.
+Finally, we verify that zero or more state transitions make it possible to move sA to s′
+A such
+that the search command is used to confirm that r(s′, s′
+A) holds. Specifically, we use the following
+command:
+search [1] in MA : σ(tA) =>* σ(t′
+A) such that r(σ(t′), σ(t′
+A)) .
+where MA is the name of the module defining the state machine MA. The module MA imports the
+module SIM. Therefore, r can be used in the module MA. If this command returns a solution, it
+10
+
+
+indicates that there exists s′
+A ∈DMA such that r(s′, s′
+A) and sA ⇝∗
+MA s′
+A. The point at which the
+search command is applied is shown as command (iii) in Fig 3.
+By the execution of our three-command procedure for each state transition caused by the rewrite
+rules of M, we can verify that the following condition holds: for each state transition of M, for
+arbitrary states s, s′ of M, and an arbitrary state sA of MA such that r(s, sA) and s ⇝M s′, there
+exists a state s′
+A of MA such that r(s′, s′
+A) and sA ⇝∗
+MA s′
+A. This can be expressed in a logical
+formula as follows:
+(∀s ∈DM)(∀s′ ∈DM)(∀sA ∈DMA)(∃s′
+A ∈DMA)
+(r(s, sA) ∧(s, s′) ∈TM) ⇒(r(s′, s′
+A) ∧sA ⇝∗
+MA s′
+A)
+By combining this verification result with Lemma 1, we can formally conclude that Definition 4
+(ii) is satisfied. Specifically, since Lemma 1 ensures that the satisfaction of formula (1) over the
+supersets is a sufficient condition for formula (2), the successful execution of our three-command
+procedure confirms that the state machine M is simulated by MA.
+We have described the technique in step 3 for verifying whether both conditions of Definition 4
+are satisfied. If both conditions of Definition 4 are satisfied, then M is simulated by MA.
+While this methodology provides a robust framework for verification using a single simulation
+relation, it can be further extended to address the challenges of verifying even larger and more
+complex systems. In the following subsection, we introduce a methodology for the composition of
+simulation relations, which enables hierarchical verification by linking multiple layers of abstraction
+to further mitigate the state space explosion problem.
+3.2
+Composition of simulation relations from state machines to state machines
+To address cases where a single layer of abstraction is insufficient, we further extend Section 3.1
+by introducing a methodology for the composition of simulation relations. Let M, MA, and MB be
+state machines with increasing levels of abstraction and smaller reachable state spaces. Let p, pA,
+and pB be their respective state predicates, and let r1 and r2 be the simulation relation candidates
+from M to MA and from MA to MB, respectively. Here, we assume that the reachable state space
+of MB is of a size that allows for model checking that pB is an invariant property wrt MB, and
+that both M and MA have large reachable state spaces, leading to state space explosion, making it
+infeasible to directly conduct model checking that p is an invariant property wrt M and that pA is
+an invariant property wrt MA. To prove that p is an invariant property wrt M, we follow five steps:
+1. Conduct model checking to verify that pB is an invariant property wrt MB.
+2. Conjecture a simulation relation candidate r2 from MA to MB, and prove that pA can be
+deduced from pB assuming the simulation relation candidate r2 using static case splitting on
+data structures and reduction.
+3. Demonstrate that MA is simulated by MB using transition-based case splitting over rewrite
+rules, model checking, and reduction.
+4. Conjecture a simulation relation candidate r from M to MA, and prove that p can be deduced
+from pA assuming the simulation relation candidate r1 using static case splitting on data
+structures and reduction.
+5. Demonstrate that M is simulated by MA using transition-based case splitting over rewrite
+rules, model checking, and reduction.
+11
+
+
+By following the steps, we can formally verify that p is an invariant property wrt M even though
+it is infeasible to directly conduct model checking that p is an invariant property wrt M and that
+pA is an invariant property wrt MA. This is useful when M and MA have a large reachable state
+space that leads to state space explosion. From steps 1, 2, and 3, it follows that pA is an invariant
+property wrt MA. This approach is consistent with the methodology described in the Section 3.1.
+From the fact that pA is an invariant property wrt MA, and from steps 4 and 5, it follows that p is
+an invariant property wrt M.
+4
+Case study I: The Alternating Bit Protocol (ABP)
+This section demonstrates the application of our methodology to verify that the Alternating Bit
+Protocol (ABP) satisfies its desired invariant property. To address RQ1, we establish a simulation
+relation from ABP to the more abstract Simple Communication Protocol (SCP) and leverage model
+checking on SCP to overcome the state space explosion problem.
+We first provide the formal
+specifications of both protocols before detailing the three-step verification process.
+4.1
+Formal specification of the Alternating Bit Protocol (ABP)
+The Alternating Bit Protocol (ABP) is a communication protocol designed to provide reliable com-
+munication between a sender and a receiver, even when the underlying channels duplicate or drop
+messages. The protocol architecture consists of a sender process, a receiver process, and two unreli-
+able first-in, first-out (FIFO) channels: queue1 for data messages and queue2 for acknowledgments.
+To maintain the communication state, the sender stores a Boolean variable bit1 and a natural
+number index, while the receiver maintains a Boolean variable bit2 and a natural number list
+list. The protocol logic proceeds through the following four corresponding steps:
+1. The sender transmits a data message containing its current bit1 and index to the receiver
+via queue1.
+2. Upon receiving a message from queue1, the receiver compares the message bit with its expected
+bit2. If they match, it appends the index to the list, toggles its bit2, and prepares for the
+acknowledgment; otherwise, it discards the message as a duplicate.
+3. The receiver transmits an acknowledgment message containing its current bit2 back to the
+sender via queue2.
+4. Upon receiving an acknowledgment from queue2, the sender compares the acknowledgment bit
+with its bit1. If the bit confirms successful delivery, the sender toggles its bit1 and prepares
+the next index for transmission; otherwise, it continues retransmitting the current message.
+This entire flow, built around the alternating bit, ensures reliable communication even if the under-
+lying channels duplicate or drop messages and their acknowledgment messages.
+To formalize the ABP as a state machine, we use the following observable components.
+• (index:
+i) - i is a number. The sender transmits this number to the receiver.
+• (list:
+l) - l is a list of numbers. The receiver receives numbers from the sender and stores
+them in this list.
+• (queue1:
+q1) - q1 is a queue for cell1 messages, which consist of a pair containing a Boolean
+value and an index number. The message, encapsulated by the data type PCell, is dispatched
+by the sender to the receiver. If queue1 is empty, q1 is set to nil.
+12
+
+
+• (queue2:
+q2) - q2 is a queue for cell2 messages, which contains a Boolean value.
+The
+message, encapsulated by the data type BCell, is transmitted from the receiver back to the
+sender. If queue2 is empty, q2 is set to nil.
+• (bit1:
+b1) - b1 is a Boolean value that the sender maintains.
+• (bit2:
+b2) - b2 is a Boolean value that the receiver maintains.
+The initial state is defined as follows:
+{( index: 0) (list: nil) (queue1: nil)
+(queue2: nil) (bit1: false) (bit2: false)} .
+In the initial state, each value is as follows:
+• The index number is set to 0. This indicates that the sender is prepared to dispatch a cell1
+message with the index number 0.
+• The list, which the receiver uses to store index numbers received from the sender, is empty
+(nil). This indicates that the receiver has not yet received any index numbers.
+• The queue1 is empty (nil). This indicates that either the sender has not yet sent any cell1
+messages, the receiver has already received all cell1 messages sent by the sender, or all cell1
+messages have been dropped. In the initial state, this condition refers to the case where no
+cell1 messages have been sent.
+• The queue2 is empty (nil). This indicates that either the receiver has not yet sent any cell2
+messages, the sender has received all cell2 messages from the receiver, or all cell2 messages have
+been dropped. In the initial state, this condition refers to the case where no cell2 messages
+have been sent.
+• bit1 is set to false, indicating the initial Boolean state for transmission control from the
+sender.
+• bit2 is also set to false, indicating the initial Boolean state for acknowledgments from the
+receiver.
+The ABP is specified as eight rewrite rules: send1, rec1, send2, rec2, drop1, dup1, drop2, and
+dup2. The rewrite rules use the following Maude variables:
+• OCs denotes a variable of observable components soups.
+• I denotes a variable of index.
+• L denotes a variable of list.
+• PQ denotes a variable of queue1.
+• BQ denotes a variable of queue2.
+• PC denotes a variable of an element in queue1.
+• BC denotes a variable of an element in queue2.
+• B, B1, and B2 denote variables of bit1 or bit2.
+13
+
+
+The rewrite rule send1 is defined as follows:
+crl [send1] :
+{( queue1: PQ) (bit1: B) (index: I) OCs} =>
+{( queue1: (PQ pcell(B, I))) (bit1: B) (index: I) OCs}
+if I <= maxIndex /\ length(PQ) <= maxQueueLength .
+The rewrite rule specifies that if the index number, denoted as I, is less than or equal to the pre-
+defined maxIndex, and the length of queue1, denoted as PQ is less than or equal to the predefined
+maxQueueLength, the message pcell(B, I) is appended to the end of queue1. This message encap-
+sulates both the Boolean value (B) and the index number (I). Both maxIndex and maxQueueLength
+are natural numbers. They are used to limit the reachable state space during model checking. This
+limitation is similarly applied in other rewrite rules.
+The rewrite rule rec1 is defined as follows:
+rl [rec1] :
+{( queue2: (BC BQ)) (bit1: B) (index: I) OCs} =>
+{( queue2: BQ)
+(bit1: (if bit(BC) = B then B else not B fi))
+(index: (if bit(BC) = B then I else s(I) fi)) OCs} .
+The rewrite rule specifies that if the cell2 message queue is not empty (indicating the existence of
+awaiting cell2 messages within queue2), the sender processes the top cell2 message from this queue.
+If the bit1 maintained by the sender does not equal the bit contained in cell2 at the front of the
+queue2, bit1 is toggled (not B), and the index is incremented by 1 (s(I)). Otherwise, both the
+bit1 and the index remain unchanged. The message at the front of queue2 is removed.
+The rewrite rule send2 is defined as follows:
+crl [send2] :
+{( queue2: BQ) (bit2: B) OCs} =>
+{( queue2: (BQ bcell(B))) (bit2: B) OCs}
+if length(BQ) <= maxQueueLength .
+The rewrite rule specifies that if the length of queue2, denoted as BQ is less than or equal to the
+predefined maxQueueLength, the message bcell(B) is appended to the end of queue2. This message
+contains the Boolean value (B).
+The rewrite rule rec2 is defined as follows:
+rl [rec2] :
+{( queue1: (PC PQ)) (bit2: B) (list: L) OCs} =>
+{( queue1: PQ)
+(bit2: (if bit(PC) = B then not B else B fi))
+(list: (if bit(PC) = B then (index(PC) L) else L fi)) OCs} .
+The rewrite rule specifies that if the cell1 message queue is not empty (indicating the existence
+of awaiting cell1 messages within queue1), the receiver processes the top cell1 message from this
+queue. If the bit2 maintained by the receiver equals the bit contained in cell1 at the front of the
+queue1, bit2 is toggled (not B), and the index is added to the list ((index(PC) L)). Otherwise,
+both the bit2 and the list remain unchanged. The message at the front of queue1 is removed.
+The rewrite rule drop1 is defined as follows:
+rl [drop1] :
+{( queue1: (PC PQ)) OCs} => {( queue1: PQ) OCs} .
+The rewrite rule specifies that if the cell1 message queue is not empty, the message at the front of
+queue1 is removed.
+The rewrite rule dup1 is defined as follows:
+14
+
+
+crl [dup1] :
+{( queue1: (PC PQ)) OCs} => {( queue1: (PC PC PQ)) OCs}
+if length(PQ) <= maxQueueLength .
+The rewrite rule specifies that if the cell1 message queue is not empty, and the length of queue1
+is less than or equal to the predefined maxQueueLength, the message at the front of queue1 is
+duplicated.
+Similarly, drop2 and dup2 are defined for queue2 in the same manner as drop1 and dup1 for
+queue1; therefore, they are omitted to avoid redundancy.
+The invariant property candidate of ABP is defined in Maude as follows:
+eq ABP -inv(ABP) =
+(getBit1(ABP) = getBit2(ABP) implies
+mk(getIndex(ABP)) = (getIndex(ABP) getList(ABP))) and
+(getBit1(ABP) != getBit2(ABP) implies
+mk(getIndex(ABP)) = getList(ABP)) .
+ABP-inv ensures that the protocol’s state remains consistent and correct.
+ABP-inv is defined
+such that if getBit1(ABP) (the sender’s bit) is equal to getBit2(ABP) (the receiver’s bit), then
+mk(getIndex(ABP)) is equal to (getIndex(ABP) getList(ABP)), and if getBit1(ABP) is not equal
+to getBit2(ABP), then mk(getIndex(ABP)) is equal to getList(ABP).
+4.2
+Formal specification of the Simple Communication Protocol (SCP)
+The Simple Communication Protocol (SCP) is a more abstract version of ABP, where the primary
+distinction lies in the communication channels. While ABP uses queues to handle multiple mes-
+sages, SCP uses two unreliable cells, cell1 and cell2, which can be viewed as queues with a fixed
+capacity of one. In ABP, the number of reachable states grows exponentially as parameters such
+as maxQueueLength increase, often leading to the state space explosion problem. In contrast, by
+abstracting the communication channels into single-capacity cells, SCP inherently limits the com-
+plexity of the system’s state configurations. As a result, the total number of reachable states in SCP
+is considerably smaller than that in ABP, making direct model checking feasible and efficient with-
+out encountering state space explosion. Due to the structural similarity between the two protocols,
+we define SCP by referring to the ABP specification described in the previous section as follows:
+• Observable Components: The definitions for index, list, bit1, and bit2, along with their
+corresponding Maude variables, are identical to those in ABP. The only structural difference
+is that queue1 and queue2 in ABP are replaced by cell1 and cell2 in SCP, respectively.
+• Initial State: The initial state of SCP follows the same logic as ABP, with both cell1 and
+cell2 initialized to empty.
+• Rewrite Rules: SCP is specified by six rewrite rules: send1, rec1, send2, rec2, drop1,
+and drop2. These rules are operationally analogous to the corresponding rules in ABP, but
+operate on a single-capacity buffer.
+• Omission of Duplication Rewrite Rules: Unlike ABP, SCP does not include dup1 or
+dup2, as the single-capacity buffer does not support message duplication in this model.
+For instance, we present the rewrite rule send2 in SCP as a representative example of this
+simplification:
+15
+
+
+rl [send2] :
+{( cell2: BC) (bit2: B) OCs} =>
+{( cell2: bcell(B)) (bit2: B) OCs} .
+The rewrite rule specifies that the message containing B is put into cell2. In ABP, the corresponding
+send2 rule is a conditional rewrite rule (crl) that includes a guard condition to ensure that the
+current queue length does not exceed a predefined maxQueueLength.
+In contrast, because SCP
+models the channel as a single-element cell, this capacity check is eliminated, and the rewrite rule
+becomes an unconditional rewrite rule (rl). To avoid redundancy, we omit the detailed descriptions
+of other SCP rules, such as send1 or rec1, as they follow an analogous modification pattern.
+The invariant property candidate of SCP is defined in Maude as follows:
+eq SCP -inv(SCP) =
+(getBit1(SCP) = getBit2(SCP) implies
+mk(getIndex(SCP)) = (getIndex(SCP) getList(SCP))) and
+(getBit1(SCP) != getBit2(SCP) implies
+mk(getIndex(SCP)) = getList(SCP)) .
+SCP-inv is defined using the same logical structure as ABP-inv. SCP-inv ensures that the pro-
+tocol’s state remains consistent and correct. Similarly to ABP-inv, SCP-inv is defined such that
+if getBit1(SCP) is equal to getBit2(SCP), then mk(getIndex(SCP)) is equal to (getIndex(SCP)
+getList(SCP)), and if getBit1(SCP) is not equal to getBit2(SCP), then mk(getIndex(SCP)) is
+equal to getList(SCP).
+4.3
+Verification Results
+In this section, we demonstrate that ABP satisfies its invariant property, ABP-inv, by leveraging the
+abstract model SCP and the simulation relation established between the two protocols. Following
+the three-step methodology illustrated in Fig 2, we first conduct model checking on the abstract
+state machine, SCP (Step 1).
+4.3.1
+Step 1: Verification of Invariant Property on SCP
+In this verification, we set the parameter to maxIndex = 64. We can check whether SCP satisfies
+the invariant property candidate, SCP-inv, or not by using the following search command:
+search [1] in SCP : init =>*
+{( bit1: B1) (bit2: B2) (index: I) (list: L) OCs}
+such that not SCP -inv(scp(B1 , I, B2 , L)) .
+Maude returns No solution. The result No solution formally verifies that SCP-inv holds through-
+out all reachable states of the protocol.
+4.3.2
+Step 2: Deducibility of ABP-inv from SCP-inv
+We conjecture a simulation relation candidate r2 from ABP to SCP. This simulation relation can-
+didate requires that if SCP-inv is an invariant property wrt SCP and ABP is simulated by SCP,
+then ABP-inv is an invariant property wrt ABP. The simulation relation candidate from ABP to
+SCP is defined as follows:
+eq r2(ABP , SCP) =
+(getBit1(ABP) = getBit1(SCP)) and
+(getBit2(ABP) = getBit2(SCP)) and
+(getIndex(ABP) = getIndex(SCP)) and
+(getList(ABP) = getList(SCP)) .
+16
+
+
+This demonstrates that bit1, bit2, index, and list are equivalent in ABP and SCP. The parame-
+ter ABP is defined as a value of the data type ABPState, which represents the state of the Alternating
+Bit Protocol. Similarly, the parameter SCP is defined as a value of the data type SCPState, repre-
+senting the state of the Simple Communication Protocol. Note that r2 omits the contents of the
+communication channels, as they are not required to deduce ABP-inv from SCP-inv. This mapping
+is sufficient because both invariant properties depend only on the sender and receiver’s local states.
+We demonstrate that if SCP-inv is an invariant property wrt SCP and ABP is simulated by
+SCP, then ABP-inv is an invariant property wrt ABP. We confirm this using the following function.
+eq ABP2SCP -sim(ABP , SCP) =
+r2(ABP , SCP) implies (SCP -inv(SCP) implies ABP -inv(ABP)) .
+We describe the proof of SCP-inv(sSCP ) ⇒ABP-inv(sABP ) for arbitrary states sSCP , sABP
+with r2(sABP , sSCP ). Considering the simulation relation candidate and the invariant property,
+the cases can be divided as follows.
+1. r2 is true, SCP-inv is true, and bit1 is equal to bit2.
+2. r2 is true, SCP-inv is true, and bit1 is different from bit2.
+3. r2 is true, SCP-inv is false, and bit1 is equal to bit2.
+4. r2 is true, SCP-inv is false, and bit1 is different from bit2.
+5. r2 is false.
+The module and the corresponding red command for case 2 are provided below:
+fmod
+SIM_ABP2SCP_02 is
+pr SIM .
+ops b1 b2 b3 b4 : -> Bool+ .
+ops i1 i2 : -> Nat+ .
+ops l1 l2 : -> List{Nat+} .
+eq (b1 = b2) = false .
+eq (b1 = b3) = true .
+eq (b2 = b4) = true .
+eq (b3 = b4) = false .
+eq (i1 =Nat+ i2) = true .
+eq l1 = mk(i1) .
+eq l2 = mk(i2) .
+eq (mk(i1) = mk(i2)) = true .
+endfm
+As shown in the module SIM_ABP2SCP_02, we introduce several fresh constants. In this context,
+Nat+ and Bool+ are data types used to represent arbitrary natural numbers and Boolean values,
+respectively, enabling the symbolic verification of each case.
+red in SIM_ABP2SCP_02 :
+ABP2SCP -sim(abp(pqueue , bqueue , b1 , i1 , b2 , l1),
+scp(pcell , bcell , b3 , i2 , b4 , l2)) .
+The constants b1, b2, b3, and b4 represent arbitrary Boolean values, and i1 and i2 denote arbi-
+trary natural numbers. Similarly, l1 and l2 represent arbitrary lists of natural numbers. For the
+communication channels in ABP, pqueue and bqueue represent arbitrary values for the message
+17
+
+
+queues from the sender to the receiver and from the receiver to the sender, respectively. For the cor-
+responding cells in SCP, pcell and bcell represent arbitrary values from the sender to the receiver
+and from the receiver to the sender, respectively. This red command returns true. Although case
+2 is presented here as a representative demonstration, all other cases listed above were similarly
+verified using red command. All cases yielded the result true, thereby formally establishing the
+deducibility of ABP-inv from SCP-inv under the simulation relation r2.
+4.3.3
+Step 3: Demonstration of Simulation Relation from ABP to SCP
+First, we verify Definition 4 (i) is satisfied. we confirm that the simulation relation holds between
+the initial states of ABP and SCP as follows:
+red in SIM :
+r2(abp(nil , nil , false , 0, false , nil),
+scp(empty , empty , false , 0, false , nil)) .
+Maude returns true for this red command. This means that the simulation relation r2 holds between
+the initial states of ABP and SCP.
+To verify that Definition 4 (ii) is satisfied, we apply the verification procedure consisting of
+Maude commands (i), (ii), and (iii) as depicted in Fig 3 to each rewrite rule of ABP. This process
+involves case splitting for each of the eight rewrite rules to ensure that all potential transitions are
+formally accounted for. The full set of these generated cases and the corresponding Maude code
+are publicly available in our repository. For illustrative purposes, we present the verification of the
+send2 rule as a representative example.
+Before executing the commands, we define the representative concrete state (sABP ) and its
+corresponding abstract state (sSCP ) using fresh constants to ensure the generality of the verification.
+Let sABP be the ABP state for this case:
+{( queue1: pqueue) (queue2: bqueue) (bit1: bool)
+(index: index) (bit2: bool) (list: list)}
+The corresponding SCP state, sSCP , is constructed as follows:
+{( cell1: pcell) (cell2: bcell) (bit1: bool)
+(index: index) (bit2: bool) (list: list)}
+In these terms, pqueue, bqueue, pcell, bcell, bool, index, and list are fresh constants represent-
+ing arbitrary values. While index is constrained to be less than or equal to maxIndex, the remaining
+constants represent unconstrained and arbitrary values.
+The procedure begins with command (i), where the srew command is applied to sABP to iden-
+tify the successor state in ABP. Maude identifies a single successor state s′
+ABP resulting from the
+application of the send2 rule:
+{( queue1: pqueue) (queue2: (bqueue
+bcell(bool))) (bit1: bool)
+(index: index) (bit2: bool) (list: list)}
+Next, in command (ii), we verify that the simulation relation r2 holds between the states sABP
+and sSCP by executing a red command. Maude evaluates this command to true, confirming that
+the simulation relation r2 holds between sABP and sSCP .
+Finally, we execute command (iii) to search for a state s′
+SCP in SCP that preserves the simulation
+relation with s′
+ABP in zero or more steps. Specifically, we use a search command to find a state
+transition from sSCP to a state that satisfies r2(s′
+ABP , s′
+SCP ). Maude successfully finds a solution
+for this search, thereby identifying a valid state transition in the abstract model that corresponds
+to the concrete state transition.
+18
+
+
+These collective results demonstrate that, for all state transitions induced by the send2 rule in
+ABP, there exist corresponding transitions in SCP that preserve the simulation relation. By ex-
+haustively applying this three-command procedure to the remaining seven rewrite rules, we formally
+confirm that the state transition condition in Definition 4 (ii) is fully satisfied for ABP.
+4.3.4
+Summary of Verification
+Through the successful execution of Steps 1, 2, and 3, we have formally demonstrated that the
+invariant property SCP-inv holds for SCP, that ABP-inv is logically deducible from SCP-inv under
+the simulation relation r2, and that ABP is simulated by SCP. Based on Theorem 1, these results
+collectively prove that the invariant property ABP-inv holds for ABP.
+4.4
+Discussion
+We conducted the experiments described in this paper on a computer equipped with a 3.3 GHz
+microprocessor and 32 GB of memory. Maude 3.3.1 was used for verification across all case studies.
+Table 1 summarizes the performance comparison between direct model checking and our pro-
+posed methodology. To evaluate the effectiveness of our approach (RQ1), we first attempted di-
+rect model checking on the ABP state machine.
+With parameters set to maxIndex = 64 and
+maxQueueLength = 32, the process failed to conclude. Preliminary tests indicated that the verifica-
+tion time increases sharply as these parameters grow. The chosen values represent a configuration
+where state space explosion renders exhaustive direct model checking infeasible within a reasonable
+timeframe, effectively highlighting the practical boundaries of conventional methods. We deliber-
+ately terminated the verification after one hour, judging that state space explosion rendered direct
+model checking infeasible within a practical timeframe.
+Table 1: Performance comparison of verification methods for ABP (maxIndex = 64, maxQueue-
+Length = 32).
+Verification Method
+Step
+Maude Command
+Time
+Result
+Direct Model Checking
+-
+search
+> 3,600 s
+Timeout (Failed)
+Proposed Methodology
+Step 1
+search (on SCP)
+< 1 s
+Verified
+Step 2
+red
+< 1 s
+Verified
+Step 3
+srew, red, search
+< 1 s
+Verified
+In contrast, our proposed methodology completed the entire verification process with minimal
+computational overhead.
+Specifically, Steps 1, 2, and 3 each finished in less than one second.
+The high efficiency of Step 1 with maxIndex = 64 is attributed to the significantly reduced state
+space of SCP, which abstracts queues into single-capacity cells. Furthermore, since Steps 2 and 3
+rely on symbolic execution with fresh constants rather than exhaustive state space traversal, their
+execution times remain sub-second and independent of the parameter sizes that typically cause
+state space explosion. These results provide a definitive affirmative answer to RQ1, proving that
+our methodology can mitigate the state space explosion problem in ABP effectively.
+While our methodology effectively mitigates the state space explosion problem, it introduces
+the requirement for manual abstraction and the definition of simulation relations. To minimize this
+burden, we developed a support tool [18]. By automating the case splitting arising from associative
+commutative pattern matching and the execution of the three-command sequence (srew, red, and
+search) in step 3, the tool reduces the risk of human error and ensures that the verification process
+remains rigorous. The tool is publicly available [18].
+19
+
+
+5
+Case study II: The Sliding Window Protocol (SWP)
+This section demonstrates the formal verification of the Sliding Window Protocol (SWP) to address
+RQ2. To overcome this, we employ the composition of simulation relations as established in Sec-
+tion 3.2. Specifically, we prove that SWP satisfies its invariant property by establishing a simulation
+relation from SWP to ABP and composing it with the previously verified simulation from ABP to
+SCP . This hierarchical approach allows us to deduce the correctness of SWP from the abstract
+SCP invariant property through the intermediate ABP model.
+5.1
+Formal specification of the Sliding Window Protocol (SWP)
+The Sliding Window Protocol (SWP) is a fundamental method for reliable and sequential data
+transmission over a communication channel. This protocol works by allowing the sender to transmit
+multiple messages before receiving an acknowledgement from the receiver, effectively managing
+the flow of data. This protocol has a window mechanism where the window size is the number
+of messages that can be sent without an acknowledgement. There are differences between SWP
+and ABP. In SWP, the sender can send messages up to the window size without waiting for an
+acknowledgement from the receiver. On the other hand, in ABP, the sender needs to wait for an
+acknowledgement from the receiver before sending each message.
+To maintain conciseness and clarity, we define the formal specification of SWP by highlighting
+its extensions and differences compared to the ABP model described in Section 4.1.
+• Observable Components: While the basic communication structure involving index, list,
+and unreliable channels (queue1, queue2) remain the same, SWP introduces several compo-
+nents to manage its window mechanism. These include seq (the current sequence number),
+windowCount (the number of unacknowledged frames), expectedFrameSeq (the next sequence
+number the receiver expects), and expectedAckSeq (the next acknowledgment the sender
+expects).
+• Maude Variables: In the formalization of SWP, the variables OCs (observable components),
+I (index), and L (list) are identical to those used in the ABP specification. However, other
+variables are uniquely defined for SWP to reflect its specific data structures, such as FQ and
+AQ for the queues, and S, C, F, and A for managing sequence numbers and window counts.
+• Initial State: The initial state of SWP follows a similar logic to ABP, with all sequence-
+related components initialized to zero and communication channels set to empty.
+• Rewrite Rules: SWP is specified by eight rewrite rules. The rules send1, rec1, send2, and
+rec2 are modified to incorporate sequence numbers and window management logic. Notably,
+the rewrite rules drop1, drop2, dup1, and dup2 for SWP are operationally identical to those
+defined for ABP in Section 4.1. Therefore, their detailed specifications are omitted here to
+avoid redundancy.
+The rewrite rule send1 is defined as follows:
+crl [send1] :
+{( queue1: FQ) (seq: S) (index: I) (windowCount: C) OCs} =>
+{( queue1: (FQ frame(S, I))) (seq: next(S))
+(index: s(I)) (windowCount: s(C)) OCs}
+if C < windowSize /\ I <= maxIndex /\
+length(FQ) <= maxQueueLength .
+20
+
+
+The rewrite rule specifies that if the window count, denoted as C, is less than the predefined
+windowSize, the index number, denoted as I, is less than or equal to the predefined maxIndex,
+and the length of FQ is less than or equal to the predefined maxQueueLength, the message frame(S,
+I) is appended to the end of queue1. This message encapsulates both the sequence number (S) and
+the index number (I). The sender increments the index number and the window count by 1, and
+updates the sequence number. In this formal specification, windowSize is set to 16.
+The next function is defined as follows:
+eq next(N) = (N + 1) rem
+windowSize .
+This function calculates the next number for a given number N. Specifically, it adds 1 to N and then
+takes the remainder of dividing this sum by windowSize. This operation is used to cycle numbers
+within a specific range defined by windowSize. This mechanism implies that the sequence numbers
+follow a circular order rather than a linear one. For instance, if windowSize is 16, the numbers
+cycle from 0 to 15 and back to 0, where 0 is considered the successor of 15 in this circular sequence.
+The rewrite rule rec1 is defined as follows:
+rl [rec1] :
+{( queue2: (AC AQ)) ( expectedAckSeq : A)
+(seq: S) (windowCount: C) OCs} =>
+{( queue2: AQ) (expectedAckSeq: expectedAckSeq(A, seq(AC), S))
+(seq: S) (windowCount: windowCount(C, A, seq(AC), S)) OCs} .
+The rewrite rule specifies that if the ack message queue is not empty (indicating the existence of
+awaiting ack messages within queue2), the sender processes the top ack message from this queue.
+The sender updates the expectedAckSeq to reflect the sequence number of the next expected ack
+message, and updates the windowCount accordingly to manage the flow of outgoing messages. The
+message at the front of queue2 is removed.
+To describe the expectedAckSeq function and the windowCount function, we first discuss the
+between function. This is because both the expectedAckSeq function and the windowCount function
+use the between function. The between function is defined as follows:
+eq between(N1 , N2 , N3) =
+((N1
+<= N2) and (N2 < N3)) or
+((N3 < N1) and (N1
+<= N2)) or
+((N2 < N3) and (N3 < N1)) .
+A circular order governs the relationship between these numbers, where the interval from N1 to N3
+may wrap around the maximum sequence value. The between function evaluates whether a given
+sequence number falls within this circular arc, which is essential for deciding whether a received
+frame message should be accepted or discarded. It returns true under any of the following conditions:
+• N1 is less than or equal to N2, and N2 is less than N3.
+• N3 is less than N1, and N1 is less than or equal to N2.
+• N2 is less than N3, and N3 is less than N1.
+expectedAckSeq function is defined as follows:
+ceq
+expectedAckSeq (N1 , N2 , N3) =
+expectedAckSeq (next(N1), N2 , N3) if between(N1 , N2 , N3) .
+ceq
+expectedAckSeq (N1 , N2 , N3) = N1 if not
+between(N1 , N2 , N3) .
+21
+
+
+The expectedAckSeq function calculates the expected ack sequence number given three numbers
+N1, N2, and N3. It uses the between function to determine if N2 lies between N1 and N3. The process
+is as follows:
+• If N2 is between N1 and N3 (between(N1, N2, N3) is true), the function recursively calls itself
+with the next number of N1 (next(N1)), N2, and N3 as the new arguments. This recursion
+continues until N2 is no longer between N1 and N3.
+• If N2 is not between N1 and N3, it simply returns N1.
+The windowCount function is defined as follows:
+ceq
+windowCount(N1 , N2 , N3 , N4) =
+windowCount(sd(N1 , 1), next(N2), N3 , N4) if between(N2 , N3 , N4) .
+ceq
+windowCount(N1 , N2 , N3 , N4) = N1 if not
+between(N2 , N3 , N4) .
+The windowCount function, which involves four numbers N1, N2, N3, and N4, updates N1 based
+on specific conditions. This function is used for determining the window count within a certain
+numerical range, using the between function to check if N3 lies between N2 and N4. The process is
+as follows:
+• If N3 is between N2 and N4 (between(N2, N3, N4) is true), the function recursively calls itself
+with N1 updated to sd(N1, 1) (subtracting 1 from N1), N2 to its next number next(N2), and
+keeps N3 and N4 as they are. This recursion continues until the condition becomes false.
+• If N3 is not between N2 and N4, it simply returns N1.
+The rewrite rule send2 is defined as follows:
+crl [send2] :
+{( queue2: AQ) ( expectedFrameSeq : S) (list: L) OCs} =>
+{( queue2: (AQ ack(prev(S)))) ( expectedFrameSeq : S) (list: L) OCs}
+if length(L) > 0 /\ length(AQ) <= maxQueueLength .
+The rewrite rule specifies that if the list, denoted as L, is not empty, and the length of AQ is less
+than or equal to the predefined maxQueueLength, the message ack(prev(S)) is appended to the
+end of queue2. This message encapsulates the previous sequence number.
+The prev function is defined as follows:
+eq prev(N) = (N + sd(windowSize , 1)) rem
+windowSize .
+The function prev calculates the preceding number of a given number N within a cyclic range
+defined by windowSize.
+The sd(windowSize, 1) subtracts 1 from windowSize.
+The function
+adds the result of sd(windowSize, 1) to N, and then takes the remainder of dividing this sum by
+windowSize. This operation ensures that the calculation cycles through the numbers within the
+range of windowSize. For instance, if windowSize is 16, this function cycles numbers between 0 and
+15. If N is 0, the previous number is 15.
+The rewrite rule rec2 is defined as follows:
+rl [rec2] :
+{( queue1: (FR FQ)) ( expectedFrameSeq : S) (list: L) OCs} =>
+{( queue1: FQ)
+( expectedFrameSeq : (if seq(FR) = S then next(S) else S fi))
+(list: (if seq(FR) = S then (index(FR) L) else L fi)) OCs} .
+22
+
+
+The rewrite rule specifies that if the frame message queue is not empty (indicating the existence of
+awaiting frame messages within queue1), the receiver processes a frame message from this queue. If
+the sequence number contained in the frame message aligns with the expected number, the receiver
+then updates the expectedFrameSeq to reflect the sequence number of the next expected frame
+message, and stores the index number to the list. The message at the front of queue1 is removed.
+In this paper, the invariant property candidate of SWP is defined as the receiver storing the
+index numbers sent by the sender in the list in order, without duplication or loss. The invariant
+property candidate of SWP is defined in Maude as follows:
+eq SWP -inv(SWP) = subsequence(mk(getIndex(SWP)), getList(SWP)) .
+SWP-inv is defined such that the list of messages stored by the receiver is a subsequence of the list
+of messages sent by the sender. The subsequence function is defined to return true if the second
+list can be derived from the first by deleting zero or more elements while strictly preserving their
+relative order. This definition mathematically ensures that the messages are neither duplicated,
+lost, nor reordered.
+5.2
+Verification Results
+We conjecture a simulation relation candidate from the state machine SWP to the state machine
+ABP. This simulation relation requires that if ABP-inv is an invariant property wrt ABP and SWP
+is simulated by ABP, then SWP-inv is an invariant property wrt SWP.
+The simulation relation candidate from SWP to ABP is defined as follows:
+eq r1(SWP , ABP) =
+(getIndex(SWP) >= getIndex(ABP)) and
+(getList(SWP) = getList(ABP)) .
+This shows that the index of SWP is greater than or equal to that of ABP, and the list of SWP
+is equivalent to the list of ABP. This inequality captures the fundamental behavioral difference
+between the two protocols: while the sender in ABP must wait for an acknowledgment before
+incrementing the index for the next message, the sender in SWP can transmit multiple messages
+ahead up to the window size. Consequently, the index in SWP can advance beyond that of the
+more abstract ABP, and this relation accurately abstracts such advanced states. The argument
+SWP is a value of the data type SWPState representing the state of the Sliding Window Protocol.
+The argument ABP is a value of the data type ABPState representing the state of the Alternating
+Bit Protocol. While SWP includes various internal components for window management, r1 omits
+them as they are not needed to deduce SWP-inv from ABP-inv. This focused definition is sufficient
+for establishing a formal bridge between the two models.
+We demonstrate that if ABP-inv is an invariant property wrt ABP and SWP is simulated by
+ABP, then SWP-inv is an invariant property wrt SWP. We confirm this using the following function.
+eq SWP2ABP -sim(SWP , ABP) =
+r1(SWP , ABP) implies (ABP -inv(ABP) implies SWP -inv(SWP)) .
+We verified this implication by employing case splitting and the red command with fresh constants,
+similar to the process described in Case study I. All cases yielded the result true, thereby confirming
+the deducibility of the SWP invariant.
+Having established this deducibility, we then proceed to Step 3: demonstrating that SWP is sim-
+ulated by ABP. By applying the three-command verification procedure established in Section 3.1—
+comprising (i) srew, (ii) red, and (iii) search commands—in the same manner as in Case study I,
+we formally demonstrate that the simulation relation r1 is preserved across all state transitions.
+23
+
+
+This result confirms that for every state transition in SWP, there exists a corresponding sequence
+of transitions in ABP that preserves r1. Since we have already established in Case study I that
+ABP-inv is an invariant property of ABP, we can conclude that SWP-inv is an invariant property of
+SWP. This conclusion is formally supported by the composition of simulation relations r1 and r2
+as per Theorem 1.
+5.3
+Discussion
+Our experimental results provide a clear affirmative answer to RQ2. For the verification exper-
+iments, we configured the parameters for SWP as maxIndex = 64, maxQueueLength = 32, and
+windowSize = 16, whereas those for ABP were set to maxIndex = 64 and maxQueueLength = 32.
+Under these configuration, the reachable state space of SWP is significantly larger than that of the
+ABP model used in Case study I, rendering direct model checking entirely infeasible due to the state
+space explosion problem. However, by decomposing the verification into two layers of simulation
+(from SWP to ABP and from ABP to SCP), we successfully mitigated the state space explosion
+that makes direct model checking of SWP infeasible.
+In Case study I, the invariant properties ABP-inv and SCP-inv were nearly identical in their
+logical structure and conceptual formulation.
+In contrast, Case study II exhibited a significant
+disparity between the invariant properties of the concrete and intermediate models. While SWP-inv
+is defined as a subsequence requirement—ensuring that the received messages exist within the
+sequence of sent messages—ABP-inv is formulated based on the specific state-matching logic of
+the alternating bit. Despite this clear difference between the two properties, we successfully verified
+SWP-inv by establishing a simulation relation that effectively bridges these distinct conceptual layers.
+This result highlights the versatility of our proposed framework: it is not limited to cases where the
+abstract and concrete properties are similar, but can also formally prove invariants even when the
+gap between the properties of the abstraction layers is significant.
+Our approach offers practical advantages by leveraging domain knowledge to tailor abstractions,
+providing greater flexibility.
+Furthermore, since many distributed protocols share fundamental
+requirements such as data consistency and ordering guarantees, our technique facilitates the reuse
+of previously verified formal specifications as abstract models for new targets. This reusability,
+demonstrated by our hierarchical verification of SWP using the ABP and SCP models, provides a
+scalable and efficient pathway for the formal verification of complex systems.
+6
+Related work
+“Refinement” serves as a top-down development paradigm that enables the systematic derivation
+of concrete implementations from abstract specifications through the stepwise augmentation of
+architectural details. This paradigm traces its origins to the foundational work of Wirth [19], Hoare
+[20], Dijkstra [21], and Abadi et al. [22]. Building upon these theoretical underpinnings, several
+formal methods and frameworks have been established, including Vienna Development Method
+(VDM) [23], Z notation [24], Abstract State Machines (ASM) [25], B-Method [26], and Event-
+B [27].
+Recently, there has been growing interest in using Large Language Models (LLMs) for
+refinement, as exemplified by the work of Cai et al. [28] on LLM-guided code generation.
+“Simulation”, in the algebraic sense defined by Milner [16], formalizes the principle of abstracting
+away implementation-specific details, such as data representation and control sequencing, to identify
+the core behavior shared by distinct programs. This concept is characterized by a simulation relation
+acting as a quasi-ordering between programs; mutual simulation establishes an equivalence relation
+24
+
+
+that facilitates abstraction from implementation-specific details. Simulation is extended to concur-
+rent computing through process calculi such as CSP [29] and CCS [30,31]. Within these formalisms,
+bisimulation—a mutual simulation where processes mimic each other’s transitions—became a cor-
+nerstone for formalizing behavioral equivalence. This ensures that disparate implementations main-
+tain identical observable behaviors in concurrent environments. Subsequently, simulation is applied
+to the analysis of I/O automata to verify that concrete systems satisfy the trace properties of their
+abstract specifications [32,33]
+Ogata and Futatsugi [12] have proposed a methodology for verifying that an observational
+transition system (OTS) S maintains invariant properties through a simulation from S to another
+OTS, which is more abstract than S, in the OTS/CafeOBJ method [34]. They concluded that there
+is no definitive evidence to suggest the superiority of one method over the other. Subsequently, Tran
+et al. [35] demonstrated the efficacy of simulation-based invariant verification through case studies
+on the MCS and Anderson mutual exclusion protocols. Using CafeOBJ [36] for formal modeling
+and proof, they reported that the simulation-based technique enabled a more efficient verification
+process for the MCS protocol than the induction-based alternative.
+The validity of refinement or simulation relations is predominantly established through theorem
+proving. Whether performed manually or with the assistance of interactive provers, these deductive
+approaches require significant human expertise and effort to construct rigorous proofs. In contrast,
+the approach presented in this paper deviates from this convention by using model checking to verify
+that a simulation holds between state machines.
+There have been several papers related to the verification of the Sliding Window Protocol (SWP).
+Early work by Jonsson [37] established a foundation for SWP verification using simulation, though
+the proofs remained manual and did not use model checker or theorem prover. Similarly, Paliwoda
+and Sanders [38] employed CSP to specify SWP incrementally by composing simpler components
+like the Alternating Bit Protocol (ABP). Their approach remained a manual effort without the use
+of model checker or theorem prover. Later efforts integrated model checking to improve automation.
+Kaivola [39] used compositional preorders to verify SWP, effectively reducing the domain of values
+for transmitted data items to a small set (e.g., {0, 1, 2}) to facilitate model checking. Nevertheless,
+this approach still required manual proofs to generalize the findings to arbitrary sequence lengths.
+Direct model checking of SWP has also been explored using NuSMV; for instance, Zhao et al. [40]
+successfully verified the protocol but were forced to impose strict parameter constraints, such as
+a window size of 4, channel lengths of 8 for the data queue from sender to receiver and 16 for
+the acknowledgment queue from receiver to sender, and boolean-only messages. In contrast, Case
+study II of this paper demonstrates that our proposed methodology can handle substantially larger
+parameters—including a window size of 16, channel capacities of 32, and message values up to
+64 —by combining the strengths of simulation and automated model checking in Maude. This
+hierarchical approach eliminates the need for manual inductive proofs for generalization or strict
+algebraic constraints, providing a more scalable and automated pathway for verifying complex,
+practical protocols.
+State space explosion is one of the most challenging problems in model checking. Numerous
+researchers have addressed this problem and developed a variety of techniques to mitigate it. Clarke
+et al. summarize several techniques that address the state space explosion problem in model checking
+[41]. They introduce techniques such as symbolic model checking with Binary Decision Diagrams
+(BDDs), partial order reduction, counterexample-guided abstraction refinement (CEGAR), and
+bounded model checking.
+Abstraction, in the context of model checking, aims to reduce the system’s state space by omit-
+ting the irrelevant details [2–9]. This process facilitates the reduction of problems associated with
+either an infinite state system or a finite but excessively large one. Although abstraction mitigates
+25
+
+
+this issue to a certain degree, challenges persist when addressing large systems, often hindering the
+execution of some model checking experiments. Some abstraction techniques have been introduced
+for use in Maude [17], such as equation abstractions [4] and predicate abstractions [42]. They target
+state space explosion but involve manual overhead. While equational abstractions require the man-
+ual discovery of equations and often rely on theorem proving to guarantee property preservation in
+conditional equations, and predicate abstractions depend on E-unification, which requires the strict
+finite variant property, and manual adjustment of state predicates to resolve spurious counterexam-
+ples, our methodology offers a more accessible and streamlined verification process. Although the
+construction of the abstract model and simulation relations remains a manual task, the validity of
+their relationship is verified semi-automatically using standard Maude commands (specifically srew,
+red, and search). This approach reduces the reliance on extensive deductive expertise by offloading
+the verification of the abstraction’s correctness to an executable model-checking-based procedure.
+Ákos and Zoltán have proposed a framework that extends abstraction and refinement methods
+to improve the efficiency of CEGAR [43]. This framework mitigates the state space explosion prob-
+lem. It is also noted that even with the framework, sufficient effectiveness may not be achieved in
+certain cases. In the paper of Mann et al. [44], the authors extend CEGAR for the model check-
+ing of infinite-state systems containing arrays through the incorporation of prophecy variables. By
+automatically adding auxiliary variables (namely, history and prophecy variables) to the system,
+their approach transforms proofs that traditionally require universally quantified invariants into
+quantifier-free forms. It has been reported, however, that in some cases the CEGAR loop may
+fail to terminate or suffer from scalability issues. The primary distinction between CEGAR-based
+approaches and our methodology lies in the nature of the abstraction process. While CEGAR is a
+reactive technique that refines models based on spurious counterexamples, our approach is proactive,
+leveraging domain knowledge to construct abstract models such as SCP and ABP. This manual but
+strategic abstraction provides enhanced transparency and interpretability; specifically, the simula-
+tion relations maintain a human-understandable mapping between concrete and abstract behaviors,
+a feature often lacking in automated refinements. Furthermore, our methodology effectively ad-
+dresses the scalability limitations of CEGAR by offloading the verification of complex protocols to
+a standardized sequence of symbolic Maude commands. These commands are largely independent
+of the parameter scales that typically trigger state space explosion. As summarized in Table 1,
+our experimental results confirm this efficiency: Steps 2 and 3 were completed within sub-second
+execution times, even with large parameters that rendered direct model checking infeasible.
+Fisler and Vardi explored automated bisimulation minimization as a state space reduction tech-
+nique within an automata-theoretic framework [45]. However, in most cases, the computational
+overhead of performing this minimization surpasses that of conventional model checking. They ar-
+gued that it is unsuitable for symbolic model checking because the BDDs required to compute the
+bisimulation relation become excessively large. Bustan and Grumberg [46] have conducted research
+on a minimization algorithm that processes a Kripke structure M and returns the smallest struc-
+ture that is simulation equivalent to M. Additionally, they developed the Partitioning Algorithm,
+which constructs the quotient structure for M without the need to build the simulation preorder
+explicitly. The concept of simulation equivalence is positioned as being less stringent than that of
+bisimulation, but more stringent than that of simulation preorder. This relation preserves ACTL
+and LTL. For the algorithms introduced in the paper [46] to be applicable to practical large-scale
+systems or complex models, further studies are required to improve the time and space complexity
+of the algorithms. Jansen et al. propose an algorithm that significantly improves the efficiency of
+computing branching bisimilarity on Labelled Transition Systems (LTSs) [47].
+Zhou et al. proposes an approach to addressing the state space explosion problem in System on a
+Programmable Chip (SOPC) architectures [48]. The authors introduce techniques based on Register
+26
+
+
+Transfer Level (RTL) code such as variable reduction and branch relation reduction tailored to the
+verification properties to compress the state space. WASIM [49] is a symbolic simulation framework
+for hardware formal verification. Users can define abstraction and refinement functions through
+its Python API to control the level of abstraction. It has been reported that leveraging domain
+knowledge in this way can achieve efficient verification. Our methodology shares this philosophy
+by using domain knowledge to construct appropriate abstract models (such as SCP and ABP) for
+complex protocols.
+Bae et al. [50] proposed a deductive model checking methodology that synergistically integrates
+narrowing-based logical model checking with inductive theorem proving via the NuITP tool [51].
+Their approach, implemented in the DM-Check tool, mitigates verification effort by employing an
+inductive theorem prover as an oracle to discharge verification conditions, such as subsumption
+checks. While their case studies demonstrate the verification of ABP, our methodology extends to
+the more complex SWP. SWP involves more intricate control logic than ABP, including window
+management and circular sequence numbers. While their method excels in handling complex log-
+ical constraints and conditional rewrite theories, the proposed approach focuses on addressing the
+state space explosion caused by large protocol parameters, such as window sizes in SWP, through
+hierarchical simulation compositions.
+While the theory of simulation has long been established in formal methods, our work provides
+a practical and engineering contribution by redefining this classical theory into a highly efficient
+and human-understandable “procedure” within the Maude model checking environment. By opera-
+tionalizing simulation-based verification through a standardized sequence of Maude commands, we
+bridge the gap between abstract theoretical relations and executable verification workflows. This
+procedural approach enhances the accessibility of protocol verification, making it more intuitive
+for practitioners to manage compared to purely deductive or symbolic methods that often require
+intricate manual proofs or complex logical constraints.
+Hubert and Frédéric provide a comprehensive review of the state of equivalence checking, which
+uses relations such as bisimulation and simulation, focusing on its development over a span of 40
+years [52]. They trace the evolution of algorithms, methodologies, and software tools that have
+been developed to address the challenges of equivalence checking in various computing paradigms,
+including concurrent, probabilistic, stochastic, mobile, and real-time systems. They emphasize that
+equivalence checking has the potential to enhance the overall effectiveness of the verification process
+when closely integrated with model checking and mention that it is expected to play a growing role
+in the future. Given this context, combining model checking with simulation has been explored as
+a promising approach. In this paper, our proposed technique is one of the first approaches that
+combine model checking with simulation. Our approach provides a unified framework within Maude
+for formal specification, model checking, and the verification of simulation relations.
+7
+Conclusion
+We have proposed a new technique to mitigate the state space explosion in model checking by com-
+bining it with simulation relations. Our methodology demonstrates that a concrete state machine
+M can be verified by showing it is simulated by a more abstract state machine MA that satisfies a
+corresponding invariant property. By operationalizing this classical theory into a standardized se-
+quence of Maude commands—specifically srew, red, and search—we have bridged the gap between
+abstract theoretical relations and executable verification workflows.
+We also proposed a technique for the composition of simulation relations, enabling hierarchical
+abstraction to handle even larger and more complex systems. The case studies on the Alternating
+27
+
+
+Bit Protocol and the Sliding Window Protocol demonstrate that our approach can formally verify
+invariant properties where direct model checking is practically infeasible due to state space explosion.
+A key advantage of this technique is the reusability of existing formal specifications as abstract
+models, significantly reducing the verification effort for new systems. To ensure rigor and efficiency,
+we developed a support tool that automates case splitting and command execution, minimizing
+human error.
+While this paper focuses on invariant properties, extending our technique to handle liveness
+properties is an important direction for future research. Additionally, although the construction of
+abstract models and the identification of simulation relations currently require manual effort, we
+aim to develop methodologies to assist users in discovering effective simulation candidates. Further
+case studies will be conducted to demonstrate the versatility of our unified framework within Maude
+for a broader range of complex distributed systems.
+References
+[1] Edmund M. Clarke. The Birth of Model Checking, pages 1–26. Springer Berlin Heidelberg,
+Berlin, Heidelberg, 2008.
+[2] Edmund M. Clarke, Orna Grumberg, and David E. Long. Model checking and abstraction.
+ACM Trans. Program. Lang. Syst., 16(5):1512–1542, sep 1994.
+[3] Edmund Clarke, Orna Grumberg, Somesh Jha, Yuan Lu, and Helmut Veith. Counterexample-
+guided abstraction refinement for symbolic model checking. J. ACM, 50(5):752–794, sep 2003.
+[4] José Meseguer, Miguel Palomino, and Narciso Martí-Oliet. Equational abstractions. Theoretical
+Computer Science, 403(2):239–264, 2008.
+[5] Liangze Yin, Wei Dong, Wanwei Liu, and Ji Wang. On scheduling constraint abstraction for
+multi-threaded program verification. IEEE Transactions on Software Engineering, 46(5):549–
+565, 2020.
+[6] Liangze Yin, Wei Dong, Wanwei Liu, and Ji Wang. Scheduling constraint based abstraction
+refinement for weak memory models.
+In Proceedings of the 33rd ACM/IEEE International
+Conference on Automated Software Engineering, ASE ’18, page 645–655, New York, NY, USA,
+2018. Association for Computing Machinery.
+[7] Kyungmin Bae, Santiago Escobar, and José Meseguer. Abstract Logical Model Checking of
+Infinite-State Systems Using Narrowing. In Femke van Raamsdonk, editor, 24th International
+Conference on Rewriting Techniques and Applications (RTA 2013), volume 21 of Leibniz Inter-
+national Proceedings in Informatics (LIPIcs), pages 81–96, Dagstuhl, Germany, 2013. Schloss
+Dagstuhl – Leibniz-Zentrum für Informatik.
+[8] Christel Baier and Joost-Pieter Katoen. Principles of model checking. MIT Press, 2008.
+[9] Edmund M. Clarke, Thomas A. Henzinger, Helmut Veith, and Roderick Bloem, editors. Hand-
+book of Model Checking. Springer, 2018.
+[10] Edmund M. Clarke, Orna Grumberg, Marius Minea, and Doron A. Peled. State space reduction
+using partial order techniques. Int. J. Softw. Tools Technol. Transf., 2(3):279–287, 1999.
+28
+
+
+[11] Constantin Enea, Dimitra Giannakopoulou, Michalis Kokologiannakis, and Rupak Majumdar.
+Model checking distributed protocols in must. Proc. ACM Program. Lang., 8(OOPSLA2):1900–
+1927, 2024.
+[12] Kazuhiro Ogata and Kokichi Futatsugi. Simulation-based verification for invariant properties
+in the OTS/CafeOBJ method. Electronic Notes in Theoretical Computer Science, 201:127–154,
+2008.
+[13] K. A. Bartlett, R. A. Scantlebury, and P. T. Wilkinson. A note on reliable full-duplex trans-
+mission over half-duplex links. Commun. ACM, 12(5):260–261, may 1969.
+[14] Andrew S. Tanenbaum and David J. Wetherall. Computer Networks. Prentice Hall Press, USA,
+5th edition, 2010.
+[15] Ammisetty Veeraswamy and Ammisetty Mahesh Babu. Introduction to Computer Networks:
+Computer Networking A Top-Down Approach. LAP Lambert Academic Publishing, Koln, DEU,
+2012.
+[16] Robin Milner. An algebraic definition of simulation between programs. In D. C. Cooper, editor,
+Proceedings of the 2nd International Joint Conference on Artificial Intelligence. London, UK,
+September 1-3, 1971, pages 481–489. William Kaufmann, 1971.
+[17] Manuel Clavel, Francisco Durán, Steven Eker, Patrick Lincoln, Narciso Martí-Oliet, José
+Meseguer, and Carolyn L. Talcott, editors.
+All About Maude - A High-Performance Logi-
+cal Framework, How to Specify, Program and Verify Systems in Rewriting Logic, volume 4350
+of Lecture Notes in Computer Science. Springer, 2007.
+[18] Takanori Ishibashi, Masaki Nakamura, and Kazuhiro Ogata. A support tool for verification of
+simulation relations between state machines with maude. In Yuting Chen, Hiroyuki Okamura,
+and Shaoying Liu, editors, Software Fault Prevention, Verification, and Validation - Second
+International Symposium, SFPVV 2025, Shanghai, China, November 8-9, 2025, Proceedings,
+Lecture Notes in Computer Science, pages 112–129. Springer, 2025.
+[19] Niklaus Wirth.
+Program development by stepwise refinement (reprint).
+Commun. ACM,
+26(1):70–74, 1983.
+[20] C. A. R. Hoare. Proof of correctness of data representation. In Friedrich L. Bauer and Klaus
+Samelson, editors, Language Hierarchies and Interfaces, International Summer School, Markto-
+berdorf, Germany, July 23 - August 2, 1975, volume 46 of Lecture Notes in Computer Science,
+pages 183–193. Springer, 1975.
+[21] Edsger W. Dijkstra. Guarded commands, nondeterminacy and formal derivation of programs.
+Commun. ACM, 18(8):453–457, 1975.
+[22] Martín Abadi and Leslie Lamport. The existence of refinement mappings. Theor. Comput.
+Sci., 82(2):253–284, 1991.
+[23] Clifford B. Jones. Systematic software development using VDM. Prentice Hall International
+Series in Computer Science. Prentice Hall, 1986.
+[24] J. C. P. Woodcock and Jim Davies. Using Z - specification, refinement, and proof. Prentice
+Hall international series in computer science. Prentice Hall, 1996.
+29
+
+
+[25] Egon Börger. The ASM refinement method. Formal Aspects Comput., 15(2-3):237–257, 2003.
+[26] Jean-Raymond Abrial. The B-book - assigning programs to meanings. Cambridge University
+Press, 1996.
+[27] Jean-Raymond Abrial. Modeling in Event-B - System and Software Engineering. Cambridge
+University Press, 2010.
+[28] Yufan Cai, Zhe Hou, David Sanán, Xiaokun Luan, Yun Lin, Jun Sun, and Jin Song Dong.
+Automated program refinement: Guide and verify code large language model with refinement
+calculus. Proc. ACM Program. Lang., 9(POPL):2057–2089, 2025.
+[29] C. A. R. Hoare. Communicating sequential processes. Prentice-Hall, Inc., USA, 1985.
+[30] Robin Milner. A Calculus of Communicating Systems, volume 92 of Lecture Notes in Computer
+Science. Springer, 1980.
+[31] Robin Milner. Communication and concurrency. PHI Series in computer science. Prentice Hall,
+1989.
+[32] Nancy A. Lynch and Mark R. Tuttle. Hierarchical correctness proofs for distributed algorithms.
+In Fred B. Schneider, editor, Proceedings of the Sixth Annual ACM Symposium on Principles
+of Distributed Computing, Vancouver, British Columbia, Canada, August 10-12, 1987, pages
+137–151. ACM, 1987.
+[33] Nancy A. Lynch. Distributed Algorithms. Morgan Kaufmann Publishers Inc., San Francisco,
+CA, USA, 1996.
+[34] Kazuhiro Ogata and Kokichi Futatsugi. Proof scores in the ots/cafeobj method. In Formal
+Methods for Open Object-Based Distributed Systems: 6th IFIP WG 6.1 International Confer-
+ence, FMOODS 2003, Paris, France, November 19.21, 2003. Proceedings 6, pages 170–184.
+Springer, 2003.
+[35] Duong Dinh Tran, Dang Duy Bui, and Kazuhiro Ogata. Simulation-Based Invariant Verification
+Technique for the OTS/CafeOBJ Method. IEEE Access, 9:93847–93870, 2021.
+[36] Razvan Diaconescu and Kokichi Futatsugi. CafeOBJ report: The language, proof techniques,
+and methodologies for object-oriented algebraic specification, volume 6. World Scientific, 1998.
+[37] Bengt Jonsson. Modular verification of asynchronous networks. In Fred B. Schneider, editor,
+Proceedings of the Sixth Annual ACM Symposium on Principles of Distributed Computing,
+Vancouver, British Columbia, Canada, August 10-12, 1987, pages 152–166. ACM, 1987.
+[38] Karen Paliwoda and Jeff W. Sanders.
+An incremental specification of the sliding-window
+protocol. Distributed Comput., 5:83–94, 1991.
+[39] Roope Kaivola. Using compositional preorders in the verification of sliding window protocal.
+In Orna Grumberg, editor, Computer Aided Verification, 9th International Conference, CAV
+’97, Haifa, Israel, June 22-25, 1997, Proceedings, volume 1254 of Lecture Notes in Computer
+Science, pages 48–59. Springer, 1997.
+[40] Yefei Zhao, Zongyuan Yang, Jinkui Xie, and Qiang Liu. Formal model and analysis of sliding
+window protocol based on nusmv. J. Comput., 4(6):519–526, 2009.
+30
+
+
+[41] Edmund M. Clarke, William Klieber, Miloš Nováček, and Paolo Zuliani. Model Checking and
+the State Explosion Problem, pages 1–30. Springer Berlin Heidelberg, Berlin, Heidelberg, 2012.
+[42] Kyungmin Bae and José Meseguer. Predicate abstraction of rewrite theories. In Gilles Dowek,
+editor, Rewriting and Typed Lambda Calculi, pages 61–76, Cham, 2014. Springer International
+Publishing.
+[43] Ákos Hajdu and Zoltán Micskei. Efficient strategies for cegar-based model checking. J. Autom.
+Reason., 64(6):1051–1091, 2020.
+[44] Makai Mann,
+Ahmed Irfan,
+Alberto Griggio,
+Oded Padon,
+and Clark W. Barrett.
+Counterexample-guided prophecy for model checking modulo the theory of arrays. In Jan Friso
+Groote and Kim Guldstrand Larsen, editors, Tools and Algorithms for the Construction and
+Analysis of Systems - 27th International Conference, TACAS 2021, Held as Part of the Euro-
+pean Joint Conferences on Theory and Practice of Software, ETAPS 2021, Luxembourg City,
+Luxembourg, March 27 - April 1, 2021, Proceedings, Part I, volume 12651 of Lecture Notes in
+Computer Science, pages 113–132. Springer, 2021.
+[45] Kathi Fisler and Moshe Y. Vardi. Bisimulation minimization in an automata-theoretic verifi-
+cation framework. In Ganesh Gopalakrishnan and Phillip Windley, editors, Formal Methods in
+Computer-Aided Design, pages 115–132, Berlin, Heidelberg, 1998. Springer Berlin Heidelberg.
+[46] Doron Bustan and Orna Grumberg. Simulation-based minimization. ACM Trans. Comput.
+Logic, 4(2):181–206, apr 2003.
+[47] David N. Jansen, Jan Friso Groote, Jeroen J. A. Keiren, and Anton Wijs. An o(m log n)
+algorithm for branching bisimilarity on labelled transition systems. In Tools and Algorithms
+for the Construction and Analysis of Systems: 26th International Conference, TACAS 2020,
+Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS
+2020, Dublin, Ireland, April 25–30, 2020, Proceedings, Part II, pages 3–20, Berlin, Heidelberg,
+2020. Springer-Verlag.
+[48] Shan Zhou, Jinbo Wang, Panpan Xue, Xiangyang Wang, and Lu Kong. An approach to the
+state explosion problem: Sopc case study. Electronics, 12(24), 2023.
+[49] Wenji Fang and Hongce Zhang. WASIM: A word-level abstract symbolic simulation framework
+for hardware formal verification. In Sriram Sankaranarayanan and Natasha Sharygina, editors,
+Tools and Algorithms for the Construction and Analysis of Systems - 29th International Con-
+ference, TACAS 2023, Held as Part of the European Joint Conferences on Theory and Practice
+of Software, ETAPS 2022, Paris, France, April 22-27, 2023, Proceedings, Part II, volume 13994
+of Lecture Notes in Computer Science, pages 11–18. Springer, 2023.
+[50] Kyungmin Bae, Santiago Escobar, Raúl López-Rueda, José Meseguer, and Julia Sapiña. Ver-
+ifying invariants by deductive model checking. In Kazuhiro Ogata and Narciso Martí-Oliet,
+editors, Rewriting Logic and Its Applications - 15th International Workshop, WRLA 2024,
+Luxembourg City, Luxembourg, April 6-7, 2024, Revised Selected Papers, Lecture Notes in
+Computer Science, pages 3–21. Springer, 2024.
+[51] Francisco J. Durán, Santiago Escobar, José Meseguer, and Julia Sapiña. Nuitp: An inductive
+theorem prover for equational program verification. In Alessandro Bruni, Alberto Momigliano,
+31
+
+
+Matteo Pradella, Matteo Rossi, and James Cheney, editors, Proceedings of the 26th Interna-
+tional Symposium on Principles and Practice of Declarative Programming, PPDP 2024, Milano,
+Italy, September 9-11, 2024, pages 6:1–6:11. ACM, 2024.
+[52] Hubert Garavel and Frédéric Lang. Equivalence checking 40 years after: A review of bisimula-
+tion tools. In Nils Jansen, Mariëlle Stoelinga, and Petra van den Bos, editors, A Journey from
+Process Algebra via Timed Automata to Model Learning - Essays Dedicated to Frits Vaandrager
+on the Occasion of His 60th Birthday, volume 13560 of Lecture Notes in Computer Science,
+pages 213–265. Springer, 2022.
+32

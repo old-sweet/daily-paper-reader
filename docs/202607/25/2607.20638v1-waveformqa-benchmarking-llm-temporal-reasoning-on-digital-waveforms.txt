@@ -1,0 +1,1794 @@
+WaveformQA: Benchmarking LLM Temporal
+Reasoning on Digital Waveforms
+Yichuan Liu*
+Tenstorrent
+Austin, TX, USA
+yichuanliu@tenstorrent.com
+Daniel Cummings*
+Tenstorrent
+Austin, TX, USA
+dcummings@tenstorrent.com
+Nick Vadlamudi
+Tenstorrent
+Austin, TX, USA
+nvadlamudi@tenstorrent.com
+Abstract—Large Language Models (LLMs) have demon-
+strated strong capabilities in code generation and reasoning, yet
+their ability to perform temporal reasoning over digital wave-
+form data remains largely unexplored. Although reasoning over
+digital waveforms is a critical bottleneck in design verification,
+existing benchmarks primarily evaluate hardware description
+language (HDL) code generation and use waveforms only as
+supplementary context. This paper presents WaveformQA,
+an open-source question-answering benchmark for evaluating
+LLM temporal reasoning over digital waveforms. The bench-
+mark comprises 360 questions with programmatically generated
+ground truths across eight categories of varying diﬀiculty,
+including questions targeting multi-signal correlation and event
+ordering. Waveforms are generated from open-source design
+implementations, ensuring reproducibility and grounding the
+benchmark in real hardware behavior. Evaluation of frontier
+LLMs reveals that while models achieve reasonable accuracy
+on simple queries, performance degrades due to context window
+limitations and reasoning diﬀiculties on complex temporal and
+multi-step questions. In addition, we show that an event-time
+JSON representation of waveforms improves LLM reasoning
+accuracy versus the standardized value change dump (VCD)
+format. The open-source framework supports extending to
+new question categories and importing new waveform sources,
+enabling researchers to rapidly prototype temporal reasoning
+experiments.
+Index Terms—LLM-aided Design, Benchmark, Temporal
+Reasoning, Design Verification, Electronic Design Automation
+I. Introduction
+The rapid advancement of Large Language Models
+(LLMs) has transformed software engineering, mathe-
+matical reasoning, and code generation tasks. As these
+capabilities mature, there is growing interest in applying
+LLMs to electronic design automation (EDA), where
+AI assistants can be leveraged to accelerate hardware
+verification, debugging, and design space exploration [1],
+[2]. A major bottleneck in EDA is design verification,
+which consumes approximately 60% of total project time
+© 2026 IEEE. Personal use of this material is permitted. Permission
+from IEEE must be obtained for all other uses, in any current
+or future media, including reprinting/republishing this material for
+advertising or promotional purposes, creating new collective works,
+for resale or redistribution to servers or lists, or reuse of any
+copyrighted component of this work in other works.
+*These authors contributed equally.
+and is a primary cause of costly, delayed silicon re-spins [3].
+A central pain point in this process is simulation waveform
+analysis: verification engineers must carefully inspect the
+timing relationships among multiple, intertwined signals
+across large execution traces. Engineers typically use
+waveform viewers (e.g., GTKWave [4]) to visually inspect
+simulation traces from formats such as the value change
+dump (VCD). In complex designs, these intricate multi-
+signal interactions are still largely analyzed manually,
+making the process especially time-consuming [5].
+However, it remains largely unexplored whether LLMs
+possess the precise temporal reasoning capabilities needed
+to assist with waveform analysis. Although LLMs have
+proven adept at semantic and generative tasks like code
+generation, waveform analysis requires distinct skills such
+as correlating the behavior of hundreds of intertwined sig-
+nals, computing exact timing relationships within precise
+time windows, and counting discrete events across four-
+state logic.
+To date, there are no benchmarks to systematically eval-
+uate the ability of LLMs to reason directly on digital wave-
+form data. Current hardware-focused LLM benchmarks
+evaluate hardware description language (HDL) tasks and
+register transfer level (RTL) code generation, but not run-
+time trace analysis. Temporal reasoning benchmarks from
+natural language processing (NLP) and formal methods
+operate on fundamentally different data structures such
+as natural language text or event-ordering problems that
+lack the nanosecond-precision timing and multi-bit signals
+of hardware traces. This gap limits the measurement of
+whether LLMs can assist with the highly time-consuming
+aspect of verification workflows.
+We present WaveformQA, a question–answering bench-
+mark specifically designed to evaluate the temporal rea-
+soning capabilities of LLMs over digital waveforms from
+hardware simulations. Our main contributions are:
+• A collection of real-world hardware traces derived
+from open-source RISC-V processor implementations
+(PicoRV32 [6], DarkRISCV [7], Ibex [8], SERV [9],
+biRISC-V [10]), capturing realistic simulation behav-
+ior with complex multi-signal interactions.
+• A suite of 360 targeted verification questions spanning
+8 reasoning categories (e.g., temporal ordering, multi-
+arXiv:2607.20638v1  [cs.AI]  22 Jul 2026
+
+
+Figure 1: WaveformQA benchmarking workflow with four stages: (A) waveform data generation, (B) waveform data
+preprocessing, (C) question and answer production, and (D) benchmarking.
+step reasoning, correlation), designed to reflect tasks
+encountered by design verification engineers. Each
+question is associated with programmatically verified
+ground truth.
+• A waveform formatting study comparing VCD and
+JSON encodings, showing that the data format
+significantly affects LLM reasoning performance on
+waveforms.
+• An open-source evaluation framework supporting ex-
+tensible benchmark generation, integration of new
+waveform sources, and evaluation across diverse LLM
+platforms.
+Our evaluation of commercial and open source frontier
+models (Claude 4.5 & 4.6 Sonnet [11], [12], Gemini 2.5
+[13], Qwen3 30B [14]) provides insight into which question
+types pose challenges for these models and demonstrates
+the importance of waveform data representation. Wave-
+formQA establishes a principled framework for measuring
+progress in LLM-based waveform analysis as AI integra-
+tion deepens in EDA.
+II. Related Work
+A. Temporal Reasoning Benchmarks
+Temporal reasoning has been studied in NLP and
+formal verification, but existing benchmarks operate on
+fundamentally different data structures than digital wave-
+form data. NLP benchmarks such as TimeQA [15], Tem-
+pQuestions [16], and TIMEBENCH [17] evaluate qual-
+itative temporal relations over vague natural language
+text. Formal verification benchmarks like LTLBench [18]
+and TemporalBench [19] reason over abstract event-based
+sequences rather than specific signals with bit widths.
+TRAM [20] uses synthetic scenarios that lack precise
+numerical constraints and four-state logic. Digital wave-
+forms are fundamentally different: they are highly multi-
+dimensional, require nanosecond-precision numerical tim-
+ing, involve complex encoding (binary, hexadecimal, four-
+state values), and embed domain-specific semantics (con-
+trol flow, data dependencies).
+B. Hardware and EDA Benchmarks
+Recent benchmarks evaluate LLM capabilities across
+the hardware design flow, but focus on code-level tasks
+(see Table I). Benchmarks like RTLLM [21], VerilogEval
+[22], and SVA-Eval [2] test HDL/assertion generation,
+while Meic [23], Chrysalis [24], Vert [25] and FVDebug [5]
+focus on code repair and debugging. Although some use
+waveforms as an auxiliary context, none systematically
+evaluates temporal reasoning over signal traces.
+ChipBench [1], a recent and comprehensive hardware AI
+benchmark, includes VCD waveforms as a supplemental
+context for debugging tasks, but found they often hurt
+performance: providing waveforms improved results on
+only 8 of 21 models tested, while degrading performance on
+the remainder. The authors conclude that “while waveform
+data contain critical debugging information, most current
+LLMs lack the capability to interpret it effectively,”
+identifying waveform analysis tools and waveform-aware
+training as essential future work. However, ChipBench
+focuses on code-level debugging rather than temporal
+reasoning, and does not systematically evaluate waveform
+formatting or interpretation capabilities across question
+types or reasoning categories.
+This RTL-centric focus leaves a critical gap: in prac-
+tice, verification engineers dedicate the largest portion
+of their time to debug activities [3], yet current LLM
+benchmarks predominantly target code generation rather
+than waveform analysis tasks which are central to debug-
+ging workflows. WaveformQA addresses this gap as the
+first benchmark to systematically evaluate LLM temporal
+reasoning over digital waveforms, with precise timing
+requirements, multi-signal correlation, automated ground
+truth verification, and stratification across question types.
+III. Methodology
+Figure 1 illustrates the WaveformQA framework. The
+following subsections detail each stage and how the bench-
+mark is constructed.
+
+
+Table I: Hardware Verification LLM Benchmarks by Pri-
+mary Evaluation Focus
+Benchmark
+Primary Evaluation Focus
+RTLLM, VerilogEval, SVA-
+Eval
+HDL/assertion
+generation
+from
+specs
+Meic, Chrysalis, Vert
+RTL/assertion repair and refine-
+ment
+FVDebug
+RTL debugging assistance
+ChipBench
+RTL debugging (VCDs as context)
+WaveformQA
+Temporal
+reasoning
+over
+wave-
+forms
+A. Waveform Generation
+To ground the evaluation in real hardware behavior,
+we generate waveform data from five open source RISC-
+V cores spanning a range of architectural complexity
+(Table III). For each core, we compile custom firmware
+targeting diverse execution patterns: compute intensive
+(fibonacci, CoreMark), memory intensive (bubblesort),
+and branch intensive (Dhrystone). Simulation with Icarus
+Verilog [26] or Verilator [27] produces 13 VCD traces
+ranging from 338 to 4,185 signals.
+B. Waveform Pre-Processing
+Raw VCD traces undergo two major preprocessing
+stages: format conversion and complexity binning.
+Format conversion. In the first stage, each trace is either
+kept in its original VCD format (IEEE 1364 standard
+[28]) or converted to an event-time structured JSON
+representation. Both are event-based formats: rather than
+storing signal values at every simulation timestep, they
+record only transitions, which are individual value changes
+on a signal (e.g., a clock edge or a bus update). In this
+work, a transition means any time a signal waveform
+changes state (e.g., 0, 1, Z, X). More information and
+examples can be found in Appendix VI-A.
+Complexity binning. In the second stage, we apply
+complexity binning to control the waveform dataset size
+along two dimensions: signal count and transition count.
+These dimensions affect reasoning diﬀiculty in distinct
+ways: more signals widen the search space the model must
+navigate, while more transitions lengthen the sequences
+it must parse. They also govern token consumption: in
+the event-based representations described above, each
+transition adds tokens to the prompt, and each signal
+contributes declaration overhead. Because our designs
+span 338 to 4,185 signals (Table III), signal count alone can
+produce a large difference in the prompt size. We control
+both dimensions via a signal selection step followed by a
+windowing step.
+In the signal selection step, we group the 13 traces into
+three signal count bins based on their design complexity:
+0 to 1,000 signals, 1,000 to 3,000 signals, and 3,000 to
+5,000 signals. In the windowing step, waveform windows
+are extracted for each signal bin at five max transition
+thresholds: 5,000, 7,000, 15,000, 30,000, and 60,000. The
+max transition count caps the total number of recorded
+value changes in the window; all signals in the design
+are preserved, but the temporal extent is shortened so
+that the cumulative transition count does not exceed
+the threshold. This controls input size without removing
+signals. Combined with the three signal bins, this produces
+a 3 × 5 = 15 bin complexity grid. Each bin yields a set of
+selected signals for a given temporal window; we refer to
+these as processed waveform dataset, and to the collection
+within a bin as the waveform dataset group.
+C. Question and Answer Production
+For each waveform dataset group, questions and answers
+are generated in three stages: signal assignment, question
+and answer synthesis, and stratification.
+Signal assignment. In the first stage, signals in each
+processed waveform dataset are assigned a type based on
+their waveform behavior. For example, one-bit signals with
+a stable period are assigned the clock type. These assign-
+ments produce a parsed waveform data representation for
+question generation.
+Question and answer synthesis. In the second stage,
+a question generator selects appropriate signals from the
+parsed waveform dataset representation, samples random
+time points, computes ground truth directly from the
+trace, and instantiates a natural-language question via
+Python f-strings. To cover a wide range of reasoning skills
+and diﬀiculties, we implement eight question categories,
+each with three subcategories, yielding 24 subcategories
+in total (Table II). A deterministic seed per (waveform
+dataset, question/answer) pair ensures full reproducibility.
+More examples can be found in Appendix VI-C.
+Stratification. In the third stage, to ensure that no
+single processed waveform dataset or question subcategory
+dominates the evaluation, we generate 24 questions (one
+per subcategory) for each of the 15 complexity bins and
+distribute them evenly over the processed dataset groups.
+This yields 15 × 24 = 360 total questions, each paired
+with the respective ground truth and processed dataset.
+D. Benchmarking
+For each of the 360 questions, the LLM receives
+the respective processed waveform dataset alongside a
+single question and a system prompt. The responses
+are extracted and compared against the ground truth.
+Performance is measured using three metrics, where C
+denotes correct, W wrong, and X context exceeded where
+N is the total number of questions (N = C + W + X):
+• Aggregate Accuracy (A-Acc) =
+C
+C+W +X . Treats
+context exceeded as incorrect, reflecting end-to-end
+usability.
+• In-Context Accuracy (IC-Acc) =
+C
+C+W . Considers
+only answerable questions, isolating reasoning ability
+from context limits.
+
+
+Table II: Generated Question Categories & Sub-Categories
+Category
+Sub-Category
+Description
+Example
+Lookup
+Value at Time
+Signal value at specific time or edge
+“Value of data_out at 5th rising edge of clk?”
+Value When Changes
+Signal value when another transitions
+“Value of addr when enable goes 0→1 for 4th time?”
+First Match
+Value at first occurrence of condition
+“Value
+of
+data_out
+first
+time
+ready=1
+AND
+valid=1?”
+Counting
+Transition Count
+Count signal changes in time window
+“How many times does state change between t=1000-
+5000?”
+Rising Edge Count
+Count edges, optionally gated
+“Rising edges of clk while reset low, t=500-3000?”
+Conditional Count
+Count edges while signal in state
+“Rising edges of interrupt while enable high?”
+Arithmetic
+Period
+Average period over interval
+“Average period of clk_div between 3rd-12th enable
+edges?”
+Frequency
+Frequency with unit conversion
+“Frequency of clk in MHz between t=1000-8000?”
+Time Difference
+Time between edges of two signals
+“Time between 3rd rising req and 2nd falling ack?”
+Temporal
+Before/After
+Order of signal changes vs reference
+“Does data_valid change before/after 4th strobe
+edge?”
+Ordering
+Sort signals by next change time
+“Order by next change after t=2500: [reset, busy,
+done]”
+Last Before
+Last value before reference time
+“Last value of instruction before 7th fetch_valid
+edge?”
+Multistep
+Cycles After Trigger
+Value N cycles after trigger
+“Value of pc 8 cycles after interrupt goes high?”
+nth Event Value
+Value at high-order event
+“Value
+of
+mem_addr
+at
+18th
+falling
+edge
+of
+read_en?”
+Conditional Sequence
+Chain conditions across time
+“After 4th valid fall, data_out at 1st strobe rise w/
+enable=1?”
+Correlation
+Dual Condition
+Two signals match simultaneously
+“Value
+of
+data_bus
+2nd
+time
+ready=1
+AND
+valid=0?”
+Triple Condition
+Three signals match pattern
+“Value of addr 5th time enable=1, ready=1, er-
+ror=0?”
+Which Changes First
+Which signal changes last after trigger
+“After start high, which changes last: [busy, done,
+error]?”
+Misdirection
+nth Occurrence
+High-order event with decoys
+“Value of output at 9th rising edge of clock?”
+After Specific Event
+Event after ordinal event
+“Value of data at 1st valid rise after 3rd ready fall?”
+Ignore Glitch
+Stable value ignoring transients
+“Stable chip_select between t=1000-3000, ignoring
+glitches?”
+FSM
+State Sequence
+Ordered states in time window
+“Sequence of fsm_state between t=500-2000?”
+Next State
+Next state after transition
+“When fsm_state leaves IDLE 5th time, next state?”
+Return Count
+Count state transitions in window
+“Times
+fsm_state
+goes
+BUSY→IDLE,
+t=1000-
+8000?”
+V
+alue at Time
+V
+alue When Changes
+First Match
+Transition Count
+Rising Edge Count
+Conditional Count
+Period
+Frequency
+Time Difference
+Before After
+Ordering
+Last Before
+Cycles After Trigger
+Nth Event V
+alue
+Conditional Sequence
+Dual Condition
+Triple Condition
+Which Changes First
+Next State
+State Sequence
+Return Count
+Nth Occurrence
+After Specific Event
+Ignore Glitch
+Question Su category
+0
+20
+40
+60
+80
+100
+In-Con0ex0 Error (%)
+Lookup
+Counting
+Arithmetic
+T
+emporal
+Multistep
+Correlation
+Finite State Machine
+Misdirection
+JSON
+VCD
+Figure 2: Paired bar chart of in-context error rate (%) for JSON (teal) and VCD (gold) formatting, shown for each
+of the 24 question subcategories grouped by category. Evaluated on Gemini 2.5 Pro across all signal bins.
+• In-Context Error (IC-Err) = 1 −IC-Acc. It is the
+complement of IC-Acc.
+IV. Experimental Results
+We first compare VCD and JSON waveform formats,
+then evaluate four frontier models across the complexity
+grid, and finally analyze accuracy by question category
+and subcategory as well as error type.
+A. Impact of Waveform Format
+Figure 3(a) shows average input tokens per question at
+each max-transition threshold (averaged across all signal
+bins), and Figure 3(b) shows in-context accuracy at the
+same thresholds. Both panels compare JSON and VCD
+representation formats evaluated on Gemini 2.5 Pro.
+In terms of token eﬀiciency, VCD consistently requires
+15–30% fewer tokens per question than JSON at transition
+thresholds where both formats fit within Gemini’s context
+
+
+Table III: RISC-V Cores Used for Trace Generation
+Core
+ISA
+Signals
+Traces
+PicoRV32 [6]
+RV32I/E
+338
+2
+DarkRISCV [7]
+RV32I
+394
+3
+SERV [9]
+RV32I
+957
+2
+biRISC-V [10]
+RV32IM
+1,642–2,295
+4
+Ibex [8]
+RV32IMC
+4,185
+2
+Total
+338–4,185
+13
+5
+7
+15
+30
+60
+a) Max Transitions (10
+3
+)
+0
+0.2
+0.4
+0.6
+0.8
+1
+A g Input Tokens / Q (10
+6
+)
+JSON
+VCD
+5
+7
+15
+30
+60
+b) Max Transitions (10
+3
+)
+0
+20
+40
+60
+80
+100
+In-Context Accuracy (%)
+JSON
+VCD
+Figure 3: JSON vs. VCD on Gemini 2.5 Pro, averaged
+over all signal bins. (a) Average input tokens per question
+(×106) vs. max transitions for the same two formats.
+(b) In-context accuracy (%) vs. max transitions (×103)
+for JSON and VCD.
+window. This compactness advantage lets VCD encode
+larger traces: at 60,000 transitions, VCD still fits within
+the 1M token limit while JSON does not.
+Despite this token disadvantage, the JSON event-time
+format substantially outperforms VCD in accuracy and
+exhibits fewer systematic errors. From Figure 3(b), we
+observe an accuracy gain of 37–53% over raw VCD
+at transition thresholds where both formats fit within
+the context window. This is further shown in Figure 2,
+which presents the per-subtype accuracy for both formats
+across all 24 subcategories. VCD exhibits an average in-
+context error rate of 67.9%, more than three times that
+of JSON (21.2%), with VCD errors higher in 20 of 24
+subcategories by more than 20 %. This performance gap
+could occur because frontier models encountered more
+JSON formatted training during pre-training given its
+prevalence in web and API corpora [29]. Alternatively,
+the JSON formatting may have also reduced the lookup
+overhead by preserving more explicit naming conventions
+compared to VCD. For example, the “clk” signal in JSON
+would be denoted as “!” in VCD, which invokes the LLM to
+have to increase overhead to better understand the signal.
+Given that we prioritize accuracy in this benchmark, all
+subsequent results use event-time JSON formatting.
+Key takeaway 1: Structured event-time JSON waveform
+representations yield an accuracy gain of 37–53% over raw
+VCD, at a 15–30% token overhead.
+B. Performance by Model and Waveform Complexity
+We evaluate four models on all 360 questions using
+JSON format: Claude Sonnet 4.6 (1M token context),
+Gemini 2.5 Pro (1M token context), Qwen3 30B (256K
+0
+60
+120
+180
+240
+300
+360
+Number of Questions
+Gemini 2.5 Pro
+JSON | 1M Tokens
+Claude Sonnet 4.6
+JSON | 1M Tokens
+Claude Sonnet 4.5
+JSON | 200K Tokens
+Qwen3 30B
+JSON | 256K Tokens
+Corre t
+Wrong
+Conte0t E0 eeded
+A-Acc
+IC-Acc
+57.8%
+78.8%
+64.7%
+80.9%
+14.7%
+73.6%
+18.9%
+70.8%
+Figure 4: Bar chart showing the number of correct (green),
+wrong (orange), and context-exceeded (gray) responses
+out of 360 questions for each of the four models (JSON
+format). Aggregate accuracy (A-Acc) and in-context ac-
+curacy (IC-Acc) are listed to the right of each bar.
+token context), and Claude Sonnet 4.5 (200K token
+context).
+Figure 4 shows correct, wrong, and context exceeded
+responses for each model alongside A-Acc and IC-Acc.
+Claude Sonnet 4.6 (64.7% A-Acc) and Gemini 2.5 Pro
+(57.8%) answer the vast majority of questions, with only
+20% and 26.7% exceeding their context limits respectively.
+In contrast, Qwen3 30B and Claude Sonnet 4.5 lose 73.3%
+and 80% of questions to context overflow, reducing A-
+Acc to 18.9% and 14.7%, respectively. This shows that
+aggregate accuracy is primarily driven by context window
+size.
+The context bottleneck is also visible in Figure 5, which
+provides a finer breakdown of aggregate accuracy across
+the 15 complexity bins, each of which consist of a unique
+waveform dataset group. Claude Sonnet 4.5 fills only 3
+of 15 bins before hitting context limits, Qwen3 30B fills
+4 bins, Gemini fills 11 bins, and Claude Sonnet 4.6 fills
+12 bins. However, context window size is not the sole
+factor. On the three bins that all four models can answer,
+Claude Sonnet 4.6 and Gemini both achieve 84.7% IC-
+Acc, while Claude Sonnet 4.5 and Qwen3 30B reach only
+73.6% and 70.8%. This 11 to 14 percentage point gap
+on identical questions reveals that the larger models also
+perform better independent of their context advantage.
+Within answerable bins, two further patterns stand out.
+First, IC-Acc declines with transition count: Gemini drops
+from 86.1% at 5k transitions to 78.1% at 30k (averaged
+across signal bins), and Claude Sonnet 4.6 drops from
+81.9% to 73.6% over the same range. This indicates that
+longer temporal sequences degrade reasoning performance
+even when the waveform dataset fits within the context
+window. Second, signal count has little effect on IC-
+Acc: Gemini averages 79.0%, 84.4%, and 81.9% across
+all dataset bins, and Claude Sonnet 4.6 averages 85.4%,
+77.1%, and 80.2%. No consistent decline with signal count
+is observed, suggesting that widening the search space does
+not impair reasoning as long as the transition count re-
+mains comparable; signal count primarily increases token
+consumption, so its main impact is pushing traces toward
+
+
+5
+7
+15
+30
+60
+a) Max Transitions (10
+3
+)
+0-1
+1-3
+3-5
+Signa  Count Bin (10
+3
+)
+83.3%
+79.2%
+70.8%
+66.7%
+0.0%
+91.7%
+87.5%
+75.0%
+66.7%
+0.0%
+83.3%
+79.2%
+83.3%
+0.0%
+0.0%
+JSON ) 1M T
+okens
+Gemini 2.5 Pro
+5
+7
+15
+30
+60
+b) Max Transitions (10
+3
+)
+91.7%
+91.7%
+91.7%
+66.7%
+0.0%
+70.8%
+91.7%
+75.0%
+70.8%
+0.0%
+83.3%
+75.0%
+79.2%
+83.3%
+0.0%
+JSON ) 1M T
+okens
+Claude Sonnet 4.6
+5
+7
+15
+30
+60
+c) Max Transitions (10
+3
+)
+75.0%
+62.5%
+0.0%
+0.0%
+0.0%
+83.3%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+JSON ) 200K T
+okens
+Claude Sonnet 4.5
+5
+7
+15
+30
+60
+d) Max Transitions (10
+3
+)
+70.8%
+66.7%
+0.0%
+0.0%
+0.0%
+75.0%
+70.8%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+0.0%
+JSON ) 256K T
+okens
+Qwen3 30B
+0
+20
+40
+60
+80
+100
+Aggregate Accurac( (%)
+Figure 5: Heatmaps of aggregate accuracy (%) across the 3 × 5 complexity grid for each model: (a) Gemini 2.5 Pro
+(1M tokens), (b) Claude Sonnet 4.6 (1M tokens), (c) Claude Sonnet 4.5 (200k tokens), (d) Qwen3 30B (256k tokens).
+Rows correspond to signal-count bins (×103), columns to max-transition thresholds (×103). 0% is due to the model’s
+context limit errors. Color scale ranges from 0% (purple) to 100% (yellow).
+5
+7
+15
+30
+a) Max Trans t ons (10
+3
+)
+0
+25
+50
+75
+100
+IC-Acc (%)
+Lookup
+Gemini 2.5 Pro
+Claude Sonnet 4.5
+Claude Sonnet 4.6
+Qwen3 30B
+5
+7
+15
+30
+b) Max Trans t ons (10
+3
+)
+Counting
+Gem n  2.5 Pro
+Cla(de Sonnet 4.5
+Cla(de Sonnet 4.6
+Q)en3 30B
+5
+7
+15
+30
+c) Max Trans t ons (10
+3
+)
+Arithmetic
+Gem n  2.5 Pro
+Cla(de Sonnet 4.5
+Cla(de Sonnet 4.6
+Q)en3 30B
+5
+7
+15
+30
+d) Max Trans t ons (10
+3
+)
+T
+emporal
+Gem n  2.5 Pro
+Cla(de Sonnet 4.5
+Cla(de Sonnet 4.6
+Q)en3 30B
+5
+7
+15
+30
+e) Max Trans t ons (10
+3
+)
+0
+25
+50
+75
+100
+IC-Acc (%)
+Multistep
+Gemini 2.5 Pro
+Claude Sonnet 4.5
+Claude Sonnet 4.6
+Qwen3 30B
+5
+7
+15
+30
+f) Max Trans t ons (10
+3
+)
+Correlation
+Gem n  2.5 Pro
+Cla(de Sonnet 4.5
+Cla(de Sonnet 4.6
+Q)en3 30B
+5
+7
+15
+30
+g) Max Trans t ons (10
+3
+)
+Misdirection
+Gem n  2.5 Pro
+Cla(de Sonnet 4.5
+Cla(de Sonnet 4.6
+Q)en3 30B
+5
+7
+15
+30
+h) Max Trans t ons (10
+3
+)
+FSM
+Gem n  2.5 Pro
+Cla(de Sonnet 4.5
+Cla(de Sonnet 4.6
+Q)en3 30B
+Figure 6: Average in-context accuracy (%) vs. max transitions (×103) for each of the eight question categories:
+(a) Lookup, (b) Counting, (c) Arithmetic, (d) Temporal, (e) Multistep, (f) Correlation, (g) Misdirection, (h) Finite
+State Machine. Each subplot contains four lines, one per model: Gemini 2.5 Pro, Claude Sonnet 4.5, Claude Sonnet
+4.6, and Qwen3 30B.
+the context limit sooner.
+Key takeaway 2: In-context accuracy depends on transi-
+tion count, declining 8 to 12 % from 5k to 30k transitions,
+but not on signal count, which shows no consistent pattern
+across the three signal bins.
+C. Performance by Question Category and Subcategory
+Figure 6(a–h) shows in-context accuracy for each of the
+eight question categories, with one subplot per category
+and one line per model across transition thresholds.
+Overall, all models struggle most with Temporal, Mul-
+tistep, and Correlation, which consistently show lower
+accuracy across most transition thresholds compared to
+the remaining categories.
+To understand what drives these category-level differ-
+ences, Figure 7 breaks down the in-context error by subcat-
+egory, aggregated across all four models, and decomposes
+each error by root cause: wrong value, wrong signal,
+wrong order, or other. Consistent with the category-level
+findings, the highest observed error rate subcategories are
+Ordering (Temporal) with a near-total error rate of ∼95%,
+followed by Which Changes First (Correlation, ∼69%)
+and Cycles After Trigger (Multistep, ∼65%). The error
+decomposition shows that wrong order and wrong signal
+errors dominate two of the most error-prone subcategories,
+indicating that event sequencing and signal identification
+are where models fail most severely. Numerical extraction
+errors (wrong value) occur across all categories but at
+much lower rates. A per-model breakdown is provided in
+Appendix VI-B.
+Key takeaway 3: Temporal, Multistep, and Correlation
+categories are consistently the hardest across all models.
+The dominant errors in these categories are wrong order
+and wrong signal, indicating that event sequencing and
+multi-signal identification are fundamentally harder than
+numerical extraction for the evaluated LLMs.
+V. Conclusion and Future Work
+We present WaveformQA, a novel benchmark for eval-
+uating LLM temporal reasoning over digital waveforms.
+Evaluating four frontier models on 360 questions reveals
+three key findings: (1) Event-time JSON formatting out-
+
+
+V
+alue at Time
+V
+alue When Changes
+First Mat h
+Transition Count
+Rising Edge Count
+Conditional Count
+Period
+Frequen y
+Time Differen e
+Before After
+Ordering
+Last Before
+Cy les After Trigger
+Nth Event V
+alue
+Conditional Sequen e
+Dual Condition
+Triple Condition
+Whi h Changes First
+Next State
+State Sequen e
+Return Count
+Nth O  urren e
+After Spe ifi  Event
+Ignore Glit h
+Question Sub ategory
+0
+20
+40
+60
+80
+100
+In-Conte2t E--o- (%)
+Lookup
+Counting
+Arithmetic
+T
+emporal
+Multistep
+Correlation
+Finite State Machine
+Misdirection
+Wro)g value
+Wro)g sig)al
+Wro)g order
+Other
+Figure 7: Bar chart of in-context error rate (%) by question subcategory, aggregated across all four models. Bars are
+grouped by category and decomposed into four error types: wrong value (blue), wrong signal (orange), wrong order
+(pink), and other (gray).
+performs VCD by 37 to 53 % at a 15 to 30% token
+overhead, (2) in-context accuracy declines 8 to 12 % as
+transition count increases from 5k to 30k but appears
+unaffected by signal count, and (3) event sequencing and
+multi-signal identification were the hardest tasks across
+the models evaluated.
+Limitations. Our traces cover RISC-V cores only, and
+not broader domains such as protocol controllers or
+memory subsystems. The 360-question scale identifies
+systematic failure modes but offers limited statistical
+power per subcategory.
+Future Work. Key directions include (1) adding larger
+datasets for statistical significance and more challenging
+benchmark questions derived from this framework; (2)
+evaluating the visual modality using waveform viewer
+screenshots; (3) employing agentic context management
+via tool-calling APIs to avoid exhausting context windows;
+(4) scaling to more diverse hardware domains outside
+of RISC-V; and (5) exploring different waveform data
+representations such as time-grouped (rather than event-
+based) JSON formats.
+Code and data are available at:
+https://github.com/tenstorrent/waveformqa
+References
+[1] Z. Yu, C. Zhou, Y. Lin, H. Zhang, H. Ye, J. Cui, Z. Pan,
+J. Zhao, and Y. Ding, “ChipBench: A Next-Step Benchmark
+for Evaluating LLM Performance in AI-Aided Chip Design,”
+2026. [Online]. Available: https://arxiv.org/abs/2601.21448
+[2] Z. Yan, Z. Xie et al., “AssertLLM: Generating Hardware
+Verification Assertions from Design Specifications via Multi-
+LLMs,” in Proceedings of the Asia and South Pacific Design
+Automation Conference (ASPDAC), 2025. [Online]. Available:
+https://dl.acm.org/doi/10.1145/3658617.3697756
+[3] H.
+Foster.
+Part
+8:
+The
+2018
+Wilson
+Research
+Group
+Functional
+Verification
+Study.
+[Online].
+Available:
+https:
+//blogs.sw.siemens.com/verificationhorizons/2019/01/29/
+part-8-the-2018-wilson-research-group-functional-verification-study/
+[4] R.
+F.
+et
+al.,
+“gtkwave/gtkwave,”
+https://github.com/gtkwave/gtkwave,
+Mar
+16
+2026.
+[Online]. Available: https://github.com/gtkwave/gtkwave
+[5] Y.
+Bai,
+G.
+B.
+Hamad,
+C.-T.
+Ho,
+S.
+Suhaib,
+and
+H.
+Ren,
+“FVDebug:
+An
+LLM-Driven
+Debugging
+Assistant
+for
+Automated
+Root
+Cause
+Analysis
+of
+Formal
+Verification
+Failures,”
+2025.
+[Online].
+Available:
+https://arxiv.org/abs/2510.15906
+[6] C. Wolf, “PicoRV32 – A Size-Optimized RISC-V CPU,” https:
+//github.com/YosysHQ/picorv32, 2015–.
+[7] darklife, “DarkRISCV – Open-Source RISC-V CPU in Verilog,”
+https://github.com/darklife/darkriscv, 2018–.
+[8] lowRISC and contributors, “Ibex – A Small 32-Bit RISC-V CPU
+Core,” https://github.com/lowRISC/ibex, 2018–.
+[9] O. Kindgren, “SERV – Award-Winning Bit-Serial RISC-V
+Core,” https://github.com/olofk/serv, 2018–.
+[10] ultraembedded, “biRISC-V – 32-Bit Dual-Issue RISC-V CPU,”
+https://github.com/ultraembedded/biriscv, 2019–.
+[11] Anthropic, “Claude 4.5 Sonnet,” https://www.anthropic.com/
+news/claude-sonnet-4-5, September 2025, accessed: Mar. 16,
+2026.
+[12] Anthropic, “Claude Sonnet 4.6,” https://www.anthropic.com/
+news/claude-sonnet-4-6, 2026, accessed: Mar. 16, 2026.
+[13] G.
+C.
+et
+al.,
+“Gemini
+2.5:
+Pushing
+the
+Frontier
+with
+Advanced Reasoning, Multimodality, Long Context, and Next
+Generation Agentic Capabilities,” 2025. [Online]. Available:
+https://arxiv.org/abs/2507.06261
+[14] A. Y. et al., “Qwen3 Technical Report,” 2025. [Online].
+Available: https://arxiv.org/abs/2505.09388
+[15] W. Chen, X. Wang, and W. Y. Wang, “A Dataset for Answering
+Time-Sensitive Questions,” CoRR, vol. abs/2108.06314, 2021.
+[Online]. Available: https://arxiv.org/abs/2108.06314
+[16] Z.
+Jia,
+A.
+Abujabal,
+R.
+Saha
+Roy,
+J.
+Strötgen,
+and
+G. Weikum, “TempQuestions: A Benchmark for Temporal
+Question Answering,” in Companion Proceedings of the The
+Web Conference 2018, ser. WWW ’18.
+Republic and Canton
+of Geneva, CHE: International World Wide Web Conferences
+Steering Committee, 2018, p. 1057–1062. [Online]. Available:
+https://doi.org/10.1145/3184558.3191536
+[17] Z. Chu, J. Chen, Q. Chen, W. Yu, H. Wang, M. Liu, and
+B. Qin, “TimeBench: A Comprehensive Evaluation of Temporal
+Reasoning Abilities in Large Language Models,” in Proc. ACL
+(Volume 1: Long Papers), 2024, pp. 1204–1228.
+[18] W. Tang, K. Nuamah, and V. Belle, “LTLBench: Towards
+Benchmarks for Evaluating Temporal Reasoning in Large
+Language Models,” arXiv preprint arXiv:2407.05434, 2024.
+[Online]. Available: https://arxiv.org/abs/2407.05434
+[19] M.
+Weng,
+D.
+Cao,
+W.
+Yang,
+Y.
+Sharma,
+and
+Y.
+Liu,
+“TemporalBench: A Benchmark for Evaluating LLM-Based
+Agents on Contextual and Event-Informed Time Series Tasks,”
+2026. [Online]. Available: https://arxiv.org/abs/2602.13272
+[20] Y. Wang and Y. Zhao, “TRAM: Benchmarking Temporal
+Reasoning
+for
+Large
+Language
+Models,”
+2024.
+[Online].
+Available: https://arxiv.org/abs/2310.00835
+[21] S. Liu, Y. Lu, W. Fang, M. Li, and Z. Xie, “OpenLLM-RTL:
+Open Dataset and Benchmark for LLM-Aided Design RTL
+Generation,” in Proc. IEEE/ACM Int. Conf. Comput.-Aided
+Design (ICCAD), 2025.
+
+
+[22] M.
+Liu,
+N.
+Pinckney,
+B.
+Khailany,
+and
+H.
+Ren,
+“VerilogEval:
+Evaluating
+Large
+Language
+Models
+for
+Verilog
+Code
+Generation,”
+2023.
+[Online].
+Available:
+https://arxiv.org/abs/2309.07544
+[23] K. Xu, J. Sun, Y. Hu et al., “MEIC: Re-thinking RTL Debug
+Automation using LLMs,” in Proc. IEEE/ACM Int. Conf.
+Comput.-Aided Design (ICCAD), 2025.
+[24] L. J. Wan, H. Ye, J. Wang, M. Jha, and D. Chen, “An
+Iteratively-refined Dataset for High-Level Synthesis Functional
+Verification
+through
+LLM-Aided
+Bug
+Injection,”
+in
+2024
+IEEE
+LLM
+Aided
+Design
+Workshop
+(LAD),
+2024,
+pp.
+1–6. [Online]. Available: https://hanchenye.com/assets/pdfs/
+LAD24_Chrysalis.pdf
+[25] A. Menon, S. S. Miftah, S. Kundu, S. Kundu, A. Srivastava,
+A. Raha, G. T. Sonnenschein, S. Banerjee, D. Mathaikutty, and
+K. Basu, “Enhancing Large Language Models for Hardware
+Verification: A Novel SystemVerilog Assertion Dataset,” 2025.
+[Online]. Available: https://arxiv.org/abs/2503.08923
+[26] S. Williams, “Icarus Verilog — Icarus Verilog documentation,”
+2024.
+[Online].
+Available:
+https://steveicarus.github.io/
+iverilog/
+[27] W. Snyder, “Verilator: Open-source SystemVerilog simulator
+and lint system,” https://www.veripool.org/verilator/, 2024.
+[28] IEEE Standard for Verilog Hardware Description Language,
+IEEE Std. 1364-2005, 2005, section 18: Value Change Dump
+(VCD) files. [Online]. Available: https://standards.ieee.org/
+standard/1364-2005.html
+[29] Tegridy, “LLM Dataset Formats 101: A no‐bs guide for hugging
+face DEVS,” Feb 2025. [Online]. Available: https://huggingface.
+co/blog/tegridydev/llm-dataset-formats-101-hugging-face
+VI. Appendix
+A. VCD versus JSON Representation Comparison
+To illustrate the representational trade-offs, consider a
+simple 4-bit counter, a fundamental building block in pro-
+cessor architectures (program counters, instruction fetch
+pipelines). This example circuit contains three signals: a
+10ns-period clock (clk), an active-high reset (reset), and a
+4-bit counter output (count[3:0]). The counter initializes
+to zero while reset is asserted. At t=5ns, reset deasserts
+and the counter begins incrementing on each rising clock
+edge: 0→1 at t=10ns, 1→2 at t=20ns, 2→3 at t=30ns.
+$timescale 1ns $end
+$scope module counter $end
+$var wire 1 ! clk $end
+$var wire 1 ” reset $end
+$var wire 4 # count[3:0] $end
+$upscope $end
+$enddefinitions $end
+$dumpvars
+0!
+1”
+b0000 #
+$end
+#0
+#5
+1!
+0”
+#10
+0!
+b0001 #
+#15
+1!
+#20
+0!
+b0010 #
+#25
+1!
+#30
+0!
+b0011 #
+Listing 1: 4-bit counter trace in VCD format
+VCD is the IEEE 1364 standard for recording signal
+transitions [28]. VCD uses a compact delta-encoded rep-
+resentation where only state changes are logged. Signal
+declarations map readable names to single-character iden-
+tifiers (!, “, #), followed by timestamped value changes.
+The compactness of VCD is advantageous for storage
+eﬀiciency, where large simulation traces compress well
+due to delta encoding. However, temporal queries require
+reconstructing signal state: answering what is count at
+t=12ns? requires parsing back to the most recent change
+before t=12ns (b0001 at t=10ns). The cryptic single-
+character identifiers ! for clock, ” for reset, # for count)
+lack semantic context and become ambiguous in traces
+with hundreds of signals.
+{
+”trace_id”: ”counter_example”,
+”time_range”: [0, 30],
+”time_unit”: ”ns”,
+”signals”: {
+”clk”: {
+”width”: 1,
+”changes”: [[0, 0], [5, 1], [10, 0], [15, 1],
+[20, 0], [25, 1], [30, 0]]
+},
+”reset”: {
+”width”: 1,
+”changes”: [[0, 1], [5, 0]]
+},
+”count”: {
+”width”: 4,
+”changes”: [[0, ”0x0”], [10, ”0x1”],
+[20, ”0x2”], [30, ”0x3”]]
+}
+}
+}
+Listing 2: 4-bit counter trace in event-driven JSON format
+Our structured JSON representation addresses VCD’s
+interpretability limitations by grouping changes by signal
+name and including explicit metadata. The same 4-bit
+counter in JSON format as shown.
+JSON provides explicit signal naming (“clk” vs !), typed
+values with clear radix notation (“0x1” vs b0001), and
+structured access patterns (each signal’s changes array is
+directly indexable). The width field disambiguates single-
+bit control signals from multi-bit buses. This verbosity
+costs 15–30% more tokens per trace but yields 37–53%
+accuracy gains in our evaluation (Section IV-A), as models
+leverage JSON’s prevalence in pre-training corpora and
+avoid VCD parsing errors.
+B. Subcategory Error Breakdown per Model
+Figure 8 shows the per-model in-context error by sub-
+category, complementing the aggregated view in Figure 7.
+C. Question Generation Prompts
+Table IV shows the question templates for all 24 sub-
+categories. Some subcategories have multiple templates.
+These template variations are indicated by parentheses in
+the table.
+
+
+0
+20
+40
+60
+80
+100
+In-Context Error (%)
+a) Gemini 2.5 Pro
+Lookup
+Counting
+Arithmetic
+Temporal
+Multistep
+Correlation
+Finite State Machine
+Misdirection
+Wrong value
+Wrong s gnal
+Wrong order
+O)her
+0
+20
+40
+60
+80
+100
+In-Con)ex) Error (%)
+b) Claude Sonnet 4.6
+Lookup
+Counting
+Arithmetic
+Temporal
+Multistep
+Correlation
+Finite State Machine
+Misdirection
+Wrong value
+Wrong ( gnal
+Wrong order
+0
+20
+40
+60
+80
+100
+In-Con)ex) Error (%)
+c) Claude Sonnet 4.5
+Lookup
+Counting
+Arithmetic
+Temporal
+Multistep
+Correlation
+Finite State Machine
+Misdirection
+Wrong value
+Wrong ( gnal
+Wrong order
+V
+alue a) T me
+V
+alue When Change(
+F r() Ma)ch
+Tran( ) on Coun)
+R ( ng Edge Coun)
+Cond ) onal Coun)
+Per od
+Frequenc-
+T me D fference
+Before Af)er
+Order ng
+La() Before
+C-cle( Af)er Tr gger
+N)h Even) V
+alue
+Cond ) onal Sequence
+Dual Cond ) on
+Tr %le Cond ) on
+Wh ch Change( F r()
+Nex) S)a)e
+S)a)e Sequence
+Re)urn Coun)
+N)h Occurrence
+Af)er S%ec f c Even)
+Ignore Gl )ch
+Que() on Subca)egor-
+0
+20
+40
+60
+80
+100
+In-Con)ex) Error (%)
+d) Qwen3 30B
+Lookup
+Counting
+Arithmetic
+Temporal
+Multistep
+Correlation
+Finite State Machine
+Misdirection
+Wrong value
+Wrong ( gnal
+Wrong order
+Figure 8: In-context error rate (%) by question subcategory for each model individually: (a) Gemini 2.5 Pro, (b) Claude
+Sonnet 4.6, (c) Claude Sonnet 4.5, (d) Qwen3 30B. Bars are grouped by category and decomposed into error types:
+wrong value (blue), wrong signal (orange), wrong order (pink), and other (gray, panel a only).
+
+
+Table IV: List of Prompts Created by Deterministic Generators
+Sub-Category
+Prompt
+Sub-Category
+Prompt
+Lookup
+Value at Time (In-
+direct)
+“What is the value of {signal.name} at the {ordi-
+nal} rising edge of {ref_sig.name}?”
+Value at Time (Di-
+rect)
+“What
+is
+the
+value
+of
+{signal.name}
+at
+t={time}{time_unit}?”
+First
+Match
+(Sin-
+gle)
+“What is the value of {query_sig.name} the first
+time {match_sig.name} equals {target_hex}?”
+First
+Match
+(Two
+Cond.)
+“What
+is
+the
+value
+of
+{query_sig.name}
+the
+first
+time
+{cond1.name}={value1}
+AND
+{cond2.name}={value2} simultaneously?”
+Value
+When
+Changes
+“What is the value of {sig_query.name} when
+{sig_trigger.name} transitions from {from_val}
+to {to_val} for the {ordinal} time?”
+Counting
+Transition Count
+“How many times does {signal.name} change
+value
+between
+t={t_start}{time_unit}
+and
+t={t_end}{time_unit}?”
+Rising
+Edge
+(Gated)
+“How
+many
+rising
+edges
+does
+{signal.name}
+have while {gate_signal.name} is low, between
+t={start}{time_unit} and t={end}{time_unit}
+(inclusive)?”
+Rising
+Edge
+(Un-
+gated)
+“How
+many
+rising
+edges
+does
+{signal.name}
+have
+between
+t={start}{time_unit}
+and
+t={end}{time_unit} (inclusive)?”
+Falling Edge Count
+“How many falling edges does {signal.name}
+have
+between
+t={start}{time_unit}
+and
+t={end}{time_unit} (inclusive)?”
+Conditional Count
+“How many rising edges does {sig_count.name}
+have
+while
+{sig_cond.name}
+is
+high,
+between
+t={win_start}{time_unit}
+and
+t={win_end}{time_unit}?”
+Arithmetic
+Period (Reference)
+“What is the period of {signal.name} between
+the
+{lo_ord}
+and
+{hi_ord}
+rising
+edges
+of
+{ref.name}, in {time_unit}?”
+Period (Time Win-
+dow)
+“What
+is
+the
+period
+of
+{signal.name}
+between
+t={win_start}{time_unit}
+and
+t={win_end}{time_unit}, in {time_unit}?”
+Frequency
+(Reference)
+“What is the frequency of {signal.name} be-
+tween the {lo_ord} and {hi_ord} rising edges of
+{ref.name}, in {freq_unit}?”
+Frequency
+(Time
+Window)
+“What
+is
+the
+frequency
+of
+{signal.name}
+between
+t={t_start}{time_unit}
+and
+t={t_end}{time_unit}, in {freq_unit}?”
+Time Difference
+“What is the time difference from the {ord1}
+{edge_type1}
+edge
+of
+{sig1.name}
+to
+the
+{ord2} {edge_type2} edge of {sig2.name}, in
+{time_unit}?”
+Temporal
+Before/After
+“Does
+{sig1.name}
+change
+before,
+after,
+or
+at
+the
+same
+time
+as
+{sig2.name}
+{refer-
+ence_description}?”
+Ordering
+“List
+these
+signals
+in
+the
+order
+they
+first
+change
+after
+t={anchor}{time_unit}:
+{shuf-
+fled_names}. Provide a comma-separated list.”
+Last Before
+“What is the LAST value of {data_sig.name}
+{ref_desc}? Give the value immediately preced-
+ing the rising edge.”
+Multistep
+Cycles After Trig-
+ger
+“What
+is
+the
+value
+of
+{data.name}
+exactly
+{n_cycles}
+{clock.name}
+cycles
+after
+{trig-
+ger_phrase}?”
+nth Event Value
+“What is the value of {query_sig.name} im-
+mediately after the {ordinal} {edge_desc} of
+{event_sig.name}?”
+Cond. Sequence (3
+Sig.)
+“What
+is
+the
+value
+of
+{sig_c.name}
+when
+{sig_a.name} goes high for the first time after
+the {ordinal} time {sig_b.name} goes low?”
+Cond. Sequence (4
+Sig.)
+“What
+is
+the
+value
+of
+{sig_c.name}
+when
+{sig_a.name} goes high for the first time after
+the {ordinal} time {sig_b.name} goes low, while
+{sig_d.name}=1?”
+Correlation
+Dual Condition
+“What is the value of {query_sig.name} at the
+{match_ordinal} time when {cond1.name}={v1}
+AND {cond2.name}={v2}?”
+Triple Condition
+“Between
+t={t_win_lo}{tu}
+and
+t={t_win_hi}{tu},
+what
+is
+the
+value
+of
+{query_sig.name} at the {match_ordinal} time
+when
+{cond1}={val1}
+AND
+{cond2}={val2}
+AND {cond3}={val3}?”
+Which
+Changes
+Last
+“After
+{trigger.name}
+goes
+high
+at
+t={trigger_time}{time_unit},
+which
+signal
+changes LAST: {options}?”
+Finite State Machine
+Next State
+“What
+state
+does
+{signal.name}
+tran-
+sition
+to
+the
+{ordinal}
+time
+it
+leaves
+{from_display}{time_filter}?”
+State Sequence
+“List the sequence of states that {signal.name}
+visits between t={start_time}{time_unit} and
+t={end_time}{time_unit}. Provide as a comma-
+separated list.”
+Return Count (Spe-
+cific)
+“How
+many
+times
+does
+{signal.name}
+transition
+directly
+from
+{from_display}
+to
+{to_display}{time_window}?”
+Return
+Count
+(Any)
+“How many times does {signal.name} transition
+INTO {state_display}{time_window}? (Count
+each entry, not time spent)”
+Misdirection
+nth Occurrence
+“{trigger_sig.name}
+has
+multiple
+edges:
+{times_str},
+etc.
+What
+is
+the
+value
+of
+{query_sig.name}
+immediately
+after
+the
+{ordinal} RISING edge of {trigger_sig.name}?”
+After Specific Event
+“What is the value of {query_sig.name} when
+{trigger_sig.name} goes high for the first time
+AFTER the {ref_ordinal} time {ref_sig.name}
+goes low?”
+Ignore Glitch
+“Signal
+{sig.name}
+has
+{pulse_desc}.
+Ignoring
+these
+transients,
+what
+is
+the
+stable
+value
+of
+{sig.name}
+during
+the
+interval
+t={interval_start}
+to
+t={interval_end}{time_unit}?”

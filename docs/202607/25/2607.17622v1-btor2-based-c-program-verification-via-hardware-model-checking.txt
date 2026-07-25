@@ -1,0 +1,1602 @@
+BTOR2-Based C Program Verification via
+Hardware Model Checking
+Xinyu Zhang, Runxuan Fang, Ziqun Bao, Yechuan Xia, Jianwen Li*, and Geguang Pu
+East China Normal University
+{westtide,rxfang,52285902029}@stu.ecnu.edu.cn
+{xiaozi465,lijwen2748}@gmail.com, ggpu@sei.ecnu.edu.cn
+Abstract—Program verification tools often rely on specific
+intermediate representations and analysis backends, limiting
+the reuse of verification algorithms and model checkers across
+frameworks. In contrast, hardware model checking has developed
+a mature backend ecosystem, where standard formats such as
+BTOR2 support reusable algorithms for counterexample search
+and inductive safety proving. Applying these capabilities to C
+requires translating assertion-based programs into transition
+systems that hardware model checkers can directly process.
+We present C2Btor, a method for encoding such verification
+tasks into BTOR2 models. C2Btor uses a program counter to
+capture control transfers, represents data states and memory
+objects with bit-vectors and arrays, and maps assumptions
+and assertion checks into BTOR2 constraints and bad-state
+properties.
+We evaluate C2Btor on SV-COMP C ReachSafety benchmarks
+and a curated assertion-category benchmark suite, comparing it
+with representative program verification tools. C2Btor correctly
+solves 263 tasks, 101 more than CBMC configured with bounded
+model checking, and is especially effective on bit-vector bench-
+marks, where it solves 75.5% of the tasks with no wrong verdicts.
+These results show that the BTOR2 route allows C program
+verification to benefit from advances in hardware model-checking
+backends, expanding the available capability for counterexample
+search, inductive safety proving, and word-level transition-system
+reasoning.
+Index Terms—Program Verification, BTOR2, Model Checking,
+Intermediate Representation
+I. Introduction
+Hardware model checking has developed a mature ecosys-
+tem of automated backends for Reachability-safety analysis.
+Through competitions such as the Hardware Model Checking
+Competition (HWMCC) [1], formats such as AIGER [2] and
+BTOR2 [3] have become stable interfaces, enabling algorithms
+such as Bounded Model Checking (BMC) [4], k-Induction [5],
+and IC3/PDR [6, 7] to be implemented and reused over
+common inputs. Although these techniques were developed
+mainly for hardware transition systems, C program verification
+has a closely related safety objective: a program is unsafe if
+some feasible execution reaches an assertion failure, and safe
+otherwise. This raises a natural question: Can C reachability-
+safety tasks benefit from the mature automated backends
+developed in hardware model checking?
+C program verification already has mature intermediate
+representations and tool ecosystems, as reflected in SV-
+COMP [8]. Representations such as LLVM-IR [9], Constrained
+Horn Clauses (CHCs) [10], and SMT-LIB [11] have supported
+symbolic execution [12], abstract interpretation [13], bounded
+model checking, and Horn-clause solving [14]. However, these
+representations are not the task formats directly consumed
+by HWMCC-style hardware model checkers. The issue is
+therefore not the absence of software-verification IRs, but
+the lack of a semantic encoding layer from assertion-based
+C verification tasks to hardware model-checking transition
+systems.
+This paper addresses this gap by using BTOR2 as
+the primary target representation. The reason is not that
+BTOR2 replaces lower-level formats such as AIGER, but that
+it provides a suitable interface for constructing program-level
+transition systems before optional lowering to bit-level models.
+BTOR2 preserves word-level bit-vector and array terms, and
+provides native constructs for states, transitions, constraints,
+and bad-state properties. These features allow the encoding to
+keep finite-state program data, control-flow locations, assump-
+tions, and assertion failures explicit in the generated model.
+AIGER remains useful as a lower-level target for the subset
+of generated models that can be bit-blasted and discharged by
+AIGER-based engines.
+We therefore propose C2Btor, a framework that trans-
+lates C programs into BTOR2 transition systems and veri-
+fies the generated tasks using hardware model checkers. To
+separate C frontend processing from BTOR2-specific semantic
+encoding, C2Btor follows a three-stage route.
+1) It uses the parser of CBMC [15] to lower the input C
+program into Goto-IR1, a verification-oriented IR with
+explicit control flow and type information.
+2) C2Btor encodes the Goto-IR program into a BTOR2
+transition system, including program-counter-based con-
+trol flow, state and next expressions for data updates,
+object-level pointer modeling, and the mapping from
+assumptions and assertions to constraint and bad nodes.
+3) The generated BTOR2 task is discharged by hardware
+model-checking backends for counterexample search and
+safety proving, rather than by CBMC’s bounded-model-
+checking backend.
+The main contributions of this paper are as follows:
+• A C-to-BTOR2 encoding for a well-defined verification
+fragment. We propose a set of encoding rules that trans-
+late assertion-based C verification tasks, via Goto-IR, into
+1https://diffblue.github.io/cbmc/group__goto-programs.html
+arXiv:2607.17622v1  [cs.SE]  20 Jul 2026
+
+
+BTOR2 transition systems. The encoding uses an explicit
+program counter to model control flow, represents data
+states and memory objects with bit-vectors and arrays,
+and maps assumptions and assertions uniformly to con-
+straint and bad nodes. This formulation makes explicit
+the C fragment naturally supported by the BTOR2-based
+route, including finite-state, bit-vector-friendly programs
+with structured control flow, nondeterministic inputs,
+fixed-width integer operations, local arrays, and restricted
+object-level pointer relations.
+• An end-to-end framework for reusing hardware model
+checking backends. We develop C2Btor, a tool frame-
+work that connects C reachability-safety tasks, the pro-
+posed BTOR2 encoding, and existing hardware model-
+checking backends. Given an assertion-based C program,
+C2Btor generates backend-consumable BTOR2 models
+and enables different backend algorithms to be applied to
+the same transition-system representation for counterex-
+ample search and safety proving.
+• Empirical findings on complementarity and backend
+algorithm behavior. We evaluate C2Btor on SV-COMP
+C ReachSafety benchmarks and a curated assertion-
+category dataset, showing that the BTOR2-based route
+can solve tasks not covered by bounded, SMT-based,
+or CHC-based software verifiers. We further analyze the
+generated model-checking tasks on 390 BTOR2 models
+and 305 converted AIGER models, showing that backend
+algorithms play distinct roles in counterexample search
+and safety proving. These findings indicate that encoding
+C verification tasks into BTOR2 allows program verifica-
+tion to benefit from advances in HWMCC-style backend
+algorithms, thereby expanding the available capability for
+bug finding and safety proving.
+The remainder of this paper is organized as follows. Sec-
+tion II discusses related work. Section III introduces BTOR2,
+Goto-IR, and the formulation of ReachSafety tasks in hardware
+model checking. Section IV presents the proposed encoding
+method, including the overall workflow, key translation rules,
+and semantic boundaries. Section V reports the experimental
+design and results. Section VI discusses applicability, limita-
+tions, and future work, and concludes the paper.
+II. Related Work
+A. C Program Verification
+C program verification has been extensively studied, and
+SV-COMP has helped establish a mature ecosystem of tools
+and benchmarks [8]. The ReachSafety category spans several
+paradigms: CBMC [15] and ESBMC [16] perform bit-precise
+bounded model checking; Ultimate Automizer [17] uses in-
+terpolation and refinement; CPAchecker [18] and Bubaak [19]
+reflect configurable and portfolio verification; and AISE [20],
+Symbiotic [21], and VeriAbs [13] combine abstraction, sym-
+bolic execution, and slicing. CHC-based tools such as Eldarica
+and TriCera [22, 23] reduce safety proving to invariant infer-
+ence and Horn solving [14].
+These tools differ in both backend algorithms and inter-
+mediate representations. Goto-IR, LLVM-style representations,
+SMT encodings, and CHCs expose control flow, data state,
+memory, and verification conditions in different ways. This
+paper is complementary: instead of building another C verifier
+over a software IR, we study whether assertion-based C tasks
+can be encoded into a standard hardware model-checking
+format and solved by hardware backends.
+B. Hardware Model Checking, AIGER, and BTOR2
+Hardware model checking is reachability analysis over tran-
+sition systems with initial conditions, transition relations, and
+bad states. BMC [4] is effective for bounded counterexample
+search, while k-Induction [5] and IC3/PDR [6, 7] prove un-
+bounded safety through inductive reasoning. Recent backends
+also include CAR-style reachability [24, 25] and optimized
+IC3/PDR variants [26].
+Hardware model checking also benefits from common task
+formats. AIGER [2] is a compact bit-level representation used
+by model checkers such as SimpleCAR [27]. BTOR2 [3] is
+a word-level transition-system format over bit-vectors, arrays,
+and state updates; it preserves word-level structure before bit-
+blasting [28], and rIC3 [29] can process BTOR2 directly. We
+use BTOR2 as the primary C-encoding target and AIGER as
+a lower-level target for the convertible subset.
+C. Bridging Hardware and Software Analysis
+Hardware and software verification start from different
+artifacts, but many tasks share the same transition-system core:
+initial states, state updates, and error states. Existing work
+has explored the hardware-to-software direction: Btor2C [30]
+translates BTOR2 circuits into C programs so that hardware
+models can be analyzed by software verifiers.
+Our work studies the reverse direction: translating C
+reachability-safety tasks into BTOR2 transition systems. Com-
+pared with Btor2C, we must recover control flow, data updates,
+pointer operations, assumptions, and assertion failures from C
+and encode them into a hardware model-checking format.
+By targeting BTOR2, our encoding turns C reachability-
+safety tasks into word-level transition systems consumed by
+hardware backends, allowing program verification to benefit
+from advances in counterexample search and safety proving.
+III. Background
+A. Overview of C2Btor
+Figure 1 shows the pipeline of C2Btor. The input is a C
+program with assertions. C2Btor reuses the CBMC frontend
+to parse, type-check, and normalize the program into Goto-IR.
+We use the following notation throughout the paper:
+C
+FCBMC
+−−−→GGotoIR
+EC2Btor
+−−−−→MBTOR2.
+Goto-IR lowers structured C control flow into explicit program
+locations and instructions. C2Btor then encodes the Goto-
+IR program into a BTOR2 transition system with a set of
+encoding rules. The generated BTOR2 model can then be
+analyzed by different model-checking backends, such as BMC,
+
+
+1
+Program and Goto-IR
+2
+BTOR2 Model
+3
+Hardware Model Checking
+C program
+assume(C)
+for ( ... ; ... ; ... ) {
+...
+}
+assert(P)
+Goto-IR
+DECL  
+ASSIGN 
+L1: IF !(cond) GOTO L2
+body
+Update(cond)
+GOTO L1
+L2: …
+Parser
+A Control
+Flow
+B Data 
+and
+Instructions
+C Pointers 
+and
+Memory
+0
+1
+......
+0
+1
+*(p+i)=*(p + cast(i, signedbv[64]))
+D Verification
+Semantics
+Model
+M = (X, Init, Next, B, C)
+X
+Init
+Next
+B
+C
+A Control 
+Fow in
+BTOR2
+pc
+t
+e
+B Data 
+and 
+Instructions in
+BTOR2
+BV
+Sort
+ARRAY
+Sort
+Native 
+Operators
+C Pointers 
+and
+Memory 
+in BTOR2
+objects
+obj 0
+obj 1
+...
+obj n
+offset
+0
+1
+2
+...
+63
+D Verification
+Semantics
+in BTOR2
+ASSERT ⇒BAD
+ASSUME ⇒CONSTRAINT
+BTOR2
+Model
+Reach(¬P)?
+BMC
+k-
+induction
+IC3/PDR
+Others
+Results
+UNSAFE
+SAT with
+a witness
+SAFE
+UNSAT with
+a certificate
+UNKNOWN
+Multiple 
+Model Checkers
+cond
+¬cond
+L1
+body
+L2
+GOTO
+GOTO
+¬cond
+cond
+next(pc) = 
+ite(cond, t, e)
+P=<object, offset>
+Model
+ASSUME   C
+Verify
+Explicit 
+Types
+ARRAY
+Sort
+Native 
+Operators
+64 bit
+ASSERT   P
+Fig. 1: Overview of C2Btor.
+k-Induction, and IC3/PDR. The backend result is interpreted as
+a program-verification result: SAT means Unsafe and UNSAT
+means Safe, and an inconclusive run is reported as unknown.
+Therefore, Section III-B explains the connection between
+program verification and model checking, and Section III-C
+introduces the Goto-IR representation. Section III-D summa-
+rizes the BTOR2 concepts used in this work.
+B. From Program Verification to Model Checking
+In a C program, an assertion expresses a condition that must
+hold whenever execution reaches the corresponding program
+point. SV-COMP ReachSafety tasks use the same idea, often
+by requiring that an error function such as reach_error is
+unreachable [8].
+A transition system provides the target form for this reach-
+ability problem. It contains state variables, initial conditions,
+and transition updates. Assertions are represented as bad-state
+predicates, and assumptions restrict the feasible transitions.
+If a bad state is reachable, the program is unsafe and the
+backend may return a counterexample. If all bad states are
+proven unreachable, the program is safe under the generated
+model; otherwise the result is reported as unknown or timeout.
+This is the only model-checking interface required by
+C2Btor. The encoder translates Goto-IR control and data up-
+dates into BTOR2 state and next nodes, and maps verification
+semantics to bad and constraint nodes. The resulting BTOR2
+task can then be analyzed by hardware model-checking back-
+ends using BMC, k-induction, or IC3/PDR.
+C. Goto-IR as a Frontend Representation
+Generating a transition system directly from C source code
+is complicated. C contains structured control flow, implicit
+conversions, expression evaluation rules, object layout, pointer
+operations, and library-dependent constructs. To avoid reim-
+plementing a full C frontend, C2Btor uses the Goto-IR pro-
+duced by the CBMC frontend as its input representation. We
+later write GGotoIR simply as G and abstract it as
+G = (L, Σ, Objects, Instructs, Verif).
+Here,
+L = {ℓ1, ℓ2, . . . , ℓn}
+is the set of Goto-IR locations, where each ℓi is the location
+of one Goto-IR instruction. Σ is the static symbol table with
+type information. For example,
+Σ = {int x : signedbv[64],
+int a[2] : signedbv[64][2],
+int *p : signedbv[64]}.
+Objects is the collection of program state objects. A valuation
+of these objects describes the dynamic program state:
+ν ∈ValΣ(Objects).
+Thus, at location ℓi, a Goto-IR state is
+(ℓi, ν) ∈L × ValΣ(Objects).
+Instructs contains the lowered Goto-IR instructions. High-
+level C control flow is represented by assignments and explicit
+jumps.
+Example 1. Control-Flow Lowering. A conditional branch
+instruction if (A) { B } else { C } is lowered to a con-
+ditional goto and two explicit branch blocks:
+
+
+L1: if !A goto L_else
+L2: B
+L3: goto L_end
+L_else: C
+L_end: ...
+A loop for (I; A; U) { B } is lowered to a condition
+check and a back edge:
+L1: I
+L2: if !A goto L_end
+L3: B
+L4: U
+L5: goto L2
+L_end: ...
+Goto-IR represents pointer operations as explicit typed
+expressions. Pointer reads and writes keep the dereference
+operation visible, while pointer arithmetic and casts expose the
+bit-vector expression used to compute the accessed address.
+Example 2. Pointer Expressions. A pointer read such as r
+= *(p + i) is represented as:
+r := ∗(p + cast(i, signedbv[64])).
+Similarly a pointer write *(p + i) = v can be:
+∗(p + cast(i, signedbv[64])) := v.
+Verif contains verification-relevant instructions such as
+assert(p) and assume(c). Assertions define bad-state condi-
+tions, while assumptions define path constraints. In summary,
+Goto-IR gives C2Btor an explicit, typed, and verification-
+oriented program representation; the rules for translating this
+representation into BTOR2 are presented in Section IV.
+D. BTOR2 Transition Systems
+BTOR2 is a word-level transition-system format for model
+checking [3]. It is not a programming language with sequential
+statements. Instead, a BTOR2 file is a numbered list of typed
+definitions. Each line starts with a unique identifier, and
+later lines refer to earlier identifiers to build expressions and
+transition-system components. Thus, a BTOR2 model is a
+graph of sorts, state nodes, input nodes, expression nodes,
+and property nodes. We write the generated BTOR2 transition
+system as
+MBTOR2 = (X, Init, Next, B, C).
+Here, X is the set of BTOR2 state nodes, Init gives their initial
+values or constraints, and Next gives their synchronous next-
+state updates. B is the set of bad-state predicates, and C is the
+set of path constraints.
+The following sketch shows the style of BTOR2 lines:
+1
+sort bitvec 32
+2
+sort bitvec 64
+29 sort bitvec 1
+36 constd 1 4
+; integer constant 4
+54 eq 29 pc L_cond
+; pc == loop condition
+55 slt 29 i 36
+; i < 4
+56 not 29 55
+; !(i < 4)
+57 and 29 54 56
+; exit guard
+59 and 29 54 55
+; body guard
+65 add 2 p offset
+; p + offset
+101 ite 1 guard val old; guarded read/update
+141 next 1 sum 140
+; next(sum)
+200 bad 57
+; reachable error
+This example is schematic: names such as pc, i, and sum stand
+for previously defined node identifiers. The important point is
+that every computed value is a numbered node, and later lines
+build larger expressions by referring to earlier identifiers.
+The BTOR2 keywords can be grouped as follows.
+1) Line and node definitions. Each line has a unique id
+and defines either a sort or a node. Node lines include
+constants such as constd, persistent variables such as state,
+nondeterministic inputs such as input, and expression nodes
+such as eq, add, or ite.
+2) Transition symbols. state, init, and next define the transi-
+tion system. state declares a variable preserved across steps,
+init constrains its initial value, and next defines its value in the
+next step. In encodings produced by C2Btor, ite is commonly
+used inside next expressions to encode guarded control-flow
+and data updates.
+3) Data symbols. Data is typed by sort lines. The main
+sorts used here are bitvec and array. Bit-vectors represent
+integers, Booleans, program locations, object identifiers, and
+offsets; arrays represent indexed program objects or memory-
+like objects. Constants such as const and constd provide
+typed literal values.
+4) Operator symbols. BTOR2 provides many typed operators;
+the complete set is given in the BTOR2 specification [3].
+This paper mainly uses Boolean and bit-vector operators such
+as not, and, eq, slt, arithmetic operators such as add, sub,
+mul, udiv, conditional ite, and array read/write. Each operator
+produces another typed node.
+5) Verification symbols. bad defines an error-state predicate,
+and constraint restricts feasible traces. They correspond to B
+and C in MBTOR2. A backend checks whether some bad node
+can become true along a trace satisfying the init, next, and
+constraint lines.
+In summary, BTOR2 provides the target vocabulary for
+numbered expressions, states, data, operations, and reachability
+properties. Section IV explains how C2Btor performs this
+encoding for control flow, data state, pointer-related objects,
+and verification assertions.
+IV. Methodology
+A. Overview
+The goal of this methodology is not to redefine C semantics.
+Instead, C2Btor encodes the control flow, objects, instructions,
+and verification semantics already made explicit in Goto-IR
+into a BTOR2 transition system. Given the Goto-IR object
+G = (L, Σ, Objects, Instructs, Verif) defined in Section III-C,
+we write O = Objects, I = Instructs, and V = Verif for
+compact notation. The overall mapping is
+G = (L, Σ, O, I, V ) →M = (X, Init, Next, B, C).
+We organize the encoding rules by the following aspects:
+
+
+Algorithm 1: Symbolic workflow of C2Btor
+Input: G = (L, Σ, O, I, V ), where L = {ℓ1, . . . , ℓn}
+Output: M = (X, Init, Next, B, C)
+1 foreach ℓi ∈L do
+2
+nodei ←bv64(i);
+ati ←(pc = nodei)
+// control code
+and guard
+3 X ←{pc} ∪Xdata(Σ, O) ∪Xmem(Σ, O) ∪Xaux
+// BTOR2
+states
+4 Init ←Initpc ∪Initdata ∪Initmem
+// initial states
+5 foreach x ∈X do
+6
+Ux ←∅
+// guarded updates
+7 B ←∅;
+C ←∅
+8 foreach ℓi ∈L do
+9
+ιi ←I[ℓi]
+// instruction at location ℓi
+10
+(∆i, δi, Bi, Ci) ←Step(ιi, ati, Σ, O)
+// local encoding
+11
+Upc ←Upc ∪{(ati, δi)}
+// control-flow update
+12
+foreach (x, g, v) ∈∆i do
+13
+Ux ←Ux ∪{(g, v)}
+// data or memory update
+14
+B ←B ∪Bi;
+C ←C ∪Ci
+// properties and
+constraints
+15 foreach x ∈X do
+16
+Next(x) ←Fold(Ux, default(x))
+// one next per state
+17 return M = (X, Init, Next, B, C)
+Aspect
+Goto-IR source
+BTOR2 target
+Control flow
+L, GOTO, RETURN
+pc, next(pc)
+Data state
+Σ, O
+X, Init
+Instruction updates
+I
+Next
+Pointers and memory
+Oaddr, pointer expressions
+Xmem, read, write
+Verification
+V
+B, C
+Encoding workflow. Algorithm 1 shows the overall encoding
+workflow. Its role is to connect the categories above, not to
+expose implementation details.
+B. Control-Flow Encoding
+The program counter pc is a 64-bit bit-vector state. A
+BTOR2 line such as 2 sort bitvec 64 declares the 64-bit
+sort; the actual program counter is a state node that uses this
+sort. The value stored in pc is not a BTOR2 line id. Instead,
+pc = i means that the current transition executes the Goto-
+IR location ℓi. For compact formulas below, atℓi abbreviates
+pc = i.
+The two BTOR2 keywords used most often in this encoding
+are next and ite. A next node defines the value of a state in
+the next transition step. An expression ite(c, a, b) means “if c
+then a else b”. A next defines how a state changes, while ite
+is only a way to build the right-hand side of a next definition.
+Let Ii be the Goto-IR instruction at location ℓi. The next
+value of pc has four common cases:
+pc′ =
+
+
+
+
+
+
+
+
+
+i + 1,
+Ii is sequential,
+ti,
+Ii = GOTO(ci, ℓti) ∧E(ci),
+i + 1,
+Ii = GOTO(ci, ℓti) ∧¬E(ci),
+pchalt,
+Ii ∈{RETURN, END}.
+(pc = i)
+Here, i+1 denotes the next executable location in the Goto-IR
+sequence, Ii = GOTO(ci, ℓti) denotes a conditional Goto-IR
+branch at location ℓi, ci is its guard, ℓti is its target location,
+and ti is the encoded pc value of that target. The expression
+E(ci) is the BTOR2 encoding of the guard, and pchalt is the
+terminal location. An unconditional GOTO is treated as the same
+rule with a true guard. The local successor for a conditional
+branch is
+δi = ite(E(ci), ti, i + 1).
+BTOR2 requires one next node for pc, so all local control-flow
+rules are chained into one expression:
+next(pc) = ite(pc = 0, δ0, ite(pc = 1, δ1, . . . , pchalt)).
+The same pattern is used later for data states: C2Btor collects
+guarded candidate updates and folds them into a single one,
+next(x) = ite(g1, v1, ite(g2, v2, . . . , x)).
+The final default value preserves the current state when no
+guard is enabled.
+Loops are not unrolled by C2Btor. Back edges in Goto-
+IR are encoded directly in next(pc), so a source-level loop
+becomes a cycle in the generated BTOR2 transition system.
+Whether this cycle is explored using bounded model checking,
+k-induction, IC3/PDR, or another hardware model-checking
+algorithm is a responsibility of the backend. Hence, C2Btor
+does not produce a fixed-depth C-to-BMC formula; it pro-
+duces a transition system that can be consumed by multiple
+unbounded or bounded hardware model checkers.
+C. Data State
+Data-state rules decide which BTOR2 states are created for
+program objects and which initial values are placed in Init.
+For each Goto-IR type τ, let W(τ) be its bit-width under the
+frontend’s target-machine configuration; in practice, this width
+is usually 32 or 64 bits for machine integer and pointer-related
+types.
+1) Scalars and constants. Boolean and integer-like objects,
+including char, short, int, long, unsigned variants, and
+enum objects, are represented as bit-vector states:
+x : τ
+7→
+x : BV(W(τ)).
+For example, in our encoding, bool is encoded as BV(1), while
+int and unsigned int are encoded as BV(64). Signedness does
+not change the state sort. A signed integer and an unsigned
+integer of the same width have the same state type; signedness
+only selects the operator used later by an instruction. Constants
+are generated with the width required by their expression
+context.
+2) Arrays. For an array object a : τ[N], C2Btor uses
+either scalarization or a BTOR2 array state. A small statically
+bounded array can be scalarized into element states:
+a 7→{a0, a1, . . . , aN−1},
+ai : BV(W(τ)).
+For larger arrays, C2Btor uses a native BTOR2 array state:
+a : τ[N]
+7→
+a : Array(N, τ).
+Here, Array(N, τ) is a paper-level shorthand: N denotes the
+index range of the array and τ denotes the element type.
+
+
+In BTOR2, this state is implemented by a native array sort
+with a bit-vector index sort and an element sort of width
+W(τ). BTOR2 read returns an element, and write returns
+an updated array state. Scalarization avoids array reasoning
+for small arrays, whereas native array states avoid expanding
+large arrays into many state variables.
+3) Structures and layout. Structures are represented by field
+projection. For example, struct S { int x; unsigned
+int y; }; struct S s; is encoded as one object-level
+record whose fields are stored separately:
+s 7→⟨x : sx, y : sy⟩,
+s.x 7→sx : BV(64),
+s.y 7→sy : BV(64).
+The first line records that s is still one structure object; the
+second line shows the BTOR2 state created for each field. Ad-
+dressable structures and arrays also receive layout information,
+such as object identifiers, field offsets, and element sizes. That
+layout is used by the pointer rules, but it does not require every
+object to be represented as a byte-addressed memory array.
+4) Pointer values. Pointer-typed variables are also stored as
+64-bit bit-vector states. This rule only says how the pointer
+value is stored. Pointer arithmetic, dereference reads, writes,
+and linked data structures are handled by the object-level
+pointer model in Section IV-E.
+5) Initialization. Static zero initialization and explicit initial-
+izers are encoded in Init. Verification nondeterminism is not
+initialization: a call such as __VERIFIER_nondet_int() is
+an instruction-level input and is captured in Next.
+D. Instruction Encoding
+Instruction rules describe how Goto-IR expressions and
+instructions generate BTOR2 operators and next-state updates.
+1) Arithmetic expressions. Arithmetic expressions are en-
+coded using native BTOR2 bit-vector operators. For example,
+addition, subtraction, multiplication, division, and remainder
+become the corresponding word-level operators of the required
+width. Signedness selects the signed or unsigned variant where
+BTOR2 distinguishes them.
+2) Bitwise, logical, and cast expressions. Bitwise operations,
+logical operations, comparisons, shifts, and conditional expres-
+sions are also encoded with native BTOR2 operators, such as
+and, or, not, eq, slt, shifts, and ite. Casts are encoded as
+truncation, zero extension, sign extension, or reinterpretation
+at the required bit-width.
+3) Assignments. For a simple assignment at location ℓi,
+written Ii : x := e, C2Btor encodes the right-hand side as
+E(e) and adds one guarded update to Tx:
+Tx ←Tx ∪{(pc = i, E(e))}.
+If this is the only assignment to x, the resulting update is
+next(x) = ite(pc = i, E(e), x).
+If several locations assign to x, all candidate updates are
+combined by the folded form in Equation IV-B. Pointer writes
+and array writes may add extra guards, such as an index
+equality or an object-identifier check.
+4) Lowered branches and loops. Conditional control flow has
+already been lowered by Goto-IR. A source if-else becomes
+conditional GOTO instructions, and for/while loops become
+the same conditional branches with back edges. Their effect
+on pc is encoded by the control-flow rules in Section IV-B;
+they are not separate high-level C constructs in the BTOR2
+model.
+E. Pointers and Memory
+C2Btor encodes memory as an object-level memory model
+instead of one flat byte-addressed array, and each statically
+resolved addressable object has an object id, and each pointer
+is interpreted as an object-offset pair. The object id selects the
+logical object; the offset is the byte position inside that object.
+1) Addressable objects. Memory is stored as a finite object
+map built from the symbol table:
+M = {id(o) 7→repr(o) | o ∈Oaddr}.
+Here, Oaddr contains the addressable objects selected for the
+encoding. Their backing representations are the data states
+introduced earlier:
+scalar x
+7→
+BV state,
+array a
+7→
+scalarized elements or a BTOR2 array state,
+struct s
+7→
+projected field states.
+Only objects that can be statically resolved become backing
+objects for pointer accesses.
+2) Pointer representation. A pointer value is modeled as
+p = ⟨obj(p), off(p)⟩.
+For example,
+&a[i] = ⟨id(a), i·sizeof(int)⟩,
+&s.g = ⟨id(s), fieldoff(g)⟩.
+The pointer type comes from the Goto-IR expression type and
+the symbol table. Layout information comes from the target
+configuration, including sizeof, element size, field offset,
+alignment, and object bounds. Thus p+1 preserves the object
+id and advances the offset by the size of the pointed-to type:
+p + i = ⟨obj(p), off(p) + i · sizeof(∗p)⟩.
+3) Dereference by object dispatch. A dereference is resolved
+by dispatching on the object id and then using the offset inside
+the selected backing object:
+deref(p, τ) =
+
+
+
+
+
+accessa(off(p), τ),
+obj(p) = id(a),
+accesss(off(p), τ),
+obj(p) = id(s),
+unsupported,
+otherwise.
+For a read, access returns the selected scalar, array element,
+or structure field. For a write, the same object guard is used
+to update the corresponding backing state.
+
+
+4) Validity and unsupported cases. Pointer safety is ex-
+pressed by object-level predicates:
+valid(p, τ) ≡p̸ = 0 ∧
+∨
+o∈T (p)
+(
+obj(p) = id(o)
+∧aligned(off(p), τ)
+∧off(p) + sizeof(τ) ≤u sizeof(o)
+)
+.
+The predicate checks non-nullness, object match, alignment,
+and object bounds. When Goto-IR contains such checks as
+assertions or equivalent guards, their violations are translated
+into BTOR2 bad predicates. If the target object, offset, or
+access type cannot be statically represented by the object-level
+model, C2Btor rejects the translation instead of emitting an
+unsound approximation.
+In short, pointers are represented as object-offset pairs rather
+than concrete byte addresses. Dereferences are resolved by
+dispatching on the object id to finite typed backing objects,
+while the offset, access type, alignment, and object bounds
+determine the precise read or write location.
+F. Verification Properties
+C2Btor encodes verification as reachability over bad pred-
+icates and path constraints. A Goto assertion ASSERT cℓat
+location ℓbecomes a location-guarded bad predicate:
+bℓ= atℓ∧¬E(cℓ).
+Thus an assertion fails only when execution reaches ℓand the
+encoded condition is false. A Goto assumption ASSUME cℓis
+not an error; it is a path filter encoded as a constraint:
+χℓ= (¬atℓ) ∨E(cℓ).
+Multiple assertions and assumptions are collected into B and
+C, and explicit runtime checks or error locations are handled
+by the same bad-predicate rule when they already appear.
+G. Summary
+The encoding maintains one consistent chain of symbols
+across the chapter:
+ℓi
+7→
+nodei = bv64(i)
+7→
+ati = (pc = nodei).
+Control-flow rules populate Upc, instruction rules populate the
+update lists Ux for data and memory states, and verification
+rules populate B and C. Each update list is folded into one
+BTOR2 next expression. The result is the BTOR2 transition
+system M = (X, Init, Next, B, C).
+V. Evaluation
+A. Experimental Design
+Our experiments focus on four research questions:
+RQ1: Can C2Btor perform end-to-end verification on sup-
+ported standard C verification tasks?
+RQ2: Does the C-to-BTOR2 representation route pro-
+vide complementary solving capability to existing
+software-verification routes?
+305
+169
+193
+130
+80
+199
+218
+323
+141
+59
+49
+126
+128
+82
+49
+118
+82
+122
+TF=6
+TF=32
+TF=1
+TF=2
+TF=20
+FT=3
+FT=2
+FT=8
+306
+278
+5
+430
+163
+215
+430
+33
+93
+269
+413
+85
+377
+148
+2
+324
+465
+1
+46
+1
+6
+3
+24
+162
+5
+1
+25
+0
+100
+200
+300
+400
+500
+600
+700
+Aise
+Bubaak
+CPAchecker
+ESBMC
+CBMC
+Symbiotic
+Uautomizer
+Veriabs
+C2Btor
+FAIL
+OOM
+UNKNOWN
+OOT
+FT
+TF
+FF
+TT
+Fig. 2: Comparison of C2Btor with other program verifiers
+on SV-COMP benchmarks.
+RQ3: How do hardware model-checking algorithms per-
+form on the verification tasks generated by C2Btor?
+RQ4: What properties and C semantics are currently cov-
+ered by C2Btor, and where are its verification bound-
+aries?
+B. Experimental Environment
+All experiments were conducted on the same server
+equipped with an Intel Xeon Gold 6132 CPU at 2.60 GHz, 28
+cores, and 96 GB memory, running CentOS 7 Core on x86_64.
+Each verification task was limited to 900 s and 16 GB. C2Btor
+is developed based on CBMC 6.7.1. The implementation
+is available in the artifact repository.2 We implemented our
+experimental scripts for execution and resource control, while
+keeping the result classification consistent with BenchExec-
+style.3 Each tool result is normalized as follows:
+• Correct verdicts. TT denotes a True verdict on a true
+task, and FF denotes a False verdict on a false task. The
+correct-verdict rate is (TT + FF)/N.
+• Wrong verdicts. TF is a false alarm, namely a False
+verdict on a true task; FT is a missed bug, namely a
+True verdict on a false task. The wrong-verdict rate is
+(TF + FT)/N.
+• Inconclusive outcomes. Unknown, OOT, and OOM
+mean that the tool does not return a Boolean verdict
+within the configured resource limit. The inconclusive
+rate is (Unknown + OOT + OOM)/N.
+• Abnormal outcomes. FAIL denotes an unsupported-
+input failure before solving, while ERR denotes a crash.
+These outcomes are reported separately when needed
+because they usually reflect semantic coverage boundaries
+or implementation robustness problems rather than ordi-
+nary backend verdicts.
+C. RQ1: Verification Capability on SV-COMP Benchmarks
+Dataset. To evaluate verification capability on standard
+benchmarks, we use 773 C ReachSafety tasks from SV-COMP
+2026, covering Array, BV, and Loop programs.
+2https://anonymous.4open.science
+3https://github.com/sosy-lab/benchexec
+
+
+214
+135
+71
+154
+107
+29
+54
+72
+75
+43
+37
+FT=3
+143
+48
+239
+61
+128
+14
+197
+46
+64
+101
+65
+0
+100
+200
+300
+400
+500
+ESBMC
+CBMC
+Eldarica
+C2Btor
+FAIL
+OOM
+UNKNOWN
+OOT
+FT
+TF
+FF
+TT
+Fig. 3: Comparison of assertion verification and expressiveness
+on a curated benchmark set.
+TABLE I: Percentage comparison of C2Btor with other pro-
+gram verifiers on SV-COMP benchmarks (Correct / Wrong /
+Inconclusive, %).
+Tool
+Array
+BV
+Loop
+All
+TF/FT
+(N = 412)
+(N = 49)
+(N = 312)
+(N = 773)
+(all)
+AISE
+22.3/2.2/75.2 67.3/0.0/32.7 76.6/0.0/23.4 47.1/1.2/51.6
+6/3
+Bubaak
+13.1/0.2/85.9 38.8/0.0/61.2 46.5/0.3/52.2 28.2/0.3/70.8
+0/2
+CPAchecker
+17.5/7.8/74.3 89.8/0.0/10.2 65.1/0.0/34.6 41.3/4.1/54.2
+32/0
+ESBMC
+19.2/0.0/80.8 71.4/0.0/28.6 46.2/0.0/53.8 33.4/0.0/66.6
+0/0
+CBMC-BMC-200
+9.2/0.0/86.9
+67.3/0.0/32.7 29.2/0.3/67.9 21.0/0.1/75.8
+1/0
+Symbiotic
+16.0/0.0/83.5 73.5/0.0/24.5
+46.8/0.0/2.2
+32.1/0.0/47.0
+0/0
+UAutomizer
+19.2/0.0/80.3 71.4/0.0/26.5 71.2/0.0/28.2 43.5/0.0/55.9
+0/0
+VeriAbs
+45.4/1.7/52.7 0.0/0.0/100.0 69.9/1.0/29.2 52.4/1.3/46.2
+2/8
+C2Btor (Ours)
+17.7/4.6/76.2 75.5/0.0/24.5 49.0/0.3/44.6 34.0/2.6/60.2
+20/0
+Comparison tools. The comparison covers three groups:
+• Top tools in the SV-COMP C ReachSafety category4:
+CPAchecker, ESBMC with --kind, and Symbiotic;
+• SOTA tools on the Array and Loop subsets: AISE,
+Bubaak, VeriAbs, and UAutomizer;
+• Baseline: CBMC with --bmc --unwind 200.
+The above tools are run with their corresponding SV-COMP
+tool configurations.5
+Figure 2 shows that C2Btor generates BTOR2 models for
+748 out of 773 tasks. Model generation is reported separately
+from verification correctness: C2Btor correctly solves 263
+tasks, 101 more than the bounded CBMC baseline, while the
+remaining generated cases may still be inconclusive or wrong-
+verdict outcomes. This shows that the BTOR2 route can benefit
+from backend model-checking algorithms beyond bounded
+unwinding. All wrong verdicts of C2Btor are TF false alarms,
+which can be further inspected through counterexample or
+witness validation; more importantly, no FT missed bug is
+observed, whereas three comparison tools report at least one
+FT case.
+Table I reports the same experiment as category-level Cor-
+rect / Wrong / Inconclusive percentages, with TF for false
+alarms and FT for missed bugs. The results show that C2Btor
+4https://sv-comp.sosy-lab.org/2026/results/results-verified/
+5https://gitlab.com/sosy-lab/benchmarking/fm-tools/-/tree/main/data
+is strongest on BV tasks, where it correctly solves 75.5%
+of the benchmarks, reports no wrong verdicts, and is second
+only to CPAchecker. This advantage is not captured by overall
+solved rate alone: VeriAbs has the highest overall solved rate
+in Table I, but solves no BV task in this experiment. The
+contrast reflects different method strengths. VeriAbs mainly
+extends bounded model checking with abstract acceleration
+and k-induction for large or unknown loop bounds, whereas
+BV programs match the BTOR2 route more directly: both
+BTOR2 and hardware model checkers natively support fixed-
+width bit-vector operations and transition-system structure.
+Thus, bit-vector-heavy programs fit the target representation
+more naturally than memory-intensive programs.
+Array tasks are the main precision and scalability bottle-
+neck. C2Btor correctly solves 17.7% of the Array benchmarks,
+which is close to CPAchecker but clearly below the strongest
+tools in this category. At the same time, Array accounts for
+19 of the 20 TF false alarms and has a high inconclusive rate
+of 76.2%. Among the three benchmark categories, Array tasks
+are the most diﬀicult for the current BTOR2 route: they tend
+to induce larger bit-level encodings and more OOT outcomes.
+This concentration suggests that array-heavy programs stress
+both the object/array encoding and the backend solver, making
+this category the current boundary of C2Btor’s accuracy and
+solving effectiveness.
+Loop tasks show a more balanced result. C2Btor correctly
+solves 49.0% of the Loop benchmarks, outperforming Bubaak
+and the bounded CBMC baseline. The low wrong-verdict rate
+of 0.3% suggests that the program-counter-based transition
+relation can handle a meaningful subset of standard loop safety
+tasks. Manual inspection of abnormal outcomes indicates that
+these cases are mainly caused by loop tasks combined with
+array or memory features, where unsupported frontend cases
+and backend diﬀiculty overlap.
+Answer to RQ1: C2Btor establishes an effective ver-
+ification route. It generates BTOR2 models for 96.7%
+of the tasks and obtains correct verdicts for 263 tasks,
+while other cases remain inconclusive or become TF false
+alarms. It also performs well on BV tasks, correctly solving
+75.5% of them without wrong verdicts. This confirms
+the effectiveness of the C2Btor modeling route and its
+advantage on BV tasks.
+D. RQ2: Complementarity across Verification Encodings
+Dataset. To evaluate whether the C2Btor route provides
+solving behavior complementary to existing verification encod-
+ings, especially on what kinds of assertions it can verify, we
+combine self-constructed programs with benchmarks from the
+TriCera dataset [23]6, yielding a curated assertion benchmark
+set of 525 tasks.
+Verification routes. There are four representative routes:
+• ESBMC: LLVM-IR and SMT solving;
+• CBMC: Goto-IR and SAT solving;
+6https://zenodo.org/records/5831003
+
+
+TABLE II: Assertion verification and expressiveness comparison on the curated benchmark set. For each baseline tool, entries
+report Tool solved / Tool-only / C2Btor-only tasks; the last column reports tasks solved by C2Btor.
+Assertion target
+Representative tasks
+N
+ESBMC
+CBMC
+Eldarica
+C2Btor (Ours)
+Functional correctness
+Tree/Array: arithmetic, search, sort, and
+data-structure operation checks
+324
+133 / 13 / 2
+87 / 7 / 42
+71 / 2 / 53
+122
+Pointer consistency
+Lists/Heap: next/prev pointers, aliasing, and
+nullness checks
+181
+168 / 70 / 4
+70 / 15 / 47
+40 / 16 / 78
+102
+Boundary safety
+Stack/Queue/Array: capacity and bounds checks
+20
+20 / 18 / 0
+8 / 8 / 2
+15 / 13 / 0
+2
+Overall
+Assertion-category dataset
+525
+321 / 101 / 6
+165 / 30 / 91
+126 / 31 / 131
+226
+• Eldarica: CHC encoding with CHC solving;
+• C2Btor: BTOR2 encoding with btor-ic3 model checker.
+From the overall results in Table II, C2Btor correctly solves
+226 out of 525 tasks, showing that it already provides non-
+trivial end-to-end solving capability. Compared with ESBMC,
+the additional gain of C2Btor is limited, suggesting that the
+LLVM-IR/SMT-based route still provides stronger overall cov-
+erage in C semantic parsing, program modeling, and backend
+verification. However, compared with CBMC and Eldarica,
+C2Btor solves more tasks correctly. This is because the former
+are respectively constrained by a single --bmc configuration
+or a CHC/CEGAR solving route, whereas C2Btor can reuse a
+broader set of BTOR2 backend algorithms. This indicates that
+one advantage of the BTOR2 transition-system representation
+is its ability to host diverse model-checking algorithms.
+This complementarity is not uniformly distributed across
+different assertion targets. For functional-correctness tasks,
+C2Btor correctly solves 122 tasks, close to the 133 tasks
+solved by ESBMC. This category is the largest one and
+mainly includes return-value comparisons, local numeric re-
+lations, array-element relations, and loop postcondition asser-
+tions. Therefore, in this category, C2Btor mainly provides
+comparable coverage rather than substantial unique solving
+capability. For the currently supported restricted pointer as-
+sertions, C2Btor provides more complementary value relative
+to CBMC and Eldarica, because pointer relations can often
+be finitized into object identifiers, field relations, or index
+relations, and further reduced to bit-vector representations.
+This matches the bit-precise transition-system representation
+of BTOR2. In contrast, boundary-safety tasks are not the
+current strength of C2Btor. These tasks usually involve array
+bounds, capacity constraints, and range relations inside loops,
+and therefore more directly expose the coverage boundary of
+the current translation implementation.
+Overall, C2Btor can reuse BTOR2 backend model-checking
+algorithms, which is one of its advantages over CBMC and
+Eldarica. For boundary-capacity checks, complex heap/list
+semantics, and tasks requiring stronger global invariant rea-
+soning, the current method still has room for improvement. At
+the same time, C2Btor provides an additional solving route for
+a subset of finite and explicit-state C safety tasks, especially
+local functional assertions, relational assertions, and assertions
+expressible as bit-vector reachability.
+TABLE III: Model-checking tool and algorithm comparison
+on the BTOR2 dataset.
+Backend
+Correct (TT/FF) TF FT OOT OOM Unknown FAIL
+rIC3-BMC
+69 (0/69)
+0
+0
+211
+0
+0
+110
+rIC3-k-Induction 177 (108/69)
+0
+0
+103
+0
+0
+110
+rIC3-IC3
+253 (177/76)
+0
+0
+33
+0
+0
+104
+simpleCAR-IC3
+230 (170/60)
+0
+0
+23
+0
+0
+137
+Answer to RQ2: Yes. C2Btor provides a distinct and use-
+ful verification route that complements existing software-
+verification routes. The BTOR2 route solves tasks that are
+not solved by CBMC-BMC and Eldarica, showing inde-
+pendent solving capability. This complementarity is most
+visible on functional-correctness and restricted pointer-
+consistency assertions, where local value relations, array-
+element relations, return-value assertions, and object-level
+pointer relations can be effectively represented as finite
+bit-vector transition systems.
+E. RQ3: Backend Algorithms on Generated Hardware Models
+Dataset. To evaluate the capability and task sensitivity
+of backend hardware model-checking algorithms, we start
+from 390 validated BTOR2 models generated by C2Btor and
+convert them to AIGER through the btor2aiger tool [1, 3],
+obtaining a second dataset of 305 AIGER models. The re-
+maining 85 models are excluded because their array structures
+are not supported by the tool.
+Model-checking tools and algorithms. We compare the
+following tools and algorithm configurations:
+• rIC3-BMC [29]: --bmc for AIGER and --wlbmc for
+BTOR2;
+• rIC3-k-Induction: --kind for AIGER and --wlkind
+for BTOR2;
+• rIC3-IC3: --ic3 for both AIGER and BTOR2;
+• simpleCAR-IC3 [25, 27]: --ic3 for both AIGER and
+BTOR2;
+• super_prove [31]: portfolio-based unbounded model
+checking on AIGER.
+For this backend-level experiment, TT denotes a true-label
+task proved safe by the solver, corresponding to a solver-level
+UNSAT result. FF denotes a false-label task for which the
+solver finds a counterexample, corresponding to a solver-level
+SAT result.
+
+
+TABLE IV: Model-checking tool and algorithm comparison
+on the AIGER dataset.
+Backend
+Correct (TT/FF) TF FT OOT OOM Unknown FAIL
+rIC3-BMC
+78 (0/78)
+0
+0
+64
+163
+0
+0
+rIC3-k-Induction 212 (134/78)
+0
+0
+93
+0
+0
+0
+rIC3-IC3
+268 (190/78)
+0
+0
+37
+0
+0
+0
+simpleCAR-IC3
+275 (198/77)
+0
+0
+30
+0
+0
+0
+super_prove
+276 (200/76)
+0
+0
+26
+2
+0
+1
+Table III shows a clear division of labor among BTOR2
+backend algorithms between safety proving and counterexam-
+ple finding. For tasks that require proving safety, BMC can
+only search for counterexamples within a bounded unfolding
+depth and cannot establish unbounded safety. In contrast, k-
+induction and IC3/PDR can construct inductive safety evi-
+dence, with rIC3-IC3 proving the largest number of true-
+label tasks. On BTOR2 models generated by C2Btor, word-
+level BMC is also sensitive to array sorts, memory objects,
+and control-flow unfolding, which can quickly enlarge the
+generated formulas and lead to many OOT or FAIL outcomes.
+IC3/PDR does not rely only on depth-based unrolling; instead,
+it advances the reachable state space in a property-directed
+way, which explains why it covers more safety proofs while
+still finding counterexamples.
+Table IV shows that the AIGER subset has a higher solving
+ratio. On this bit-level subset, counterexample finding is no
+longer the main source of difference, since most configurations
+find a similar number of false-label cases. The main separation
+comes from safety proving: IC3-style backends with stronger
+simplification, induction, and portfolio strategies prove more
+safe tasks. This indicates that optimizations in hardware
+model-checking algorithms can further improve the verification
+capability of models generated by C2Btor. However, this result
+must be interpreted together with the input scope: the AIGER
+subset excludes array-related models, so its higher solving ratio
+is not a full replacement for complete BTOR2 coverage.
+Overall, the models generated by C2Btor can indeed reuse
+hardware model-checking backends, but backend effectiveness
+depends on both the verification objective and the target
+format. The advantage of BTOR2 is that it preserves word-
+level expressiveness and can model array-related programs, al-
+though current BTOR2 backends still face input-compatibility
+and tool-robustness bottlenecks. After conversion to AIGER,
+C2Btor can benefit from more mature bit-level backends, but
+this comes at the cost of losing array-structure coverage.
+Answer to RQ3: Hardware model-checking algorithms
+are effective on the verification tasks generated by C2Btor,
+and their effects are algorithm-specific. BMC is useful for
+exposing counterexamples, while induction- and IC3/PDR-
+style algorithms are more effective at proving program
+safety. The results further show that progress in hardware
+model checking can directly improve the verification ca-
+pability of C programs translated by C2Btor.
+F. RQ4: Semantic Coverage and Verification Boundaries
+Answer to RQ4: C2Btor has a clear and useful effective
+scope: finite-state, bit-precise, assertion-based reachability
+safety. This scope already supports meaningful C verifica-
+tion tasks with explicit control flow, local data reasoning,
+and restricted object-level pointer relations, while also
+identifying concrete targets for extending BTOR2-based
+C verification.
+C2Btor encodes an assertion violation as a BTOR2 bad
+state, and verification checks whether this state is reachable
+in the generated transition system. This formulation naturally
+matches C programs whose behavior can be represented by
+explicit control-flow transitions and fixed-width data updates.
+The current encoding supports control flow with branches and
+loops, nondeterministic inputs, fixed-width integer operations,
+assumptions and assertions, local array accesses, and restricted
+object-level pointer relations. The preceding results show that
+this semantic fragment is practically useful: C2Btor provides
+end-to-end verification capability on standard ReachSafety
+tasks, behaves particularly well on BV-heavy programs and
+local functional assertions, and generates BTOR2/AIGER
+models that can reuse hardware model-checking algorithms.
+The experiments also make the current boundary concrete.
+Array-intensive programs are the main stress cases, because
+array updates, symbolic indices, and loops can produce large
+word-level transition relations and shift more memory rea-
+soning to the backend. Programs involving complex aliasing,
+dynamic heap manipulation, complex standard-library behav-
+ior, floating-point arithmetic, or full C undefined-behavior
+semantics require stronger frontend modeling than the current
+prototype provides. These cases point to the next extension
+targets: more compact memory encodings, richer heap and
+alias modeling, library summaries, and broader C semantic
+coverage.
+Overall, C2Btor already provides a practical hardware-
+model-checking route for a useful class of finite, bit-precise C
+reachability-safety tasks. The current boundaries further clar-
+ify how BTOR2-based program verification can be extended
+toward broader C semantics.
+VI. Conclusion
+This paper presented C2Btor, a C-to-BTOR2 verification
+route for assertion-based reachability safety. C2Btor models
+the program into a BTOR2 transition system by encoding
+control flow with a program counter, representing program
+data with bit-vectors and arrays, and mapping assumptions
+and assertion violations to BTOR2 constraints and bad states.
+The evaluation shows that this route is effective in practice:
+C2Btor generates BTOR2 models for 96.7% of the standard
+ReachSafety tasks and obtains correct verdicts for 263 cases,
+while keeping model generation distinct from verification
+correctness. It is particularly effective on BV-heavy programs,
+where it solves 75.5% of the tasks without wrong verdicts,
+and it also provides complementary solving capability over
+
+
+CBMC-BMC and Eldarica on functional correctness and re-
+stricted pointer-consistency assertions. The backend experi-
+ments further show that C2Btor-generated models can directly
+benefit from hardware model-checking algorithms, especially
+k-induction, IC3/PDR, and portfolio-based proving. Future
+work will extend this route with more compact memory
+encodings, richer alias and heap modeling, stronger library
+summaries, broader C semantic coverage, and more adaptive
+backend selection.
+References
+[1] A. Biere, N. Froleyks, and M. Preiner, “Hardware model
+checking competition 2025,” in 2025 Formal Methods in
+Computer-Aided Design (FMCAD).
+IEEE, 2025, pp.
+1–1.
+[2] A. Biere, K. Heljanko, and S. Wieringa, “Aiger 1.9 and
+beyond,” 2011.
+[3] A. Niemetz, M. Preiner, C. Wolf, and A. Biere, “Btor2,
+btormc and boolector 3.0,” in International Conference
+on Computer Aided Verification.
+Springer, 2018, pp.
+587–595.
+[4] A. Biere, A. Cimatti, E. M. Clarke, O. Strichman, and
+Y. Zhu, “Bounded model checking.” Handbook of satis-
+fiability, vol. 185, no. 99, pp. 457–481, 2009.
+[5] D. Jovanović and B. Dutertre, “Property-directed k-
+induction,” in 2016 Formal Methods in Computer-Aided
+Design (FMCAD).
+IEEE, 2016, pp. 85–92.
+[6] A. R. Bradley, “Sat-based model checking without
+unrolling,” in International Workshop on Verification,
+Model Checking, and Abstract Interpretation.
+Springer,
+2011, pp. 70–87.
+[7] N. Eén, A. Mishchenko, and R. Brayton, “Eﬀicient im-
+plementation of property directed reachability,” in 2011
+Formal Methods in Computer-Aided Design (FMCAD).
+IEEE, 2011, pp. 125–134.
+[8] D. Beyer and J. Strejček, “Evaluating software verifiers
+for c, java, and sv-lib: (report on sv-comp 2026),” in
+International Conference on Tools and Algorithms for the
+Construction and Analysis of Systems.
+Springer, 2026,
+pp. 461–502.
+[9] F. Merz, S. Falke, and C. Sinz, “Llbmc: Bounded model
+checking of c and c++ programs using a compiler ir,”
+in International Conference on Verified Software: Tools,
+Theories, Experiments.
+Springer, 2012, pp. 146–161.
+[10] A. Gurfinkel, “Program verification with constrained
+horn clauses,” in International Conference on Computer
+Aided Verification.
+Springer, 2022, pp. 19–29.
+[11] C. Barrett, A. Stump, C. Tinelli et al., “The smt-lib
+standard: Version 2.0,” in Proceedings of the 8th in-
+ternational workshop on satisfiability modulo theories
+(Edinburgh, UK), vol. 13, 2010, p. 14.
+[12] J. C. King, “Symbolic execution and program testing,”
+Communications of the ACM, vol. 19, no. 7, pp. 385–394,
+1976.
+[13] M. Afzal, A. Asia, A. Chauhan, B. Chimdyalwar,
+P. Darke, A. Datar, S. Kumar, and R. Venkatesh, “Ve-
+riabs: Verification by abstraction and test generation,”
+in 2019 34th IEEE/ACM International Conference on
+Automated Software Engineering (ASE).
+IEEE, 2019,
+pp. 1138–1141.
+[14] N. Bjørner, A. Gurfinkel, K. McMillan, and A. Ry-
+balchenko, “Horn clause solvers for program verifica-
+tion,” in Fields of Logic and Computation II: Essays
+Dedicated to Yuri Gurevich on the Occasion of His 75th
+Birthday.
+Springer, 2015, pp. 24–51.
+[15] E. Clarke, D. Kroening, and F. Lerda, “A tool for check-
+ing ansi-c programs,” in International Conference on
+Tools and Algorithms for the Construction and Analysis
+of Systems.
+Springer, 2004, pp. 168–176.
+[16] L. Cordeiro, B. Fischer, and J. Marques-Silva, “Smt-
+based bounded model checking for embedded ansi-c
+software,” IEEE Transactions on Software Engineering,
+vol. 38, no. 4, pp. 957–974, 2011.
+[17] M. Heizmann, Y.-F. Chen, D. Dietsch, M. Greitschus,
+J. Hoenicke, Y. Li, A. Nutz, B. Musa, C. Schilling,
+T. Schindler et al., “Ultimate automizer and the search
+for perfect interpolants: (competition contribution),” in
+International Conference on Tools and Algorithms for the
+Construction and Analysis of Systems.
+Springer, 2018,
+pp. 447–451.
+[18] D.
+Baier,
+D.
+Beyer,
+P.-C.
+Chien,
+M.-C.
+Jakobs,
+M.
+Jankola,
+M.
+Kettl,
+N.-Z.
+Lee,
+T.
+Lemberger,
+M. Lingsch-Rosenfeld, H. Wachowitz et al., “Soft-
+ware verification with cpachecker 3.0: Tutorial and user
+guide,” in International Symposium on Formal Methods.
+Springer, 2024, pp. 543–570.
+[19] M. Chalupa and C. Richter, “Bubaak: Dynamic coop-
+erative verification: (competition contribution),” in In-
+ternational Conference on Tools and Algorithms for the
+Construction and Analysis of Systems.
+Springer, 2025,
+pp. 212–216.
+[20] Z. Wang and Z. Chen, “Aise: A symbolic verifier by syn-
+ergizing abstract interpretation and symbolic execution
+(competition contribution),” in International Conference
+on Tools and Algorithms for the Construction and Anal-
+ysis of Systems.
+Springer, 2024, pp. 347–352.
+[21] M. Jonáš, K. Kumor, J. Novák, J. Sedláček, M. Trtík,
+L. Zaoral, P. Ayaziová, and J. Strejček, “Symbiotic
+10: Lazy memory initialization and compact symbolic
+execution: (competition contribution),” in International
+Conference on Tools and Algorithms for the Construction
+and Analysis of Systems.
+Springer, 2024, pp. 406–411.
+[22] H. Hojjat and P. Rümmer, “The eldarica horn solver,”
+in 2018 Formal Methods in Computer Aided Design
+(FMCAD).
+IEEE, 2018, pp. 1–7.
+[23] Z. Esen and P. Rümmer, “Tricera: Verifying c programs
+using the theory of heaps,” in 2022 Formal Methods in
+Computer-Aided Design (FMCAD).
+IEEE, 2022, pp.
+380–391.
+[24] X. Zhang, S. Xiao, Y. Xia, J. Li, M. Chen, and G. Pu,
+“Accelerate safety model checking based on comple-
+mentary approximate reachability,” IEEE Transactions
+
+
+on Computer-Aided Design of Integrated Circuits and
+Systems, vol. 42, no. 9, pp. 3105–3117, 2023.
+[25] Y. Xia, A. Becchi, A. Cimatti, A. Griggio, J. Li, and
+G. Pu, “Searching for i-good lemmas to accelerate safety
+model checking,” in International Conference on Com-
+puter Aided Verification.
+Springer, 2023, pp. 288–308.
+[26] X. Zhou, G. Hu, H. Zhang, and W. Zhang, “A-
+ic3:
+Learning-guided
+adaptive
+inductive
+generaliza-
+tion for hardware model checking,” arXiv preprint
+arXiv:2604.21688, 2026.
+[27] J. Li, R. Dureja, G. Pu, K. Y. Rozier, and M. Y.
+Vardi, “Simplecar: An eﬀicient bug-finding tool based on
+approximate reachability,” in International Conference
+on Computer Aided Verification.
+Springer, 2018, pp.
+37–44.
+[28] A. Biere, “Tutorial on world-level model checking,” in
+2020 Formal Methods in Computer Aided Design (FM-
+CAD).
+IEEE, 2020, pp. 1–1.
+[29] Y. Su, Q. Yang, Y. Ci, T. Bu, and Z. Huang, “The ric3
+hardware model checker,” in International Conference on
+Computer Aided Verification.
+Springer, 2025, pp. 185–
+199.
+[30] D. Beyer, P.-C. Chien, and N.-Z. Lee, “Bridging hardware
+and software analysis with btor2c: A word-level-circuit-
+to-c translator,” in International Conference on Tools and
+Algorithms for the Construction and Analysis of Systems.
+Springer, 2023, pp. 152–172.
+[31] A. Mishchenko, R. Brayton, and N. Een, “Using specula-
+tion for sequential equivalence checking,” in Proceedings
+of International Workshop on Logic & Synthesis, 2012,
+pp. 139–145.

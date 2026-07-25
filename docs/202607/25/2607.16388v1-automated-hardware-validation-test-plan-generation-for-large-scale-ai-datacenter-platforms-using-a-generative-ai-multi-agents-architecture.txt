@@ -1,0 +1,1469 @@
+ARXIV
+1
+Automated Hardware Validation Test Plan Generation for Large Scale
+AI Datacenter Platforms Using a Generative AI Multi-Agents
+Architecture
+Mohammed-Khalil Ghali
+, Saurabh Kulkarni*
+, Prathamesh Kulkarni
+, Rohan Kulkarni
+, Sangwon Yoon
+,
+Daehan Won
+Abstract—Large-scale AI datacenter platforms comprise thou-
+sands of heterogeneous hardware components whose validation
+requires comprehensive fault injection test plans. Today, these
+plans are authored manually: engineers review hardware self-
+healing validation documents and bills of materials, enumerate
+failure modes per field-replaceable unit, and produce flat lists
+of single-layer test cases. This process is labor-intensive, error-
+prone, and heavily dependent on institutional knowledge. Coverage
+gaps are discovered late, traceability between test cases and
+source specifications is implicit at best, and the effort must
+be substantially repeated for each new platform. This paper
+presents a generative AI multi-agent architecture that automates
+the generation of structured hardware validation test plans
+from two canonical engineering inputs: hardware self-healing
+validation documents, which enumerate known failure modes and
+their associated detection and remediation behaviors for each
+field-replaceable unit, and components Bills of Material (BOM).
+An ingestion agent normalizes heterogeneous input formats
+into a canonical intermediate representation. A classification
+agent maps component entries to functional domains using
+contextual reasoning over part descriptions and sub-category
+hierarchies. A generation agent synthesizes test cases by combining
+normalized failure modes with domain-classified component data,
+filling specification gaps and producing edge-case scenarios. The
+output conforms to a standardized schema suitable for direct
+import into an internal automated validation software. The
+framework is evaluated on two production platforms, comparing
+auto-generated test plans against manually authored baselines.
+Results demonstrate significant coverage expansions of 74.2% and
+51.4% over manual baselines, effectively reducing the authoring
+burden from days of manual review to hours of draft refinement.
+The system yields fully traceable mappings from each test
+case to its originating specification entries, and the multi-agent
+decomposition provides a reusable abstraction portable across
+hardware platform generations. Automated panel and human
+expert evaluations confirm 100% extraction fidelity for existing
+specifications and high acceptance rates for newly generated
+scenarios, validating the framework as a robust human-in-the-
+loop force multiplier.
+Index Terms—Self-healing Hardware, AI Platforms, Large Scale
+Datacenters, Agentic Generative AI, Reliability at scale
+I. INTRODUCTION
+* Corresponding author: Saurabh Kulkarni (saurabhkulkarni@meta.com)
+Mohammed-Khalil Ghali, Sangwon Yoon and Daehan Won (Emails:
+mghali1@binghamton.edu, yoons@binghamton.edu, dhwon@binghamton.edu)
+are with the School of Systems Science and Industrial Engineering, Binghamton
+University, State University of New York, Binghamton, NY 13902, USA.
+Saurabh Kulkarni, Prathamesh Kulkarni and Rohan Kulkarni (Emails:
+saurabhkulkarni@meta.com, prathkulkarni@meta.com, irohan@meta.com) are
+with Meta Platforms, Inc. 1 Hacker Way, Menlo Park, CA 94025, USA.
+T
+HE global demand for artificial intelligence capability
+is driving an unprecedented expansion of datacenter
+infrastructure. Hyperscale operators are deploying AI-optimized
+platforms at rack and cluster scale, integrating specialized accel-
+erators, high-bandwidth interconnects, liquid cooling systems,
+and power delivery architectures that differ fundamentally from
+prior-generation compute infrastructure. Deployment timelines
+have compressed sharply: platforms that once followed multi-
+year qualification cycles are now expected to move from design
+validation to production readiness in months. The competitive
+pressure to bring training and inference capacity online has
+made speed of deployment a first-order business constraint, yet
+the hardware beneath these platforms must still meet stringent
+reliability and availability targets. A single undetected fault
+class in a rack-scale system can cascade across hundreds of
+coordinated nodes, disrupting large-scale training and inference
+jobs incurring significant cost in both compute time and
+operational recovery.
+Hardware self-healing validation which is the systematic
+process of verifying that a platform behaves and self heals
+correctly under fault conditions is the primary gate between
+engineering release and production deployment. For AI data-
+center hardware, validation centers on fault injection testing:
+deliberately introducing component-level and system-level
+faults to verify detection, isolation, and remediation behavior.
+The scope of this testing is determined by a test plan, a
+structured document that specifies which faults to inject, on
+which components, under what conditions, and with what
+expected outcomes. The quality and completeness of the test
+plan directly governs the residual risk carried into production.
+Despite its criticality, test plan authoring remains a pre-
+dominantly manual process. Engineers consult hardware self-
+healing validation documents—structured specifications that
+enumerate known failure modes, detection mechanisms, and
+remediation behaviors for each field-replaceable unit (FRU),
+serving as the primary reference for verifying that the platform’s
+self-healing logic correctly detects, isolates, and recovers
+from hardware faults across the deployed fleet—and cross-
+reference them against the platform’s bill of materials (BOM)
+to identify which components require coverage. Test cases
+are then written individually, typically in spreadsheet form,
+and reviewed through engineering judgment. This workflow
+suffers from several structural deficiencies that scale poorly
+with platform complexity. Each test case is hand-authored
+from self-healing validation documents that vary in format,
+schema, and completeness across component vendors and
+arXiv:2607.16388v1  [cs.MA]  17 Jul 2026
+
+
+ARXIV
+2
+internal teams; for platforms comprising hundreds of distinct
+FRUs, initial test plan generation alone can consume weeks of
+engineering effort, creating a direct bottleneck on validation
+schedules that are already compressed by accelerated deploy-
+ment timelines. The mapping between a test case and the
+specification entry that motivated it is rarely recorded explicitly,
+so when test plans are reviewed, updated, or ported to a new
+platform the rationale for inclusion or exclusion of specific
+scenarios is lost, making coverage auditing subjective and gap
+identification unreliable. Because test plans encode platform-
+specific component identifiers and tribal knowledge of prior
+failure behavior, they cannot be transferred meaningfully to
+new platforms, and each generation requires near-complete
+re-authoring even when the underlying failure mode taxonomy
+and functional architecture share substantial overlap with
+predecessors. Without a systematic method to identify under-
+tested components or missing fault categories, coverage gaps
+are typically discovered during test execution or, worse, after
+deployment through field incidents, and the feedback loop
+from gap discovery to test plan remediation remains slow and
+reactive.
+The emergence of agentic AI architectures, which are
+systems composed of multiple specialized language model
+agents that collaborate through structured interfaces to ac-
+complish complex reasoning tasks, offers a new paradigm
+for automating knowledge-intensive engineering workflows.
+Unlike monolithic model approaches, multi-agent systems
+decompose a problem into discrete reasoning stages, each
+handled by an agent optimized for a specific subtask. This
+decomposition mirrors the natural structure of engineering
+processes: distinct phases of data ingestion, normalization,
+classification, synthesis, and validation, each requiring different
+domain context and reasoning strategies. Recent advances in
+large language models have demonstrated strong performance
+on structured document understanding, schema inference, and
+domain-aware generation tasks, making agent-based pipelines a
+viable approach for engineering automation problems that were
+previously intractable without deep domain-specific software.
+This paper presents a multi-agent generative AI system
+that automates hardware validation test plan generation from
+self-healing validation documents and component bills of
+materials. The system replaces manual authoring with a
+pipeline of specialized agents: a classification agent that maps
+BOM components to functional domains through contextual
+reasoning, an ingestion agent that normalizes heterogeneous
+specification formats into a canonical schema, and a generation
+agent that synthesizes test cases by combining failure mode
+data with domain classified component inventories. The output
+is a structured, traceable test plan conforming to a standardized
+schema suitable for import into an internal validation manage-
+ment platform. The evaluation strategy of the framework is
+on production rack-scale AI infrastructure and compare auto-
+generated plans against manually authored baselines across
+coverage, traceability, and authoring efficiency metrics.
+Fig. 1 summarizes the key challenges associated with manual
+test plan authoring.
+The remainder of this paper is organized as follows. Section
+II surveys related work in hardware validation automation,
+fault injection methodology, and Large Language Model-
+based engineering tools. Section III details the proposed
+methodology. Section IV summarizes the experimental setup.
+Section V presents the proposed framework’s results. Section
+VI concludes, while providing limitations and future directions.
+II. RELATED WORK
+A. Overview
+Hardware validation in large-scale AI datacenter systems
+draws on three research areas: fault injection and reliability test-
+ing, engineering automation, and Large Language Model-based
+multi-agent systems. While each area has matured indepen-
+dently, their combined application to systematic, artifact-driven
+validation planning remains largely unexplored. Modern AI
+clusters present unique challenges, such as interdependent GPU
+memory fabrics, high-bandwidth interconnects like NVLink or
+InfiniBand, and specialized liquid-cooling units, which often
+exceed the capabilities of general-purpose cloud validation.
+Most prior work addresses runtime reliability or low-level
+software fault modeling, leaving a clear gap in design-time test
+planning driven by structured engineering inputs such as Bills
+of Materials (BOMs) and self-healing validation documents.
+B. Fault Injection and Reliability Validation
+Fault injection is a well-established technique for assessing
+system dependability in distributed and cloud environments.
+Traditional surveys in IEEE and ACM venues document
+injection techniques spanning hardware, virtualization, and
+application layers, reflecting the growing complexity of modern
+datacenter systems [1], [2]. However, as clusters transition from
+general-purpose CPU compute to highly accelerated AI nodes,
+the blast radius of hardware faults has shifted, necessitating
+more granular isolation testing to prevent cluster-wide outages.
+Recent work has extended fault injection to cloud-native
+and AI-driven systems to address these shifts. Cinque et
+al. [3] present COSMOS, a hardware-assisted fault injection
+framework that uses nested virtualization to test hardware-
+assisted hypervisors such as KVM, Xen, and Jailhouse. By
+injecting faults without modifying the target system, COSMOS
+exposes non-fail-stop behaviors, including silent data corruption
+or gray failures, which are particularly catastrophic for large-
+scale distributed training runs. Related studies on fault injection
+in microservice and edge environments further highlight
+the challenge of validating resilience across heterogeneous
+deployments where hardware-software dependencies are tightly
+coupled [12].
+Chaos engineering has emerged as a complementary op-
+erational approach, enabling continuous failure testing in
+production systems. Recent work describes AI-enhanced and
+policy-driven chaos frameworks that orchestrate complex multi-
+cloud failure scenarios at scale [4]. Despite these advances,
+both fault injection and chaos engineering remain primarily
+experiment-driven rather than plan-driven. In these paradigms,
+test scenarios are often defined manually based on engineering
+intuition, coverage is typically limited to individual software
+components, and there is no systematic mechanism to derive
+specific hardware test cases directly from design-time engineer-
+ing specifications.
+
+
+ARXIV
+3
+Fig. 1: Summary of key challenges in manual hardware validation test plan authoring for AI datacenter platforms
+TABLE I: Summary of related work, main gaps, and proposed contributions
+Current Methods
+Main Gaps
+Proposed Contributions
+Fault Injection [1]–[4]
+Scenarios are manually defined; no link to design
+specifications. No automated synthesis of test
+plans from engineering artifacts.
+Specification-driven test case generation from
+BOM and self-healing validation document in-
+puts. Full traceability from each engineering
+input to each test case.
+Runtime Reliability
+Automation & Digital Twins
+[5]–[7]
+Operate post-deployment; design-time validation
+not addressed. Consume system telemetry, not
+structured engineering artifacts. Produce behav-
+ioral simulations, not discrete test plans.
+Design-time validation planning prior to hard-
+ware deployment. Structured artifacts (BOM, self-
+healing validation document) as direct system
+inputs. Outputs structured, executable hardware
+validation test plans.
+Engineering Automation [8],
+[9]
+Monolithic models with limited domain-specific
+grounding. No traceability between outputs and
+source engineering inputs. Not designed for
+structured test plan generation.
+Domain-aware prompting grounded in hardware
+taxonomy and failure mode knowledge. Schema-
+driven outputs with explicit citation of source
+artifacts. Purpose-built pipeline for hardware
+validation test plan synthesis.
+Generative AI Agents &
+Multi-Agent Architectures
+[10]–[12]
+Focused on runtime orchestration; no structured
+engineering workflow. Lack domain constructs
+such as failure mode taxonomies or component
+hierarchies. No consistency guarantees or cover-
+age assurance on outputs.
+Multi-agent pipeline decomposed into inges-
+tion, classification, and test generation stages.
+Cross-agent consistency checks and structured
+inter-agent communication. Coverage verification
+against full input component and failure mode
+scope.
+The proposed model
+Real-time multi-agent pipeline that fuses BOM in-
+gestion, self-healing validation document failure
+extraction, domain classification, and automated
+test case generation.
+Enables specification-driven hardware validation
+test plan synthesis with full traceability and
+human-in-the-loop quality assurance.
+C. Automation in Reliability and Systems Engineering
+Machine learning and generative AI have been applied
+to system observability, root cause analysis, and operational
+automation [5]. These approaches, often categorized under
+AIOps, improve runtime responsiveness by identifying patterns
+in log files and telemetry streams. However, these models
+operate downstream of the hardware design, meaning they react
+to failures rather than proactively structuring the validation
+process based on the physical architecture of the system.
+Digital twin frameworks extend this automation by enabling
+simulation-based reliability assessment. Recent literature dis-
+cusses digital twin models that simulate cascading failures
+across critical infrastructure and cyber-physical systems [6],
+[7]. While digital twins provide sophisticated behavioral
+simulations, their utility in hardware validation is often bot-
+tlenecked by the fidelity-complexity trade-off. Their outputs
+are behavioral predictions rather than the discrete validation
+artifacts, such as structured hardware test plans or executable
+scripts, required by test engineers during the hardware bring-up
+and qualification phase.
+Large Language Model-based systems have also been
+
+
+ARXIV
+4
+explored for engineering workflow automation, including
+configuration management and network orchestration [8], [9].
+However, these applications remain focused on operational
+tasks and do not address the structural reasoning required
+to map a multi-level hardware hierarchy to a comprehensive
+test suite. A consistent limitation across this body of work
+is the absence of integration between structured engineering
+inputs and automated reasoning systems. Automation remains
+disconnected from the formal design phase, leading to a
+persistent silo between hardware design teams and validation
+engineers.
+D. Multi-Agent Systems
+Multi-agent systems based on Large Language Models repre-
+sent the frontier of complex reasoning and task decomposition.
+Recent work proposes agentic architectures in which multiple
+specialized agents collaborate on tasks beyond the capacity
+of monolithic models, offering improved modularity and
+interpretability in industrial and cyber-physical domains [10],
+[11]. In cloud and network management, distributed agent
+frameworks have been applied to fault diagnosis, traffic orches-
+tration, and decision support [9]. By leveraging specialized
+personas, these systems can simulate organizational workflows,
+yet their application to the rigorous requirements of hardware
+engineering remains in its infancy.
+Despite this progress, current multi-agent systems suffer
+from several primary deficiencies when applied to the context
+of hardware validation. First, most multi-agent frameworks rely
+on general-purpose reasoning and do not natively incorporate
+hardware-centric constructs, such as Failure Mode Taxonomies
+or the physical hierarchies inherent in complex AI cluster
+architectures. Second, current research prioritizes finding a
+singular solution or response rather than ensuring the exhaustive
+traceability and coverage guarantees required for engineering
+certification. There is currently no formal mechanism to ensure
+an agentic workflow has addressed every critical component
+listed in a design specification. Finally, these systems are not
+designed to generate the heterogeneous, structured artifacts
+required for validation, such as formal test procedures, risk
+assessments, and compliance documentation. These limitations
+restrict the applicability of multi-agent systems to structured
+engineering workflows, highlighting a pressing need for frame-
+works that can ingest structured hardware data and, through
+specialized collaboration, produce a rigorous and traceable
+validation plan.
+Table I summarizes the key previous work from the reviewed
+literature, the main limitations of each, and how the proposed
+framework addresses them.
+The reviewed literature reveals four recurring limitations
+that motivate this work:
+• Fault injection rely on manually defined scenarios and
+cannot automatically generate test cases from engineering
+specifications.
+• Automation techniques operate at runtime and do not
+support design-time validation planning.
+• Large Language Models (LLMs) and multi-agent systems
+have not been applied to structured engineering artifact
+generation with explicit traceability to source inputs.
+This paper addresses these gaps by proposing a multi-agent
+generative AI framework that transforms structured engineering
+inputs specifically BOMs and self-healing validation documents
+into comprehensive, traceable hardware self-healing validation
+test plans. Unlike prior work, the proposed approach integrates
+domain-aware reasoning and schema-driven output generation
+within a unified multi-agent architecture.
+III. METHODOLOGY
+Fig. 2 describes the proposed multi-agent generative AI
+framework for automated hardware validation test plan gen-
+eration from two canonical engineering inputs: self-healing
+validation documents and BOM. The architecture decomposes
+the generation task into three specialized agents: a domain
+classifier agent that maps BOM entries to functional domains
+using contextual reasoning, a failure modes extractor agent that
+normalizes heterogeneous failure mode specifications into a
+canonical intermediate representation, and a test cases author
+agent that synthesizes test cases by combining normalized
+failure modes with domain-classified component data. The
+domain classifier agent and the failure modes extractor agent
+operate in parallel as they process independent inputs with
+no data dependencies between them; their outputs are sub-
+sequently consumed by the test cases author agent. Each of
+these components are described in details in the following
+subsections.
+A. Domain Classifier Agent
+The first stage of the framework addresses the classification
+of bill of materials entries into functional hardware domains. In
+rack-scale AI platforms, a bill of materials typically contains
+hundreds of distinct component entries spanning diverse
+functional areas including compute accelerators, power delivery,
+thermal management, storage, networking, and system man-
+agement. Grouping these components into coherent functional
+domains is essential for organizing test plans by engineering
+discipline, identifying coverage gaps at the domain level, and
+assigning domain-appropriate test case attributes in the final
+output. Rather than relying on static rule-based mappings
+that require manual maintenance as component taxonomies
+evolve, the proposed approach employs an LLM to dynamically
+propose a domain taxonomy and classify each component based
+on contextual reasoning over its description and sub-category
+designation.
+Let B = {b1, b2, . . . , bN} denote the set of bill of materials
+entries, where N is the total number of components. Each
+entry bi is characterized by a tuple:
+bi = (di, si, cati, δi)
+(1)
+where di is the textual description of the component, si is
+the sub-category label, cati is the top-level category, and δi
+encapsulates additional attributes such as field-replaceability
+status and quantity per rack.
+Certain top-level categories are not relevant to hardware
+fault injection validation, such as software licenses, mechanical
+assemblies, or packaging materials. A configurable discard set
+
+
+ARXIV
+5
+Fig. 2: Multi-agent generative AI framework for automated hardware self-healing validation test plan generation showing
+domain-aware component classification, failure mode extraction, and test case synthesis
+Cdisc defines the categories to exclude prior to classification.
+The filtered bill of materials is computed as:
+B′ = {bi ∈B | cati /∈Cdisc}
+(2)
+where B′ contains only the hardware components relevant to
+validation test planning.
+To provide the language model with sufficient context for
+classification, the unique sub-categories are extracted from
+the filtered bill of materials along with representative sample
+descriptions. Let U = {u1, u2, . . . , uM} denote the set of
+unique sub-category values, formally defined as:
+U = {si | bi ∈B′}
+(3)
+For each unique sub-category u ∈U, a bounded set of sample
+descriptions is collected to provide the classifier with concrete
+examples of parts within that grouping:
+X(u) = {di | bi ∈B′, si = u}1:P
+(4)
+where the subscript 1:P indicates that at most P sample
+descriptions are retained per sub-category to bound the input
+context size.
+To guide the classification, a platform-specific enumeration
+list of candidate domains Denum = {D1, D2, . . . , DQ} is
+defined for each hardware platform under validation. This
+enumeration reflects the functional architecture and engineering
+disciplines relevant to the target platform and is provided as
+input to the language model to constrain the classification
+space. The classification is performed by a language model
+that receives the full set of sub-categories with their sample
+descriptions alongside the platform-specific domain enumer-
+ation, and produces three outputs simultaneously: the final
+domain taxonomy, a classification mapping, and a confidence
+assessment. This is formally expressed as:
+(D, µdom, κ) = f class
+LLM(U, X, Denum)
+(5)
+where D ⊆Denum is the set of domains that received at least one
+assignment, µdom : U →Denum is the classification mapping
+that assigns each sub-category to exactly one domain from the
+enumeration, and κ : U →[0, 100] is the confidence function
+that quantifies the certainty of each classification decision.
+The confidence scoring follows a three-tier interpretation:
+confidence level =
+
+
+
+
+
+high
+if κ(u) ∈[70, 100]
+moderate
+if κ(u) ∈[50, 70)
+low
+if κ(u) < 50
+(6)
+where high-confidence assignments indicate clear functional
+alignment between the sub-category and the proposed domain,
+moderate-confidence assignments flag entries that warrant
+human review, and low-confidence assignments indicate that
+the sub-category description was too ambiguous for reliable
+classification.
+The domain assignment is propagated from the sub-category
+level to each individual bill of materials entry. For each
+component bi ∈B′, the assigned domain is given by:
+dom(bi) = µdom(si)
+(7)
+and the associated confidence is:
+conf(bi) = κ(si)
+(8)
+The output of this stage is a domain-enriched bill of materials
+B∗where each entry is augmented with its functional domain
+label and classification confidence, formally defined as:
+B∗= {(bi, dom(bi), conf(bi)) | bi ∈B′}
+(9)
+This domain-enriched representation serves two purposes
+in downstream processing: it provides the functional domain
+label required by the output test case schema, and it enables
+the test cases author agent to reason about component relation-
+ships within and across domains during cross-component test
+synthesis.
+
+
+ARXIV
+6
+B. Failure Modes Extractor Agent
+The second stage of the proposed framework, which operates
+in parallel with the domain classifier agent, addresses the
+challenge of extracting structured failure mode data from
+heterogeneous self-healing validation documents. In production
+environments, self-healing validation documents are organized
+in several formats depending on the team working on it among
+which organizing as multi-tab spreadsheet documents where
+each tab corresponds to a distinct hardware component or
+subsystem. These tabs vary in column naming conventions,
+header row placement, and schema structure across component
+vendors and internal engineering teams, making automated
+extraction non-trivial. The failure modes extractor agent normal-
+izes these heterogeneous inputs into a canonical intermediate
+representation suitable for downstream processing by the test
+cases author agent.
+Let T
+= {T1, T2, . . . , TL} denote the complete set of
+tabs within a self-healing validation document, where L is
+the total number of tabs. Not all tabs contain actionable
+failure mode data; some contain metadata, revision history,
+or unrelated reference material. A domain-relevant whitelist
+W ⊂T defines the subset of tabs that contain hardware failure
+mode information. The filtered set of valid tabs is formally
+expressed as:
+Tvalid = {Tj ∈T | Tj ∈W}
+(10)
+where each Tj ∈Tvalid corresponds to a specific hardware
+component or subsystem containing failure mode entries that
+require extraction.
+For each valid tab Tj, the raw content is represented as a
+tabular matrix Rj ∈Rnj×mj, where nj denotes the number
+of rows and mj denotes the number of columns. Since header
+row placement is inconsistent across tabs, a header detection
+function gheader is applied to identify the row containing column
+descriptors:
+hj = gheader(Rj)
+(11)
+where hj = [hj,1, hj,2, . . . , hj,mj] is the detected header vector.
+If the initially detected header row contains no meaningful
+non-empty cells, the function automatically falls back to the
+subsequent row, which ensures robustness against blank or
+formatting-only rows at the top of each tab.
+The component name associated with each tab is inferred
+from its title using an LLM. Rather than relying on brittle
+string-matching heuristics, the language model interprets the
+tab title in the context of hardware engineering terminology.
+For each valid tab Tj, the component name is computed as:
+cj = f comp
+LLM (title(Tj))
+(12)
+where f comp
+LLM denotes the language model function specialized
+for component name inference, and title(Tj) returns the human-
+readable title of tab Tj.
+The central challenge of ingestion lies in mapping the
+heterogeneous column headers of each tab to a unified canonical
+schema. Let F = {f1, f2, . . . , fK} denote the set of canonical
+schema fields that define the normalized failure mode represen-
+tation. These fields include failure description, failure category,
+priority, risk assessment, remediation procedure, detection
+method, and error injection recipe. The column mapping for
+each tab is performed by a language model that receives the
+detected headers and the target schema, formally expressed as:
+µj : hj →F
+(13)
+µj = f map
+LLM(hj, F)
+(14)
+where µj is a partial injective mapping from detected column
+headers to canonical schema fields. The mapping is partial
+because not every column in the source tab corresponds to a
+schema field, and injective because each schema field maps to
+at most one source column.
+Using the inferred component name cj and the column
+mapping µj, each data row rj,i (for i = 1, 2, . . . , n′
+j, where n′
+j
+is the number of data rows excluding the header) is normalized
+into a canonical failure mode record:
+ϕj,i = N(rj,i, µj, cj)
+(15)
+where N is the normalization function that extracts the value at
+each mapped column index and assigns it to the corresponding
+schema field, while setting the component field to cj. Fields for
+which no source column exists in tab Tj are preserved as empty
+values to avoid introducing fabricated information. This design
+choice is critical: the failure modes extractor agent performs
+no gap-filling or content generation, which ensures that the
+normalized output faithfully represents the source specification.
+The complete set of normalized failure modes aggregated
+across all valid tabs is given by:
+Φ =
+[
+Tj∈Tvalid
+{ϕj,i}
+n′
+j
+i=1
+(16)
+where Φ constitutes the canonical failure mode repository that
+serves as a primary input to the test cases author agent.
+C. Test Cases Author Agent
+The third and central stage of the framework synthesizes
+structured hardware validation test cases by combining the
+normalized failure modes from the failure modes extractor
+agent with the domain-classified component inventory from
+the domain classifier agent. The test cases author agent
+performs four distinct functions: it maps bill of materials
+components to their corresponding self-healing validation
+document coverage, identifies and fills gaps in existing failure
+mode records, generates new test cases for under-covered
+or uncovered components, and produces cross-component
+interaction test scenarios that exercise failure propagation paths
+across functionally coupled subsystems. The design follows a
+detection-path-first principle, where test cases are derived by
+enumerating the monitoring and detection pathways available
+for each component and validating that each pathway functions
+correctly under fault conditions.
+1) Coverage Mapping
+The first operation establishes a mapping between the physi-
+cal component inventory and the failure mode specifications to
+determine which components have existing test coverage and
+which represent coverage gaps. Let Φ denote the normalized
+failure mode set from the failure modes extractor agent and
+
+
+ARXIV
+7
+B∗the domain-enriched bill of materials from the domain
+classifier agent. The coverage mapping function is defined as:
+C : B∗→2Φ ∪{∅}
+(17)
+where C(bi) returns the subset of failure modes in Φ whose
+component field semantically corresponds to bill of materials
+entry bi, or the empty set if no self-healing validation document
+coverage exists for that component. This mapping employs
+fuzzy semantic matching to account for naming variations be-
+tween bill of materials descriptions and self-healing validation
+document component identifiers.
+Based on this mapping, the bill of materials entries are
+partitioned into two disjoint sets:
+B∗
+covered = {bi ∈B∗| C(bi)̸ = ∅}
+(18)
+B∗
+zero = {bi ∈B∗| C(bi) = ∅}
+(19)
+where B∗
+covered contains components with at least one existing
+failure mode in the self-healing validation document, and B∗
+zero
+contains components with no existing coverage that require
+new test case generation.
+To avoid redundant test generation for functionally identical
+components that differ only in minor attributes such as cable
+length or form factor variant, similar bill of materials entries
+in B∗
+zero are grouped into logical component groups:
+Gzero = group(B∗
+zero)
+(20)
+where each group g ∈Gzero represents a set of bill of materials
+entries that share the same functional role and should be covered
+by a single set of test cases.
+2) Gap Analysis and Completion
+For each existing failure mode ϕ ∈Φ, the gap analysis
+identifies schema fields that are present in the canonical
+representation but contain empty values due to missing data in
+the source specification. The set of missing fields for a given
+failure mode is defined as:
+G(ϕ) = {fk ∈F | ϕ[fk] = ∅}
+(21)
+where ϕ[fk] denotes the value of field fk in failure mode record
+ϕ.
+For each failure mode where G(ϕ)̸ = ∅, a language model
+fills the missing fields based on the component type, failure
+description, and any available non-empty fields. The gap-filled
+failure mode is computed as:
+ˆϕ = f fill
+LLM(ϕ, G(ϕ))
+(22)
+where f fill
+LLM generates values only for the fields in G(ϕ)
+while preserving all existing non-empty values. This constraint
+ensures that original specification data is never overwritten
+by generated content. The updated failure mode set after gap
+completion is:
+ˆΦ =
+n
+ˆϕk | ϕk ∈Φ
+o
+(23)
+3) Edge Case and Coverage Expansion
+For components with thin coverage (few existing failure
+modes) and for zero-coverage component groups, the test cases
+author agent synthesizes new test cases using a detection-path-
+first reasoning strategy. Rather than enumerating hypothetical
+physical failures, the agent identifies the monitoring, telemetry,
+and management pathways available for each component and
+generates test cases that validate the correct functioning of
+each detection path under injected fault conditions.
+For each component or zero-coverage group requiring new
+test cases, the language model receives the component identity,
+relevant bill of materials context, and any existing failure modes
+to avoid duplication. The generation is formally expressed as:
+Φnew(bi) = f gen
+LLM(bi, C(bi), XBOM(bi))
+(24)
+where XBOM(bi) provides the bill of materials descriptions
+for contextual grounding, and each generated failure mode
+ϕnew ∈Φnew(bi) must satisfy the tooling-testability constraint:
+∀ϕnew ∈Φnew(bi) :
+ϕnew[injection]̸ = ∅∧ϕnew[detection]̸ = ∅
+(25)
+This constraint enforces that every generated test case specifies
+both a concrete software-injectable fault condition and a verifi-
+able detection pathway through the monitoring infrastructure,
+thereby excluding test scenarios that would require physical
+hardware manipulation.
+4) Cross-Component Interaction Test Synthesis
+In addition to single-component test cases, the framework
+generates cross-component interaction tests that validate the
+end-to-end detection and response chain when a fault in one
+component triggers cascading effects in functionally coupled
+subsystems.
+Let Φ∗= ˆΦ ∪S
+bi Φnew(bi) denote the complete set of
+single-component failure modes after gap filling and coverage
+expansion. The cross-component test generation function takes
+the complete failure mode set and the bill of materials context
+as input:
+I = f cross
+LLM(Φ∗, B∗)
+(26)
+where I = {ι1, ι2, . . . , ιR} is the set of cross-component
+interaction test cases, and each test ιr specifies a trigger
+component, an injection method, the expected downstream
+response in one or more affected components, and the validation
+procedure to confirm the response chain. Each cross-component
+test case encodes a directed interaction:
+ιr = (bsrc, bdst, ϕtrigger, ϕresponse, vr)
+(27)
+where bsrc is the source component where the fault is injected,
+bdst is the downstream component where the cascading effect is
+observed, ϕtrigger describes the injected fault condition, ϕresponse
+describes the expected detection and remediation response,
+and vr specifies the validation procedure. All cross-component
+tests are assigned the highest priority classification given that
+undetected cascading failures represent the highest-risk scenario
+in production deployments.
+5) Test Plan Composition and Output Formatting
+The final test plan is composed by aggregating all test case
+categories into a unified, structured output. The complete test
+plan P is defined as:
+P = ˆΦ ∪Φnew ∪I
+(28)
+where ˆΦ contains the original failure modes with gaps filled,
+Φnew = S
+bi Φnew(bi) contains all newly generated single-
+component test cases, and I contains the cross-component
+interaction tests.
+
+
+ARXIV
+8
+Each test case p ∈P is transformed into the output schema
+required by the downstream internal automated validation plat-
+form. The domain assignment for each test case is determined
+by its corresponding bill of materials mapping:
+domain(p) =
+(
+dom(bi)
+if p ∈ˆΦ ∪Φnew and ∃bi ∈B∗
+Dcross
+if p ∈I
+(29)
+where dom(bi) is the domain assigned by the domain classifier
+agent, and Dcross is a designated domain label for cross-
+component interaction tests. The final structured output for each
+test case conforms to the following schema transformation:
+output(p) = O(p, domain(p))
+(30)
+where O maps each test case and its domain to a structured
+record containing a descriptive name, domain label, priority
+level, composite test case description, and execution system
+designation. Each generated test case is tagged with its
+provenance—whether originating from the source specification
+or generated by the test cases author agent—to maintain full
+traceability between the test plan and its originating inputs.
+D. Implementation and Reproducibility
+The proposed multi-agent framework was developed and
+executed using agentic AI orchestration tools built internally
+at Meta. The underlying language models were hosted in-
+house within a controlled environment to ensure data privacy
+and compliance with infrastructure security requirements. As
+these internal tools and hosting infrastructure are proprietary
+and cannot be publicly released, the detailed step-by-step
+mathematical formalization and algorithmic descriptions pro-
+vided in the preceding subsections are intended to ensure full
+reproducibility of the proposed approach using any compatible
+agentic AI development framework and large language model
+hosting environment. For the test cases author agent, the use
+of a language model with strong reasoning capabilities and
+a long context window is highly recommended; additionally,
+delegating component-wise test case generation to child sub-
+agents is advised to avoid context window saturation when
+processing platforms with racks comprising a large number of
+components.
+IV. EXPERIMENTAL SETUP
+This section describes the evaluation methodology used to
+assess the quality of the test plans generated by the proposed
+multi-agent framework. The evaluation employs a two-fold
+assessment strategy: an automated agents-as-judge protocol
+that leverages multiple independent large language models as
+reviewers, and a human expert annotation protocol that provides
+ground-truth quality assessments from domain engineers. Both
+protocols are applied to test plans generated for two production
+rack-scale datacenter platforms and repeated across multiple
+independent experimental replications to quantify evaluation
+stability.
+TABLE II: Test plan composition for evaluation platforms
+Metric
+Platform A
+Platform B
+Total test cases
+54
+56
+Source-specification entries
+31
+37
+Agent-generated entries
+23
+19
+A. Evaluation Platforms and Test Plan Composition
+The framework is evaluated on two production AI dat-
+acenter platforms, hereafter referred to as Platform A and
+Platform B, to assess generalizability across distinct hardware
+architectures. Both platforms are rack-scale systems deployed
+in production AI infrastructure, comprising heterogeneous
+components spanning compute, power delivery, thermal man-
+agement, networking, and system management subsystems. The
+platforms differ in component count, functional architecture,
+and self-healing validation document structure, providing
+complementary evaluation contexts.
+For each platform, the multi-agent framework ingests the
+platform’s self-healing validation document and bill of mate-
+rials, and produces a structured test plan P as described in
+Section III. Each generated test plan contains two categories
+of test cases distinguished by provenance:
+• Source-specification entries (ˆΦ): Test cases derived
+directly from the source self-healing validation document
+through the failure modes extractor agent, with gap-filled
+fields where applicable. These entries are expected to
+faithfully reproduce the original document content.
+• Agent-generated entries (Φnew ∪I): Test cases synthe-
+sized by the test cases author agent, including edge-
+case scenarios for under-covered components and cross-
+component interaction tests. These entries represent novel
+content produced by the framework.
+Table II summarizes the composition of the generated test
+plans for both platforms.
+B. Agents-as-Judge Evaluation Protocol
+The first evaluation dimension employs an automated multi-
+model review protocol in which three independent large
+language models serve as reviewers. This approach is motivated
+by two considerations: it provides a scalable, reproducible
+evaluation mechanism that can be applied consistently across
+platforms and replications, and the use of multiple reviewer
+models with distinct reasoning characteristics enables assess-
+ment of evaluation robustness through inter-model agreement
+analysis.
+Three large language models from the Claude model family
+are selected as independent reviewers based on their demon-
+strated capabilities in structured reasoning, long-context com-
+prehension, and domain-aware evaluation. Table III summarizes
+the key characteristics of each reviewer model. The selection
+spans two model generations (Claude 4.5 and Claude 4.6) and
+two capability tiers (Opus and Sonnet), providing architectural
+and behavioral diversity in reasoning patterns. Opus-class
+models employ extended chain-of-thought reasoning with
+higher computational budgets per token, making them well-
+suited for nuanced judgment tasks that require weighing
+
+
+ARXIV
+9
+TABLE III: Characteristics of large language models used
+as independent reviewers in the agents-as-judge evaluation
+protocol
+Reviewer
+Model
+Family
+Context
+R1
+Opus 4.6
+Claude
+200K
+R2
+Sonnet 4.6
+Claude
+200K
+R3
+Opus 4.5
+Claude
+200K
+multiple evaluation criteria simultaneously. The Sonnet-class
+model offers a complementary evaluation perspective through
+its optimization for balanced throughput and reasoning, which
+has been shown to produce distinct acceptance boundaries in
+structured evaluation tasks. All three models support context
+windows of at least 200K tokens, ensuring that the complete
+test plan, self-healing validation document, and evaluation
+instructions can be processed in a single context without
+truncation or retrieval augmentation. Each reviewer operates
+independently with no shared context, no access to other review-
+ers’ assessments, and identical evaluation instructions, ensuring
+that inter-model agreement reflects genuine convergence in
+judgment rather than information leakage.
+The evaluation applies distinct criteria to source-specification
+entries and agent-generated entries, reflecting their different
+provenance and quality requirements. For source-specification
+entries ˆϕ ∈ˆΦ, each reviewer verifies extraction fidelity by com-
+paring the failure_description field against the orig-
+inal self-healing validation document. A source-specification
+entry is scored as:
+scorespec(ˆϕ) =
+(
+1
+if ˆϕ[failure_desc] matches source
+0
+otherwise
+(31)
+For agent-generated entries p ∈Φnew ∪I, each reviewer
+independently evaluates whether the test case constitutes a
+valid, non-redundant hardware fault injection scenario. Each
+reviewer Rk produces a binary validity score vk(p) ∈{0, 1}
+for k ∈{1, 2, 3}, where vk(p) = 1 indicates the reviewer
+judges the test case as valid and vk(p) = 0 indicates
+rejection. Along with each score, the reviewer provides a textual
+rationale documenting the basis for acceptance or rejection,
+enabling post-hoc analysis of rejection patterns and systematic
+identification of disagreement axes across models.
+The final validity determination for each agent-generated
+entry is computed through majority vote across the three
+reviewers:
+consensus(p) =
+(
+pass
+if P3
+k=1 vk(p) ≥2
+fail
+otherwise
+(32)
+This consensus mechanism provides robustness against individ-
+ual model biases while preserving sensitivity to genuine quality
+issues. A test case that two or more reviewers independently
+reject is classified as invalid, regardless of the third reviewer’s
+assessment. This threshold was chosen to balance false positive
+risk (accepting invalid test cases) against false negative risk (re-
+jecting valid test cases that a single reviewer mischaracterizes).
+The consensus mechanism additionally enables classification
+of rejection strength:
+rejection type(p) =
+(
+unanimous
+if P3
+k=1 vk(p) = 0
+majority
+if P3
+k=1 vk(p) = 1 (33)
+where unanimous rejections indicate high-confidence invalid
+entries on which all reviewers converge, and majority rejections
+indicate contested entries where one reviewer accepted what
+the other two rejected.
+To assess the stability of the automated evaluation, the
+agents-as-judge protocol is executed three times independently
+for each platform, yielding a total of six evaluation runs
+(3 replications × 2 platforms). Each replication constitutes a
+complete, independent execution of the three-reviewer evalua-
+tion pipeline on the same generated test plan. Variation across
+replications captures the stochastic component of language
+model evaluation behavior, providing confidence intervals on
+reported metrics.
+C. Human Expert Evaluation Protocol
+The second evaluation dimension employs domain expert
+annotation to provide ground-truth quality assessments that
+serve as the definitive benchmark for test case validity. Unlike
+the automated protocol, human evaluation captures nuanced en-
+gineering judgment about the practical utility and executability
+of generated test cases within the specific hardware validation
+context.
+1) Annotator Selection
+Two human annotators are selected from systems integration
+engineers with direct experience in fault injection testing
+on datacenter platforms. Each annotator possesses domain
+expertise in the platform architecture, self-healing validation
+document conventions, and the validation management system
+into which generated test plans are imported. This expertise
+is essential for assessing whether generated test cases specify
+realistic injection methods, reference valid detection pathways,
+and describe actionable verification procedures. Both annotators
+independently review the complete generated test plan, enabling
+computation of inter-annotator agreement as a measure of
+evaluation reliability.
+2) Annotation Schema
+Each human annotator reviews every test case in the
+generated test plan and assigns one of two quality labels:
+label(p) ∈{ACCEPT, REJECT}
+(34)
+The two-level schema is defined as follows:
+• ACCEPT: The test case is valid and can be imported
+directly into the validation management system without
+modification. The failure description, injection method,
+detection pathway, and verification procedure are all
+correct and complete.
+• REJECT: The test case is invalid and should not be
+included in the validation test plan. Rejection reasons
+include duplication of existing source-specification entries,
+reliance on application-level detection without hardware
+fault signals, post-repair verification rather than fault in-
+jection, or specification of physically untestable scenarios.
+
+
+ARXIV
+10
+TABLE IV: Test plan coverage increase: source-specification
+baseline versus framework-generated output
+Metric
+Platform A
+Platform B
+Before (source-specification only)
+31
+37
+After (framework-generated)
+54
+56
+Agent-generated (added)
+23
+19
+Coverage increase
++74.2%
++51.4%
+Fig. 3: Test plan coverage increase from source-specification
+baseline to framework-generated output, decomposed by entry
+provenance.
+V. RESULTS
+A. Agents-as-Judge
+This section presents the quantitative results of the agents-as-
+judge evaluation protocol described in Section IV-B. The eval-
+uation assesses the framework across multiple complementary
+dimensions: test plan coverage expansion, source-specification
+extraction fidelity, per-model and consensus validity rates,
+consensus agreement distribution, component-level validation
+outcomes, and inter-rater agreement among reviewer models.
+A primary objective of the framework is to expand test plan
+coverage beyond what manual specification-driven authoring
+provides. Table IV and Figure 3 present the test plan size
+before and after applying the framework for both evaluation
+platforms. For Platform A, the framework increased the test
+plan from 31 source-specification entries to 54 total test cases,
+a coverage expansion of +74.2%. For Platform B, the test
+plan grew from 37 to 56 entries, an increase of +51.4%. The
+added test cases comprise both single-component edge cases
+for under-covered components and cross-component interaction
+tests that exercise fault propagation across functionally coupled
+subsystems.
+Before evaluating the quality of this novel agent-generated
+content, it is essential to verify that the framework faithfully
+preserves the information already present in the source spec-
+ifications. Figure 4 reports the extraction fidelity for source-
+specification entries across both platforms. All three reviewer
+models unanimously confirmed that every source-specification
+entry was correctly extracted in all three replications: 31/31 for
+Platform A and 37/37 for Platform B, yielding 100% extraction
+fidelity across all evaluation runs. This result establishes that
+the failure modes extractor agent introduces no information
+Fig. 4: Source-specification extraction fidelity across evalua-
+tion platforms. All entries were correctly extracted in every
+replication.
+loss or distortion during the ingestion and normalization stage,
+providing a reliable foundation upon which the agent-generated
+entries build.
+With extraction fidelity established, the evaluation turns to
+the quality of agent-generated test cases. Table V summarizes
+the per-model and consensus pass rates across both platforms,
+reporting mean and standard deviation over three independent
+replications. Figure 5 visualizes the distribution of these
+rates, showing the median, interquartile range, and individual
+replication data points for each reviewer model and the
+consensus mechanism.
+On Platform A, all three reviewer models produced a mean
+pass rate of 79.7%, though with notably different variance
+profiles: Sonnet 4.6 exhibited the tightest spread (σ = 4.1%),
+while Opus 4.6 showed the widest (σ = 10.2%), reflecting
+differences in evaluation consistency across replications. The
+consensus mechanism, which requires agreement from at
+least two of three reviewers, achieved a mean pass rate of
+82.6% ± 6.1%, exceeding each individual model’s mean. This
+demonstrates the stabilizing effect of majority-vote aggregation:
+individual model variance is attenuated when a test case
+must convince multiple independent reviewers. On Platform B,
+Sonnet 4.6 was the most permissive reviewer (µ = 94.7%),
+while Opus 4.5 was the most conservative (µ = 71.9%),
+producing a 22.8 percentage-point spread between the most
+and least lenient models. The consensus rate of 75.4% ± 6.1%
+falls between these extremes, confirming that the majority-vote
+mechanism effectively mediates inter-model disagreement.
+Figure 6 presents the per-model pass rate trajectories
+across replications with per-model ±1σ bands, providing a
+complementary view of evaluation stability. The visualization
+reveals that while individual replication outcomes vary, the
+models maintain consistent relative ordering across runs. The
+narrowness of the σ bands for Sonnet 4.6 on both platforms sug-
+gests that this model applies the most deterministic evaluation
+criteria, whereas the wider bands for Opus 4.6 on Platform A
+indicate greater sensitivity to stochastic variation in reasoning.
+
+
+ARXIV
+11
+TABLE V: Per-model agent-generated pass rates across platforms and replications. Values report mean ± standard deviation
+over three independent replications.
+Reviewer Model
+Platform A (n = 23)
+Platform B (n = 19)
+Mean ± σ (%)
+Range (%)
+Mean ± σ (%)
+Range (%)
+Claude Opus 4.6 (R1)
+79.7 ± 10.2
+65.2–87.0
+77.2 ± 3.0
+73.7–78.9
+Claude Sonnet 4.6 (R2)
+79.7 ± 4.1
+73.9–82.6
+94.7 ± 5.3
+89.5–100.0
+Claude Opus 4.5 (R3)
+79.7 ± 7.4
+69.6–87.0
+71.9 ± 6.1
+68.4–78.9
+Consensus (≥2/3)
+82.6 ± 6.1
+73.9–87.0
+75.4 ± 6.1
+68.4–78.9
+Fig. 5: Distribution of agent-generated validity rates across three replications, per reviewer model and majority-vote consensus.
+The overall consensus pass rate of approximately 75–83%
+across both platforms indicates that roughly one in five agent-
+generated test cases is flagged for rejection by the automated
+review panel. This rejection rate is expected and, in fact,
+desirable within the intended human-in-the-loop workflow. The
+framework is designed to produce a comprehensive draft test
+plan that maximizes coverage recall surfacing failure scenarios
+that manual authoring would miss while accepting that a
+fraction of generated entries will require engineering judgment
+to filter. The alternative, a conservative generation strategy that
+only produces entries all models would accept, would sacrifice
+the novel edge-case scenarios that constitute the framework’s
+primary value. The rejected entries predominantly fall into
+identifiable categories, post-repair verification procedures, con-
+nectivity audits, and physically untestable scenarios providing
+clear, actionable feedback that domain engineers can process
+efficiently during review. This positions the framework not as
+a replacement for human expertise, but as a force multiplier: it
+reduces the authoring burden from days of manual specification
+review to hours of draft refinement, while surfacing failure
+modes and component interactions that manual processes
+systematically overlook.
+To understand the strength of reviewer agreement behind
+these rates, Figure 7 decomposes the consensus outcomes
+by degree of model agreement. On Platform A, a mean of
+14.3 out of 23 agent-generated entries received unanimous
+acceptance across replications, indicating that the majority of
+generated test cases are unambiguously valid. Only 1.7 entries
+on average received unanimous rejection, corresponding to
+clearly identifiable categories such as post-repair verification
+procedures that do not constitute fault injection tests. On
+Platform B, 9.0 entries received unanimous acceptance out of
+19, with only 1.0 receiving unanimous rejection on average. The
+contested region entries receiving majority pass or majority fail
+represents cases where at least one reviewer model disagreed
+with the others, reflecting genuine ambiguity in test case
+validity rather than clear-cut quality issues. The small size
+of the unanimous fail category on both platforms (1.7 and
+1.0 respectively) indicates that the framework rarely produces
+entries that all reviewers agree are invalid, reinforcing that most
+generated content represents reasonable validation scenarios
+even when individual models disagree on boundary cases.
+
+
+ARXIV
+12
+Fig. 6: Per-model validity rate trajectories across replications with ±1σ bands. Each model’s band uses its own color to show
+individual evaluation stability.
+Fig. 7: Consensus distribution showing degree of model agreement on agent-generated entries. Values report mean ±σ across
+three replications.
+Breaking down validation outcomes at the component level
+provides further insight into where the framework performs
+strongest and where targeted refinement would be most
+impactful. Figure 8 presents the consensus pass and fail
+counts decomposed by component, averaged across three
+replications. On Platform A, 8 of 11 component categories
+achieved consensus pass rates above 80%, with several reaching
+100%. On Platform B, 6 of 9 component categories achieved
+100% pass rates, with failures concentrated in components
+where the framework generated test cases involving physical-
+only injection methods or component-specific addressing
+schemes that reviewers deemed insufficiently automatable. This
+concentration of rejections in a small number of components
+suggests that targeted prompt refinement for these specific
+domains would yield disproportionate quality improvements,
+rather than indicating a systemic quality issue across the
+
+
+ARXIV
+13
+Fig. 8: Test case validation outcome by component (consensus pass vs. fail), averaged across three replications.
+framework’s output.
+Finally, to assess the reliability of the multi-model evaluation
+panel itself, Figure 9 reports pairwise agreement rates between
+all reviewer model pairs across both platforms. Agreement
+rates range from 75% to 93% across all pairs and platforms,
+with mean values consistently above 78%. The highest agree-
+ment on Platform B was observed between Opus 4.6 and
+Opus 4.5 (93%), which share the same model tier (Frontier)
+and exhibit similar strictness patterns on configuration audit
+and maintenance check entries. On Platform A, all three pairs
+achieved agreement above 85%, indicating strong convergence
+in evaluation behavior. These agreement levels are consistent
+with the range reported in the literature for human expert
+inter-annotator agreement on engineering judgment tasks,
+where perfect agreement is neither expected nor desirable,
+some degree of disagreement reflects legitimate differences in
+interpreting boundary cases. The consistently high pairwise
+agreement supports the reliability of the agents-as-judge
+protocol, while the moderate disagreement on specific entry
+types highlights precisely the ambiguous categories where
+human expert judgment is most valuable further reinforcing the
+human-in-the-loop design philosophy in which the automated
+panel identifies high-confidence valid and invalid entries with
+strong agreement, while flagging contested entries for expert
+review.
+B. Human Expert Evaluation
+This section presents the results of the human expert
+evaluation protocol described in Section IV-C. While the agents-
+as-judge protocol provides statistically stable, reproducible
+assessment through multiple replications, human evaluation
+surfaces practical engineering constraints that automated re-
+viewers cannot assess, including physical safety, testability
+feasibility, and organizational coverage decisions. Together, the
+two evaluation dimensions provide complementary validation
+of the framework’s output quality.
+Table VI summarizes the human expert evaluation outcomes
+for agent-generated test cases on both platforms. Each platform
+was reviewed by a domain engineer with direct experience in
+fault injection testing on that specific hardware architecture.
+Fig. 10 compares human acceptance rates against the agent
+consensus results from Section V-A. Platform A’s human
+
+
+ARXIV
+14
+Fig. 9: Pairwise agreement rates between reviewer models,
+reported as mean ±σ across three replications.
+TABLE VI: Human expert evaluation of agent-generated test
+cases
+Metric
+Platform A (n = 23)
+Platform B (n = 19)
+Accept
+18 (78.3%)
+13 (68.4%)
+Reject
+5 (21.7%)
+6 (31.6%)
+Fig. 10: Human expert vs. agent consensus acceptance rates.
+Human rates fall within agent replication ranges on both
+platforms, confirming evaluation calibration. Error bars on
+agent bars represent ±1σ across three replications.
+acceptance rate of 78.3% falls within the agent consensus
+replication range of 73.9–87.0%, and Platform B’s rate of
+68.4% matches the lower bound of the agent range of 68.4–
+78.9%. This alignment provides strong evidence that the agents-
+as-judge protocol is well-calibrated against domain expert
+judgment. Human experts are slightly stricter overall. Their
+rates sit at or below the agent consensus mean (82.6% and
+75.4% respectively), which reflects the expected direction:
+domain engineers apply practical constraints such as physical
+safety and test redundancy that language model reviewers
+cannot fully assess.
+Cross-component interaction tests were validated strongly
+by human experts: Platform A achieved 8/8 (100%) human
+acceptance. Platform B’s single cross-component rejection was
+due to a physical safety concern (risk of partially disconnecting
+a power whip under load), not a quality or reasoning deficiency.
+The rejection taxonomy reveals that all 11 rejected entries
+across both platforms fall into four well-defined, actionable
+categories. None represent hallucinations or fundamental rea-
+soning failures. Table VII summarizes these categories with
+their engineering dispositions.
+Three findings emerge from this analysis. First, zero rejected
+entries contain fabricated components or nonsensical failure
+modes; every rejection describes a real hardware component and
+a plausible fault scenario. The engineer’s judgment is whether
+to include the test case in the automated suite, not whether it is
+technically valid. Second, the rejection categories are precisely
+those that require human-in-the-loop judgment: physical safety
+assessment, organizational scope decisions, and redundancy
+with existing coverage that requires institutional knowledge to
+identify. Automated reviewers flagged the same categories as
+humans (post-repair procedures, physical-only injection) but
+cannot assess the safety dimension, empirically validating the
+human-in-the-loop architecture. Third, Platform A’s five redun-
+dancy rejections demonstrate that the framework independently
+derived failure scenarios already present in the self-healing
+validation document, a form of coverage self-validation that
+confirms the soundness of the system’s domain reasoning even
+in cases where the output is ultimately filtered.
+VI. CONCLUSION
+This paper presented a generative AI multi-agent framework
+designed to automate the authoring of hardware validation test
+plans for large-scale AI datacenter platforms. By decomposing
+the workflow into specialized agents for domain classification,
+failure mode extraction, and test case synthesis, the proposed ar-
+chitecture successfully bridged the gap between heterogeneous
+engineering inputs, specifically BOMs, self-healing validation
+documents, and structured, actionable validation procedures.
+Evaluation on two production rack-scale AI platforms demon-
+strated significant coverage expansions of 74.2% and 51.4%
+over manual baselines while maintaining 100% extraction
+fidelity for existing specifications.
+Despite these advancements, the study highlights several
+limitations inherent to the current multi-agent approach. While
+the generative agents successfully synthesize technically plau-
+sible fault scenarios, human expert evaluation revealed that the
+system occasionally proposes tests involving hardware that is
+practically untestable in a deployed environment. Furthermore,
+the framework currently lacks deep contextual awareness of
+organizational testing scopes, sometimes generating redundant
+scenarios or post-repair verification procedures rather than
+genuine fault injections. These boundary cases underscore the
+continued necessity of human-in-the-loop oversight to filter
+outputs based on physical constraints and operational realities
+that language models cannot fully assess yet.
+Future work will focus on refining the framework to address
+these practical constraints and broaden its applicability. A
+
+
+ARXIV
+15
+TABLE VII: Rejection taxonomy and engineering disposition. All rejections are scope decisions, not quality failures.
+Rejection Class
+Plat. A
+Plat. B
+Engineering Verdict
+Implication
+Redundancy with existing test
+coverage
+5
+0
+Merge into parent test case
+Framework independently identified
+failure domains already in spec
+Detection path covered by
+broader monitor
+0
+3
+No action: confirms existing mon-
+itoring sufficiency
+Coverage validation, not generation
+error
+Physical safety risk during in-
+jection
+0
+2
+Defer to controlled maintenance
+window or simulation
+Constraint only human experts can
+assess
+Hardware
+physically
+untestable
+0
+1
+Remove: overestimated testabil-
+ity
+Actionable feedback for prompt re-
+finement
+Total
+5
+6
+primary next step involves integrating explicit physical safety
+guardrails and testability heuristics into the generation prompts
+to minimize non-actionable outputs and reduce the human
+review burden. Additionally, extending the architecture to ingest
+firmware specifications and system-level telemetry could enable
+closed-loop validation, where test execution results dynamically
+feed back into the agents to continuously refine generation
+accuracy. Exploring the application of this methodology to
+other complex cyber-physical domains will further validate the
+scalability of multi-agent architectures in automating rigorous
+engineering compliance and hardware validation pipelines.
+REFERENCES
+[1] M. Pourreza and P. Narasimhan, “A survey of faults and fault-injection
+techniques in edge computing systems,” in 2023 IEEE International
+Conference on Edge Computing and Communications (EDGE).
+IEEE,
+2023, pp. 63–71.
+[2] G. Yu, G. Tan, H. Huang, Z. Zhang, P. Chen, R. Natella, Z. Zheng,
+and M. R. Lyu, “A survey on failure analysis and fault injection in ai
+systems,” ACM Transactions on Software Engineering and Methodology,
+vol. 35, no. 1, pp. 1–42, 2026.
+[3] M. Cinque, D. Cotroneo, G. De Rosa, L. De Simone, and G. Farina,
+“Cosmos: A fault injection framework to assess hardware-assisted
+hypervisors,” IEEE Transactions on Dependable and Secure Computing,
+2025.
+[4] L. C. Opara, O. N. Akatakpo, I. C. Ironuru, K. Anyaene, and B. O.
+Enobakhare, “Chaos engineering 2.0: A review of ai-driven, policy-guided
+resilience for multi-cloud systems,” Journal of Computer, Software, and
+Program, vol. 2, no. 2, pp. 10–24, 2025.
+[5] P. P. Ray, “A review of trism frameworks in artificial intelligence systems:
+Fundamentals, taxonomy, use cases, key challenges and future directions,”
+Expert Systems, vol. 43, no. 3, p. e70213, 2026.
+[6] L. Zhang, X. Yang, A. Pan, L. Yang, Y. Zhang, C. Liu, and J. Wu,
+“Higher-order network approach for modeling cascading failure in urban
+critical infrastructure,” ASCE-ASME Journal of Risk and Uncertainty
+in Engineering Systems, Part A: Civil Engineering, vol. 12, no. 2, p.
+04026002, 2026.
+[7] E. F. Morgan and M. H. Ali, “Digital twin-driven cybersecurity for 5g/6g-
+enabled electric vehicle charging infrastructure: A review,” Energies,
+vol. 18, no. 22, p. 6048, 2025.
+[8] Y. Hao, N. Ding, W. Xia, H. Ge, and L. Xu, “Dnn partitioning
+for cooperative inference in edge intelligence: Modeling, solutions,
+toolchains,” ACM Computing Surveys, vol. 58, no. 8, pp. 1–34, 2026.
+[9] E. E. Uslu, B. Ozturk, B. Gorkemli, M. Soyturk, S. B. Cihan, A. R.
+Gunduzhev, and O. Dagdeviren, “Next-generation management and
+orchestration for 6g: Emerging trends, architectures, and challenges,”
+IEEE Open Journal of the Communications Society, 2026.
+[10] D. Ivanov, “Agentic digital twins: bridging model-based and ai-driven
+decision-making support for a new era of supply chain and operations
+management,” International Journal of Production Research, pp. 1–17,
+2026.
+[11] W. Liu, C. Huang, S. Wang, L. Wang, F. Meng, M. Li, H. Zhang, and
+Q. Zheng, “Star: Steelmaking task-aware routing for multi-agent llm
+expert systems,” Electronics, vol. 15, no. 4, p. 720, 2026.
+[12] S. Yu, H. Wu, X. Niu, and C. Nie, “A systematic literature review on
+fault injection testing of microservice systems,” IEEE Transactions on
+Services Computing, 2025.
