@@ -6,31 +6,27 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-07-26
-- 运行时间：2026-07-26 21:28:13 UTC
+- 最新运行日期：2026-07-27
+- 运行时间：2026-07-27 21:48:21 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：2
-- 速读区：1
+- 本次总论文数：2
+- 精读区：0
+- 速读区：2
 
 ### 今日简报（AI）
-今日精读2篇、速读1篇，聚焦LLM辅助RTL设计生成与机器学习优化的EDA问题求解。  
-最值得关注的方向是：利用LLM逐步生成可综合RTL（8.0分），以及用机器学习识别高效规则以优化常系数乘法的SAT编码（8.0分）。  
-建议读者优先尝试将LLM集成到硬件设计流程中，同时关注机器学习在SAT求解中的规则学习能力，以提升设计自动化效率。
-- 详情：[/202607/26/README](/202607/26/README)
+今日速读2篇论文，均为6.0分，聚焦LLM在经典VLSI布线算法及约束推理诊断中的新进展。最值得关注的两个方向：一是将LLM与Prim-Dijkstra算法结合提升实际布线效果；二是提出区分“求解器难”与“模型难”的难度控制诊断方法。建议普通读者优先浏览这两篇论文的结论部分，理解LLM如何在不同复杂度问题上发挥优势。
+- 详情：[/202607/27/README](/202607/27/README)
 
 ### 精读区论文标签
-1. [A Progressive Approach to Synthesizable RTL Design Generation Using LLMs](/202607/26/2607.18519v1-a-progressive-approach-to-synthesizable-rtl-design-generation-using-llms)  
-   标签：评分：8.0/10、query:llm-hw-fv
-   evidence：基于LLM的RTL生成与可验证的规范细化
-2. [Identifying Good Rules for Efficient SAT Encodings of Single-Constant Multiplication Using Machine Learning](/202607/26/2607.21188v1-identifying-good-rules-for-efficient-sat-encodings-of-single-constant-multiplication-using-machine-learning)  
-   标签：评分：8.0/10、query:ml-verify
-   evidence：机器学习（图神经网络）用于硬件设计中的SAT编码
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [EvoDRC: A Self-Evolving Agentic Framework for Automated DRC Violation Repair](/202607/26/2607.20019v1-evodrc-a-self-evolving-agentic-framework-for-automated-drc-violation-repair)  
-   标签：评分：7.0/10、query:ml-verify
-   evidence：使用进化技能进行基于搜索的DRC修复
+1. [Provably Good Prim-Dijkstra Revisited: New Theory and a Practical Algorithm for a Classical VLSI Routing Problem with LLMs](/202607/27/2607.17005v1-provably-good-prim-dijkstra-revisited-new-theory-and-a-practical-algorithm-for-a-classical-vlsi-routing-problem-with-llms)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：LLM辅助地重新审视VLSI布线问题，包含形式证明和反例，展示了LLM在硬件形式验证中的适用性
+2. [Solver-Hard Is Not Model-Hard: A Hardness-Controlled Diagnostic for LLM Constraint Reasoning](/202607/27/2607.17047v1-solver-hard-is-not-model-hard-a-hardness-controlled-diagnostic-for-llm-constraint-reasoning)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：大语言模型在SAT实例上的约束推理能力评估，与形式验证相关
 
 
 <div class="dpr-home-promo-card">
