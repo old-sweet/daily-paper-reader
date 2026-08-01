@@ -1,0 +1,1481 @@
+Title: Certified Sequential Sweep Without Unrolling
+
+URL Source: https://arxiv.org/pdf/2607.27498v1
+
+Published Time: Fri, 31 Jul 2026 00:16:09 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+> 1
+
+# Certified Sequential Sweep Without Unrolling 
+
+Tobias Seufert Christoph Scholl Department of Computer Science, University of Freiburg, Freiburg, Germany 
+
+{seufert, scholl }@cs.uni-freiburg.de 
+
+Abstract —Verifying retiming followed by additional sequential resynthesis steps remains challenging for existing tools, limiting aggressive optimizations. Commonly-used equivalence checking tools rely on internal resynthesis operations and error-prone or-chestration of different model checkers, which makes certification difficult or even infeasible. We present an IC3-based technique that uses retiming as a preprocessing step and uses simulation to generate suspected invariants. Our technique efficiently verifies sequential equivalence problems under retiming and arbitrarily strong sequential resynthesis, and has the additional feature of producing certificates all the same. Our results on a selection of retimed and resynthesized open circuit designs show that our rather simple approach vastly outperforms the whole portfolio of the winner of the latest Hardware Model Checking Competition as a representative of general-purpose certifying model checkers. Compared to non-certifying approaches, like the mature equivalence checker of ABC, we are still competitive with additional complementary strengths. 
+
+I. I NTRODUCTION 
+
+Retiming [1] is among the most important logic opti-mization techniques used for sequential circuits. By simply moving registers over combinational blocks, retiming enables reduction in either the delay of the critical path or the required area of the design by reducing the number of required registers. The verification of circuits which are optimized by only 
+
+retiming is likely to be simpler than general sequential equiv-alence checking. Technically, it is only necessary to establish the retiming invariant which represents the functional relation between the original and the revised design after retiming— and prove it inductive [2]. Consider, for instance, an AND-gate in the original design that is driven by flip-flops (FFs) a and 
+
+b. If in the retimed design a and b are forward retimed and therefore moved over the AND-gate resulting in a new flip-flop (FF) c, then a retiming invariant would state c ≡ a ∧ b.The problem of checking, whether a retiming invariant (like 
+
+c ≡ a ∧ b) is an inductive invariant, is coNP-complete [3] (like combinational equivalence checking) instead of PSPACE-complete (like general sequential equivalence checking). If a design was only retimed, we can either reconstruct the retiming invariant in polynomial time [2] or use preprocess-ing techniques like maximal forward retiming (Sect. III-B) which is then able to align the FFs. If retiming was pre-or succeeded by combinational resynthesis, these techniques can fail (Sects. III-A and III-B). The problem remains likely harder than retiming alone [4], but likely simpler than general sequential equivalence checking—because the next-state func-tions of the registers are preserved. However, if sequential syn-thesis may change next-state functions, the problem becomes PSPACE-complete again. Moreover, an unknown number of alternating retiming and combinational resynthesis steps is already PSPACE-complete [4]. State-of-the-art approaches in sequential equivalence check-ing, such as ABC’s dprove [5], apply preprocessing steps such as maximal forward retiming to align FFs between revised and original designs. However, from a certification perspective, it may be consid-ered to be problematic to make use of (uncertified) retiming steps to prove the correctness of (sequential logic synthesis and) retiming. For maximal trust into the verification process, it is desirable that the verification engine produces a certificate that can be checked by an independent checker. In this paper, we propose a certifying method for sequen-tial equivalence checking. Our approach emits certificates under two preprocessing modes: maximal forward retiming and targeted virtual forward retiming. Preprocessing steps like maximal forward retiming are handled by a certificate transformation producing a certificate for the original problem before the preprocessing. To the best of our knowledge, there is no other dedicated certifying equivalence checker. Compared to the best general purpose multi-engine model checker rIC3 [6] (winner of two recent Hardware Model Checking Competi-tions), our approach performs significantly better on sequential equivalence checking problems. el checkers like IC3 [7]. Our approach is built on IC3 and remains complete under arbitrary orders of retiming and resynthesis transformations. We show that IC3 is closely related in spirit to induction-based equivalence checking approaches [8], [9], [3], and leverage this connection by combining IC3 with speculated signal corre-spondences. The proposed algorithm benefits from sequential-sweep ideas with speculative reduction [10], [11], [12], such as simulation-based refinement of equivalence classes, while retaining the advantages of IC3 as a full model checker. Beyond straightforward certification, we observe that our IC3-based framework often shows complementary strengths compared to k-induction-based approaches that unroll the transition relation. 
+
+Related Work: We consider our approach a natural exten-sion of Van Eijk’s work [8]. We do not require an exhaustive set of signal correspondences and can still prove equiva-lence by automatically adding missing information. Van Eijk’s algorithm was followed up by extensions that incorporated stronger induction ( k-induction) [13], [9], [3] because the large number of supporting signal correspondences, sometimes depending on virtual signals, were considered its main weak-ness. We argue that our approach complements k-induction-based approaches that depend on large unrollings: by using multi-timeframe rarity simulation [12] we enable targeted identification of candidates for virtual forward retiming and arXiv:2607.27498v1 [cs.LO] 29 Jul 2026 2
+
+additionally leverage the main strength of IC3 to quickly produce compact clausal reachability information to strengthen 
+
+k-inductive signal correspondences into one-inductive ones. Our approach of speculating invariants is related to research about speculative reduction [14], [11], [10], [15] of suspected corresponding signals. We implicitly prove signal correspon-dences by just assuming that others hold. Since our speculated invariants contain internal signals— or even virtual signals that do not exist in the underlying circuit—our approach relates to IC3 with internal signals [16]. Their approach is however not able to produce virtual signals if necessary or speculate. The basic idea of strengthening IC3 with a set of suspected invariants is also applied in recent works making use of machine learned invariants [17]. They refer to this as ‘side-loading’. However, compared to our approach, there is no attempt to distinguish between helpful and not helpful in-variants. Furthermore, they are agnostic of internal signals. Our implementation of ic3-sim (see Alg. 3 in Sect. III) is related to [18] and their concept of may-proof-obligations. We however do not only exclude the refuted suspected invariants from propagation, but remove them completely from consid-eration. We also do not extract additional exact reachability information. Furthermore, ic3-sim introduces restrictions like [19], but with the ultimate goal of proving equivalence, not refuting it by detecting deep counterexample paths. The authors of [20], [21] propose an approach for certifying 
+
+k-induction that could theoretically be used to verify individual proofs of correspondence between two signals in existing equivalence checkers. It is, however, unclear how to obtain a monolithic, independently checkable certificate for the entire equivalence-checking process. Note that a k-induction proof for the entire sequential equivalence-checking problem did never succeed in our experiments (see Sect. V-A0b). Further-more, their approach ignores simple-path (also called unique-state) constraints [13]. We, however, observed that it is often necessary to consider these constraints in order to prove all signal correspondences (see Sect. V-A0c). Recently, certification of preprocessing techniques for hard-ware model checking has been investigated, for example temporal decompostion [22] and phase abstraction [23]. To the best of our knowledge, retiming has not yet been covered as a preprocessing step. II. P RELIMINARIES 
+
+A. Synchronous Sequential Circuits 
+
+We describe synchronous sequential circuits as six-tuples 
+
+C = ( S, X, O, ∆, Λ, i ) with a set S of state variables and a set X of primary inputs. O is a set of output variables representing outputs of C. The set ∆ contains for each variable s ∈ S a Boolean formula δs over variables S ∪ X
+
+representing its next state function. The set Λ contains for each output variable o ∈ O a Boolean formula λo over S ∪ X
+
+representing the corresponding output function. i : S → { 0, 1}
+
+assigns an initial value i(s) to each state variable s ∈ S.
+
+I(S) = V 
+
+> s∈S
+
+(s ≡ i(s)) describes the initial state predicate characterizing all initial states that are allowed for C.
+
+Cgolden Crevised 
+
+x1
+
+x2
+
+x3 
+
+> G
+> H
+
+o1s1 s2
+
+x1
+
+x2
+
+x3 
+
+> G
+> ˆs11
+> ˆs21
+> H
+> ˆs12
+> ˆs31
+> ˆs22
+
+o2 
+
+> Fig. 1. A simple backward retimed circuit.
+
+The transition relation T (S, X, S ′) of C is a Boolean formula that relates state variables from S with the set of their 
+
+next state copies S′. T is defined by T = V 
+
+> s∈S
+
+(s′ ≡ δs).Sequential circuits can be modeled as finite state machines where states are identified with Boolean assignments to vari-ables of S.A sequential miter M (C1, C 2) = ( S, X, O, ∆, Λ, i ) results from two circuits C1 = ( S1, X, O 1, ∆1, Λ1, i 1) and C2 =(S2, X, O 2, ∆2, Λ2, i 2) with the same primary inputs and the same number of pairwise corresponding outputs. S = S1 ˙∪S2,
+
+∆ = ∆ 1 ˙∪∆2. O contains a single output variable oM , Λ
+
+contains a Boolean formula λoM (S, X ) representing a Boolean function that outputs a 0 for an assignment to (S, X ), if 
+
+corresponding outputs of C1 and C2 evaluate to the same value, and a 1 otherwise. The FFs in M (C1, C 2) are initialized as in C1 and C2, i.e., i(s) = i1(s), if s ∈ S1, and i(s) = i2(s),if s ∈ S2.We consider C1 and C2 to be equivalent , if the output 
+
+oM of M (C1, C 2) remains at logic 0 under all possible input sequences. The Boolean predicate (≡)(S, X ) represents the formula λoM ≡ 0.
+
+B. Retiming 
+
+Retiming [1] is a technique for sequential resynthesis with the goal of either reducing the number of FFs or the delay of the critical path. Retiming transforms a specification circuit Cgolden into an implementation circuit C revised by moving FFs over logic gates or fan-outs. An FF can be moved from the output of a gate f to all 
+
+of its inputs. This is called backward retiming . FFs can also be moved from the inputs (removing one FF from each input) to the output of a gate f . This is called forward retiming .Similarly, backward retiming can remove one FF from each branch of a fan-out and add an FF to the fan-out stem. Forward retiming can move an FF from a fan-out stem to all of its branches. In the following we denote FFs from C revised with an accent like ˆsi.
+
+Example 1. We consider the two circuits depicted in Fig. 1. Circuit C golden has three primary inputs x1, x 2, x 3, two FFs 
+
+s1, s 2, and an output o1. The output is computed by the FF output of s2, whereas the next state functions of s1, s 2 are defined as δs1 = ( x1 ∧ x2) ∧ x3 and δs2 = s1. The circuit Crevised has the same interface, but FF s1 in C golden is backward retimed to ˆs11, ˆs21, ˆs31 in C revised over both AND gates G and H,FF s2 is backward retimed to ˆs12, ˆs22 only over AND gate H.
+
+Retiming adjusts the initial states as well. Assume that 
+
+i(s1) = ϵ1 and i(s2) = ϵ2 in Ex. 1. Then i(ˆ s21 ) and i(ˆ s22 )
+
+are chosen in a way that i(ˆ s12) ∧ i(ˆ s22) = ϵ2. i(ˆ s11), i(ˆ s21),and i(ˆ s31) are chosen such that (i(ˆ s11) ∧ i(ˆ s21)) ∧ i(ˆ s31) = ϵ1.Finding a “correct initialization” is not a problem for forward 3
+
+retimings, since circuits implement Boolean functions and a correct initialization of the implementation circuit can be computed by applying Boolean functions. It is easy to see that a correct initialization does not exist for all backward 
+
+retimings and all initializations of the FFs in C golden .III. T ECHNIQUES USED IN RETIMING VERIFICATION 
+
+In this section we give a brief review of techniques that inspired our approach to verifying and at the same time certifying the correctness of retiming and synthesis techniques. 
+
+A. Retiming Invariants 
+
+One approach to verify retiming is the construction of a so-called retiming invariant [2]. Retiming invariants are a special case of inductive invariants. One possibility to prove that some predicate P (S, X ) (like 
+
+(≡)(S, X ) expressing equivalence of two sequential circuits as described in Sect. II-A) holds in all reachable states of a sequential circuit C (like a miter circuit according to Sect. II-A), i.e., to prove that P (S, X ) is an invariant of C, is to compute a so-called inductive invariant IN V (S). IN V (S)
+
+is called an inductive invariant, if the following holds: 
+
+I(S) = ⇒ INV (S) (1) 
+
+INV (S) = ⇒ P (S, X ) (2) 
+
+INV (S) ∧ T (S, X, S ′) = ⇒ INV (S′) (3) Condition (1) requires that IN V (S) holds in all initial states. Condition (3) requires that IN V (S) is inductive , i.e., it holds in the next state, if it holds in the current state. Condition (1) and (3) imply that IN V is an invariant. Condition (2) says that 
+
+P (S, X ) holds in all states satisfying the inductive invariant 
+
+IN V (S), i.e., it is an invariant as well. The computation of a retiming invariant relies on the observation that retiming can be decomposed into a series of basic FF movements (backward and forward movements of FF over gates and fanouts, see Sect. II.B). The work in [2] shows how to reconstruct this series of FF movements just from a pair of circuits C golden and C revised . The retiming invariant can be computed step by step from this series of FF movements. For more details see Sect. IV-D. The advantage of the approach using retiming invariants is that the retiming invariant is not destroyed, if we apply combinational logic synthesis after retiming. (This is immedi-ately clear, since combinational logic synthesis may change the representations of transition and output functions, but not their semantics.) The disadvantage of the approach lies in the fact that it is only applicable to retiming alone. If combinational or even sequential logic synthesis has already been applied, the reconstruction of the original retiming FF movements does not work anymore. Moreover, sequential logic synthesis may destroy an existing retiming invariant. 
+
+B. Maximal Forward Retiming 
+
+Another option that is used in approaches like dprove in ABC [5] is Maximal Forward Retiming that moves all FFs as 
+
+Cgolden Crevised 
+
+x0
+
+x1
+
+x2
+
+x3    
+
+> GH
+> s1s2
+> s1s2I
+
+x0
+
+x1
+
+x2
+
+x3    
+
+> G
+> ˆs11ˆs12
+> ˆs21ˆs22
+> J
+> ˆs1ˆs2
+> K
+> Fig. 2. A backward retimed and resynthesized circuit.
+
+far as possible into the direction of the primary outputs, both in C golden and C revised .Maximal Forward Retiming is a successful verification approach, especially if only retiming has been used without any combinational or sequential logic synthesis. The following example shows however that its success may already be destroyed by weak combinational logic synthesis operations: 
+
+Example 2. We consider the two sequentially equivalent 
+
+circuits in Fig. 2. The circuit C revised results from C golden by re-timing followed by combinational resynthesis. After backward retiming of FFs s1 and s2, gates H, I are replaced by J, K .It is easy to see that, without the resynthesis step, Maximal Forward Retiming would transform both C golden and C revised 
+
+into identical circuits with all FFs moved to the line that is driven by the AND-gate H. The resynthesis step of rewriting 
+
+H, I to J, K , though, hinders Maximal Forward Retiming and it will not be able to align the FFs. 
+
+This observation explains that Maximal Forward Retiming (together with other retiming operations like retiming for minimizing the number of FFs) is only used as a preprocessing step in approaches like dprove in ABC [5] to simplify the equivalence checking problem. This preprocessing step may or may not help for the overall verification task. 
+
+C. Signal Correspondences 
+
+As already mentioned in Sect. III-A, combinational and / or sequential logic synthesis may destroy the possibility of computing a retiming invariant. Therefore approaches like [8], [9], [3] compute signal correspondences between signals in Cgolden and C revised instead, in order to simplify the verification task. There is a signal correspondence between two signals in a sequential circuit, if the two signals always assume the same values in all runs of the sequential circuit starting with the initial state. Candidates for signal correspondence can be com-puted by sequential simulation, the proof of signal correspon-dences has to be performed by more powerful techniques like 
+
+k-induction. Signal correspondences are typically computed step by step based on already proven signal correspondences. Two corresponding signals are replaced by one representative. It is clear that the verification task has been solved as soon as signal correspondences have been proved for all corresponding outputs of C golden and C revised .Our approach is inspired by the computation of signal correspondences, but it uses speculated signal correspondences as a means to construct an inductive invariant in a modified IC3 framework. 4
+
+Cgolden Crevised 
+
+x1
+
+x2
+
+x3 
+
+> G
+> H
+
+o1s1 s2
+
+x1
+
+x2
+
+x3
+
+> G
+> ˆs11
+> ˆs21
+> H
+> ˆs12
+> ˆs31
+> ˆs22
+> H’
+
+o2
+
+l 
+
+> Fig. 3. A backward retimed circuit with virtual forward retiming.
+
+D. Virtual Forward Retiming 
+
+Virtual Forward Retiming has been introduced in the work of Van Ejik [8] in the context of sequential equivalence checking of retimed circuits. In our approach we use Virtual Forward Retiming to improve the computation of (speculated) signal correspondences (for computing speculated invariants). We recall Virtual Forward Retiming informally. For a gate G
+
+whose inputs are driven by FFs s1, . . . , s m with input signals 
+
+t1, . . . , t m, respectively, we define by “Virtual Forward Re-timing” a virtual signal l ≡ G(t1, . . . , t m). The virtual signal is left dangling, therefore this operation leaves the transition system unchanged. Virtual Forward Retiming only augments the set of candidate signals for signal correspondences. The additional signal correspondences can be used for constructing inductive invariants. (If all tj are also driven by FFs, we can also retime them over G. In that way, Virtual Forward Retiming can also retime two or more layers of FFs.) The following example shows that even in the case of pure retiming without logic synthesis the computation of signal correspondences is not enough for obtaining an inductive 
+
+invariant, but Virtual Forward Retiming is needed to find an inductive invariant based on signal correspondences: 
+
+Example 3. We revisit Ex. 1 again and assume that all FFs are initialized to 0. To establish equivalence would mean that we have to prove that s2 ≡ ˆs12 ∧ ˆs22. The constraint s2 ≡
+
+ˆs12 ∧ ˆs22 alone does not form an inductive invariant. A simple counterexample to induction would be that δs2 = s1 = 0 and 
+
+δˆs12 ∧ δˆs22 = (ˆ s11 ∧ ˆs21) ∧ ˆs31 = 1 . Obviously, this counterexample is unreachable from the initial all-zero state. It is easy to see that no other signal correspondences exist between C golden and Crevised . However, if we add the signal l ≡ (ˆ s11 ∧ ˆs21) ∧ ˆs31 by 
+
+virtually forward retiming ˆs12 and ˆs22 over H, we get another signal correspondence s1 ≡ l. It is easy to see that together 
+
+(s2 ≡ ˆs12 ∧ ˆs22) ∧ (s1 ≡ (ˆ s11 ∧ ˆs21) ∧ ˆs31) become inductive. We illustrate this transformation in Fig. 3. 
+
+This observation motivated us to include Virtual Forward Retiming into our framework using speculated invariants. 
+
+E. IC3 
+
+IC3 [7], [24] is a general purpose method to prove invariant properties P (S, X ), like (≡)(S, X ), of a system by finding an inductive invariant INV (S) for which it holds that INV (S) ⇒
+
+P (S, X ).In our work we present a modified IC3 framework that is tailored towards sequential equivalence checking problems that may result from retiming and logic synthesis. IC3 incrementally constructs overapproximations, called the trace, F0, F 1, . . . , F n of the reachable states in up to 
+
+i ∈ { 1, . . . , n } steps—with one exception: F0(S) = I(S)
+
+is represented exactly. The Fi are gradually strengthened by removing provably unreachable states (starting from I) that contain predecessors of the bad states (states that violate 
+
+P (S, X ) under at least one input assignment on X as well as their predecessors ). A bad state c in time frame i –such a state is called a proof obligation (POB) – has to be proven unreachable within up to i steps, because otherwise there would be a counterexample to P (S, X ) being invariant. The first candidate in a tree of POBs is always a state satisfying ¬P (S, X ), extracted as a satisfying assignment from Fn ∧ ¬ P (S, X ).
+
+1) ResolveObligations() : POBs are resolved in a recur-sive manner by a procedure we name ResolveObligations() .
+
+ResolveObligations(( F0, F 1, . . . , F n), c(S), i) operates on the current trace of all time frames F0, F 1, . . . , F n and tries to resolve a POB c in time frame Fi. It queries a SAT solver with 
+
+¬c(S) ∧ Fi−1(S) ∧ T (S, X, S ′) ∧ c(S′). If this is unsatisfiable then c is resolved and removed from Fi (because it is proven unreachable within up to i steps) by adding resp. learning the clause ¬c (which can also be generalized) in all time frames 
+
+Fk with k ∈ { 1, . . . , i }.If ¬c(S) ∧ Fi−1(S) ∧ T (S, X, S ′) ∧ c(S′) is satisfi-able, the satisfying assignment d on S forms a new POB in frame i − 1, and ResolveObligations() recurses on 
+
+ResolveObligations(( F0, F 1, . . . , F n), d(S), i−1), and so on. If a POB in F0 is encountered, then ResolveObligations() reports a counterexample ( s, < x 1, . . . , x n >)1 with an initial state 
+
+s(S) =⇒ F0(S) and an input sequence < x 1, . . . , x n > to reach ¬P (S, X ). Then IC3 reports ‘ UNSAFE ’. 
+
+2) Propagate() : Once all POBs are resolved in the cur-rent trace F0, F 1, . . . , F n (and therefore Fn ∧ ¬ P (S, X ) is unsatisfiable), the trace is increased by one new time frame 
+
+Fn+1 = ⊤ into F0, F 1, . . . , F n, F n+1 and the procedure 
+
+Propagate() is called. Propagate( F1, . . . , F n, F n+1 ) tries to propagate all learned clauses into later time frames. Thus, for each pair of time frames Fi, F i+1 with i ∈ { 1, . . . , n }, it tries to propagate all clauses ¬c ∈ (Fi \ Fi+1 ) from Fi to Fi+1 
+
+via querying a SAT solver with Fi(S) ∧ T (S, X, S ′) ∧ c(S′)
+
+(propagation is successful, if this is unsatisfiable). If at some point during Propagate() Fi ≡ Fi+1 , then 
+
+Propagate() and therefore also IC3 reports ‘ SAFE ’. Following these principles, IC3 maintains the following invariants: (1) I =⇒ Fi for all i ∈ {0, . . . , n }, (2) 
+
+Fi(S) =⇒ P (S, X ) for all i ∈ {0, . . . , n − 1}, (3) 
+
+Fi(S) =⇒ Fi+1 (S) for all i ∈ { 0, . . . , n − 1}, and (4) 
+
+Fi(S) ∧ T (S, X, S ′) = ⇒ Fi+1 (S′) for all i ∈ { 0, . . . , n − 1}.IV. O UR APPROACH 
+
+Our approach is designated to verify and end-to-end certify miters between an original sequential circuit and a version that results from retiming and resynthesis. It works with speculated invariants and integrates the computation of signal correspondences by a “sequential sweep” (Sect. V-A0c) into IC3 (Sect. III-E). We strengthen the sequential sweep by 
+
+> 1Note that a simple and common optimization enables IC3 to report counterexamples longer than the trace. For the sake of simplicity, though, we assume that this optimization is not in place. 5
+
+targeted virtual forward retiming (Sect. III-D). Moreover, we use certified preprocessing by maximal forward retiming (Sect. IV-D). We speculate FF-output-to-signal (or delayed signal, Sect. IV-A) correspondences in equivalence classes. We extend IC3 by a simulation engine for equivalence class refinement while retaining its capabilities as a complete model checking algorithm (Sect. IV-C). We call our approach ic3-sim if only virtual forward retiming is performed lazily and ic3-sim-F if most-forward retiming is performed upfront. 
+
+A. Sequential Simulation 
+
+As already mentioned in Sect. V-A0c we use sequential simulation to obtain candidate pairs of equivalent signals to be used as speculated invariants in our framework. By simulating the miter similar to [25], we compute equivalence classes of potentially equivalent signals. If we want to find an inductive signal correspondence without unrolling, it can be necessary to produce virtual signals by virtual forward retiming (see Sect. III-D). In order to find candidates, we need a means to simulate the circuit over a multi-timeframe window. This window is bounded by what is often referred to as register depth d of the circuit [3]. 
+
+Definition 1 (Register Depth) . The register depth d of a synchronous sequential circuit C is the maximum number of FFs on any simple directed path from a primary input to a primary output in C, where a simple path visits no node more than once. 
+
+During simulation of the current time frame, we keep the signal values of the past d − 1 frames. If, e.g., a FF s always holds the same value that a line l holds n time frames later (with 0 < n < d ), we say that s with a delay of zero is equivalent to l with a delay of n. l is then a candidate for virtual retiming of n layers of FFs driving it, like described in Sect. III-D. Another viable (and complete) option is to ignore delayed correspondences and let IC3 add the missing parts. Preliminary results showed that this is sometimes even beneficial, but in most cases not. 
+
+B. A Simple Check For Suspected Invariants 
+
+Here we describe a simple check whether a suspected invariant INV is really inductive. Later on in Sect. IV-C, we will show that IC3 can be used to effectively simulate this simple check. Moreover, we extend IC3 for computing a real inductive invariant for the case that the speculated invariant is not a real inductive invariant. The suspected invariant INV will most likely be provided to us by FF-output-to-signal (or virtual signal) correspondences found by sequential simulation. Another option could be hints emitted by the synthesis tool that applied the transformation steps. Our approach can make use of speculated invariants from any source. An option to prove INV (S) ∧ T (S, X, S ′) = ⇒ INV (S′)
+
+from Condition (3) is to iteratively prove that for all conjuncts 
+
+ri of INV , it holds that INV (S) ∧ T (S, X, S ′) = ⇒ ri(S′).                                           
+
+> 1foreach conjunct riin INV do
+> 2if SAT? [ I(S)∧ ¬ ri(S)]then return FAIL ;
+> 3foreach conjunct riin INV do
+> 4if SAT? [ INV (S)∧T(S, X, S ′)∧ ¬ ri(S′)]then return
+> FAIL ;
+> 5if SAT? [ INV (S)∧ ¬ (≡)(S, X )]then return FAIL ;
+> 6else return SUCCESS ;
+
+Algorithm 1: Simple induction check. In Alg. 1 we describe a SAT-based procedure that decides whether a given suspected invariant INV is indeed a proof of sequential equivalence. 
+
+C. IC3 Sequential Sweep a) ic3-load-F1: Our first proposal is to use IC3 to verify sequential equivalence and to initialize the first frame F1
+
+with information extracted from a suspected retiming invariant 
+
+INV . We describe our modification of IC3 in Alg. 2 which we call ic3-load-F1. We use the ideas of ic3-load-F1
+
+to prepare the introduction of Alg. 3 later on. By establishing that I =⇒ INV (line 2) and I(S) ∧
+
+T (S, X, S ′) =⇒ INV (S′) (line 4) before we let F1 := 
+
+INV (line 5), we guarantee that F0 =⇒ F1, F0(S) ∧
+
+T (S, X, S ′) = ⇒ F1(S′).We analyze how Alg. 2 behaves in the two relevant scenar-ios: 1) Alg. 1 reports SUCCESS , i.e. for the given INV Condi-tions (1) - (3) hold and 2) Alg. 1 reports FAIL if INV was not correctly retrieved. 1) Assume that Alg. 1 reports SUCCESS .We run Alg. 2 on INV and the same sequential miter. From Condition (1) we know that I =⇒ INV and from I =⇒
+
+INV and INV (S) ∧ T (S, X, S ′) =⇒ INV (S′) (Condition (3)) we know that I(S) ∧ T (S, X, S ′) =⇒ INV (S′). Thus, the checks in lines 2 and 4 are unsatisfiable and no conjunct will be removed from INV . We know from Condition (2) that 
+
+INV =⇒ (≡) and therefore, since F1 := INV , the check 
+
+F1(S) ∧ ¬ (≡)(S, X ) (Sect. III-E) will be unsatisfiable and a new frame F2 = ⊤ is opened. IC3 will propagate all (see Sect. III-E2) clauses to F2 because F1(S) ∧ T (S, X, S ′) = ⇒
+
+F1(S′) follows from INV (S) ∧ T (S, X, S ′) =⇒ INV (S′)
+
+(Condition (3)). IC3 will terminate after one propagation phase and conclude sequential equivalence. 
+
+2) Assume that Alg. 1 reports FAIL . All conjuncts r of 
+
+INV that violate I =⇒ r or I(S) ∧ T (S, S ′) =⇒ r(S′)
+
+are immediately sorted out in lines 2 and 4. If a non-invariant conjunct r excludes states which are reachable within up to 
+
+i steps, then it will not be propagated any further than Fi−1.Hence, like any other non-invariant lemma learned by IC3 automatically, it does not affect soundness or completeness. If an r is invariant, but ¬r is reachable from IN V (i.e., IN V                                                  
+
+> 1foreach conjunct riin INV do
+> 2if SAT? [ I(S)∧ ¬ ri(S)]then INV =INV \ { ri};
+> 3foreach conjunct riin INV do
+> 4if SAT? [ I(S)∧T(S, X, S ′)∧ ¬ ri(S′)]then
+> INV =INV \ { ri};
+> 5if IC3 [F1:= INV ](I, T, (≡))== SAFE then return EQUIVALENT ;
+> 6else return INEQUIVALENT ;
+
+Algorithm 2: ic3-load-F16
+
+is not yet strong enough to prove that r is invariant), then IC3 may derive lemmas L such that ¬r cannot be reached from 
+
+IN V ∧ L. IC3 will strengthen “the actually invariant parts” of INV such that an inductive invariant results. 
+
+ic3-load-F1 is a complete algorithm to prove or refute sequential equivalence. If INV is an inductive invariant, it does not require more SAT calls than Alg. 1. We do not provide a formal proof for correctness and termination, but the intuition is simple: we only add clauses to F1 that could be added by IC3 automatically as well. We guarantee that the remaining conjuncts from INV that we add represent an over-approximation of all reachable states in up to one step. 
+
+b) Equivalence Classes : If we use sequential simulation as a means to guess equivalent signals, it will provide us with a number of suspected equivalence classes. If there is an invariant consisting only of signal correspondences between FFs and internal signals, including those added by virtual forward retiming (this holds, if only retiming has been applied, but it may not be the case, if logic synthesis has been ap-plied as well), then all relevant equivalences are equivalences between pairs of signals in those equivalence classes, since the speculated equivalences overapproximate the real ones. Thus, if ic3-load-F1 then produces for each signal pair 
+
+(x, y ) of each equivalence class the two clauses (¬x ∨ y) and 
+
+(x ∧ ¬ y),2 then it will discard non-invariant correspondences either initially in lines 2 / 4 of Alg. 2 or it will discard them by not further propagating them within IC3. The number of signal pairs, however, is quadratic in the sizes of equivalence classes, which may result in a large number of expensive calls to the SAT solver. A solution could be to exploit transitivity by, e.g., representing a speculated equivalence class only with a linear number of equivalences with one representative of the equivalence class (e.g. the earliest node wrt. a topological order of the sequential miter circuit). However, if this representative does not occur in the subset of really equivalent signals for this equivalence class, then all clauses for this equivalence class would be discarded. Simple ic3-load-F1 showed weaknesses in first experi-mental evaluations, since it either suffers from huge numbers of clauses inserted into F1 or essential equivalences may get lost when exploiting transitivity as described above. Therefore we come up with a refinement of the basic idea that mitigates those problems. 
+
+c) ic3-sim : Our actual implementation ic3-sim ,which is presented in Alg. 3, is able to make use of the simula-tor for two purposes: Guessing initial equivalence classes and performing a targeted refinement of the equivalence classes. We introduce a procedure Refine (s,⃗ x, INV ) that takes a start state s, a (possibly empty) input sequence ⃗ x and a suspected invariant INV as input. It refines the equivalence classes that are represented by INV by simulating from s via                  
+
+> 2Note that, technically speaking, the CNF representation of the transition relation Tincludes Tseitin transformations of the circuit functions δxand δy
+> computing signals xand y, such that x≡y∧Testablishes an equivalence
+> δx≡δy. This observation also holds for signals produced by virtual forward retiming.
+
+⃗x and rebuilds the clausal representation INV , if simulation finds new non-equivalences .We represent the guessed equivalence classes as afore-mentioned: We build equivalence clauses between each el-ement and the representative of the class. 3 In contrast to 
+
+ic3-load-F1, this CNF INV (S) is not used to initialize 
+
+F1, but it is used to restrict the behaviour of T by letting 
+
+T INV (S, X, S ′) = T (S, X, S ′) ∧ INV (S).We retrieve the initial version of INV by InitINV() (line 1) that applies sequential simulation, possibly augmented by virtual forward retiming (Sect. III-D). Like in ic3-load-F1, we remove each candidate ri(S)
+
+where I(S) =⇒ ri(S) or I(S) ∧ T (S, X, S ′) =⇒ ri(S′)
+
+does not hold. We then let IC3 run as usual (line 8). If IC3 terminates under T INV and reports ‘ UNSAFE ’ with a counterexample (line 23), then it is a real counterexample because T INV under-approximates the behaviour of T .If it reports ‘ SAFE ’ in some frame Fk though, then we only know that Fk(S) ∧ INV (S) ∧ T (S, X, S ′) =⇒ Fk(S′) but it is unknown whether Fk(S) ∧ INV (S) ∧ T (S, X, S ′) =⇒
+
+Fk(S′) ∧ INV (S′). Therefore, we have to check for each ri ∈
+
+INV whether SAT?[ Fk(S) ∧ T INV (S, X, S ′) ∧ ¬ ri(S′)]. If the call (line 15) is satisfiable , then refinement may become necessary. We treat ¬ri exactly like an IC3 POB (spawning and resolving POBs recursively by calling Re-solveObligations() , see Sect. III-E1), with the only difference that upon detecting a counterexample , i.e. a path from the initial states I to ¬ri, we use that sequence of inputs to seed our simulator for refinement. We call these POBs ‘may-POBs’ as coined by [18]. Refinement is not necessarily needed. The may-POB can also be proven unreachable from the initial states, then 
+
+ResolveObligations() will return an empty counterexam-ple state. Along the way of proving that, IC3 will have learned additional strengthening clauses. For efficiency rea-sons, our implementation augments the original ResolveObli-gations() by an upper bound of recursions. ResolveObliga-tions ((F0, .., F n), ¬ri, k + 1 , cutoff budget = c) will try to resolve the POB ¬ri(S) only until c new POBs are spawned recursively. If the budget is exceeded, it will return the latest POB, and thus the POB in the earliest time frame that was considered. From this state (which is not an initial state) we reconstruct a path to ¬ri(S) as a counterexample. (In the special case that the cutoff budget is 0, ResolveObligations() 
+
+will return the counterexample to induction from the check SAT?[ Fk(S) ∧ INV (S) ∧ T (S, X, S ′) ∧ ¬ ri(S′)] similar to [14], [11].) Given that ri = ( x ≡ y), refinement (line 19) will in all cases at least remove either x or y from its suspected equivalence class. If at least one refinement step was triggered during iterating over INV , then INV is reduced and therefore weakened. Thus, learned clauses by IC3 under the old INV can become spurious. The best solution we found was also the simplest:                                                                                                                                               
+
+> 3Note that our implementation only considers equivalences between FF outputs sand signals tdepending on FF outputs. Thus INV only depends on S.7
+> 1INV =InitINV () ;
+> 2foreach conjunct riin INV do
+> 3if (init ,−) := SAT? [ I(S)∧ ¬ ri(S)]then
+> Refine (init ,−,INV ) ;
+> 4foreach conjunct riin INV do
+> 5if (init, x0) := SAT? [ I(S)∧T(S, X, S ′)∧ ¬ ri(S′)]then
+> Refine (init , x 0,INV ) ;
+> 6while true do
+> 7TINV =T∧INV ;F0=I(S);F1=⊤;n:= 1 ;
+> 8if IC3( I, TINV ,(≡),(F0, . . . , F n)) == ‘SAFE’ then
+> 9spurious := false ;
+> 10 (F0, . . . , F n) := frames of current IC3 execution;
+> 11 while Propagate( (F0, . . . , F n), T INV ) == ‘SAFE’ do
+> 12 Fk:= possibly spurious ind. invariant in frame k;
+> 13 possibly spurious := false ;
+> 14 foreach conjunct riin INV do
+> 15 if SAT? [ Fk(S)∧TINV (S, X, S ′)∧ ¬ ri(S′)]then
+> 16 possibly spurious := true ;
+> 17 (s, < x 1, . . . , x n>) :=
+> ResolveObligations ((F0, .., F n),¬ri, k + 1 ,cutoff);
+> 18 if ¬s.empty() then
+> 19 Refine( s, < x 1, . . . , x n>, INV ); spurious := true ;
+> 20 if spurious then F1=⊤;n:= 1 ;break ;
+> 21 if ¬possibly spurious then return ‘EQUIVALENT’ ;
+> 22 else
+> 23 return ‘INEQUIVALENT’ ;
+
+Algorithm 3: ic3-sim 
+
+We restart IC3 and try to salvage as many learned clauses as possible (further explained in Sect. IV-C0d). Note that our simulations for refinement do not necessarily start with an initial state, if the cutoff budget is exceeded, before we have found a path from an initial state to ¬ri. In that case, simulation may add “non-equivalences” which are not really proven to be non-equivalences. However, this does not affect the completeness of the method, since IC3 is complete anyway, even without (speculated) equivalences. Preliminary experimental results showed that it pays off to make the removal of speculated equivalences more aggressive than needed, since it may be counterproductive to invest too much effort into the proof of equivalences that are too hard to prove and possibly not needed. The higher the cutoff, the more effort we put into additional strengthening. In some cases, like simple retiming verification, where aggressive refinement is helpful, this might hurt effi-ciency. On the other hand, we experienced that it pays off if additional stronger synthesis steps were applied to C revised .The approach is complete , because in the worst case INV 
+
+is weakened to the point that T INV = T . Therefore, standard IC3 would be applied eventually. 
+
+d) Restart : Restarting IC3 might hurt, if many additional lemmas were deduced by IC3 along the way. Therefore, before restart we check for each previously learnt lemma (with the same check as in lines 2 and 4 of Alg. 2) whether it is sound to add it to frame F1. Thus, the new IC3 run does not start from scratch, but with the previously learnt lemmas which can be used in frame F1. Later on, those lemmas may be propagated by Propagate() .Case (2)   
+
+> Case (3)
+> Case (4)
+> 𝑀 (𝑖 )
+> 𝑠 𝑗
+> …
+> 𝑀 (𝑖 +1)
+> 𝑠 𝑗
+> …
+> 𝑀 (𝑖 )
+> 𝑠 𝑗
+> 𝑡 𝑜
+> …
+> 𝑀 (𝑖 +1)
+> 𝑠 𝑗
+> 𝑡 𝑛
+> …
+> 𝑀 (𝑖 )
+> 𝑔
+> 𝑠 𝑗
+> …
+> 𝑀 (𝑖 +1)
+> 𝑔 𝑡 𝑛
+> 𝑠 𝑗
+> …
+> Case (1)
+> 𝑀 (𝑖 )
+> 𝑔 𝑡 𝑜
+> 𝑠 𝑗
+> …
+> 𝑀 (𝑖 +1)
+> 𝑔
+> 𝑠 𝑗
+> …
+
+# ⟹
+
+# ⟹
+
+# ⟹
+
+# ⟹ 
+
+> Fig. 4. Cases (1) – (4) of retiming operations.
+
+D. Retiming to Preprocess Sequential Equivalence Checking 
+
+We have to prove that the output of the miter M orig := 
+
+M (Cgolden , C revised ) remains at logic 0 under all possible input sequences. As already mentioned in Sect. III.B., to reach this goal, sequential equivalence checkers like dprove 
+
+from ABC [5] often use retiming on M orig , resulting in a miter M pp , as a preprocessing step to make the equivalence checking problem easier. dprove uses “maximal forward retiming”, retiming minimizing the number of FFs, and com-binations thereof. However, from a certification perspective, it is problematic to make use of (uncertified) retiming to prove the correctness of (sequential logic synthesis and) retiming. In this paper we follow a different approach: We use retiming as a preprocessing step as well, but we produce an inductive invariant IN V pp certifying the correctness of M pp (as de-scribed in the previous sections) and we transform IN V pp into an inductive invariant IN V orig certifying the correctness of 
+
+M orig . In this section we show how to do this transformation and we prove the correctness of the transformation. Our approach is inspired by [2] where a retiming invariant is computed for C golden and C revised under the assumption that Crevised results from retiming only, see also Sect. III.A.. [2] gives an intuition for a proof, but neither the retiming invariant they present is complete nor the proof is complete. Since the retiming for preprocessing is done within the verification tool, we have the advantage that we know the series of retiming moves performed by the verification tool. We assume that we performed n FF movements starting from the miter M orig , finally arriving at the miter M pp . In addition to the FF movements, corresponding changes of the initial states were performed. We assume that we computed an inductive invariant IN V pp for M pp . To transform IN V pp into 
+
+IN V orig , we consider the reverse series of n FF movements turning M pp into M orig , i.e., we consider a series of miter circuits M (0) , . . . , M (n) with M (0) := M pp , M (n) := M orig ,and M (i+1) results from M (i) by a reverted FF movement. The assignments to the initial states are reverted as well. The corresponding equivalence predicates of the miters M (i) are 
+
+(≡)(i) (0 ≤ i ≤ n). We define R(0) := IN V pp and we con-struct (step by step) R(1) , . . . , R (n) with IN V orig := R(n).For the definition of R(i+1) from R(i) (0 ≤ i ≤ n − 1) and 8
+
+for the changed initial states we consider 4 cases, see Fig. 4 for an illustration: (1) M (i+1) results from M (i) by backward retiming over some gate g with k inputs. Let Si = {s1, . . . , s mi } ˙∪{ to}
+
+be the states in M (i), to is the moved FF. Then Si+1 =
+
+{s1, . . . , s mi } ˙∪{ tn1 , . . . , t nk } are the states in M (i+1) where 
+
+tn1 , . . . , t nk are the new FFs. It holds i(i)(sj ) = i(i+1) (sj ) for all 1 ≤ j ≤ mi and i(i)(to) = g(i(i+1) (tn1 ), . . . , i (i+1) (tnk )) ,since the original (forward) FF movement leading from 
+
+M (i+1) to M (i) made exactly this change to the initial state assignment. R(i+1) := ∃to[R(i) ∧ (to ≡ g(tn1 , . . . , t nk ))] .(2) M (i+1) results from M (i) by forward retiming over some gate g with k inputs. Let Si = {s1, . . . , s mi } ˙∪{ to1 , . . . , tok } be the states in M (i), to1 , . . . , t ok are the moved FFs. 
+
+tn is the new FF. Then Si+1 = {s1, . . . , s mi } ˙∪{ tn} are the states in M (i+1) . It holds i(i)(sj ) = i(i+1) (sj ) for all 
+
+1 ≤ j ≤ mi and i(i+1) (tn) = g(i(i)(to1 ), . . . , i (i)(tok )) , since the original (backward) FF movement leading from M (i+1) to 
+
+M (i) made exactly this change to the initial state assignment and it had been forbidden, if such an initial state assignment to 
+
+to1 , . . . , t ok did not exist. R(i+1) := ∃to1 , . . . , t ok [R(i) ∧(tn ≡
+
+g(to1 , . . . , t ok ))] .(3) M (i+1) results from M (i) by backward retim-ing over some fanout with k branches. Let Si =
+
+{s1, . . . , s mi } ˙∪{ to1 , . . . , t ok } be the states in M (i), to1 , . . . , tok are the moved FFs. tn is the new FF. Then Si+1 =
+
+{s1, . . . , s mi } ˙∪ {tn} are the states in M (i+1) . It holds 
+
+i(i)(sj ) = i(i+1) (sj ) for all 1 ≤ j ≤ mi and i(i+1) (tn) = 
+
+i(i)(to1 ) = . . . = i(i)(tok ), since the original (forward) FF movement leading from M (i+1) to M (i) made ex-actly this change to the initial state assignment. R(i+1) := 
+
+∃to1 , . . . , t ok [R(i) ∧ Vkl=1 (tol ≡ tn)] .(4) M (i+1) results from M (i) by forward retiming over some fanout with k branches. Let Si = {s1, . . . , s mi } ˙∪{ to}
+
+be the states in M (i), to is the moved FF. tn1 , . . . , t nk are the new FFs. Then Si+1 = {s1, . . . , s mi } ˙∪{ tn1 , . . . , t nk } are the states in M (i+1) . It holds i(i)(sj ) = i(i+1) (sj ) for all 
+
+1 ≤ j ≤ mi and i(i)(to) = i(i+1) (tn1 ) = . . . = i(i+1) (tnk ),since the original (backward) FF movement leading from 
+
+M (i+1) to M (i) made exactly this change to the initial state assignment and the FF movement had been forbidden, if not all i(i+1) (tn1 ), . . . , i (i+1) (tnk ) would be equal. R(i+1) := 
+
+∃to[R(i) ∧ Vkl=1 (to ≡ tnl )] .
+
+Theorem 1. If R(0) is an inductive invariant of the miter 
+
+M (0) proving (≡)(0) , then (a) R(i) holds in all initial states of M (i), (b) R(i) implies (≡)(i) and (c) R(i) is inductive in the miter M (i) for 0 ≤ i ≤ n.
+
+The proof differentiates between four cases (1) to (4) of FF movements. For the definitions of R(i+1) from R(i) in cases (1) to (4) and for the corresponding transformations of the initial states see Sect. IV-D. Fig. 5 illustrates the FF movements in the different cases. 
+
+Proof. We prove Thrm. 1 by induction over i. The base case follows easily from the fact that R(0) = IN V pp is an inductive invariant of M (0) , i.e., it satisfies parts (a), (b), and (c) of Thrm. 1. We start with the induction step for part (a). Case (1): We consider the initial state assignment 
+
+(i(i+1) (s1), . . . , i (i+1) (sm1 ), i (i+1) (tn1 ), . . . , i (i+1) (tnk )) of 
+
+M (i+1) . We know from the induction assumption that the initial state (i(i)(s1), . . . , i (i)(smi ), i (i)(to)) of M (i) satisfies 
+
+R(i). Since i(i)(to) = g(i(i+1) (tn1 ), . . . , i (i+1) (tnk )) and 
+
+i(i)(sj ) = i(i+1) (sj ) for all 1 ≤ j ≤ mi, (i(i+1) (s1),. . . , i (i+1) (smi ), i (i)(to), i (i+1) (tn1 ), . . . , i (i+1) (tnk )) 
+
+satisfies R(i) ∧ (to ≡ g(tn1 , . . . , tnk )) . Thus, 
+
+(i(i+1) (s1), . . . , i (i+1) (smi ), i (i+1) (tn1 ), . . . , i (i+1) (tnk )) 
+
+satisfies ∃to[R(i) ∧ (to ≡ g(tn1 , . . . , t nk ))] = R(i+1) .The proof for Cases (2), (3), and (4) is very similar: Case (2): By induction assumption the initial state 
+
+(i(i)(s1), . . . , i (i)(smi ), i (i)(to1 ), . . . , i (i)(tok )) of M (i)
+
+satisfies R(i). Since i(i+1) (tn) = g(i(i)(to1 ), . . . , i (i)(tok )) 
+
+and i(i)(sj ) = i(i+1) (sj ) for all 1 ≤ j ≤ mi,
+
+(i(i+1) (s1), . . . , i (i+1) (smi ), i (i)(to1 ), . . . , i (i)(tok ), i (i+1) (tn)) 
+
+satisfies R(i) ∧ (tn ≡ g(to1 , . . . , t ok )) . Thus, the initial state 
+
+(i(i+1) (s1), . . . , i (i+1) (smi ), i (i+1) (tn)) of M (i+1) satisfies 
+
+∃to1 , . . . , t ok [R(i) ∧ (tn ≡ g(to1 , . . . , t ok ))] = R(i+1) .Case (3): By induction assumption the initial state 
+
+(i(i)(s1), . . . , i (i)(smi ), i (i)(to1 ), . . . , i (i)(tok )) of M (i)
+
+satisfies R(i). Since i(i+1) (tn) = i(i)(to1 ) = . . . = i(i)(tok )
+
+and i(i)(sj ) = i(i+1) (sj ) for all 1 ≤ j ≤ mi,
+
+(i(i+1) (s1), . . . , i (i+1) (smi ), i (i)(to1 ), . . . , i (i)(tok ), i (i+1) (tn)) 
+
+satisfies R(i) ∧ Vkl=1 (tol ≡ tn). Thus, the initial state 
+
+(i(i+1) (s1), . . . , i (i+1) (smi ), i (i+1) (tn)) of M (i+1) satisfies 
+
+∃to1 , . . . , t ok [R(i) ∧ Vkl=1 (tol ≡ tn)] = R(i+1) .Case (4): By induction assumption the initial state 
+
+(i(i)(s1), . . . , i (i)(smi ), i (i)(to)) of M (i) satisfies R(i).Since i(i)(to) = i(i+1) (tn1 ) = . . . = i(i+1) (tnk )) and 
+
+i(i)(sj ) = i(i+1) (sj ) for all 1 ≤ j ≤ mi, (i(i+1) (s1),. . . , i (i+1) (smi ), i (i)(to), i (i+1) (tn1 ), . . . , i (i+1) (tnk )) 
+
+satisfies R(i) ∧ Vkl=1 (to ≡ tnl ). Thus, the initial state 
+
+(i(i+1) (s1), . . . , i (i+1) (smi ), i (i+1) (tn1 ), . . . , i (i+1) (tnk )) of 
+
+M (i+1) satisfies ∃to[R(i) ∧ Vkl=1 (to ≡ tnl )] = R(i+1) .Now we consider the induction step for part (b). Case (1): The output function (≡)(i+1) of the miter M (i+1) 
+
+results from (≡)(i) by the function composition (≡)(i+1) =
+
+(≡)(i)|to←g(tn1 ,...,t nk ). We consider an arbitrary assignment 
+
+A(i+1) = ( η1, . . . , η mi , η n1 , . . . , η nk , ξ 1, . . . , ξ m) to the FFs in 
+
+M (i+1) and to the primary inputs that satisfies R(i+1) . It fol-lows from the semantics of existential quantification that this assignment can be extended by an assignment ηo to the moved FF to such that R(i) ∧(to ≡ g(tn1 , . . . , t nk )) is satisfied by the resulting A(i) = (η1, . . . , η mi , η n1 , . . . , η nk , η o, ξ 1, . . . , ξ m).
+
+A(i) defines a complete assignment to the FFs both for M (i+1) 
+
+and M (i) and to the primary inputs. Since A(i) satisfies R(i),we can conclude from the induction hypothesis that A(i) satis-fies (≡)(i). Since A(i) satisfies to ≡ g(tn1 , . . . , t nk ), A(i) also satisfies (≡)(i)|to←g(tn1 ,...,t nk ) = (≡)(i+1) . Since (≡)(i+1) 
+
+does not depend on to, also A(i+1) satisfies (≡)(i+1) .Case (2): The output function (≡)(i) of the miter M (i)
+
+results from (≡)(i+1) by the function composition (≡)(i) =
+
+(≡)(i+1) |tn←g(to1 ,...,t ok ). We consider an arbitrary assign-ment A(i+1) = (η1, . . . , η mi , η n, ξ 1, . . . , ξ m) to the FFs in M (i+1) and to the primary inputs that satisfies R(i+1) .9⇓
+
+𝑀 (𝑖 )
+
+𝑔  𝑡 𝑜 
+
+𝑠 𝑗 
+
+𝑀 (𝑖 +1)
+
+𝑔 
+
+𝑠 𝑗 
+
+Case (1)  Case (2)  Case (3)  Case (4) 
+
+⇓
+
+𝑀 (𝑖 +1)
+
+𝑔  𝑡 𝑛 
+
+𝑠 𝑗 
+
+𝑀 (𝑖 )
+
+𝑔 
+
+𝑠 𝑗 
+
+⇓
+
+𝑀 (𝑖 )
+
+𝑠 𝑗 
+
+𝑀 (𝑖 +1)
+
+𝑠 𝑗 
+
+𝑡 𝑛 
+
+> …
+
+⇓
+
+𝑀 (𝑖 )
+
+𝑠 𝑗 
+
+𝑡 𝑜 
+
+𝑀 (𝑖 +1)
+
+𝑠 𝑗                                         
+
+> ……
+> …
+> … …
+> … …
+> 𝜂 𝑜 →𝜖 𝑜
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 +1)
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 )
+> 𝜂 𝑛 1→𝜖 𝑛 1
+> (𝑖 +1)
+> 𝜂 𝑛 𝑘 →𝜖 𝑛 𝑘
+> (𝑖 +1)
+> 𝜂 𝑜 1→𝜖 𝑜 1
+> (𝑖 )
+> 𝜂 𝑜 𝑘 →𝜖 𝑜 𝑘
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 +1)
+> 𝜂 𝑛 →𝜖 𝑛
+> (𝑖 +1)
+> 𝜂 𝑜 1→𝜖 𝑜 1
+> (𝑖 )
+> 𝜂 𝑜 𝑘 →𝜖 𝑜 𝑘
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 +1)
+> 𝜂 𝑛 →𝜖 𝑛
+> (𝑖 +1)
+> 𝜂 𝑜 →𝜖 𝑜
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 )
+> 𝜂 𝑗 →𝜖 𝑗
+> (𝑖 +1)
+> 𝜂 𝑛 1→𝜖 𝑛 1
+> (𝑖 +1)
+> 𝜂 𝑛 𝑘 →𝜖 𝑛 𝑘
+> (𝑖 +1)
+
+Fig. 5. Cases (1) – (4) of retiming operations. The values for the FFs shown in red are chosen in the induction step for part (c) of Thrm. 1. 
+
+It follows from the semantics of existential quantification that this assignment can be extended by an assignment 
+
+(ηo1 , . . . , η ok ) to the moved FFs to1 , . . . , t ok such that 
+
+R(i) ∧ (tn ≡ g(to1 , . . . , t ok )) is satisfied by the resulting 
+
+A(i) = (η1, . . . , η mi , η n, η o1 , . . . , η ok , ξ 1, . . . , ξ m). A(i) de-fines a complete assignment to the FFs both for M (i+1) 
+
+and M (i) and to the primary inputs. Since A(i) satisfies 
+
+R(i), we can conclude from the induction hypothesis that 
+
+A(i) satisfies (≡)(i) = (≡)(i+1) |tn←g(to1 ,...,t ok ). Since A(i)
+
+satisfies tn ≡ g(to1 , . . . , t ok ), A(i) also satisfies (≡)(i+1) .Since (≡)(i+1) does not depend on to1 , . . . , t ok , also A(i+1) 
+
+satisfies (≡)(i+1) .Case (3): The output function (≡)(i+1) of the miter 
+
+M (i+1) results from (≡)(i) by the function composition 
+
+(≡)(i+1) = (≡)(i)|to1 ←tn,...,t ok ←tn . We consider an arbi-trary assignment A(i+1) = (η1, . . . , η mi , η n, ξ 1, . . . , ξ m) to the FFs in M (i+1) and to the primary inputs that satisfies 
+
+R(i+1) . It follows from the semantics of existential quan-tification that this assignment can be extended by an as-signment (ηo1 , . . . , η ok ) to the moved FFs to1 , . . . , t ok such that R(i) ∧ Vkl=1 (tol ≡ tn) is satisfied by the resulting 
+
+A(i) = (η1, . . . , η mi , η n, η o1 , . . . , η ok , ξ 1, . . . , ξ m). A(i) de-fines a complete assignment to the FFs both for M (i+1) and 
+
+M (i) and to the primary inputs. Since A(i) satisfies R(i),we can conclude from the induction hypothesis that A(i)
+
+satisfies (≡)(i). Since A(i) satisfies Vkl=1 (tol ≡ tn), we have ηo1 = ηn, . . . , η ok = ηn and thus A(i) also satisfies 
+
+(≡)(i)|to1 ←tn,...,t ok ←tn = (≡)(i+1) . Since (≡)(i+1) does not depend on to1 , . . . , t ok , also A(i+1) satisfies (≡)(i+1) .Case (4): The output function (≡)(i) of the miter M (i)
+
+results from (≡)(i+1) by the function composition (≡)(i) =
+
+(≡)(i+1) |tn1 ←to,...,t nk ←to . We consider an arbitrary assign-ment A(i+1) = ( η1, . . . , η mi , η n1 , . . . , η nk , ξ 1, . . . , ξ m) to the FFs and to the primary inputs in M (i+1) that satisfies R(i+1) .It follows from the semantics of existential quantification that this assignment can be extended by an assignment ηo to the moved FF to such that R(i) ∧Vkl=1 (to ≡ tnl ) is satisfied by the resulting A(i) = (η1, . . . , η mi , η n1 , . . . , η nk , η o, ξ 1, . . . , ξ m).
+
+A(i) defines a complete assignment to the FFs both for M (i+1) 
+
+and M (i) and to the primary inputs. Since A(i) satisfies R(i),we can conclude from the induction hypothesis that A(i)
+
+satisfies (≡)(i). Since A(i) satisfies Vkl=1 (to ≡ tnl ), we have 
+
+ηn1 = ηo, . . . , η nk = ηo and thus A(i) also satisfies (≡)(i+1) .Since (≡)(i+1) does not depend on to, also A(i+1) satisfies 
+
+(≡)(i+1) .Finally, we consider the induction step for part (c). Case (1): We consider an arbitrary assignment A(i+1) =(η1, . . . , η mi , η n1 , . . . , η nk ) to the FFs in M (i+1) that satisfies 
+
+R(i+1) . It follows from the semantics of existential quantifi-cation that this assignment can be extended by an assignment 
+
+ηo to the moved FF to such that R(i) ∧ (to ≡ g(tn1 , . . . , t nk )) 
+
+is satisfied. We extend the assignment further by an assign-ment (ξ1, . . . , ξ m) to the primary input variables resulting in A(i) = (η1, . . . , η mi , η n1 , . . . , η nk , η o, ξ 1, . . . , ξ m). A(i)
+
+defines a complete assignment to the FFs both for M (i+1) and 
+
+M (i) and to the primary inputs. Let the next state assignment corresponding to A(i) in M (i) be A′(i) := ( ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i) 
+
+> o
+
+)
+
+and let A′(i+1) = ( ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+) be the next state assignment corresponding to A(i), i.e., correspond-ing to (η1, . . . , η mi , η n1 , . . . , η nk , ξ 1, . . . , ξ m), in M (i+1) .From the induction hypothesis we can conclude that A′(i)
+
+satisfies R(i). We have to prove that A′(i+1) satisfies R(i+1) .For the common FFs sj (1 ≤ i ≤ mi) of M (i) and M (i+1) 
+
+the transition functions δ(i+1)  
+
+> sj
+
+of M (i+1) result from the tran-sition functions δ(i) 
+
+> sj
+
+of M (i) by δ(i+1)  
+
+> sj
+
+= δ(i) 
+
+> sj
+
+|to←g(tn1 ,...,t nk ).Since the primary input assignments (ξ1, . . . , ξ m) and the present state assignments (η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and M (i+1) and ηo has been chosen such that ηo = g(ηn1 , . . . , η nk ), we have ϵ(i) 
+
+> j
+
+= ϵ(i+1)  
+
+> j
+
+.For to and tn1 , . . . , t nk we cannot just assume that δ(i) 
+
+> to
+
+=
+
+g(δ(i+1)  
+
+> tn1
+
+, . . . , δ (i+1) 
+
+> tnk
+
+), since there may be cycles containing the gate g, such that the next state of to depends on the current state of to. Our argument has to be more precise: Because of 
+
+ηo = g(ηn1 , . . . , η nk ), the signal assignments at the output of 
+
+to in M (i) and at the output of g in M (i+1) are the same in the current state. Because of this and because the primary input assignments (ξ1, . . . , ξ m) and the present state assignments 
+
+(η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and 
+
+M (i+1) , the values computed by M (i) at input j (1 ≤ j ≤ k)of gate g and by M (i+1) at the input of tnj are the same. (This holds even in the presence of cycles containing g – remember that due to the backward retiming rules, there is no fanout between the output of gate g and to in M (i) and there is no fan-out between tnj and the input j of g (1 ≤ j ≤ k) in 
+
+M (i+1) , see also Fig. 5, Case (1).) For the next state values of 10 
+
+to in M (i) and tnj (1 ≤ j ≤ k) in M (i+1) this immediately results in ϵ(i) 
+
+> o
+
+= g(ϵ(i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+).Altogether, (ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+, ϵ (i) 
+
+> o
+
+) = ( ϵ(i+1) 1 ,. . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+, ϵ (i) 
+
+> o
+
+) satisfies both R(i) and (to
+
+≡ g(tn1 , . . . , t nk )) , i.e., (ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+)
+
+satisfies R(i+1) = ∃to[R(i) ∧ (to ≡ g(tn1 , . . . , t nk ))] .Cases (2), (3), and (4) are proven in a similar way: Case (2): We consider an arbitrary assignment A(i+1) =(η1, . . . , η mi , η n) to the FFs in M (i+1) that satisfies R(i+1) .It follows from the semantics of existential quantifica-tion that this assignment can be extended by an as-signment (ηo1 , . . . , η ok ) to the moved FFs to1 , . . . , t ok
+
+such that R(i) ∧ (tn ≡ g(to1 , . . . , t ok )) is satis-fied. We extend the assignment further by an assign-ment (ξ1, . . . , ξ m) to the primary input variables result-ing in A(i) = (η1, . . . , η mi , η n, η o1 , . . . , η ok , ξ 1, . . . , ξ m).
+
+A(i) defines a complete assignment to the FFs both for M (i+1) and M (i) and to the primary inputs. Let the next state assignment corresponding to A(i) in 
+
+M (i) be A′(i) := (ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+) and let 
+
+A′(i+1) = (ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+) be the next state assignment corresponding to A(i), i.e., corresponding to 
+
+(η1, . . . , η mi , η n, ξ 1, . . . , ξ m), in M (i+1) . From the induction hypothesis we can conclude that A′(i) satisfies R(i). We have to prove that A′(i+1) satisfies R(i+1) .For the common FFs sj (1 ≤ i ≤ mi) of M (i) and M (i+1) 
+
+we have δ(i) 
+
+> sj
+
+= δ(i+1)  
+
+> sj
+
+|tn←g(to1 ,...,t ok ). Since the primary input assignments (ξ1, . . . , ξ m) and the present state assignments 
+
+(η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and 
+
+M (i+1) and ηo1 , . . . , η ok have been chosen such that ηn =
+
+g(ηo1 , . . . , η ok ), we have ϵ(i) 
+
+> j
+
+= ϵ(i+1)  
+
+> j
+
+.Again, for tn and to1 , . . . , t ok we cannot just assume that 
+
+δ(i+1)  
+
+> tn
+
+= g(δ(i) 
+
+> to1
+
+, . . . , δ (i)
+
+> tok
+
+), since there may be cycles contain-ing the gate g, such that the next state of tn depends on the current state of tn. Because of ηn = g(ηo1 , . . . , η ok ), the signal assignments at the output of tn in M (i+1) and at the output of g in M (i) are the same in the current state. Because of this and because the primary input assignments (ξ1, . . . , ξ m) and the present state assignments (η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and M (i+1) , the values computed by M (i+1) at input j (1 ≤ j ≤ k) of gate g and by M (i) at the input of toj are the same. (This holds even in the presence of cycles containing g – remember that due to the backward retiming rules, there is no fanout between the output of gate g
+
+and tn in M (i+1) and there is no fan-out between toj and the input j of g (1 ≤ j ≤ k) in M (i), see also Fig. 5, Case (2).) For the next state values of tn in M (i+1) and toj (1 ≤ j ≤ k)in M (i) this immediately results in ϵ(i+1)  
+
+> n
+
+= g(ϵ(i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+).Altogether, (ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+, ϵ (i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+) =(ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+, ϵ (i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+) satisfies both R(i)
+
+and (tn ≡ g(to1 , . . . , t ok )) , i.e., (ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+)
+
+satisfies R(i+1) = ∃to1 , . . . , t ok [R(i) ∧ (tn ≡ g(to1 , . . . , t ok ))] .Case (3): We consider an arbitrary assignment A(i+1) =(η1, . . . , η mi , η n) to the FFs in M (i+1) that satisfies R(i+1) .It follows from the semantics of existential quantification that this assignment can be extended by an assignment 
+
+(ηo1 , . . . , η ok ) to the moved FFs to1 , . . . , t ok such that R(i) ∧Vkl=1 (tol ≡ tn) is satisfied. We extend the assignment further by an assignment (ξ1, . . . , ξ m) to the primary input variables resulting in A(i) = ( η1, . . . , η mi , η n, η o1 , . . . , η ok , ξ 1, . . . , ξ m).
+
+A(i) defines a complete assignment to the FFs both for M (i+1) and M (i) and to the primary inputs. Let the next state assignment corresponding to A(i) in 
+
+M (i) be A′(i) := (ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+) and let 
+
+A′(i+1) = (ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+) be the next state assignment corresponding to A(i), i.e., corresponding to 
+
+(η1, . . . , η mi , η n, ξ 1, . . . , ξ m), in M (i+1) . From the induction hypothesis we can conclude that A′(i) satisfies R(i). We have to prove that A′(i+1) satisfies R(i+1) .For the common FFs sj (1 ≤ i ≤ mi) of M (i) and 
+
+M (i+1) we have δ(i+1)  
+
+> sj
+
+= δ(i) 
+
+> sj
+
+|to1 ←tn,...,t ok ←tn . Since the primary input assignments (ξ1, . . . , ξ m) and the present state assignments (η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and M (i+1) and ηo1 , . . . , η ok have been chosen with 
+
+ηo1 = ηn, . . . , η ok = ηn, we have ϵ(i) 
+
+> j
+
+= ϵ(i+1)  
+
+> j
+
+.We have δ(i+1)  
+
+> tn
+
+= δ(i)
+
+> toj
+
+|to1 ←tn,...,t ok ←tn) for all 1 ≤ j ≤ k
+
+(this holds even if there are cycles in M (i) containing some FFs to1 . . . , t ok ). Because of ηo1 = ηn, . . . , η ok = ηn and because the primary input assignments (ξ1, . . . , ξ m) and the present state assignments (η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and M (i+1) , we have ϵ(i+1)  
+
+> n
+
+= ϵ(i) 
+
+> oj
+
+for all 1 ≤ j ≤ k.Altogether, (ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+, ϵ (i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+) =(ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+, ϵ (i) 
+
+> o1
+
+, . . . , ϵ (i) 
+
+> ok
+
+) satisfies both R(i)
+
+and Vkl=1 (tol ≡ tn), i.e., (ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n
+
+) satisfies 
+
+R(i+1) = ∃to1 , . . . , t ok [R(i) ∧ Vkl=1 (tol ≡ tn)] .Case (4): We consider an arbitrary assignment A(i+1) =(η1, . . . , η mi , η n1 , . . . , η nk ) to the FFs in M (i+1) that satisfies 
+
+R(i+1) . It follows from the semantics of existential quantifi-cation that this assignment can be extended by an assignment 
+
+ηo to the moved FF to such that R(i) ∧ Vkl=1 (to ≡ tnl )
+
+is satisfied. We extend the assignment further by an assign-ment (ξ1, . . . , ξ m) to the primary input variables resulting in A(i) = (η1, . . . , η mi , η n1 , . . . , η nk , η o, ξ 1, . . . , ξ m). A(i)
+
+defines a complete assignment to the FFs both for M (i+1) and 
+
+M (i) and to the primary inputs. Let the next state assignment corresponding to A(i) in M (i) be A′(i) := ( ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i) 
+
+> o
+
+)
+
+and let A′(i+1) = ( ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+) be the next state assignment corresponding to A(i), i.e., correspond-ing to (η1, . . . , η mi , η n1 , . . . , η nk , ξ 1, . . . , ξ m), in M (i+1) .From the induction hypothesis we can conclude that A′(i)
+
+satisfies R(i). We have to prove that A′(i+1) satisfies R(i+1) .For the common FFs sj (1 ≤ i ≤ mi) of M (i) and M (i+1) 
+
+we have δ(i) 
+
+> sj
+
+= δ(i+1)  
+
+> sj
+
+|tn1 ←to,...,t nk ←to . Since the primary in-put assignments (ξ1, . . . , ξ m) and the present state assignments 
+
+(η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and 
+
+M (i+1) and ηo has been chosen with ηo = ηn1 , . . . , η o = ηnk ,we have ϵ(i) 
+
+> j
+
+= ϵ(i+1)  
+
+> j
+
+.We have δ(i) 
+
+> to
+
+= δ(i+1) 
+
+> tnj
+
+|tn1 ←to,...,t nk ←to for all 1 ≤ j ≤ k
+
+(this holds even if there are cycles in M (i) containing some FF to). Because of ηo = ηn1 , . . . , η o = ηnk and because the primary input assignments (ξ1, . . . , ξ m) and the present state 11 
+
+assignments (η1, . . . , η mi ) to the non-moved FFs are the same in M (i) and M (i+1) , we have ϵ(i) 
+
+> o
+
+= ϵ(i+1)  
+
+> nj
+
+for all 1 ≤ j ≤ k.Altogether, (ϵ(i)1 , . . . , ϵ (i) 
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+, ϵ (i) 
+
+> o
+
+) = ( ϵ(i+1) 1 ,. . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+, ϵ (i) 
+
+> o
+
+) satisfies both R(i) and 
+
+Vkl=1 (tol ≡ tn), i.e., (ϵ(i+1) 1 , . . . , ϵ (i+1)  
+
+> mi
+
+, ϵ (i+1)  
+
+> n1
+
+, . . . , ϵ (i+1)  
+
+> nk
+
+)
+
+satisfies R(i+1) = ∃to[R(i) ∧ Vkl=1 (to ≡ tnl )] .Thrm. 1 implies in particular that R(n) is an inductive invariant of M (n), if R(0) is an inductive invariant of M (0) .Finally, we see that under certain conditions the existential quantifications within the retiming invariants can be omitted. This observation is based on the following lemma: 
+
+Lemma 1. If a predicate R has the form R = R′ ∧ (v ≡ T )
+
+with predicates R′ and T where T does not depend on v, then 
+
+∃vR and R′|v←T are logically equivalent. 
+
+Lemma 1 immediately implies that all existential quantifi-cations for Cases (1), (3), and (4) of the definition of R(i+1) 
+
+from R(i) above can be replaced by substitutions. E.g. for backward retiming over a gate g from Case (1) ∃to[R(i) ∧(to ≡
+
+g(tn1 , . . . , t nk ))] can be replaced by R(i)|to←g(tn1 ,...,t nk ). In Case (2), the question whether existential quantification can be replaced by substitution depends on the concrete form of the predicate R(i).If the preprocessing step uses forward retiming only, e.g., then the reverse series of FF movements uses backward retiming only and thus it is guaranteed that all existential quantifications can be replaced by substitutions. Note that Thrm. 1 is general enough that it can be applied to retiming invariants in the sense of [2] as well. We just have to define an original miter M (0) as a miter between Cgolden and a copy C′golden . If Cgolden has FFs s1, . . . , s n and its copy has FFs s′
+
+> 1
+
+, . . . , s ′
+
+> n
+
+, then the original inductive invariant is R(0) := Vni=1 (si ≡ s′
+
+> i
+
+). It is clear that R(0) is an inductive invariant of M (0) . The series of FF movements is now chosen as a series of FF movements transforming the copy of C golden into Crevised . M (n) is then a miter between C golden into C revised and, according to Thrm. 1, R(n) is an inductive invariant of M (n).
+
+E. Simple Path Constraints 
+
+We present a trivial example that showcases why simple path (also called unique state) constraints can become neces-sary in order to prove signal correspondence with k-induction. 
+
+Example 4. We consider the two sequentially equivalent 
+
+circuits in Fig. 6. The circuit C revised results from C golden by only retiming. We retime s1 backward over G and the inverter. Thus, an intermediate flip-flop ˆs⋆ 
+
+> 1
+
+results. Then we retime s2
+
+over H. As a result, we can retime ˆs⋆
+
+> 1
+
+, together with the result of s2 that was moved over H, over G (and the inverter) again. Then we arrive at C revised . We assume an all-zero initial state and further assume that the correspondence s2 = ¬ˆs3 ∧ ˆs4 ∧ ˆs2
+
+has to be proved. Now the interesting observation is the following: There is an unreachable state u = ( s1 = 0 , s 2 = 0 , ˆs1 =1, ˆs2 = 0, ˆs3 = 1, ˆs4 = 1) that obviously satisfies the equivalence of both outputs (both zero). 
+
+Cgolden 
+
+x1
+
+x2
+
+G
+
+H
+
+s1
+
+s2
+
+Intermediate Step 
+
+x1
+
+x2
+
+G
+
+ˆs1 H
+
+ˆs⋆
+
+> 1
+
+s2
+
+Crevised 
+
+x1
+
+x2
+
+G
+
+ˆs1 ˆs4 H
+
+ˆs2
+
+ˆs3 
+
+> Fig. 6. A backward retimed circuit.
+
+Starting from u we arrive with input (x1 = 1 , x 2 = 0) 
+
+at u′ = ( s1 = 1 , s 2 = 0 , ˆs1 = 1 , ˆs2 = 0 , ˆs3 = 0 , ˆs4 = 1) 
+
+where both outputs remain zero. From u′ we come back to u
+
+with input (x1 = 1 , x 2 = 0) again, i.e., there is an infinite (unreachable) loop of states with equivalent outputs. If we start from u and apply the inputs x1 = 0 , x 2 = 1 
+
+however, we arrive at the state (s1 = 0 , s 2 = 0 , ˆs1 = 0 , ˆs2 =1, ˆs3 = 0 , ˆs4 = 1) which violates equivalence on the outputs (C golden outputs 0 and C revised outputs 1). Since there is no reachable state with non-equivalent out-puts, the circuits are equivalent. However, k-induction without simple path constraints will no terminate, since there is an arbitrarily long chain of states with equivalent outputs which is followed by a state with non-equivalent outputs. Thus, simple path constraints are needed for k-induction. F. Certification 
+
+Proofs of equivalence found by IC3 are inductive invariants. Therefore, it is trivial to use a proof checker like Certifaiger 
+
+[26] in the standard case of ic3-sim . There is no need to certify multiple k-induction proofs or intermediate resynthesis steps. In the ic3-sim-F case however, with maximal forward retiming, we can transform INV pp of the preprocessed miter 
+
+M pp into an invariant INV orig of the original miter M orig 
+
+(Sect. IV-D). In Sect. V-A0e we demonstrate that all proofs could be checked with acceptable time / memory overhead. 12 
+
+V. E XPERIMENTAL RESULTS 
+
+For our case study, we use a non-trivial collection of well known ISCAS’89 and ITC’99 [27] benchmarks as well as open cores that were considered, e.g., at IWLS’05. All synthesis operations, including retiming, are performed by ABC 4 [5]. As the underlying SAT solver of ic3-sim we use M INI SAT [28]. Experiments with CaDiCaL [29] showed similar, but slightly longer run times. All of our implementations and retimed / resynthesized AIGER [30] benchmarks can be found on github under https://github.com/tobiasseufert/SEC-ic3-sim. As a certificate format / checker, we use Certifaiger [26]. We consider two of our implementations: ic3-sim 
+
+(Alg. 3) detects the retiming depth of the problem and per-forms multi-timeframe rarity simulation [25], then it expands candidates for delayed equivalences via virtual forward retim-ing. ic3-sim-F applies most forward retiming to the whole miter instead of lazy virtual forward retiming. Therefore, only basic single time frame rarity simulation is used. For comparison, we consider the certifying general purpose model checker rIC3 [6]. As a reference, we consider ABC’s non-certifying sequential equivalence checker dprove .As an additional reference, we present the results of the standard IC3 version that our implementations of ic3-sim 
+
+and ic3-sim-F are based on. In the following we denote our standard IC3 with ic3 .If not otherwise stated, we use a wall clock timeout of 1 h. Memory limit is 4 GB per thread. rIC3 spawns a total of 16 threads and is therefore allowed approximately 16 CPU-hours and 64 GB of memory. Nevertheless, we report the actual CPU usage when indicating CPU times. 
+
+rIC3 : is currently the strongest available certifying hard-ware model checker. It runs multiple IC3 variants concurrently. Some explicitly target equivalence checking problems by in-cluding internal signals in the state space [16]. Furthermore, it uses k-induction [13], [9] but without simple-path constraints 5.rIC3’s k-induction engine runs Kissat [31] with congruence closure [32], which is well suited to problems with many equivalent signals, such as sequential equivalence checking. In total, rIC3 spawns 16 threads; our approach uses only one. 
+
+ABC’s dprove : is a non-certifying equivalence-checking engine. It builds on the industrial-strength ABC tool [5] and uses a whole (single-threaded) portfolio of different techniques. Its pre- and inprocessing uses a combination of maximal forward retiming, minimal-area retiming, and logic-synthesis steps to simplify the transition relation, which yields greatly simplified sequential equivalence checking problems. This is combined with induction queries that incrementally unroll the transition relation (similar to k-induction without unique-state constraints) to prove pairs of signals equivalent. Eventually, if the problem remains unsolved, the simplified equivalence-checking problem is forwarded to interpolation-based model checking or general IC3. 
+
+> 4commit 9478c172881f7c392493420f639a940fdfeb9a00
+> 5Version 1.5.2, commit 17ef2d4356d2765cda432dbfbbd13773378c3e67, is currently not able to certify results under simple-path constraints.
+
+Certificates for dprove ’s workflow are non-trivial, if not infeasible, with the current state of the art. We nevertheless keep the comparison, even though dprove 
+
+is not able to emit certificates. 
+
+A. Experiments a) Retiming and Resynthesis Verification : We start by comparing the whole portfolio of rIC3 with ic3-sim 
+
+on the sequential miter of the specification with only re-timed and retimed and combinationally resynthesized bench-marks, respectively. We apply the following abc commands: 
+
+retime;dc2;rwsat;resyn .In the following, we give results for the version of our tool that we consider to be best suited for the given problem set. For instance, plain retiming tasks are a good fit for 
+
+ic3-sim-F . Adding combinational resynthesis though may hurt maximal forward retiming, therefore we use targeted virtual forward retiming, denoted simply by ic3-sim . Also a cutoff = 0 (Sect. IV-C) is beneficial if we expect that a retiming invariant only with equivalences between FF output and signals (including signals from virtual forward retiming) exists. For retiming and resynthesis, we also consider dprove as a reference to showcase that not all instances can be solved by the (to the best of our knowledge) best openly available sequential equivalence checker. The results are reported in the columns whose headings do not contain ‘pipelined’ in Table I. Experiments denoted with a ‘–’ are either timed out or ran out of memory. Apparently, there are many infeasible benchmarks for rIC3. Our simple standalone standard IC3 is even less successful. This is expected and in line with the results of, e.g., [33]. Our implementation ic3-sim-F that applies certified most forward retiming solves all benchmarks. Our ic3-sim performs well on retimed and combina-tionally resynthesized benchmarks, where rIC3 CPU-times predominantly increase. Additionally, even though certifying, it is not outperformed by ABC’s non-certifying dprove . We especially refer to the non-trivial instances ‘ usb funct ’ and ‘b13 ’, where our approach shows significant complementary strengths. 
+
+b) Pipelined Designs : We added pipelines of three FFs to each input of the instances from Tab. I. We then applied the same retiming and resynthesis operations like beforehand (Sect. V-A0a). We refer to the columns labeled ‘pipelined’ in Table I. The added pipeline stages apparently hurt both rIC3 and 
+
+ic3 . Usually, pipelined and retimed designs are a good fit for k-induction and we wanted to rule out that rIC3 misses a lot of instances because simple path constraints are deactivated. However, none of the benchmarks could be solved by k-induction with simple-path constraints (column ‘ rIC3-kind 
+
+simple-path’) as well. Again, we present the results of dprove as a reference for retiming and resynthesis and take note that we can solve two instances that the non-certifying dprove cannot. 13 
+
+TABLE I EXPERIMENTAL RESULTS . CPU TIME IN s. E ACH EXPERIMENT IS ALSO PERFORMED ON A pipelined VERSION OF THE CIRCUITS .
+
+only retiming only retiming pipelined retiming + comb. resyn. retiming + comb. resyn. 
+
+pipelined 
+
+Benchmark ic3 rIC3 ic3-sim-F ic3 rIC3 ic3-sim-F rIC3-kind 
+
+simple-path ic3 rIC3 ic3-sim dprove 
+
+(uncert.) ic3 rIC3 ic3-sim dprove 
+
+(uncert.) 
+
+aes core 901.99 5834.57 14.02 – – 19.71 – – 33684.15 18.39 (4.93) – – 32.83 (3.76) b12 798.17 5101.2 0.4 – – 2 – 1313.83 6318.04 1.12 (10.35) – – 56.08 (0.2) b13 78.46 97.18 0.13 – 127.93 0.23 – 25.22 163.64 0.2 (52.32) – 120.96 1.22 (–) b14 182.92 1299.12 1.21 – 10326.3 5.31 – 86.84 1480.49 4.56 (1.03) – 8716.29 42.23 (0.44) b15 – – 4.6 – – 15.3 – – – 64.26 (6.07) – – 299.27 (3.89) b17 – – 47.19 – – 115.87 – – – 1294.53 (11.06) – – 2785.12 (6.84) b18 – 31911.97 1299.77 – 49340.68 2698.73 – – 44842.86 – (18.63) – – – (22.25) b20 – 9875.31 2.77 – – 12.8 – – 11043.31 230.46 (28.03) – – 29.71 (1.32) b21 – – 2.91 – – 13.07 – – – 131.73 (30.44) – – 117.9 (1.55) b22 – 39234.32 6.35 – – 20.3 – – 27488.37 2228.81 (58.86) – – 114.37 (2.86) des perf – – 16.75 – – 38.06 – – – 94.76 (32.62) – – – (4.28) mem ctrl – – 21.13 – – 51.67 – – – 63.23 (8.83) – – – (–) pci bridge32 – – 167.86 – – 107 – – – – (–) – – – (–) s15850 – – 6.06 – – 18.95 – – – 52.43 (0.68) – – 409.39 (1.39) s35932 2315.5 987.09 18.08 – 1536.89 57.91 – 1495.87 1327.6 64.02 (4.71) 703.03 1496.98 87.47 (2.79) s38584 – – 29.54 – – – – – – 46.18 (12.81) – – 58.54 (9.91) s9234 – – 1.13 – – 3.7 – – – 3.23 (0.47) – – 33.33 (0.13) systemcaes – – 7.38 – – 148.06 – – – – (22.18) – – 158.91 (5.86) usb funct – – 77.41 – – 172.28 – – – 202.8 (–) – – 3569.73 (–) usb phy 52.35 26.85 0.2 2926.79 3073.82 0.59 – 11.42 22.59 0.39 (0.96) 194.26 2609.56 5.33 (11.43) wb conmax 815.48 1703.33 198.22 – 20884.99 105.67 – 775.02 1881.7 382.59 (58.57) – 23900.31 1276.97 (25.26) TABLE II SIGNAL CORRESPONDENCE . CPU TIME IN s. G AIN IN %. 
+
+ic3-sim scorr -F d scorr -F max 
+
+Benchmark pipelined time gain time d gain time max gain 
+
+b13 1.22 s 100 % 0.1 s 7 25.5 % 11.06 s 100 25.5 % b15 299.27 s 100 % 14.77 s 3 6.16 % 23.04 s 4 6.18 % s9234 33.33 s 100 % 7.3 s 7 51.26 % 8.35 s 20 51.26 % 
+
+c) Signal Correspondence With Virtual Forward Re-timing : We showcase how our approach of creating virtually forward retimed (Sect. III-D) signals on demand enables significantly stronger preprocessing capabilities than ABC’s widely used scorr , even though scorr uses unrolling .Some results are displayed in Tab. II. We allow an unrolling of the detected register depth (Sect. IV-A) d of the designs (see column scorr -F d in Tab. II) as well as the maximum amount of frames that did not report ‘failed’ induction checks due to exceeded SAT solver conflict budgets (see column scorr -F max in Tab. II). We report on the fraction (‘gain’ in %) of the found signal correspondences (i.e., the number of signals with another equivalent signal divided by the overall number of signals) on a subset of the resynthesized problems from Tab. I. One reason for the higher gains of our approach might be that scorr switches off simple path constraints for efficiency reasons. Example Ex. 4 in Sect. IV-E demonstrates that they can be necessary. 
+
+d) Arbitrarily Strong Sequential Resynthesis : One im-portant strength of our approach is its completeness. Even if no full signal correspondence can be established, ic3-sim 
+
+is able to strengthen a proof of sequential equivalence with additionally learned lemmas. For this scenario, we increase the effort spent on finding good counterexamples for refinement in ic3-sim by letting cutoff = 300 .We deliberately chose ‘third party’ sequential equivalence checking benchmarks of which we do not know anything about their transformation history. Firstly, in Tab. III, we demonstrate some hard examples from past Hardware Model Checking 
+
+TABLE III EXPERIMENTAL RESULTS ON HWMCC MITERS . CPU TIME IN s.
+
+Benchmark ic3 rIC3 ic3-sim dprove (uncertified) 
+
+bobsmhdlc – 3098.61 44.13 (–) bobsmhdlc1 – 2801.84 27.85 (–) bobsmhdlc2 – 3546.76 42.42 (–) bobsmhdlc3 – 3946.26 45.49 (–) bobsmcodic – 7796.49 3175.13 (–) eijkbs3271 – 17802.6 0.8 (0.02) eijkbs3384 – – 78 (25.57) eijkbs6669 – – 14.6 (8.72) TABLE IV RESULTS ON 6S22-SEC BENCHMARKS FROM [16]. 
+
+ic3-sim IBM-IC3-INN [16] ic3 rIC3 dprove 
+
+(uncertified) 
+
+Solved 310 / 310 278 6/ 310 294 / 310 302 / 310 (310 / 310) 
+
+Competitions [34] of which we know that the underlying problems are sequential miters. The results show that we can perform well on problems that might not have complete retiming invariants to discover. Our approach performs equally well on benchmarks where the general purpose model checker rIC3 has difficulties and on benchmarks where the dedicated equivalence checker dprove 
+
+has difficulties. Secondly, we present experiments on the 310 sequential equivalence checking 6s22 -benchmarks from [16]. This bench-mark set was used to showcase how an IC3 implementation that deduces inductive invariants over internal signals as well performs on realistic sequential equivalence checking prob-lems. Tab. IV shows our findings. The IC3 implementation from [16] is not openly available, we nevertheless copied the results that were reported with a timeout of 600 s in the paper into our table and used a timeout of 600 s for our experiments as well. Our implementation is able to solve all 
+
+benchmarks within 20 s, whereas rIC3 loses some instances with the timeout of 600 s (wall clock time). 
+
+> 6
+
+Not our measurement, taken from [16]. 14 
+
+TABLE V CERTIFICATE CHECKING TIME USING CERTIFAIGER [26]. interval [0 s, 1 s) [1 s, 10 s) [10 s, 100 s) [100 s, 1000 s) bench-marks b12, b13, s9234, usb phy, b12 pipe, b13 pipe, b14 pipe, s9234 pipe, usb phy pipe b14, b15, b17, b18, b20, b22, s15850 pipe, s35932 pipe, s38584 pipe, s15850, s35932, s38584, aes core, mem ctrl, pci bridge32, des perf, wb conmax bobsmhdlc*, b18 pipe, b20 pipe, b21 pipe, b22 pipe, des perf pipe, mem ctrl pipe, pci bridge32 pipe b17 pipe b15 pipe, bobsmcodic 
+
+e) Certification Overhead : Here we report on the addi-tional overhead that we experienced for certificate checking with Certifaiger. We remark that certificate generation comes naturally to our approach and only requires outputting the proven inductive invariant, which is negligible in comparison to proving it beforehand with SAT solver calls. For evaluating the certificate checking , we considered the experiments with 
+
+ic3-sim-F (where the final invariant has to be transformed according to Sect. IV-D) and ic3-sim . We took the higher runtime if both solved the benchmark. The results are summarized in Tab. V. Except for three outliers all certificates could be checked within less than 10 s. The highest run time was observed for the certificate for bobsmcodic (output by ic3-sim with cutoff = 300 ) that took us 449.5 s to check. VI. C ONCLUSION AND FUTURE WORK 
+
+We presented a practical IC3-based approach for verifying sequential equivalence after retiming and complex sequential resynthesis. By speculating invariants through (delayed) simu-lation, our method enables IC3 to efficiently prove equivalence for designs with retiming only, with retiming and combina-tional logic synthesis, and with retiming and strong sequential synthesis. 
+
+Certified equivalence checking: Our experiments demon-strate the need for a dedicated sequential equivalence checker that emits certificates. Apparently, using methods such as rIC3, although they implement techniques that target equivalence-checking problems, is not sufficient. 
+
+Non-certifying state-of-the-art: We observe that even our prototype solution, which does not unroll the transition relation, has complementary strengths compared to the non-certifying state of the art. There are indeed instances on which our approach—although it is less tuned for efficiency than ABC—performs significantly better. Furthermore, we use virtual forward retiming only for signals that are identified as candidates by multi-timeframe simulation. In this way, we can prove signal correspondences for which ABC’s sequential sweep techniques, which are based on k-induction without unique-state constraints, do not converge. 
+
+Future work: Directions for further research include moving more of the resynthesis techniques from tools such as dprove into our tool and certifying them. For instance, tools typically use passes of maximal forward retiming, min-imal register retiming, and combinational rewriting attempts interchangeably to align FFs. The theory presented in this paper already appears to enable certification of such approaches. REFERENCES [1] C. E. Leiserson and J. B. Saxe, “Retiming synchronous circuitry,” 
+
+Algorithmica , vol. 6, no. 1, pp. 5–35, 1991. [Online]. Available: https://doi.org/10.1007/BF01759032 [2] M. Mneimneh and K. Sakallah, “Reverse: Efficient sequential verifica-tion for retiming,” Proc. IWLS’03 , pp. 133–139, 2003. [3] J. R. Jiang and W. Hung, “Inductive equivalence checking under retiming and resynthesis,” in 2007 International Conference on Computer-Aided Design, ICCAD 2007, San Jose, CA, USA, November 5-8, 2007 ,G. G. E. Gielen, Ed. IEEE Computer Society, 2007, pp. 326–333. [Online]. Available: https://doi.org/10.1109/ICCAD.2007.4397285 [4] J. R. Jiang and R. K. Brayton, “Retiming and resynthesis: Acomplexity perspective,” IEEE Trans. Comput. Aided Des. Integr. Circuits Syst. , vol. 25, no. 12, pp. 2674–2686, 2006. [Online]. Available: https://doi.org/10.1109/TCAD.2006.882520 [5] R. K. Brayton and A. Mishchenko, “ABC: an academic industrial-strength verification tool,” in Computer Aided Verification, 22nd International Conference, CAV 2010, Edinburgh, UK, July 15-19, 2010. Proceedings , ser. Lecture Notes in Computer Science, T. Touili, B. Cook, and P. B. Jackson, Eds., vol. 6174. Springer, 2010, pp. 24–40. [Online]. Available: https://doi.org/10.1007/978-3-642-14295-6 5 [6] Y. Su, Q. Yang, Y. Ci, T. Bu, and Z. Huang, “The ric3 hardware model checker,” in Computer Aided Verification - 37th International Conference, CAV 2025, Zagreb, Croatia, July 23-25, 2025, Proceedings, Part I , ser. Lecture Notes in Computer Science, R. Piskac and Z. Rakamaric, Eds. Springer, 2025, pp. 185–199. [Online]. Available: https://doi.org/10.1007/978-3-031-98668-0 9 [7] A. R. Bradley, “Sat-based model checking without unrolling,” in 
+
+Verification, Model Checking, and Abstract Interpretation - 12th International Conference, VMCAI 2011, Austin, TX, USA, January 23-25, 2011. Proceedings , ser. Lecture Notes in Computer Science, R. Jhala and D. A. Schmidt, Eds., vol. 6538. Springer, 2011, pp. 70–87. [Online]. Available: https://doi.org/10.1007/978-3-642-18275-4 7 [8] C. A. J. van Eijk, “Sequential equivalence checking without state space traversal,” in 1998 Design, Automation and Test in Europe (DATE ’98), February 23-26, 1998, Le Palais des Congr` es de Paris, Paris, France , P. M. Dewilde, F. J. Rammig, and G. Musgrave, Eds. IEEE Computer Society, 1998, pp. 618–623. [Online]. Available: https://doi.org/10.1109/DATE.1998.655922 [9] P. Bjesse and K. Claessen, “Sat-based verification without state space traversal,” in Formal Methods in Computer-Aided Design, Third International Conference, FMCAD 2000, Austin, Texas, USA, November 1-3, 2000, Proceedings , ser. Lecture Notes in Computer Science, W. A. H. Jr. and S. D. Johnson, Eds., vol. 1954. Springer, 2000, pp. 372–389. [Online]. Available: https://doi.org/10. 1007/3-540-40922-X 23 [10] J. Baumgartner, H. Mony, V. Paruthi, R. Kanzelman, and G. Janssen, “Scalable sequential equivalence checking across arbitrary design transformations,” in 24th International Conference on Computer Design (ICCD 2006), 1-4 October 2006, San Jose, CA, USA . IEEE, 2006, pp. 259–266. [Online]. Available: https://doi.org/10.1109/ICCD.2006. 4380826 [11] H. Mony, J. Baumgartner, A. Mishchenko, and R. K. Brayton, “Speculative reduction-based scalable redundancy identification,” in 
+
+Design, Automation and Test in Europe, DATE 2009, Nice, France, April 20-24, 2009 , L. Benini, G. D. Micheli, B. M. Al-Hashimi, and W. M¨ uller, Eds. IEEE, 2009, pp. 1674–1679. [Online]. Available: https://doi.org/10.1109/DATE.2009.5090932 15 
+
+[12] A. Mishchenko, R. K. Brayton, J. R. Jiang, and S. Jang, “Scalable don’t-care-based logic optimization and resynthesis,” ACM Trans. Reconfigurable Technol. Syst. , vol. 4, no. 4, pp. 34:1–34:23, 2011. [Online]. Available: https://doi.org/10.1145/2068716.2068720 [13] M. Sheeran, S. Singh, and G. St˚ almarck, “Checking safety properties using induction and a sat-solver,” in Formal Methods in Computer-Aided Design, Third International Conference, FMCAD 2000, Austin, Texas, USA, November 1-3, 2000, Proceedings , ser. Lecture Notes in Computer Science, W. A. H. Jr. and S. D. Johnson, Eds., vol. 1954. Springer, 2000, pp. 108–125. [Online]. Available: https://doi.org/10.1007/3-540-40922-X 8 [14] H. Mony, J. Baumgartner, V. Paruthi, and R. Kanzelman, “Exploiting suspected redundancy without proving it,” in Proceedings of the 42nd Design Automation Conference, DAC 2005, San Diego, CA, USA, June 13-17, 2005 , W. H. J. Jr., G. Martin, and A. B. Kahng, Eds. ACM, 2005, pp. 463–466. [Online]. Available: https://doi.org/10.1145/1065579.1065700 [15] R. Dureja, J. Baumgartner, R. K. Gajavelly, R. Kanzelman, and K. Y. Rozier, “Toward exhaustive sequential redundancy removal,” in Formal Methods in Computer-Aided Design, FMCAD 2024, Prague, Czech Republic, October 15-18, 2024 , N. Narodytska and P. R¨ ummer, Eds. IEEE, 2024, pp. 217–226. [Online]. Available: https://doi.org/10.34727/2024/isbn.978-3-85448-065-5 27 [16] R. Dureja, A. Gurfinkel, A. Ivrii, and Y. Vizel, “IC3 with internal signals,” in Formal Methods in Computer Aided Design, FMCAD 2021, New Haven, CT, USA, October 19-22, 2021 . IEEE, 2021, pp. 63–71. [Online]. Available: https://doi.org/10.34727/2021/isbn. 978-3-85448-046-4 14 [17] G. Hu, J. Tang, C. Yu, W. Zhang, and H. Zhang, “Deepic3: Guiding IC3 algorithms by graph neural network clause prediction,” in Proceedings of the 29th Asia and South Pacific Design Automation Conference, ASPDAC 2024, Incheon, Korea, January 22-25, 2024 . IEEE, 2024, pp. 262–268. [Online]. Available: https://doi.org/10.1109/ASP-DAC58780. 2024.10473807 [18] A. Gurfinkel and A. Ivrii, “Pushing to the top,” in Formal Methods in Computer-Aided Design, FMCAD 2015, Austin, Texas, USA, September 27-30, 2015 , R. Kaivola and T. Wahl, Eds. IEEE, 2015, pp. 65–72. [Online]. Available: https://doi.org/10.1109/FMCAD.2015.7542254 [19] T. Seufert, C. Scholl, A. Chandrasekharan, S. Reimer, and T. Welp, “Making PROGRESS in property directed reachability,” in Verification, Model Checking, and Abstract Interpretation - 23rd International Conference, VMCAI 2022, Philadelphia, PA, USA, January 16-18, 2022, Proceedings , ser. Lecture Notes in Computer Science, B. Finkbeiner and T. Wies, Eds., vol. 13182. Springer, 2022, pp. 355–377. [Online]. Available: https://doi.org/10.1007/978-3-030-94583-1 18 [20] E. Yu, A. Biere, and K. Heljanko, “Progress in certifying hardware model checking results,” in Computer Aided Verification - 33rd International Conference, CAV 2021, Virtual Event, July 20-23, 2021, Proceedings, Part II , ser. Lecture Notes in Computer Science, A. Silva and K. R. M. Leino, Eds., vol. 12760. Springer, 2021, pp. 363–386. [Online]. Available: https://doi.org/10.1007/978-3-030-81688-9 17 [21] E. Yu, N. Froleyks, A. Biere, and K. Heljanko, “Stratified certification for k-induction,” in 22nd Formal Methods in Computer-Aided Design, FMCAD 2022, Trento, Italy, October 17-21, 2022 , A. Griggio and N. Rungta, Eds. IEEE, 2022, pp. 59–64. [Online]. Available: https://doi.org/10.34727/2022/isbn.978-3-85448-053-2 11 [22] ——, “Towards compositional hardware model checking certification,” in Formal Methods in Computer-Aided Design, FMCAD 2023, Ames, IA, USA, October 24-27, 2023 , A. Nadel and K. Y. Rozier, Eds. IEEE, 2023, pp. 1–11. [Online]. Available: https: //doi.org/10.34727/2023/isbn.978-3-85448-060-0 12 [23] N. Froleyks, E. Yu, A. Biere, and K. Heljanko, “Certifying phase abstraction,” in Automated Reasoning - 12th International Joint Conference, IJCAR 2024, Nancy, France, July 3-6, 2024, Proceedings, Part I , ser. Lecture Notes in Computer Science, C. Benzm¨ uller, M. J. H. Heule, and R. A. Schmidt, Eds., vol. 14739. Springer, 2024, pp. 284– 303. [Online]. Available: https://doi.org/10.1007/978-3-031-63498-7 17 [24] N. E´ en, A. Mishchenko, and R. K. Brayton, “Efficient implementation of property directed reachability,” in International Conference on Formal Methods in Computer-Aided Design, FMCAD ’11, Austin, TX, USA, October 30 - November 02, 2011 , P. Bjesse and A. Slobodov´ a, Eds. FMCAD Inc., 2011, pp. 125–134. [Online]. Available: http://dl.acm.org/citation.cfm?id=2157675 [25] A. Mishchenko, R. Brayton, and N. Een, “Using speculation for sequen-tial equivalence checking,” in Proceedings of International Workshop on Logic & Synthesis , 2012, pp. 139–145. [26] N. Froleyks, E. Yu, M. Preiner, A. Biere, and K. Heljanko, “Introducing certificates to the hardware model checking competition,” in Computer Aided Verification - 37th International Conference, CAV 2025, Zagreb, Croatia, July 23-25, 2025, Proceedings, Part I , ser. Lecture Notes in Computer Science, R. Piskac and Z. Rakamaric, Eds., vol. 15931. Springer, 2025, pp. 281–295. [Online]. Available: https://doi.org/10.1007/978-3-031-98668-0 14 [27] F. Corno, M. S. Reorda, and G. Squillero, “Rt-level itc’99 benchmarks and first ATPG results,” IEEE Des. Test Comput. , vol. 17, no. 3, pp. 44–53, 2000. [Online]. Available: https://doi.org/10.1109/54.867894 [28] N. E´ en and N. S¨ orensson, “An extensible sat-solver,” in Theory and Applications of Satisfiability Testing, 6th International Conference, SAT 2003. Santa Margherita Ligure, Italy, May 5-8, 2003 Selected Revised Papers , ser. Lecture Notes in Computer Science, E. Giunchiglia and A. Tacchella, Eds., vol. 2919. Springer, 2003, pp. 502–518. [Online]. Available: https://doi.org/10.1007/978-3-540-24605-3 37 [29] A. Biere, T. Faller, K. Fazekas, M. Fleury, N. Froleyks, and F. Pollitt, “Cadical 2.0,” in Computer Aided Verification - 36th International Conference, CAV 2024, Montreal, QC, Canada, July 24-27, 2024, Proceedings, Part I , ser. Lecture Notes in Computer Science, A. Gurfinkel and V. Ganesh, Eds., vol. 14681. Springer, 2024, pp. 133– 152. [Online]. Available: https://doi.org/10.1007/978-3-031-65627-9 7 [30] A. Biere, K. Heljanko, and S. Wieringa, “AIGER 1.9 and beyond,” In-stitute for Formal Models and Verification, Johannes Kepler University, Altenbergerstr. 69, 4040 Linz, Austria, Tech. Rep. 11/2, 2011. [31] A. Biere, T. Faller, K. Fazekas, M. Fleury, N. Froleyks, and F. Pollitt, “CaDiCaL, Gimsatul, IsaSAT and Kissat entering the SAT Competition 2024,” in Proc. of SAT Competition 2024 – Solver, Benchmark and Proof Checker Descriptions , ser. Department of Computer Science Report Series B, M. Heule, M. Iser, M. J¨ arvisalo, and M. Suda, Eds., vol. B-2024-1. University of Helsinki, 2024, pp. 8–10. [32] A. Biere, K. Fazekas, M. Fleury, and N. Froleyks, “Clausal congruence closure,” in 27th International Conference on Theory and Applications of Satisfiability Testing, SAT 2024, Pune, India, August 21-24, 2024 ,ser. LIPIcs, S. Chakraborty and J. R. Jiang, Eds. Schloss Dagstuhl - Leibniz-Zentrum f¨ ur Informatik, 2024, pp. 6:1–6:25. [Online]. Available: https://doi.org/10.4230/LIPIcs.SAT.2024.6 [33] C. Yu, C. Huang, G. Nam, M. Choudhury, V. N. Kravets, A. Sullivan, M. J. Ciesielski, and G. D. Micheli, “End-to-end industrial study of retiming,” in 2018 IEEE Computer Society Annual Symposium on VLSI, ISVLSI 2018, Hong Kong, China, July 8-11, 2018 .IEEE Computer Society, 2018, pp. 203–208. [Online]. Available: https://doi.org/10.1109/ISVLSI.2018.00046 [34] G. Cabodi, C. Loiacono, M. Palena, P. Pasini, D. Patti, S. Quer, D. Vendraminetto, A. Biere, and K. Heljanko, “Hardware model checking competition 2014: An analysis and comparison of solvers and benchmarks,” J. Satisf. Boolean Model. Comput. , vol. 9, no. 1, pp. 135–172, 2014. [Online]. Available: https://doi.org/10.3233/sat190106

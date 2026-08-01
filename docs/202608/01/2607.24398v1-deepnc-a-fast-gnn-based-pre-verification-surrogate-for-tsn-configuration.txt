@@ -1,0 +1,1294 @@
+Title: DeepNC: A Fast GNN-based Pre-Verification Surrogate for TSN Configuration
+
+URL Source: https://arxiv.org/pdf/2607.24398v1
+
+Published Time: Tue, 28 Jul 2026 01:58:37 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# DeepNC: A Fast GNN-based Pre-Verification Surrogate for TSN Configuration 
+
+Jiayi Zhu a†, Jing Lin a†, Zelong Tian a, Feng He a, Luxi Zhao a* 
+
+> a
+
+School of Electronics and Information Engineering, Beihang University, China 
+
+Abstract —Time-Sensitive Networking (TSN) is critical to de-terministic communication in safety-critical domains, with formal verification such as Network Calculus (NC) serving as the cornerstone for schedulability guarantees. However, during au-tomated configuration-space exploration, repeated schedulability analysis consumes over 90% of the total configuration time, becoming the primary bottleneck for large-scale TSN configu-rations. To address this challenge, we propose DeepNC, a novel pre-verification surrogate module that pioneers the structural fusion of NC principles into a Graph Neural Network (GNN) for TSN configuration-space exploration. Rather than replacing formal verification, DeepNC acts as a high-speed pre-verification filter, reserving computationally expensive formal verification only for promising candidates. Extensive evaluations demonstrate that DeepNC significantly improves worst-case delay prediction accuracy over state-of-the-art learning-based methods, increasing the average R2 by 55.8% and reducing the average MAPE by 65.3%. More importantly, its high-fidelity regression substan-tially reduces the number of formal verification calls during configuration-space exploration by 93.25%, while accelerating NC-based verification by more than two orders of magnitude. 
+
+I. I NTRODUCTION 
+
+Time-Sensitive Networking (TSN) [1] has become the communication backbone for safety-critical systems such as autonomous driving, industrial automation, and aerospace by enabling deterministic communication over Ethernet. How-ever, such determinism is not an inherent property of the TSN standard. Instead, it relies on appropriately configuring di-verse scheduling mechanisms (Time-Aware Shaper (TAS) [2], Credit-Based Shaper (CBS) [3], Cyclic Queuing and Forward-ing (CQF) [4], and their hybrid combinations) and performing formal schedulability verification to ensure that the resulting configuration satisfies end-to-end timing requirements. Conse-quently, practical TSN design relies on an iterative workflow that tightly couples configuration optimization with formal schedulability verification. Within this iterative design workflow, formal schedulability verification [5]–[8] provides the rigorous performance guar-antees required for each candidate configuration. Although a single Network Calculus (NC)-based verification typically completes within seconds [6], automated configuration syn-thesis often requires tens of thousands of repeated verification calls while exploring a large configuration space. Conse-quently, the computational bottleneck shifts from configuration   
+
+> †Co-first authors with equal contribution. ∗Corresponding author. Emails: zhujiayi@buaa.edu.cn; linjing1023@buaa.edu.cn; zelongtian@buaa .edu.cn; fenghe@buaa.edu.cn; zhaoluxi@buaa.edu.cn.
+
+optimization itself to the repeated execution of formal verifi-cation. Existing studies report that schedulability verification can account for over 90% of the total configuration time in automated TSN design workflows [9]. To alleviate this computational bottleneck, recent stud-ies [10]–[12] have explored learning-based surrogate models that approximate the results of formal verification. Rather than replacing formal methods, these surrogates serve as fast pre-verification modules that rapidly filter unpromising configu-rations, allowing rigorous analysis to focus only on a much smaller candidate subset. Such a workflow significantly ac-celerates configuration-space exploration while preserving the correctness guarantees of formal verification. Despite recent progress, existing learning-based pre-verification surrogates remain largely output-driven. They primarily approximate the input-output relationship between network configurations and verification results, without explicitly encoding the analytical reasoning process underlying formal performance analysis methods. Consequently, existing studies have primarily fo-cused on binary schedulability classification [10]–[12], which is well suited for feasibility screening but provides limited quantitative timing information to guide fine-grained configu-ration optimization. To address these limitations, we propose DeepNC, a novel pre-verification surrogate module for TSN configuration-space exploration by structurally integrating NC principles into Graph Neural Networks (GNN) [13]. Unlike prior learning-based surrogates that treat formal analysis merely as asource of supervision, DeepNC embeds the reasoning pro-cess of the Total Flow Analysis (TFA)-based NC analysis for hybrid TSN/TAS+CBS architectures [6] into the graph message-passing mechanism of the neural architecture. As a result, DeepNC closely approximates worst-case delay bound (WCDs) computed by NC formal analysis, providing quanti-tative timing information for efficient configuration-space ex-ploration and candidate pruning in large-scale TSN networks. Our main contributions are as follows:  
+
+> •
+
+First, we propose an NC-guided heterogeneous graph representation to encode the analytical semantics of NC. By deconstructing the network into distinct F LOW ,QUEUE , and L INK nodes, we explicitly map the defining parameters of arrival curves and service curves into graph features, enabling DeepNC to preserve the analytical structure of NC.  
+
+> •
+
+Second, we develop a message-passing mechanism in-arXiv:2607.24398v1 [cs.NI] 27 Jul 2026 spired by the TFA-based NC analysis. It consists of two interleaved phases: a Path-Level Update, which employs Gated Recurrent Units (GRUs) to capture the evolution of arrival curves, and a Port-Level Update, which aggregates flow information to update service curves under resource contention. This incorporates NC domain knowledge into GNN learning, enabling DeepNC to achieve high-fidelity delay regression.  
+
+> •
+
+Third, extensive test cases, including both synthetic and realistic, demonstrate that DeepNC serves as an ac-curate and efficient pre-verification surrogate for TSN configuration workflows. Compared with state-of-the-art learning-based methods, DeepNC achieves significantly higher regression fidelity, improving the average R2 by 55.8% while reducing MAPE by 65.3%. As a result, DeepNC accelerates NC verification by over two orders of magnitude and reduces formal calls by 93.25% on average, significantly outperforming SOTA baselines. The rest of the paper is organized as follows: We first review related work in Sec. II. Sec. III presents the system model and NC background. Our proposed pre-verification surrogate module, DeepNC, is detailed in Sec. IV. Extensive evaluations are presented in Sec. V, and Sec. VI concludes the paper. II. R ELATED WORK 
+
+The growing demand for large-scale and dynamic TSN has motivated research into rapid network configuration [14]. To address the bottleneck of formal verification in configuration-space exploration, existing approaches can be broadly clas-sified into two categories: a priori awareness [15]–[19] and a posteriori verification [20]–[22]. The a priori awareness paradigm integrates formal verification analysis into the op-timization process by deriving specialized analytical or semi-analytical models for specific scheduling policies or opti-mization objectives [15]–[19]. While computationally efficient, these methods require problem-specific mathematical formu-lations and are therefore difficult to generalize. In contrast, the a posteriori verification paradigm [20]–[22] preserves the conventional optimization-verification workflow while accelerating verification itself through techniques such as incremental verification [23], though their effectiveness diminishes with an increasing number of concurrent changes. More recently, learning-base surrogate models have been in-troduced to accelerate formal verification [10]–[12]. Behera et al. [10] propose a method for performing binary schedulabil-ity classification for variable-length periodic task sets under multiple uniprocessor scheduling policies, serving as a pre-filter before formal schedulability analysis. In the networking domain, the RouteNet family [24]–[26] and CEA-GNN [27] predict average network performance. In contrast, Mai et al. [11], [12] formulate Ethernet/TSN verification as binary schedulability classification. However, all these methods primarily learn an input-output mapping without explicitly modeling the underlying analytical reasoning process. As a result, they are less suitable for high-fidelity WCDs prediction required for refined configuration SW1  SW2                
+
+> ES1
+> ES2
+> ES3
+> ES3
+> (a) illustration of TSN network topology
+> CBS  CBS
+> Gate
+> TT Class
+> BE Class
+> Gate
+> Gate
+> Gate ...
+> ...
+> GCL TAS Shaper
+> ET Class
+> ET Class
+> CBS Shaper ...
+> ...
+> Transmission Selection
+> Traffic Class Filtering
+> (b) hybrid TSN/TAS+CBS architecture
+> ...
+> ...
+> credit
+> (d) ET traffic transmission
+> (c) TT traffic transmission
+> TT f
+> CBS
+> Gate
+> ET Class 31
+> Mf
+> 1M
+> 2M
+> 3M
+> t
+> 12
+> Mf21
+> Mf
+> 11
+> MfBEf
+> t
+> p1idSl pM
+> 1sdSl pM
+> 2idSl pM
+> 2sdSl pM
+> 3idSl pM
+> 3sdSl pM
+> p
+> 1
+> pTT L2
+> pTT L
+> 2
+> pTT O
+> 1
+> pTT O
+> GB
+> mQ
+> 8Q
+> 1Q
+> 1mQ
+> 2mQ
+> 1
+> pTT P2
+> pTT P
+> 11
+> Mf12
+> Mf21
+> Mf31
+> Mf
+
+Fig. 1: TSN/TAS+CBS Hybrid Architecture optimization. In contrast, DeepNC, proposed in this paper, structurally integrates the analytical principles of TFA-based NC analysis into GNN to support high-fidelity worst-case delay regression. III. TSN S YSTEM MODEL 
+
+A. System Model 
+
+In this work, we consider a TSN with an arbitrary topology, composed of End Systems (ESs) and Switches (SWs) intercon-nected by full-duplex links of rate C. Each ES connects to a switch, and switches connect to other switches or ESs via their egress ports, where there is one-to-one mapping between a link and an output port. Fig. 1(a) illustrates a typical example, consisting of four ESs and two SWs, where the double-headed arrows represent physical links. Messages are transmitted as flows, which contend for link resources at the output ports of nodes (ESs or SWs). In this paper, we adopt a widely used hybrid TSN scheduling architecture combining the Time-Aware Shaper (TAS) and the Credit-Based Shaper (CBS) to provide real-time guarantees for applications with diverse QoS requirements. As shown in Fig. 1(b), this architecture supports three traffic classes: Time-Triggered (TT) flows controlled by TAS, Event-Triggered (ET) flows shaped by CBS, and Best-Effort (BE) traffic. Each output port p has eight queues for these classes, each with its own gate that controls frame forwarding. TAS is used for periodic, hard real-time TT flows, which are given the highest priority. It employs a Gate Control List (GCL) at each output port p to precisely control the open/close times of the queue gate, ensuring deterministic forwarding of TT as illustrated in Fig. 1(c). The GCL at a port p, denoted as a matrix Gp, defines the transmission schedule. Following a flow-based scheduling abstraction, we assume each entry ⇀
+
+gpf
+
+in Gp corresponds to a specific TT flow, defined by the tuple 
+
+> ⇀
+
+gpf = [ Lp
+
+> TT
+
+, P p
+
+> TT
+
+, O p
+
+> TT
+
+], for ∀f ∈ F p
+
+> TT
+
+, where Lp
+
+> TT
+
+, P p 
+
+> TT
+
+and 
+
+Op 
+
+> TT
+
+are the frame length, period, and offset of a TT flow 
+
+f , respectively. We assume all GCLs are pre-configured, and their synthesis is outside the scope of this paper. CBS schedules lower-priority ET flows, which have less stringent timing requirements. It supports nCBS priority classes, where class Mi has a higher priority than Mi+1 . To pre-vent interference with TT flows, CBS queue gates are only permitted to open when the TT gate is closed, allowing ET flows to contend for the remaining bandwidth. The CBS uses a credit mechanism for bandwidth management, governed by an idleSlope parameter idSl pMi for each Class Mi at port p. An ET frame can only be transmitted if its gate is open and the CBS permits it. Each CBS queue for Class Mi maintains a credit value cpMi , initialized to zero. When the CBS gate is closed, the associated credit is “frozen”. When the associated CBS gate is open, the credit decreases by sendSlope sdSl pMi = idSl pMi − C
+
+during the transmission and increases with idleSlope idSl pMi
+
+when ET frames are waiting to be transmitted, as shown for example in Fig. 1(d) with three CBS classes. For each ET flow f , its frame size Lf and minimum inter-arrival time Pf
+
+sending from the source ES are known. We denote FpMi as the set of flows of Class Mi at queue qMi of port p.The remaining queues are used for BE flows, which have the lowest priority and do not provide real-time guarantees. 
+
+B. Network Calculus Background 
+
+Network Calculus (NC), which serves as the theoretical foundation guiding the architecture of DeepNC, is a rigorous mathematical framework for worst-case analysis of queuing systems, employing min-plus algebra to derive deterministic bounds on traffic and service processes [28], [29]. Total Flow Analysis (TFA), a prominent method within the NC framework, provides a methodology to aggregate per-node results. Let F↑ be the set of non-decreasing functions from non-negative reals R+ to R+.
+
+1) Per-Node Modeling: NC theory leverages min-plus con-volution to provide envelope bounds to abstract the behavior on a single server. This involves characterizing the arriving traffic and the guaranteed service. The arrival curve αpf (t) is used to upper bound the amount of data from a flow f arriving at server p over any time inter-val. Let Rpf (t) ∈ F ↑ denote the cumulative arrival function of the flow, counting the total number of bits that have arrived at a server p by time t. We say that αpf (t) is an arrival curve for the arrival process Rpf (t) ∈ F ↑ of a flow if 
+
+Rpf (t) ≤ (Rpf ⊗ αpf )( t), ∀t ≥ 0, (1) 
+
+where ⊗ is the min-plus convolution operator, defined for any 
+
+∀f, g ∈ F ↑ as, 
+
+(f ⊗ g)( t) = inf 
+
+> 0≤s≤t
+
+{f (t − s) + g(s)}, ∀t ∈ R+. (2) 
+
+A typical arrival curve is the linear “burst-rate” envelope, 
+
+αpf (t) = σpf + ρpf · t, (3) 
+
+where σpf and ρpf are the maximum burst and long-term rate, respectively. Especially, at the source server p0, σp0 
+
+> f
+
+= Lf
+
+and ρp0 
+
+> f
+
+= Lf /P f . Moreover, when multiple flows of the same priority class Mi converge at a server p, their combined arrival envelope is modeled by an aggregate arrival curve, αpMi (t),which is typically the sum of the individual curves, 
+
+αpMi (t) = X 
+
+> f∈F pMi
+
+αpf (t). (4) 
+
+This aggregate arrival curve is then used to compute the perfor-mance bounds for the shared resources, which is fundamental to the TFA method. The service curve βpMi (t) defines the lower bound of pro-cessing capability of a server p provided to aggregate flows of priority Mi. Let RpMi (t) ∈ F ↑ and Rp∗ 
+
+> Mi
+
+(t) ∈ F ↑ denote the cumulative arrival and departure functions of these aggregate flows at server p, respectively. We say that the server p is to offer a min-plus service curve βpMi (t) to the aggregate flows of priority Mi if 
+
+Rp∗ 
+
+> Mi
+
+(t) ≥ (RpMi ⊗ βpMi )( t). (5) 
+
+Based on these aggregate-level models, the worst-case la-tency for the entire aggregate traffic of class Mi at server 
+
+p is upper bounded by the maximum horizontal deviation between the aggregate arrival curve αpMi (t) and the service curve βpMi (t),
+
+DpMi = sup 
+
+> t≥0
+
+{inf {d ≥ 0 αpMi (t) ≤ βpMi (t + d)}} = Dpf , (6) 
+
+which is also the WCDs for every individual flow f within that aggregate according to the TFA method [6], [29]. 
+
+2) Network Modeling: The core principle of TFA is to derive an end-to-end delay bound by summing the per-server delay bounds along the flow path. As stated previously, computing the latency bound at any given server p requires knowledge of the input arrival curve of each flow at that server. The arrival curve αp0 
+
+> f
+
+(t) at the source node p0 is directly determined by the specified flow parameters, such as its maximum frame size and minimum frame interval. For any subsequent server p downstream, however, the arrival curve for a flow is altered by the service it received from upstream nodes. In NC, this evolution is typically captured by computing the output arrival curve αp∗ 
+
+> f
+
+(t), which upper-bounds the data amount of a flow departing from server p over any time interval, α∗pf (t) = ( αpf ⊘ δpDpf
+
+)( t) = αp+1  
+
+> f
+
+(t), (7) 
+
+where δpDpf
+
+(t) is the pure-delay function [28] which equals to 0 if t ≤ Dpf and +∞ otherwise, and ⊘ is the min-plus deconvolution operator, defined for any ∀f, g ∈ F ↑ as, 
+
+(f ⊘ g)( t) = sup 
+
+> s≥0
+
+{f (t + s) − g(s)}, ∀t ∈ R+. (8) 
+
+Note that it in turn serves as the input arrival curve αp+1  
+
+> f
+
+(t)
+
+of the flow f for the subsequent hop p + 1 1.Subsequently, the end-to-end WCDs for a specific flow f is derived by summing these per-server delay bounds along its route rf ,
+
+DE2E ,f = X
+
+> p∈rf
+
+Dpf . (9)               
+
+> 1In TFA application [6], [29], burstiness often propagates per-flow because frequent aggregating and splitting make end-to-end aggregate propagation infeasible. For persistent aggregates, pessimism is commonly mitigated via shaping curves. Flow Node
+> hl
+> (§IV -B) (§IV -C)
+> Network Feature Extraction Message Passing Design
+> Path -Level State Update
+> Port -Level State Update hf
+> Queue Node
+> Latency Prediction Laye r
+> arrival curve service curve
+> Mapping NC
+> Primitives
+> after T iterations
+> Worst -case Delay
+> §IV -C1
+> §IV -C2
+> §IV -C3
+> hq
+> Link Node
+> DeepNC
+> NC Formal Analysis
+> NCandidates
+> Meet Deadlines?
+> Yes
+> No
+> WCD prediction
+> Optimizer
+> top -KPromising
+> Candidates ( K<< N)
+> Best Candidate
+
+Fig. 2: Overall Framework. IV. D EEP NC: A NC T HEORY -G UIDED GNN ARCHITECTURE 
+
+A. Overall Framework 
+
+Our proposed model, DeepNC, is a purpose-designed GNN that structurally integrates the analytical principles of TFA-based NC for hybrid TSN/TAS+CBS networks [6]. The over-all workflow incorporating DeepNC is illustrated in Fig. 2. During configuration-space exploration, DeepNC does not re-place formal verification. Instead, we adopt a filter-then-verify paradigm in which only the top-K configurations predicted by DeepNC are subjected to NC formal analysis, thereby pre-serving the formal guarantees provided by NC. Additionally, because DeepNC provides high-fidelity delay prediction with substantially lower computational cost than NC analysis, it effectively alleviates the verification bottleneck in large-scale TSN configuration. It is worth noting that since DeepNC is designed to accelerate formal verification rather than replace it, the surrogate is expected to approximate the analytical results of NC as close as possible rather than the exact worst-case network behavior. Therefore, the conservativeness of NC with respect to the actual network behavior does not affect the objective of DeepNC. The DeepNC framework is implemented in two main stages, as illustrated in the right panel of Fig. 2: Network Feature Ex-traction (Sec. IV-B) and Message Passing Design (Sec. IV-C). The first stage, Network Feature Extraction, bridges the rep-resentation gap by translating the curve functions of NC into a GNN-compatible vector format. To achieve this, we construct a heterogeneous graph with F LOW , Q UEUE , and LINK nodes from the arrival curve (Sec. IV-B1) and the service curve (Sec. IV-B2) perspectives. Simultaneously, the key parameters defining these curves are extracted to initialize the feature vectors of their respective nodes. The second stage, Message Passing Design, is engineered to capture the com-plex dependencies inherent in NC formal analysis. Through customized message-passing steps, the hidden states of the graph nodes are progressively updated to emulate the evolution of arrival curves (Sec. IV-C1) and the impact of inter-queue contention on service curves (Sec. IV-C2). Finally, a readout layer (Sec. IV-C3) utilizes the final Q UEUE NODE states to predict the per-server and end-to-end WCDs for each ET flow. The predicted delay bounds are subsequently used to filter candidate configurations as described in Algo. 2. 
+
+B. Network Feature Extraction: Mapping NC Primitives 
+
+The first stage in realizing our DeepNC framework is to bridge the fundamental data representation gap between NC and GNNs. NC operates on curve functions, whereas GNNs require fixed-size feature vectors as input. This section details our methodology for this critical “function-to-vector” mapping. Specifically, our approach is to, drawing directly from the foundational concepts of NC (i.e., the arrival and service curves), define a set of graph nodes and construct their corresponding initial feature vectors. 
+
+1) From the Arrival Curve Perspective: To represent arrival envelope of each flow in the GNN, we define a F LOW NODE 
+
+as a surrogate for the arrival curve, instantiating one such node per ET flow. The crucial question, however, is how to define the initial features ( ⇀
+
+xf ) for these F LOW NODE instances. As established in our NC background (Section III-B2), for an ET flow in TSN networks, the burst σp0 
+
+> f
+
+and long-term rate ρp0 
+
+> f
+
+correspond directly to the frame size Lf and the ratio Lf /P f . Therefore, the initial feature vector for each F LOW NODE instance is defined based on its source characteristics. This vector contains the parameters that fully define the source arrival curve αp0 
+
+> f
+
+(t).The F LOW NODE feature vector is formally defined as follows. 
+
+Definition 1: (F LOW NODE Feature Extraction) A F LOW NODE instance is designed to abstract the arrival curve of an individual ET flow f , with its initial features captured from source ES: ⇀
+
+xp0 
+
+> f
+
+= [ Lf , P f ], (10) 
+
+where Lf and Pf are respectively the frame size and minimum time interval between two consecutive frames of f .We use raw [Lf , P f ] rather than precomputed long-term rate 
+
+ρp0 
+
+> f
+
+to reduce preprocessing on large-scale graphs and enable the GNN to implicitly learn the rate during training. 
+
+2) From the Service Curve Perspective: The goal is to represent the service guarantees for specific flows at each server within the GNN. In TSN networks featuring a hybrid TSN/TAS+CBS architecture, the service curve βpMi (t) for the aggregate flows of CBS Class Mi at an egress port p is explicitly given by [6], 
+
+βpMi (t) = idSl pMi ·
+
+"
+
+t − αp
+
+> TT
+
+(t)
+
+C − cp, max 
+
+> Mi
+
+idSl pMi
+
+!# +
+
+> ↑
+
+, (11) 
+
+where αp
+
+> TT
+
+(t) is the aggregate arrival curve of higher-priority TT traffic derived from the GCL matrix Gp, [f (t)] + 
+
+> ↑
+
+=max 0≤s≤t{f (s), 0}, and cp, max  
+
+> Mi
+
+is the credit upper bound, which is influenced by contention from other CBS classes. All traffic classes share port p and this contention is reflected in the service curve in Eq. (11). Its parameters fall into two groups: (i) queue-specific: idle slope idSl pMj and credit bound 
+
+cp, max  
+
+> Mi
+
+. (ii) port-shared: physical link capacity C and TT interference αp
+
+> TT
+
+(t). This parametric duality motivates us to represent the CBS server by two dedicated graph node types: (a) We term Q UEUE NODE to represent the queue-specific parameters for each CBS Class Mi. (b) We term L INK NODE 
+
+to represent the port-shared parameters. This design choice is crucial: it avoids redundant modeling of shared parameters (e.g., repeating C and GCL information in every queue node at the same port) and allows the GNN to learn the interactions between queues and their shared link through message passing, as detailed in Sec. IV-C. Thus, we instantiate one Q UEUE 
+
+NODE for each CBS class at a port, and a single L INK NODE 
+
+for the port itself. The initial features ⇀
+
+xpqMi
+
+for a Q UEUE NODE must capture parameters that influence the credit upper bound cp, max  
+
+> Mi
+
+, which is dependent on other competing CBS priority classes. To address this, we introduce a one-hot vector ⇀
+
+epMi to encode the priority information, providing a basis for the GNN to subsequently learn the interactive effects from these competing priorities during the message passing phase (Sec. IV-C). The QUEUE NODE feature vector is formally defined as follows. 
+
+Definition 2: (Q UEUE NODE Feature Extraction) A Q UEUE 
+
+NODE instance is designed to abstract the queue-specific part of service curve for a CBS Class Mi at port p, with its initial features captured as: 
+
+> ⇀
+
+xpqMi = idSl pMi ,⇀
+
+epMi
+
+ , (12) 
+
+Here, ⇀
+
+epMi = [0 , ... 1, ... 0] is a one-hot vector encoding the CBS priority, where the bit at the index for Class Mi is set to 1 and 0 otherwise. This vector provides the structural basis for learning priority contention effects via message passing. Similarly, the initial features ⇀
+
+xpl for a L INK NODE must capture the aggregate TT arrival curve αp
+
+> TT
+
+(t). As detailed in [6], αp
+
+> TT
+
+(t) is a deterministic, hyperperiodic step function fully determined by the GCL 2. However, computing the pa-rameters of its tightest envelope is a computationally intensive process. To avoid this high feature extraction cost, we again adopt a strategy of using the raw, fundamental parameters. Instead of pre-calculating the envelope αp
+
+> TT
+
+(t), we directly extract the information from the columns of the GCL matrix 
+
+Gp. Specifically, we form a frame size vector ⇀
+
+gpL, a period vector ⇀
+
+gpP , and an offset vector ⇀
+
+gpO . These vectors serve to implicitly capture the information of αp
+
+> TT
+
+(t) without explicit computation. The LINK NODE feature vector is formally defined as follows. 
+
+Definition 3: (L INK NODE Feature Extraction) A L INK 
+
+NODE instance is designed to abstract the port-shared part of the service curve at an egress port p, with its initial features captured as: ⇀
+
+xpl = ⇀
+
+gpL,⇀
+
+gpP ,⇀
+
+gpO , C , (13) 
+
+where ⇀
+
+gpL, ⇀
+
+gpP , and ⇀
+
+gpO are the column vectors derived from the GCL matrix Gp, representing the frame sizes, periods and offsets of TT flows, respectively. We have now established the three types of graph nodes in our DeepNC framework, i.e., F LOW NODE , Q UEUE NODE ,LINK NODE , and their initial feature vectors ( ⇀
+
+xp0 
+
+> f
+
+, ⇀
+
+xpqMi
+
+,
+
+> ⇀
+
+xpl ). These features are grounded in NC theory, bridging the “function-to-vector” gap. However, the graph constructed is heterogeneous: the initial feature vectors for each node type 
+
+> 2As discussed in Sec. IV-A, DeepNC is designed to approximate the analytical results of the TFA-based NC formulation in [6] as faithfully as possible. Therefore, we adopt the same TT step function model as in [6].
+
+reside in disparate semantic spaces, possessing inconsistent dimensions and different physical units (e.g., bit vs. s vs. bps). To ensure mathematical and semantic compatibility for subse-quent operations, we employ distinct multi-layer perceptrons (MLPs) [30] to project these raw features into a unified latent space. This mapping transforms the initial feature vectors ( ⇀
+
+xp0 
+
+> f
+
+,
+
+> ⇀
+
+xpqMi
+
+, ⇀
+
+xpl ) into initial hidden states ( ⇀
+
+ht0,p 0 
+
+> f
+
+, ⇀
+
+ht0,p qMi
+
+, ⇀
+
+ht0,p l ) of a unified dimension, 
+
+
+
+> ⇀
+
+ht0,p 0 
+
+> f
+
+= MLP 1(⇀
+
+xp0 
+
+> f
+
+)
+
+> ⇀
+
+ht0,p qMi = MLP 2(⇀
+
+xpqMi )
+
+> ⇀
+
+ht0,p l = MLP 3(⇀
+
+xpl ).
+
+(14) 
+
+These hidden states then serve as the input for the first iteration 
+
+t0 of message passing. 
+
+C. Message Passing Design 
+
+The next stage is to design a message passing mechanism that emulates the NC calculation trajectory. As described in Sec. III-B, the worst-case end-to-end delay bound results from a multi-step process involving (a) arrival curve evolution along the path and (b) service curve affected under inter-queue contention of different priorities. Our message passing layers are designed to simulate these path-dependent and contention-aware processes by directly mirroring the core NC operations. The mechanism iteratively updates the hidden states ( ⇀
+
+h) of nodes, which serve as vector-based representations for evolv-ing NC curves. By aligning the GNN with the mathematical principles of NC, the model effectively captures the underlying physics of network worst-case end-to-end delay accumulation. In the following, we detail how DeepNC simulates the NC calculation through message passing among its F LOW ,QUEUE , and L INK nodes to predict the WCDs, as outlined in Algo. 1. The message passing is designed as an iterative process over T iterations (indexed by t = t0, ..., t T −1). Each iteration consists of two main phases: A Path-Level State Up-date phase, which tracks the evolution of arrival curves along each flow path. A Port-Level State Update phase, which refines the service curve representations by incorporating aggregated traffic load and inter-queue contention information. These two phases are implemented as three types of state updates for the FLOW , Q UEUE , and L INK nodes. 
+
+1) Path-Level State Update (Algo. 1 Lines 2-5): For a given flow f , its hidden state ⇀
+
+ht,p f represents its arrival curve at egress port p along its path. The initial hidden state ⇀
+
+ht0,p 0
+
+> f
+
+is defined for the source port and remains fixed. This phase simulates the evolution of the arrival curve of each flow along its multi-hop path. In NC theory, the output arrival curve 
+
+α∗pf (t) from port p becomes the input arrival curve αp+1  
+
+> f
+
+(t) for the next hop p+1 . As given by Eq. (7), α∗pf (t) is the min-plus deconvolution of αpf (t) with the pure-delay function δDpf (t).Therefore, the GNN needs representations for both the input arrival curve (provided by ⇀
+
+ht,p f ) and the pure-delay function, which is encoded in Q UEUE NODE state ⇀
+
+ht,p qMi
+
+for CBS Class Mi3 after port-level state updates (Sec. IV-C2). Note that the QUEUE NODE state ⇀
+
+ht,p qMi
+
+encodes latency information only after the message-passing iterations ( t > t 0). With the hidden state representations of the input arrival curve αpf (t) and the pure-delay function δDpf (t) available, we can now formally define the state update for the F LOW NODE .We employ a Gated Recurrent Unit (GRU) [26], a type of recurrent neural network adept at modeling stateful, sequential transformations, which aligns well with the hop-by-hop nature of the NC process of transforming an arrival curve. 
+
+Definition 4 ( FLOW NODE State Update): A GRU cell is applied at each hop p. Its input consists of the current F LOW 
+
+NODE hidden state ⇀
+
+ht,p f and the Q UEUE NODE hidden state 
+
+> ⇀
+
+ht,p qMi
+
+, and its output is the updated hidden state ⇀
+
+ht,p +1  
+
+> f
+
+, which represents the output arrival curve of flow f at port p and serves as the input arrival curve for the next hop p + 1 :
+
+> ⇀
+
+ht,p +1  
+
+> f
+
+= GRU 
+
+⇀
+
+ht,p f , ⇀
+
+ht,p qMi
+
+
+
+, (15) 
+
+It is worth noting that as message-passing iterations ( t > t 0)proceed, ⇀
+
+ht,p +1  
+
+> f
+
+is progressively refined as ⇀
+
+ht,p qMi
+
+aggregates increasingly richer contextual information (Eq. (18)), thereby better representing the corresponding NC arrival curve. Addi-tionally, since the source arrival curve is deterministic, ⇀
+
+ht,p 0
+
+> f
+
+at source ES p0 remains fixed: ⇀
+
+ht+1 ,p 0 
+
+> f
+
+= ⇀
+
+ht,p 0 
+
+> f
+
+= ⇀
+
+ht0,p 0 
+
+> f
+
+.
+
+2) Port-Level State Update (Algo. 1 Lines 6-11): After the path-level state update phase, we proceed to the port-level state update phase. This phase updates the hidden states of the QUEUE and L INK nodes, preparing them for the next iteration 
+
+t + 1 to refine the NC reasoning process. The purpose of updating the Q UEUE NODE state ⇀
+
+ht,p qMi
+
+is to create an aggregated representation of both the arrival curve and service curve for CBS Class Mi at port p. This aggregated representation is then used to ultimately predict the delay bound DpMi of aggregate flows of CBS Class Mi at port p,as according to Eq. (6), which is jointly determined by the aggregate arrival curve αpMi (t) and the service curve βpMi (t).We first construct a vector representation ⇀
+
+βt,p Mi of the service curve βpMi (t) for the current iteration t. As shown in Eq. (11), the service curve depends on both queue-specific parameters (e.g., idle slope) and port-shared parameters (e.g., link capac-ity and TT traffic interference). As presented in Sec. IV-B, these two types of information are encoded in the Q UEUE 
+
+NODE state ⇀
+
+ht,p qMi
+
+and the L INK NODE state ⇀
+
+ht,p l , respectively. Therefore, we fuse them through an MLP to obtain the service curve representation: 
+
+> ⇀
+
+βt,p Mi = MLP S
+
+h ⇀
+
+ht,p qMi ∥ ⇀
+
+ht,p l
+
+i 
+
+. (16) 
+
+Next, we compute an intermediate hidden state ⇀
+
+αt,p Mi to represent the aggregate arrival curve αpMi (t) as given by Eq. (4). This is achieved by summing the hidden states of   
+
+> 3Following the TFA methodology [6], [29], the delay bound derived for aggregate flows of the same class Miapplies to every flow within that aggregate, as shown by Eq. (6).
+
+Algorithm 1: DeepNC Pseudocode 
+
+Input: Flow set F, Queue set Q, Link set L, initial embeddings ⇀
+
+ht0,p 0 
+
+> f
+
+, ⇀
+
+ht0,p qMi , ⇀
+
+ht0,p l , number of iterations 
+
+T
+
+Output: Predicted end-to-end worst-case delays ˆyDE2E ,f  
+
+> 1
+
+for t ← t0 to tT −1 do  
+
+> 2
+
+foreach f ∈ F do 
+
+// Path-Level State Update (Sec. IV-C1) 
+
+> 3
+> ⇀
+
+ht,p 0 
+
+> f
+
+← ⇀
+
+ht0,p 0 
+
+> f
+
+; 
+
+> 4
+
+foreach p ∈ P f do 
+
+> 5
+> ⇀
+
+ht,p +1  
+
+> f
+
+← GRU 
+
+⇀
+
+ht,p f , ⇀
+
+ht,p qMi
+
+
+
+; // Eq. (15)  
+
+> 6
+
+foreach p ∈ L do 
+
+// Port-Level State Update (Sec. IV-C2)  
+
+> 7
+
+foreach qMi ∈ Q p do 
+
+> 8
+> ⇀
+
+βt,p Mi ← MLP S
+
+h ⇀
+
+ht,p qMi ∥ ⇀
+
+ht,p l
+
+i 
+
+; // Eq. (16)  
+
+> 9⇀
+
+αt,p Mi ← P 
+
+> f∈F pMi⇀
+
+ht,p f ; // Eq. (17) 
+
+> 10
+> ⇀
+
+ht+1 ,p qMi ← MLP Q
+
+h ⇀
+
+αt,p Mi ∥ ⇀
+
+βt,p Mi
+
+i 
+
+; // Eq. (18) 
+
+> 11
+> ⇀
+
+ht+1 ,p l ← MLP L
+
+h ⇀
+
+ht,p l ∥ PnCBS 
+
+> j=1
+> ⇀
+
+ht+1 ,p qMj
+
+i 
+
+;
+
+// Eq. (19)  
+
+> 12
+
+foreach f ∈ F do 
+
+// Latency Prediction Layer (Sec. IV-C3)  
+
+> 13
+
+ˆyDE2E ,f ← P 
+
+> p∈P f
+
+MLP Readout 
+
+⇀
+
+htT ,p qMi
+
+
+
+;
+
+// Eqs. (20) , (21) 
+
+all F LOW NODE instances corresponding to CBS Class Mi
+
+passing through port p,
+
+> ⇀
+
+αt,p Mi = X 
+
+> f∈F pMi⇀
+
+ht,p f . (17) 
+
+With both ⇀
+
+αt,p Mi and ⇀
+
+βt,p Mi available, we can formally define the state update for the Q UEUE NODE .
+
+Definition 5: (Q UEUE NODE State Update) The hidden state of a Q UEUE NODE for CBS Class Mi at port p is updated for the next iteration t + 1 . The update is performed by an MLP that takes the concatenation of the aggregate arrival hidden state and the service hidden state from the current iteration t
+
+as its input: 
+
+> ⇀
+
+ht+1 ,p qMi = MLP Q
+
+h ⇀
+
+αt,p Mi ∥ ⇀
+
+βt,p Mi
+
+i 
+
+. (18) 
+
+It is worth noting the evolution of this state. At the initial iteration ( t0), the hidden state ⇀
+
+ht0,p qMi
+
+primarily encodes its own service parameters (e.g., idle slope idSl pMi and priority index). However, in subsequent iterations ( t > t 0), the Q UEUE NODE 
+
+state ⇀
+
+ht,p qMi
+
+will have additionally incorporated the delay bound information derived from the interaction between the aggregate arrival curve and service curve. The purpose of updating the L INK NODE state ⇀
+
+ht,p l is to enrich the service hidden state ⇀
+
+βt+1 ,p Mi of the next iteration with information about inter-queue priority contention. This is achieved by updating the LINK NODE state using the aggregated information from all Q UEUE NODES 
+
+> ⇀
+
+ht+1 ,p qMj
+
+(j ∈
+
+[1 , n CBS ]) at the same port. Consequently, when the L INK state GRU 
+
++     
+
+> MLP MLP MLP
+> Flow Node
+> Update Queue Node Update
+> Concat Concat Concat
+> Port -Level
+
++,               
+
+> ht p
+> l
+> ,
+> ht p
+> l
+> 1,
+> htp
+> l
+> +
+> ,
+> hMi
+> t p q
+> 1,
+> hMi
+> tp
+> q
+> +
+> ,
+> i
+> t p
+> M
+> 
+> ,
+> i
+> t p
+> M
+> 
+> ,
+> ht p f
+> ,1
+> ht p
+> f
+> +
+> 
+> Link Node Update
+> SW f'
+> f'
+> ,
+> ht p f
+> iMiM
+> SW
+> SW ,
+> ht p f
+> ,1
+> ht p
+> f
+> +
+> ,
+> hMi
+> t p q
+> 1
+> 1,
+> hMi
+> tp
+> q−
+> +
+> GRU
+> ...
+> MLP MLP MLP Concat Concat Concat
+
++, 1  
+
+> hMi
+> t p
+> q
+> +
+> ,1
+> ht p
+> l
+> +
+> 
+
++                                    
+
+> ...
+> ... ,1
+> i
+> t p
+> M
+> 
+> +
+> ,1
+> i
+> t p
+> M
+> 
+> +1, 1
+> htp
+> l
+> ++
+> 
+> ...
+> SW
+> ...
+> Service Curve
+> Related
+> SW '
+> ,
+> ht p f
+> 
+> Arrival Curve
+> Related
+> Message Passing
+> ...
+> ... 00001, ,,
+> hhhtpt p tp
+> fff
+> +==
+>  1, 1,
+> hh
+> Mi
+> tpqtpl
+> ++
+> 
+> 1, 1
+> 1, 1
+> h
+> h
+> Mi
+> tp
+> q
+> tp
+> l
+> ++
+> ++
+> 
+> 1, 1
+> hMi
+> tp
+> q
+> ++
+> 
+> ...
+> iteration t to i teration t+1(t=t 0,...,t T-1)output port
+> p1
+> output port
+> p+,1
+> ht p
+> l
+> +
+> ,
+> ht p
+> l
+> 
+
+Fig. 3: Message Passing of DeepNC. 
+
+> ⇀
+
+ht+1 ,p l is used in the next iteration to synthesize the service hidden state via Eq. (16), the new ⇀
+
+βt+1 ,p Mi inherently reflects the contention from all competing CBS classes. 
+
+Definition 6: (L INK NODE State Update) The hidden state of a L INK NODE at port p is updated for the next iteration 
+
+t + 1 . The update is performed by an MLP that takes the concatenation of its own state from the current iteration, ⇀
+
+ht,p l ,and the sum of the newly updated states of all Q UEUE NODES 
+
+at that port, ⇀
+
+ht+1 ,p qMj
+
+, j ∈ [1 , n CBS ], as its input: 
+
+> ⇀
+
+ht+1 ,p l = MLP L
+
+⇀
+
+ht,p l ∥ X
+
+> j∈[1 ,n CBS ]
+> ⇀
+
+ht+1 ,p qMj
+
+ . (19) 
+
+It is worth noting that at the initial iteration ( t0), the state ⇀
+
+ht0,p l of each L INK NODE is constructed purely from its own initial features, and thus lacks any information regarding inter-queue priority contention. The message passing described above is shown in Fig. 3. 
+
+3) Latency Prediction Layer (Algo. 1 Lines 12-13): Af-ter T iterations of message passing, the final hidden state ⇀
+
+htT ,p qMi
+
+of the Q UEUE NODE has comprehensively encoded the information of both the aggregate arrival curve αpMi (t) and the service curve βpMi (t). At this point, we can leverage this rich representation to predict the per-server delay bound. We employ a readout MLP layer to emulate the computation from the curves ( αpMi (t), βpMi (t)) to the delay bound (Eq. (6)). The input to this MLP is the final Q UEUE NODE state: 
+
+ˆyDpMi
+
+= MLP Readout 
+
+⇀
+
+htT ,p qMi
+
+
+
+= ˆ yDpf . (20) 
+
+As according to Eq. (6), the delay bound of an aggregate of class Mi flows applies to any individual flow, so we have 
+
+DpMi = Dpf , and thus also the prediction ˆyDpMi
+
+= ˆ yDpf . Finally, according to Eq. (9), the end-to-end predicted delay bound for flow f is the sum of the predicted per-hop bounds along its path: 
+
+ˆyDE2E ,f = X
+
+> p∈P f
+
+ˆyDpf . (21) 
+
+Based on the above design, DeepNC provides end-to-end WCD predictions for all ET flows under a given configuration with extremely low inference latency, making it an ideal pre-screening tool for large-scale configuration verification. Algo. 2 presents a two-stage DeepNC-based pre-verification process with integrated configuration tuning. In the first stage (Lines 1-9), DeepNC rapidly evaluates all candidates. Config-
+
+Algorithm 2: Two-Stage Configuration Verification Based on DeepNC 
+
+Input: Ctotal (candidate configuration set), Tdead,f (per-flow deadlines), K (number of top candidates to retain) 
+
+Output: C∗ (optimal configuration verified by NC formal analysis)  
+
+> 1
+
+Cf easible ← ∅ ; 
+
+> 2
+
+foreach C ∈ C total do  
+
+> 3
+
+{ˆyDE2E ,f } ← DeepNC (C); // DeepNC (fast)  
+
+> 4
+
+if max( {ˆyDE2E ,f − T dead,f }) ≤ 0 then  
+
+> 5
+
+Cf easible ← C f easible ∪ { C}; 
+
+> 6
+
+else  
+
+> 7
+
+C′ ← TuningOpt (C, {ˆyDE2E ,f }); 
+
+> 8
+
+Ctotal ← C total ∪ { C′}; 
+
+> 9
+
+Ctopk ← TopK (Cf easible , K ); 
+
+> 10
+
+C∗ ← arg opt C∈C topk metric (NC Tool (C)) ;
+
+// Formal NC (safe but slow)  
+
+> 11
+
+return C∗;
+
+urations meeting deadlines are added directly to the feasible set Cf easible , while the others are passed to a designer-defined tuning strategy TuningOpt (·). Unlike binary schedulability classification [11], [12], designers can customize the tuning strategy (e.g., adjusting bandwidth allocation or routing paths) based on the deviation between the predicted WCDs and their deadlines. This may convert infeasible configurations into potentially feasible ones while enriching the pool of high-quality candidates. Each tuned configuration C′ is then reinserted into the candidate set Ctotal for subsequent eval-uation. After traversal, the top K configurations in Cf easible 
+
+are selected according to the designer-specified performance metric to form Ctopk . In the second stage (Lines 10-11), only these K candidates are evaluated by the formal NC analysis tool (safe but slow), and the configuration that optimizes the designer-specified performance metric is selected as the final configuration C∗.V. E XPERIMENTAL RESULTS 
+
+This section systematically evaluates DeepNC across es-timation fidelity, generalization to unseen networks, pre-verification efficiency, and the contribution of individual de-sign components. Experiments run on a laptop (Intel Core i7-10510U) and a workstation (NVIDIA RTX A6000). 
+
+A. Experiment Setup 
+
+To evaluate scalability across different network structures, we design four synthetic topologies: mesh , ring , and star2 
+
+(shown in Fig. 4), along with an extended variant of star2 ,denoted as star4 , obtained by adding two more ESs per branch of star2 . Combined with the realistic industrial-scale test case, Orion CEV [31] (Fig. 5), these five scenarios are used for both training and testing. For the synthetic topol-ogy dataset, we also generate network instances of varying sizes (ranging from 10 to 100 devices) for generalization experiments. Furthermore, to test generalization on unseen industrial networks, we additionally introduce three topologies from automotive Original Equipment Manufacturers: Renault (rn ), Volvo ( vlv ), and FACE ( face ) [32]–[34], which are used (a) mesh  (b) ring  (c) star2 Fig. 4: Synthetic Topologies. SBAND1  SW12               
+
+> SBAND2
+> MIMU1
+> MIMU2
+> MIMU3
+> StarTr1
+> StarTr2
+> SW13
+> SW21
+> SW22
+> SW14
+> SW11
+> SW7
+> SW32
+> SW31 SW8
+> SW6
+> SW41 SW51
+> SW42 SW52
+> DU2 DU3 DU1 CM1CB SMACA CM1CA SM1CB
+> FCM1 LCM1 CMRIU1 RCM1
+> FCM2 LCM2 CMRIU2 RCM2
+> GPS2 GPS1
+> BFCU CM2CB SM2CA CM2CA SM2CB
+> SMRIU1
+> SMRIU2
+
+Fig. 5: Realistic Test Case Orion CEV Topology. exclusively in the screening threshold analysis (Sec. V-D). For traffic distribution, we generate both TT and ET flows randomly, following the IEEE 802.3 standard. For each flow, the source and destination ESs are selected uniformly at random from all terminals. Frame lengths range from 64 to 1518 bytes. Periods for TT flow are randomly chosen from 
+
+{5, 10 , 15 , 20 , 30 }ms and from {5, 10 }ms for ET flows. ET flow priorities are randomly assigned from {1, 2, 3}. In the default setting, each topology contains 24 to 48 flows. For baseline comparison, we benchmark DeepNC against two SOTA ML baselines, both adapted specifically for our delay prediction task. For the Mai baseline [12], originally for binary schedulability classification, we adapt its readout layer to output continuous delay bounds. For the RouteNet [26] baseline, based on the well-known RouteNet-Fermi architec-ture initially designed to predict simulation-based network per-formance (e.g., via OMNeT++), we repurpose it by retraining the model using the WCDs calculated by NC as ground-truth labels. To accommodate the hybrid TSN/TAS+CBS network, we also feed the TAS-related and CBS-related parameters extracted in Sec. IV-B as input features to both baselines. To ensure a fair comparison, all baselines adopt the same training configuration as DeepNC. We implement DeepNC with TensorFlow, using T=8 message-passing iterations and a hidden dimension of 32. All MLPs have 2 layers with the same hidden size. We use ReLU [35] activation, MAE loss, and Adam [36] optimizer with learning rate 0.001. All models are trained for 100 epochs (300 steps each). 
+
+B. Estimation Fidelity Comparison 
+
+We compare DeepNC against two baselines across four topologies. For each topology, we use 600 training, 200 vali-dation, and 200 test samples. Performance is measured using Mean Absolute Percentage Error (MAPE) and the coefficient of determination ( R2). As shown in Table I, DeepNC significantly outperforms both baselines on all test sets. Specifically, DeepNC achieves an average MAPE of 8.36%, reducing errors by 61.96% and 68.68% compared to Mai and RouteNet, respectively. Further-TABLE I: Comparison of Regression Accuracy                                 
+
+> Dataset Mai RouteNet DeepNC MAPE R2MAPE R2MAPE R2
+> mesh 38.53% 0.5656 26.52% 0.6060 5.62% 0.9768 ring 25.88% 0.7214 37.12% 0.4183 6.90% 0.9692 star2 18.20% 0.7021 21.99% 0.5969 6.47% 0.9524 orion 19.16% 0.7228 25.75% 0.7421 14.44% 0.9202
+
+(a) mesh  (b) ring  (c) star2 
+
+Fig. 6: Learning-based vs. formal NC-computed WCDs. more, DeepNC maintains a consistently high average R2 of 0.9547, whereas the baselines exhibit significant instability. To validate the applicability of DeepNC in industrial envi-ronments, we also analyzed its performance on the Orion CEV network. This real-world test case features highly irregular connectivity and heavier traffic flow. As shown in Table I, despite the challenges posed by limited training data for this specific topology, DeepNC still maintained a high R 2 value of 0.9202. This result is significant for industrial deployments: it demonstrates that because DeepNC learns the underlying analytical logic of NC rather than memorizing the topology, it maintains high prediction fidelity even in complex real-world scenarios with scarce training data. Fig. 6 shows scatter plots for three topologies, comparing WCDs predictions of each learning-based model with the NC-computed ground truth 4. The predictions of DeepNC lie tightly along the diagonal ( x = y), indicating high fidelity to the NC bounds. In contrast, Mai and RouteNet show larger deviations. 
+
+C. Generalization Performance Evaluation 
+
+We evaluate the adaptability and stability of DeepNC on unseen networks across five dimensions: network scale, traffic load, traffic parameters, GCL configurations, and topological structure. The results are summarized in Fig. 7. For network scale, we train all models (DeepNC, Mai, and RouteNet) exclusively on the 13-device star2 topology as shown in Fig. 4(c), and test them on a set spanning a wide range of network sizes (10 to 100 devices). As shown in Fig. 7(a), DeepNC maintains a stable MAPE below 14% across all scales. While its error shows a slight upward trend, the overall predictive performance remains robust. In contrast, the error for Mai grows linearly with network size, and the error for RouteNet is highly unstable. For traffic load, we train all models on the star2 topology with 24–48 flows and evaluate them on configurations with a much higher flow count (50 to 110 flows). As shown in 
+
+> 4DeepNC serves as a surrogate within the formal NC verification workflow rather than replacing it. It is meaningful as a surrogate only if it approximates the analytical results of NC, regardless of the pessimism of those results.
+
+(e)  Topological Structure (c)  Traffic Period  (d)  GCL  
+
+> period groups(ms)
+> # of devices # of streams
+> # of TT flows
+
+(a)  Network Scale 
+
+> Topolog y
+
+(b)  Traffic Load Fig. 7: Comparison of Scalability and Robustness. Fig. 7(b), DeepNC consistently maintains an MAPE below 12% across all tested flow densities. In comparison, both base-lines lag significantly behind DeepNC. This again highlights the limitation of the baseline models: they lack a structural awareness of the NC process, reflecting overfit to the specific network characteristics of the training data. For traffic parameters, we train all models on star2 with TT periods from {5, 10 , 15 , 20 , 30 }ms and ET periods from 
+
+{5, 10 }ms . Test sets use periods as multiples of 4, 4.5, 5.5, and 6 ms . As shown in Fig. 7(c), DeepNC achieves MAPE between 8.29% and 10.69% (avg. 9.2%), while Mai (≈ 20.3%) and RouteNet ( ≈ 46.5%) lag far behind. This indicates that DeepNC learns the underlying NC logic rather than memorizing specific period values. For GCL configurations, we train all models on star2 with 15–30 TT flows and test them on five groups: 30–39, 40–49, 50–59, 60–69, and 70–79 TT flows. As shown in Fig. 7(d), DeepNC achieves MAPE between 5.67% and 9.37% (avg. 7.35%), with only a slight degradation as TT flows increase, while Mai (≈ 36.4%) and RouteNet (≈ 56.3%) perform significantly worse. This confirms that DeepNC provides ac-curate WCDs predictions for ET flows under unseen GCL configurations in TSN/TAS+CBS networks. For topological structures, we train all models on a single topology (e.g., mesh ) as described in Sec. V-B, and then test them on a mixed set comprising the remaining two topologies (e.g., ring and star2 when training on mesh ), with balanced samples from each topology. As shown in Fig. 7(e), DeepNC demonstrates stable cross-topology performance, consistently achieving R2 scores above 0.96 regardless of the training topology. In contrast, the Mai baseline shows only moderate adaptability, while RouteNet performs poorly. This is because DeepNC internalizes the structural dependencies of NC rather than overfitting to specific topologies. (a)  Runtime Comparison  (b) Screening Threshold 
+
+Fig. 8: Pre-verification performance. mesh ring star2 star4 
+
+> 0
+> 20
+> 40
+> MAPE (%)  DeepNC-Pdelay
+> DeepNC-Qserve
+> DeepNC-Lserve
+> DeepNC-GCL
+> DeepNC-Lupdate
+> DeepNC
+
+Fig. 9: Ablation Results for Different DeepNC Variants. 
+
+D. Pre-verification Performance of DeepNC 
+
+This subsection evaluates DeepNC as a verification accel-erator for configuration-space exploration in terms of runtime and screening capability. We compare against the TFA-based NC tool [6] (min-plus operators in RTC toolbox [37]) on 3,582 configurations with varying candidate set sizes. As shown in Fig. 8(a), DeepNC is two orders of magnitude faster than NC formal analysis, with near-constant runtime via parallel batch inference versus linear growth for NC. The gap widens as candidate sets grow, confirming DeepNC as an ultra-fast pre-verification surrogate that reserves formal verification for a small promising subset. We further evaluate fidelity of DeepNC in configuration ranking relative to formal NC on four unseen real-world topologies ( rn , vlv , face and orion ), with 400 random configurations per topology (Sec. V-A). The maximum predicted rank among the top-10 true optimal configurations, as determined by exact formal NC, defines the minimum screening threshold K to guarantee no miss. Smaller 
+
+K means fewer candidates for expensive formal analysis. As shown in Fig. 8(b), DeepNC achieves the smallest K across all topologies, reducing the number of formal verification calls by 93.25% on average, while also outperforming baselines with a reduction of 73.3% relative to them. Overall, DeepNC delivers high-speed inference and reliable ranking, reducing verification overhead in configuration-space exploration. 
+
+E. Ablation Experiments 
+
+To analyze the contribution of each design component in DeepNC, we conducted an ablation study. We compared the full model against five variants, each with a particular module removed or modified. DeepNC-GCL removes GCL features entirely. DeepNC-Pdelay alters the delay readout mechanism by directly predicting end-to-end worst-case delay from F LOW 
+
+NODE state. DeepNC-Lupdate disables the iterative update for L INK NODE states. DeepNC-Lserve excludes the L INK 
+
+NODE state from the service hidden state synthesis. DeepNC-Qserve , in contrast, excludes the Q UEUE NODE state from the service hidden state synthesis. As shown in Fig. 9, all ablated variants perform worse than the complete DeepNC model, confirming that each component is critical for overall performance. DeepNC-Pdelay suffers the most severe degra-dation (MAPE > 40%), as it discards intermediate hop-by-hop NC emulation information, leading to prediction collapse. VI. C ONCLUSION 
+
+We presented DeepNC, a novel pre-verification surrogate module for TSN configuration-space exploration. Rather than replacing formal verification, DeepNC acts as a high-speed pre-verification filter that rapidly eliminates unpromising con-figurations while reserving rigorous NC analysis for a small set of promising candidates. By structurally integrating the analytical principles of TFA-based Network Calculus into GNN, DeepNC enables high-fidelity worst-case delay regres-sion for hybrid TSN/TAS+CBS architectures. Although this work is currently limited to TFA-based NC analysis for hybrid TSN/TAS+CBS networks, the proposed structural integration paradigm can be easily extended to other TFA-based TSN architectures through corresponding graph abstractions and model retraining. Additionally, extending this paradigm to other NC analyses, such as SFA and PMOO, constitutes an important direction for future work. REFERENCES [1] IEEE, “802.1Q—IEEE Standard for Local and Metropolitan Area Net-works—Bridges and Bridged Networks,” 2018. [2] IEEE, “802.1Qbv—Enhancements for Scheduled Traffic,” 2016. [3] IEEE, “802.1Qav—Forwarding and Queuing Enhancements for Time-Sensitive Streams,” 2009. [4] IEEE, “802.1Qch—Cyclic Queuing and Forwarding,” 2017. [5] J. Lv, Y. Zhao, X. Wu, Y. Li, and Q. Wang, “Formal analysis of TSN scheduler for real-time communications,” IEEE Transactions on Reliability , 2020. [6] L. Zhao, P. Pop, Z. Zheng, H. Daigmorte, and M. Boyer, “Latency Anal-ysis of Multiple Classes of AVB Traffic in TSN With Standard Credit Behavior Using Network Calculus,” IEEE Transactions on Industrial Electronics , 2021. [7] E. Mohammadpour, E. Stai, and J.-Y. Le Boudec, “Improved network-calculus nodal delay-bounds in time-sensitive networks,” IEEE/ACM Transactions on Networking , 2023. [8] D. Bujosa, J. Proenza, A. V. Papadopoulos, T. Nolte, and M. Ashjaei, “An improved worst-case response time analysis for avb traffic in time-sensitive networks,” in 2024 IEEE Real-Time Systems Symposium (RTSS) . IEEE, 2024. [9] N. Reusch, M. Barzegaran, L. Zhao, S. S. Craciunas, and P. Pop, “Configuration optimization for heterogeneous time-sensitive networks,” 
+
+Real-Time Systems , 2023. [10] L. Behera and G. V. Singh, “A safety-aware deep learning framework for scalable schedulability analysis of variable-length real-time task sets,” 
+
+Real-Time Systems , 2026. [11] T. L. Mai, N. Navet, and J. Migge, “On the use of supervised machine learning for assessing schedulability: application to ethernet tsn,” in 
+
+Proc. of the 27th International Conference on Real-Time Networks and Systems , 2019. [12] T. L. Mai and N. Navet, “Deep learning to predict the feasibility of priority-based Ethernet network configurations,” ACM Transactions on Cyber-Physical Systems , 2021. [13] F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, and G. Monfar-dini, “The graph neural network model,” IEEE transactions on neural networks , 2008. [14] M. Boyer and R. Henia, “Embedded reconfiguration of tsn (industrial challenge description),” in 37th Euromicro Conference on Real-Time Systems (ECRTS 2025) . Schloss Dagstuhl–Leibniz-Zentrum f¨ ur Infor-matik, 2025. [15] L. Zhao, Y. Yan, and X. Zhou, “Minimum Bandwidth Reservation for CBS in TSN With Real-Time QoS Guarantees,” IEEE Transactions on Industrial Informatics , 2024. [16] A. Xie, F. He, and L. Zhao, “Optimizing Quantum Assignment for DRR in TSN: A Network Calculus-Based Method,” in Proc. of IEEE Real-Time Systems Symposium , 2024. [17] A. Finzi, S. Craciunas, and M. Boyer, “Integrating sporadic events in time-triggered systems via affine envelope approximations,” in 2024 IEEE 30th Real-Time and Embedded Technology and Applications Symposium (RTAS) . IEEE, 2024. [18] D. Bujosa, S. S. Craciunas, and S. Mubeen, “Efficient avb-aware scheduling for critical traffic in time-sensitive networks,” in 2026 IEEE 32nd Real-Time and Embedded Technology and Applications Symposium (RTAS) . IEEE, 2026. [19] M. Ashjaei, G. Patti, M. Behnam, T. Nolte, G. Alderisi, and L. Lo Bello, “Schedulability analysis of Ethernet Audio Video Bridging networks with scheduled traffic support,” Real-Time Systems , 2017. [20] M. Barzegaran, N. Reusch, L. Zhao, S. S. Craciunas, and P. Pop, “Real-time traffic guarantees in heterogeneous time-sensitive networks,” in Proceedings of the 30th International Conference on Real-Time Networks and Systems , 2022. [21] V. Gavrilut ¸ and P. Pop, “Traffic-type assignment for tsn-based mixed-criticality cyber-physical systems,” ACM Transactions on Cyber-Physical Systems , 2020. [22] A. Berisa, L. Zhao, S. S. Craciunas, M. Ashjaei, S. Mubeen, M. Danesh-talab, and M. Sj¨ odin, “Avb-aware routing and scheduling for critical traffic in time-sensitive networks with preemption,” in Proceedings of the 30th International Conference on Real-Time Networks and Systems ,2022. [23] L. Zhao, X. Zhang, F. He, and Z. Li, “Incremental Performance Analysis for Accelerating Verification of TSN Network Reconfigurations,” IEEE Transactions on Network and Service Management , 2024. [24] K. Rusek, J. Su´ arez-Varela, Almasan et al. , “RouteNet: Leveraging Graph Neural Networks for Network Modeling and Optimization in SDN,” IEEE Journal on Selected Areas in Communications , 2020. [25] M. Ferriol-Galm´ es, K. Rusek, J. Su´ arez-Varela et al. , “Routenet-erlang: A graph neural network for network performance evaluation,” in Proc. of IEEE Conference on Computer Communications , 2022. [26] M. Ferriol Galm´ es, J. Paillisse, J. Su´ arez-Varela et al. , “RouteNet-Fermi: Network Modeling with Graph Neural Networks,” IEEE/ACM Transactions on Networking , 2023. [27] J. Yang, W. Wang, H. Yu, and S. Zou, “CEA-GNN: Performance Pre-diction of Hybrid Network Traffic with Deterministic and Best Effort,” in Proc. of International Conference on Computer and Communication Systems , 2024. [28] J.-Y. Le Boudec and P. Thiran, Network calculus: A theory of determin-istic queuing systems for the internet . Springer, 2002. [29] A. Bouillard, M. Boyer, and E. Le Corronc, Deterministic Network Calculus: From Theory to Practical Implementation . John Wiley & Sons, 2018. [30] S. K. Pal, S. Mitra et al. , “Multilayer perceptron, fuzzy sets, and classification,” IEEE Transactions on neural networks , 1992. [31] D. Tamas-Selicean, “Design of mixed-criticality applications on dis-tributed real-time systems,” 2015. [32] N. Navet, J. Villanueva, and J. Migge, “Automating qos protocols selection and configuration for automotive ethernet networks,” in SAE World Congress Experience , 2018. [33] N. Navet, J. Villanueva, and J. Migge, “Early-stage topological and technological choices for tsn-based communication architectures,” in 
+
+2019 IEEE Standards Association (IEEE-SA) , 2019. [34] N. Navet, H. H. Bengtsson, and J. Migge, “Early-stage bottleneck identification and removal in tsn networks,” in Automotive Ethernet Congress 2020 , 2020. [35] X. Glorot, A. Bordes, and Y. Bengio, “Deep sparse rectifier neural networks,” in Proc. of the Fourteenth International Conference on Artificial Intelligence and Statistics , 2011. [36] D. P. Kingma and J. Ba, “Adam: A method for stochastic optimization,” 
+
+arXiv preprint arXiv:1412.6980 , 2014. [37] E. Wandeler and L. Thiele, “Real-time calculus (rtc) toolbox,” 2006. [Online]. Available: http://www.mpa.ethz.ch/Rtctoolbox

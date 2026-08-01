@@ -1,0 +1,702 @@
+Title: LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference
+
+URL Source: https://arxiv.org/pdf/2607.27606v1
+
+Published Time: Fri, 31 Jul 2026 00:28:48 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 
+
+KAI FAN, National University of Defense Technology, China 
+
+SHIWEN YU, National University of Defense Technology, China 
+
+GUANGSHENG FAN, National University of Defense Technology, China 
+
+HAOANG CHI, National University of Defense Technology, China 
+
+WANWEI LIU, National University of Defense Technology, China 
+
+JI WANG, National University of Defense Technology, China Loop invariant synthesis is a fundamental problem in program verification, yet the inherent undecidability makes it highly challenging. Recent studies have increasingly employed various machine learning techniques to generate loop invariants. However, most of these methods adopt a monolithic approach. Due to the inability to strictly constrain the learning process, learning-based methods struggle to simultaneously consider all necessary conditions and generate complete invariants when tackling complex problems. In fact, a loop invariant is often an ordered sequence of lemmas, rather than a single invariant formula. This motivates us to propose Incremental ICE , a novel learning framework for incremental synthesis. Our framework integrates the incremental philosophy of IC3 into the general invariant learning framework ICE. By defining a lemma-specific learning objective and introducing a counterexample filtering mechanism, we can achieve sound incremental learning. Under this framework, we instantiate a loop invariant synthesis tool, LimICE, which leverages LLMs to generate the ordered sequence of lemmas and incorporates ICE-DT as a fallback mechanism to complement the lemma sequence. Experiments on 367 linear benchmarks and 50 nonlinear benchmarks demonstrate the effectiveness of the proposed approach. LimICE solves 349 (out of 367) linear problems on an average of 15.2 seconds and 47 (out of 50) nonlinear problems on an average of 8.8 seconds. Compared to the state-of-the-art LLM-based baseline, our approach solves 12-24 % more instances while running 36-63 % faster across linear and nonlinear benchmarks. LimICE also consistently outperforms strong non-LLM baselines and solves at least 86 and 27 additional instances on the linear and nonlinear benchmarks, respectively. In addition, we conduct experiments on different LLM backends, and LimICE can still solve 326 linear problems and 32 nonlinear problems on a 7B model, demonstrating the stability of our method. CCS Concepts: • Software and its engineering → Formal software verification .Additional Key Words and Phrases: Program verification, loop invariant, incremental approach, LLM, ICE framework 
+
+1 Introduction 
+
+Program verification [ 14 , 19 ] is an important technique for ensuring the correctness of software behavior, especially in security-critical areas. A key objective is to prove that a program satisfies its specification for all possible executions, rather than for a limited set of test inputs. During this process, loop invariants play a central role. In a nutshell, a loop invariant is a specification that holds before and after each iteration of the loop. In deductive verification, synthesizing a proper invariant implies that the problem is solved. However, synthesizing loop invariants is intractable, and it cannot be automatically done in general. A kind of classic method adopts the “guess-and-check” approach [ 33 , 34 , 42 , 43 ]. These methods iteratively generate candidate loop invariants and check the correctness using an SMT solver. The ICE framework [ 2 , 13 , 16 , 17 ] is a representative of this approach. It treats the source code as a 
+
+Authors’ Contact Information: Kai Fan, fankai20@nudt.edu.cn, National University of Defense Technology, China; ShiWen Yu, yushiwen14@nudt.edu.cn, National University of Defense Technology, China; Guangsheng Fan, guangshengfan@nudt. edu.cn, National University of Defense Technology, China; HaoAng Chi, haoangchi618@gmail.com, National University of Defense Technology, China; WanWei Liu, wwliu@nudt.edu.cn, National University of Defense Technology, China; Ji Wang, wj@nudt.edu.cn, National University of Defense Technology, China. J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. arXiv:2607.27606v1 [cs.SE] 30 Jul 2026 111:2 Trovato et al. 
+
+black box and considers only the counterexamples returned by the SMT solver at each iteration, which partially characterize the correct loop invariant. However, when solving complex problems, excessive accumulation of counterexamples can over-constrain the synthesis process, leading to degraded scalability, loss of generality, and even synthesis failure. Recently, synthesizing loop invariants using LLMs [ 5, 22 , 23 , 28 , 29 , 39 , 40 ] has received wide-spread attention. However, LLMs often struggle to generate completely correct loop invariants directly. Therefore, existing methods intend to guide LLMs in repairing loop invariants or to obtain valid invariants by filtering or combining the outputs of LLMs. An outstanding implementation is the generate-combine-check framework implemented by Cao et al [ 5], which divides the loop invariant synthesis task into sub-tasks of literal generation and logical combination. This framework allows LLM to focus on generating potentially useful literals and uses a search method to solve the logical connection problem. The drawback lies in that it cannot provide sufficient guidance for LLMs, which causes the literal generation process to be decoupled from the entire loop invariant synthesis. Moreover, as the number of literals grows, it becomes increasingly difficult to combine a complete loop invariant in a single attempt. 
+
+Our work. In this paper, we propose an incremental learning framework to address the afore-mentioned challenges. A complete loop invariant is typically not a single formula, but an ordered sequence of lemmas, i.e., 𝜓 1 ( ¯𝑥 ), . . . ,𝜓 𝑛 ( ¯𝑥 ). These lemmas can be categorized into bounding lemmas, which constrain variable ranges, and essential lemmas, which capture semantic information [ 15 ]. Within the sequence, lemmas are often interdependent: partial essential lemmas rely on bound-ing lemmas to maintain their inductiveness—a relationship defined in IC3 [ 3 , 4, 36 ] as relative inductiveness. Deriving the lemma sequence incrementally enhances both the convergence of the synthesis process and the reusability of the results. Even if we do not obtain sufficient lemmas to prove the postcondition, the acquired lemmas can still serve as specifications for the loop header. To enable learning-based incremental synthesis, we design a lemma-specific learning objective and a counterexample filtering mechanism, which extend the general invariant learning frame-work ICE to Incremental ICE. When a new lemma is derived, it is used to filter relevant inductive counterexamples and negative counterexamples, thereby guiding the learning process to follow the lemma sequence while preventing excessive expansion of the counterexample set. Under the Incremental ICE framework, we instantiate an efficient invariant synthesis tool called LimICE, which leverages LLMs to generate lemmas and integrates ICE-DT [ 17 ] as a fallback mechanism. For the application of LLMs, we adopt the generate-combine-check paradigm [ 5 ]. Specifically, the LLM first generates atomic literals, which are subsequently combined into candidate lemmas. Based on the proposed lemma-specific learning objective, we design a lemma search algorithm operating in the CNF hypothesis space, which enables efficient and non-redundant exploration. Due to the ability of the incremental approach to progressively narrow the state space, our search algorithm exhibits robust performance on complex problems, especially on nonlinear problems. Furthermore, the lemma sequence can indicate the proof progress, thus providing more guidance for LLMs, which reconnects the literal generation process with the entire invariant synthesis process. Additionally, benefiting from the modular nature of the incremental approach, when LLM-based synthesis fails, we can call ICE-DT to synthesize the missing lemma from the retained counterexamples. This dual strategy enables our approach to combine the generalized code understanding capability of LLMs with the precise synthesis capability of ICE-DT. 
+
+Evaluation. To thoroughly evaluate LimICE, we have conducted experiments on 367 linear benchmarks and 50 nonlinear benchmarks. The linear benchmarks consist of 313 instances from LaM4Inv [ 39 ] and 54 new instances from the CHC-Comp [ 31 ]. The nonlinear benchmarks are from Clause2Inv [ 5 ]. We compare the performance with eight state-of-the-art (SOTA) methods, including LoopInvGen [ 27 ], ICE-DT [ 17 ], ICE-DT-Interval [ 41 ], Code2Inv [ 34 ], LIPuS [ 43 ], CLN2INV [ 33 ],  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:3
+
+LaM4Inv [ 39 ], and Clause2Inv [ 5 ]. The experiments show that LimICE outperforms other methods both in linear benchmarks and nonlinear benchmarks. It solves 349 linear benchmarks on an average of 15.2 seconds and 47 nonlinear benchmarks on an average of 8.8 seconds. Meanwhile, we conduct comparative experiments across all LLM-based methods on different LLM backends. The results show that LimICE expresses stable performance across different models. Even on the 7B model of QWen, we can still solve 326 linear benchmarks on an average of 34.4 seconds and 32 nonlinear benchmarks on an average of 45.6 seconds. In addition, we design controlled experiments that constrain LLM outputs to validate the effectiveness of the incremental combination strategy, along with a series of ablation studies to assess the contribution of each component of our approach. The details are shown in Section 5. Our contributions can be summarized as follows. 
+
+• We incorporate the incremental philosophy of IC3 and extend the general invariant learning framework ICE to Incremental ICE, which is a sound framework for incremental invariant learning. This framework is orthogonal to existing methods. 
+
+• We instantiate an efficient invariant synthesis tool called LimICE, which achieves SOTA performance even under a standalone incremental combination strategy. Building upon this, we introduce a warm start mechanism and an ICE-DT fallback mechanism to further improve efficiency and effectiveness. 
+
+• We curate new benchmarks for loop invariant synthesis and conduct experiments on them. The results confirm that LimICE solves the most benchmarks with competitive efficiency compared to the SOTA baselines. The rest of the paper is organized as follows. Section 2 introduces the background and related technologies. Section 3 introduces the Incremental ICE framework. Section 4 describes the proposed approach. Section 5 demonstrates the evaluation results and conducts case studies. Section 6 discusses threats to validity. Section 7 introduces the related work. Section 8 concludes the paper. 
+
+2 Preliminary 2.1 Loop Invariant 
+
+The purpose of synthesizing loop invariants is to make sure that the program’s behavior satisfies the expected property. Let 𝑃 and 𝑄 denote the predicates on the program variables, and let 𝑆 denote this program. Then we can describe the property by a Hoare triple {𝑃 }𝑆 {𝑄 } [19 ]. For a program in the form while 𝐵 do 𝑆 , a proper loop invariant 𝐼 that can valid the Hoare triple must satisfy: 
+
+𝑃 =⇒ 𝐼 (𝑝𝑟𝑒 ) {𝐼 ∧ 𝐵 }𝑆 {𝐼 } ( 𝑖𝑛𝑑𝑢 ) (𝐼 ∧ ¬ 𝐵 ) =⇒ 𝑄 (𝑝𝑜𝑠𝑡 ){𝑃 } while 𝐵 do 𝑆 {𝑄 } . (1) Here, 𝑃 is the precondition , Q is the postcondition , 𝑆 is the loop body, and 𝐵 is the loop condition. The above rule can be divided into three parts: 
+
+• pre. The loop invariant must hold when entering the loop. This means that the invariant is true when entering the loop from any state that satisfies the precondition ;
+
+• indu. If the loop invariant holds before an iteration of the loop, it will still hold after execut-ing the loop body. This means that the invariant remains true throughout the entire loop execution; 
+
+• post. When the loop terminates, the invariant can prove that the postcondition holds. This means that the invariant is strong enough for the proving problem. Based on the above three premises, we can prove that whenever the program 𝑆 starts from a state satisfying 𝑃 , 𝑄 will always hold when the loop ends. In practice, the correctness of these conditions can be examined by SMT solvers.  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:4 Trovato et al.
+
+2.2 ICE Framework 
+
+The ICE framework [ 2, 13 , 16 , 17 , 43 ] is a learning-based approach to finding invariants. This framework consists of two components. One acts as a teacher who is responsible for verifying the correctness of the candidate invariant and generating counterexamples. The other acts as a learner who learns from the counterexamples given by the teacher and proposes a candidate invariant. In each iteration, the teacher checks the correctness of three conditions in equation (1). If an error occurs, the concrete value assignment for the program variables will be returned as new counterexamples. Depending on the positions where errors occur, counterexamples can be categorized into three types. 
+
+• positive counterexample (𝑝 ). This kind of counterexample falsifies 𝑃 =⇒ 𝐼 (𝑝𝑟𝑒 ). The next invariant should be true under the assignment of this counterexample; 
+
+• negative counterexample (𝑛 ). This kind of counterexample falsifies (𝐼 ∧ ¬ 𝐵 ) =⇒ 𝑄 (𝑝𝑜𝑠𝑡 ).The next invariant should be false under the assignment of this counterexample; 
+
+• inductive counterexample (𝑖 1, 𝑖 2). This kind of counterexample falsifies {𝐼 ∧ 𝐵 }𝑆 {𝐼 } ( 𝑖𝑛𝑑𝑢 ).The next invariant should be false under the first assignment of this counterexample or true under both assignments of this counterexample. All counterexamples will be collected and maintained in three sets ( 𝐶𝐸 𝑝 ,𝐶𝐸 𝑛 , and 𝐶𝐸 𝑖 ), and the three sets can partially characterize the property of correct loop invariants. 
+
+2.3 Generate-Combine-Check Framework 
+
+The Generate-Combine-Check framework is motivated by the fact that LLMs are struggling to guess the complete invariant, while generally all the components of a correct loop invariant may appear in multiple guessing processes [ 5 ]. Unlike the guess-and-check approach, this framework first queries LLMs or other loop invariant generation tools to generate atomic literals without logical connections and stores all historically generated literals in a set. Then it uses a symbolic combiner to search for a candidate loop invariant from the combinatorial space of literals, which is then checked by an SMT solver. If the symbolic combiner cannot find new candidates, the framework returns to the generate stage to obtain new literals. 
+
+3 Incremental ICE Framework 
+
+In this section, we introduce the incremental learning framework, Incremental ICE , which is a variant of the standard ICE framework. We first introduce the mathematical preliminaries of the incremental approach, followed by the technical details for implementation. 
+
+3.1 Incremental Synthesis of IC3 
+
+Induction is fundamental to the verification of safety properties [ 14 , 19 , 36 ], comprising initiation and consecution, which correspond to 𝑝𝑟𝑒 and 𝑖𝑛𝑑𝑢 conditions of a loop invariant requirement, re-spectively. Consider the property described in Section 2.1 —— {𝑃 } while 𝐵 do 𝑆 {𝑄 }. To facilitate the following description, we first transform the program into a finite state system ⟨ ¯𝑥, 𝑃 ( ¯𝑥 ),𝑇 ( ¯𝑥, ¯𝑥 ′)⟩ .Here, ¯𝑥 is the vector of program variables and 𝑇 ( ¯𝑥, ¯𝑥 ′) describes the transition relation ¯𝑥 ′ = J𝑆 K( ¯𝑥 ).In this setting, the postcondition 𝑄 to be proved in the original program is reformulated as a property 𝑄 ( ¯𝑥 ) ∨ 𝐵 ( ¯𝑥 ) that must hold throughout the executions of the finite state system. One typical tactic to prove such a property is given below. 
+
+• Initiation: prove that the property holds initially: 𝑃 ( ¯𝑥 ) ⇒ 𝑄 ( ¯𝑥 ) ∨ 𝐵 ( ¯𝑥 );
+
+• Consecution: prove that if the property holds before a transition, so does it after the transition: 
+
+(𝑄 ( ¯𝑥 ) ∨ 𝐵 ( ¯𝑥 )) ∧ 𝑇 ( ¯𝑥, ¯𝑥 ′) ⇒ ( 𝑄 ( ¯𝑥 ′) ∨ 𝐵 ( ¯𝑥 ′)) .
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018.
+
+LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:5 Teacher                         
+
+> Lemma Sequence
+> (a) Original ICE Framework (b) Incremental ICE Framework
+> Candidate Lemma
+> Check
+> Success
+> YN
+> Filter
+> Neg CE Indu CE Pos CE
+> N
+> Add CE
+> YYNN
+> Add Lemma
+> Counterexample Set
+> Synthesize Candidate Invariant
+> Success
+> YNIf complete
+> Teacher
+> Learner
+> If Post SMT Solver
+> If Pre
+> If Indu
+> Add CE Add CE Add CE
+> Synthesize
+> 。。。。。。
+> Check
+> Synthesizer1
+> Synthesizer2
+> Synthesizer
+> Learner
+> SMT Solver
+
+Fig. 1. Comparison between the Incremental ICE framework and the Original ICE framework. 
+
+If we can prove the above two conditions, there is no need to synthesize any extra loop invariant. If this is not the case, usually two strategies can be applied to deal with it [ 24 , 36 ]: (1) conduct a stronger assertion Ψ, and (2) conduct an incremental lemma sequence 𝜓 1, . . . ,𝜓 𝑛 . The former is a monolithic approach; it tries to synthesize a strong loop invariant Ψ in one proposal, which satisfies the following equation. 
+
+
+
+𝑃 ( ¯𝑥 ) ⇒ Ψ( ¯𝑥 )
+
+Ψ( ¯𝑥 ) ∧ 𝑇 ( ¯𝑥, ¯𝑥 ′) ⇒ Ψ( ¯𝑥 ′)
+
+Ψ( ¯𝑥 ) ⇒ 𝑄 ( ¯𝑥 ) ∨ 𝐵 ( ¯𝑥 )
+
+. (2) This approach is often adopted by traditional automated symbolic verification techniques, whereas the incremental approach is more common in manual inference by human experts [ 36 ], since it offers the advantages of reusability, better convergence, and modularity. In detail, it intends to synthesize a lemma sequence 𝜓 1 ( ¯𝑥 ), . . . ,𝜓 𝑛 ( ¯𝑥 ), and its definition is shown below. 
+
+Definition 3.1 (lemma sequence). A lemma sequence is an ordered sequence of assertions, where the assertions satisfy the following requirements: 
+
+• each assertion holds initially, namely, for each 𝑗 , 𝑃 ( ¯𝑥 ) ⇒ 𝜓 𝑗 ( ¯𝑥 );
+
+• each assertion satisfies the relative inductiveness: it obeys consecution when the earlier assertions are valid, that is, for each 𝑗 ,
+
+Û 
+
+> 1≤𝑘 <𝑗
+
+𝜓 𝑘 ( ¯𝑥 ) ∧ 𝜓 𝑗 ( ¯𝑥 ) ∧ 𝑇 ( ¯𝑥, ¯𝑥 ′) ⇒ 𝜓 𝑗 ( ¯𝑥 ′) ;
+
+• all the assertions together can prove the property, namely, 
+
+Û  
+
+> 1≤𝑗 ≤𝑛
+
+𝜓 𝑗 ( ¯𝑥 ) ⇒ 𝑄 ( ¯𝑥 ) ∨ 𝐵 ( ¯𝑥 ).
+
+The final loop invariant is the conjunction of the lemma sequence, i.e., Ó1≤ 𝑗 ≤𝑛 𝜓 𝑗 .
+
+3.2 Incremental ICE 
+
+To implement an incremental approach in the ICE framework, we introduce a lemma-specific learning objective and a counterexample filtering mechanism to the original ICE framework. Figure 1 depicts the difference between these two frameworks. The goal of the learner in incremental ICE is to propose a new candidate lemma instead of a monolithic loop invariant. Thus, the new lemma 𝜓 𝑘 
+
+J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:6 Trovato et al. 
+
+only needs to pass all positive counterexamples, all inductive counterexamples, and exclude any one of the negative counterexamples, as shown below. 
+
+∀𝑝 ∈ 𝐶𝐸 𝑝 , ¯𝑥 = 𝑝 ⇒ 𝜓 𝑘 ( ¯𝑥 )∃𝑛 ∈ 𝐶𝐸 𝑛 , ¯𝑥 = 𝑛 ⇒ ¬ 𝜓 𝑘 ( ¯𝑥 )∀( 𝑖 1, 𝑖 2) ∈ 𝐶𝐸 𝑖 , ( ¯𝑥 1 = 𝑖 1 ∧ ¯𝑥 2 = 𝑖 2) ⇒ ( 𝜓 𝑘 ( ¯𝑥 1) ⇒ 𝜓 𝑘 ( ¯𝑥 2)) 
+
+. (3) The notion of counterexamples used here follows the definition in Section 2.2. Due to its modular nature, the learner can propose different lemmas using different methods. The teacher checks whether the candidate lemma can be added to the lemma sequence according to the conditions in definition 3.1. First, it checks whether the new lemma holds initially, since all lemmas in the lemma sequence should satisfy this condition. Second, it checks whether the new lemma is inductive relative to the current lemma sequence. Each lemma can shrink the state space and relax induction requirements, making it easier for the new candidate lemmas to satisfy relative inductiveness. If either of the two steps above fails, the teacher stops checking and immediately returns new counterexamples to the learner. If the candidate lemma passes the first two checks, it becomes a new lemma and will be added to the lemma sequence. When the accumulated lemmas are sufficient to prove the property, then Ó1≤ 𝑗 ≤𝑘 𝜓 𝑗 will be returned as a loop invariant. Otherwise, the learner will use the new lemma to filter out relevant inductive counterexamples and negative counterexamples. The specific filtering scope is defined below. 
+
+{( 𝑖 1, 𝑖 2) ∈ 𝐶𝐸 𝑖 | ¯𝑥 = 𝑖 1 ⇒ ¬ 𝜓 𝑘 ( ¯𝑥 )} ∪ { 𝑛 ∈ 𝐶𝐸 𝑛 | ¯𝑥 = 𝑛 ⇒ ¬ 𝜓 𝑘 ( ¯𝑥 )} . (4) We filter out these counterexamples because they cannot restrict the new lemma. The general goal of incremental ICE is to let the whole lemma sequence pass all counterexamples, as shown below. 
+
+∀𝑝 ∈ 𝐶𝐸 𝑝 , ¯𝑥 = 𝑝 ⇒ Ó1≤ 𝑗 ≤𝑘 𝜓 𝑗 ( ¯𝑥 )∀𝑛 ∈ 𝐶𝐸 𝑛 , ¯𝑥 = 𝑛 ⇒ ¬ Ó1≤ 𝑗 ≤𝑘 𝜓 𝑗 ( ¯𝑥 )∀( 𝑖 1, 𝑖 2) ∈ 𝐶𝐸 𝑖 , ( ¯𝑥 1 = 𝑖 1 ∧ ¯𝑥 2 = 𝑖 2) ⇒  Ó 1≤ 𝑗 ≤𝑘 𝜓 𝑗 ( ¯𝑥 1) ⇒ Ó1≤ 𝑗 ≤𝑘 𝜓 𝑗 ( ¯𝑥 2) . (5) Since each lemma should hold initially, they should be true for all positive counterexample assignments. Thus, we will not filter out any positive counterexample. For inductive counterexample 
+
+(𝑖 1, 𝑖 2), if 𝜓 𝑘 is false for the assignment of 𝑖 1, then ¯𝑥 = 𝑖 𝑖 ⇒ ¬( 𝜓 𝑘 ( ¯𝑥 ) ∧ 𝜓 ′ ( ¯𝑥 )) holds for any predicate 
+
+𝜓 ′. Based on this, we can further conclude that the following statement holds for any predicate 𝜓 ′.
+
+( ¯𝑥 1 = 𝑖 𝑖 ∧ ¯𝑥 2 = 𝑖 2) ⇒ ( 𝜓 𝑘 ( ¯𝑥 1) ∧ 𝜓 ′ ( ¯𝑥 1) ⇒ 𝜓 𝑘 ( ¯𝑥 2) ∧ 𝜓 ′ ( ¯𝑥 2)) . (6) Thus, we can safely filter out (𝑖 1, 𝑖 2) without losing information. The same principle applies to filtering negative counterexamples. For negative counterexample 𝑛 , if 𝜓 𝑘 is false for the assignment of 𝑛 , then ¯𝑥 = 𝑛 ⇒ ¬( 𝜓 𝑘 ( ¯𝑥 ) ∧ 𝜓 ′ ( ¯𝑥 )) holds for any predicate 𝜓 ′. Therefore, we can also safely filter out 𝑛 . When the learner synthesizes new lemmas, it only needs to consider the constraints of the retained counterexamples. 
+
+4 The Proposed Approach 
+
+In this section, we present LimICE, an incremental loop invariant synthesis approach under the Incremental ICE framework, which takes LLM and ICE-DT [ 17 ] as two different lemma synthesizers. LimICE employs the LLM-based synthesizer as the primary synthesizer and ICE-DT as the fallback synthesizer. Figure 2 presents a framework for our approach, which consists of four interacting modules: Literal Generator (M1), 2-CNF Lemma Synthesizer (M2), Lemma Validator (M3), and ICE-DT Fallback Synthesizer (M4). The first three modules form the workflow of the LLM-based 
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018.
+
+LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:7 Input  Reason  Generate Let  LLM  consider  failure  reason  and generate  new  literals                                  
+
+> Program Knowledge
+> Failure Reason New Literals
+> Program Context Extract program context as initial literals
+> Program New Literals
+> Literal Generator (M1)
+> Random Generate Let LLM directly generate new literals
+> Program Attention New Literals
+> Pos CE
+> Indu CE
+> Neg CE
+> Candidate Lemma
+> ICE-DT Fallback Synthesizer (M4)
+> x>0 y>3 z>-1 t>2 z>-2
+
+。。。。         
+
+> Output
+> 2-CNF Lemma Synthesizer (M2)
+> not pre
+> not indu
+> not post
+> Prohibit
+> Refine
+> Reserve
+> Candiate Lemma Set
+> CE Set
+> Literal
+> Clause Lemma
+> CNF Combine
+> not lemma
+> lemma not post
+> lemma and post
+> Try again
+> Refresh
+> Invariant
+> Lemma Validator (M3)
+> SMT Solver
+> Candidate Lemma
+
+Fig. 2. A Framework of LimICE. 
+
+learning process, while Modules M3 and M4 together form the fallback learning process. The remainder of this section first presents an overview of LimICE, followed by the details of its core components. 
+
+4.1 The Overall Algorithm 
+
+The overall algorithm of LimICE is summarized in Algorithm 1. Given the program, LimICE first initializes the data structures and performs a warm start on the clauseSet (line 2). Specifically, we maintain four data structures throughout the synthesis lifecycle: clauseSet storing historical clauses, reserveSet storing candidate lemmas that may be useful in the future, lemmaSeq storing the lemma sequence, and CESet storing retained counterexamples. During each iteration, LimICE first performs the LLM-based learning process. This process begins by querying the LLM to generate new literals in the random generation method (line 6). If all the new literals have already appeared in the clauseSet , we turn to querying the LLM in the reason generation method (line 8). Then, LimICE updates the clauseSet with new literals and searches for candidate lemmas that satisfy equation (3) from the conjunction of clauses in the clauseSet (line 9). If the search process can propose a candidate lemma, LimICE will validate it with respect to the definition 3.1 of the incremental approach (line 11). If the validation succeeds, a complete invariant is returned (line 13); otherwise, the validation results are fed back into the 2-CNF Lemma Synthesizer to guide the subsequent search (line 14). The above search and validation process is iterated until the problem is solved or no new candidate lemma can be proposed, at which point LimICE switches to the fallback learning process (lines 16-18). The ICE-DT will be called to synthesize the missing lemma based on the retained counterexamples. 
+
+4.2 LLM-Based Learning Process 
+
+4.2.1 Literal Generator. We design three ways to generate new literals. The first way is called random generation. At the start of each iteration, the LLM is prompted directly generate new literals that do not contain logic connectives. Here, we follow the approach of [ 5 ] and only modify the prompt by adding explicit constraints to the output format/content. This approach allows us to obtain logical assertions about the basic facts of the program, but to some extent separates the 
+
+J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:8 Trovato et al. 
+
+Algorithm 1: Procedure LimICE 
+
+Input: Program information program , the number of ICE-DT iterations in each round n.
+
+Output: Loop invariant inv  
+
+> 1
+
+Function LimICE( program ): 
+
+> 2
+
+clauseSet ← 𝑊 𝑎𝑟𝑚𝑆𝑡𝑎𝑟𝑡 (𝑝𝑟𝑜𝑔𝑟𝑎𝑚 ); 
+
+> 3
+
+reserveSet , LemmaSeq , CESet ← ∅ ; 
+
+> 4
+
+while True do  
+
+> 5
+
+/* LLM-based Learning Process */ ; 
+
+> 6
+
+newLiterals ← 𝑅𝑎𝑛𝑑𝑜𝑚𝐺𝑒𝑛𝑒𝑟𝑎𝑡𝑒 (𝑝𝑟𝑜𝑔𝑟𝑎𝑚 ); 
+
+> 7
+
+if newLiterals = ∅ then  
+
+> 8
+
+newLiterals ← 𝑅𝑒𝑎𝑠𝑜𝑛𝐺𝑒𝑛𝑒𝑟𝑎𝑡𝑒 (𝑝𝑟𝑜𝑔𝑟𝑎𝑚, 𝐿𝑒𝑚𝑚𝑎𝑆𝑒𝑞 ); 
+
+> 9
+
+candidate ← 2𝐶𝑁 𝐹 𝐿𝑒𝑚𝑚𝑎𝑆𝑦𝑛𝑡ℎ𝑒𝑠𝑖𝑧𝑒𝑟 (newLiterals , 𝑐𝑙𝑎𝑢𝑠𝑒𝑆𝑒𝑡, 𝐶𝐸𝑆𝑒𝑡, 𝑟𝑒𝑠𝑒𝑟𝑣𝑒𝑆𝑒𝑡 ); 
+
+> 10
+
+while candidate ≠ ∅ do  
+
+> 11
+
+status = 𝐿𝑒𝑚𝑚𝑎𝑉 𝑎𝑙𝑖𝑑𝑎𝑡𝑜𝑟 (candidate , 𝐿𝑒𝑚𝑚𝑎𝑆𝑒𝑞, 𝑐𝑙𝑎𝑢𝑠𝑒𝑆𝑒𝑡, 𝐶𝐸𝑆𝑒𝑡, 𝑟𝑒𝑠𝑒𝑟𝑣𝑒𝑆𝑒𝑡 ); 
+
+> 12
+
+if status = True then  
+
+> 13
+
+return 𝐶𝑜𝑛 𝑗𝑢𝑛𝑐𝑡𝑖𝑜𝑛 (𝐿𝑒𝑚𝑚𝑎𝑆𝑒𝑞 ); 
+
+> 14
+
+candidate ← 2𝐶𝑁 𝐹 𝐿𝑒𝑚𝑚𝑎𝑆𝑦𝑛𝑡ℎ𝑒𝑠𝑖𝑧𝑒𝑟 (∅ , 𝑐𝑙𝑎𝑢𝑠𝑒𝑆𝑒𝑡, 𝐶𝐸𝑆𝑒𝑡, 𝑟𝑒𝑠𝑒𝑟𝑣𝑒𝑆𝑒𝑡 ); 
+
+> 15
+
+/* Fallback Learning Process */ ; 
+
+> 16
+
+𝑠𝑡𝑎𝑡𝑢𝑠 ← 𝐼𝐶𝐸𝐷𝑇 𝐿𝑒𝑎𝑟𝑛 (𝐿𝑒𝑚𝑚𝑎𝑆𝑒𝑞, 𝐶𝐸𝑆𝑒𝑡, 𝑛 ) // Iterate 𝑛 times  
+
+> 17
+
+if status = True then  
+
+> 18
+
+return 𝐶𝑜𝑛 𝑗𝑢𝑛𝑐𝑡𝑖𝑜𝑛 (𝐿𝑒𝑚𝑚𝑎𝑆𝑒𝑞 );LLM from the overall invariant synthesis process. In the absence of effective guidance, the LLM tends to repeatedly produce literals confined to a fixed subset. This may not be enough to solve some complex problems, and thus, we design a supplementary way to generate new literals when random generation fails. The supplementary way is called reason generation. Since the lemma sequence can indicate the current loop invariant synthesis progress, we can leverage it to provide structural guidance for LLMs. We first integrate the knowledge about the incremental approach, the lemma sequence, and the program to be verified into a prompt, and query the LLM to explain why the current lemma sequence cannot prove the property. The simplified prompt template is shown in Prompt 1. Then we prompt the LLM to generate new literals according to the failure reason. The literal generation process, which combines the two approaches, is closer to how human experts solve problems: first, attempt to prove the property based on the basic facts of the program. When this step fails, analyze the failure and identify the missing facts. In addition, we design a warm start mechanism. Before starting synthesis, the program’s pre-conditions, post-conditions, branch conditions, and inverse of branch conditions are extracted. These literals and their pairwise disjunctions will be the initial clauseSet . Empirical evidence suggests that these predicates significantly help to prove the property. 
+
+4.2.2 2-CNF Lemma Synthesizer. This section introduces the 2-CNF Lemma Synthesizer, which searches for candidate lemmas from the combinatorial space of literals. The overall algorithm is summarized in Algorithm 2. To perform an ordered and manageable search, we use the grammatical form of conjunctive normal form(CNF). At the same time, this grammatical form is naturally suitable for lemma search and will not cause redundancy within the lemma sequence. The CNF  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:9
+
+Prompt 1: Reason Failure Prompt 
+
+### Your Task ### 
+
+Your task is to explain why we cannot prove the postconditions using the given lemma sequence. 
+
+### Task Description ### 
+
+In program property verification, handling loops is one of the most critical steps. We aim to adopt an incremental approach to address the verification of program properties involving loops. This method computes a sequence of assertions that satisfy the following conditions: "....." Currently, we have obtained the following sequence of assertions: {Lemma Sequence} This sequence has been proven to satisfy the first two conditions but fails to satisfy the third condition. Please analyze why the current set of assertions cannot prove the postcondition. The C program to be verified is shown as follows: {Program} 
+
+### Require ### 
+
+Directly provide a concise conclusion that helps identify the missing assertions. Do not repeat the problem description. 
+
+clauses are all stored in the clauseSet , including unit clauses consisting of a single literal and binary clauses consisting of the disjunction of two literals. To ensure search efficiency, we do not combine clauses consisting of more than two literals. In addition, the clauses in clauseSet are labeled with whether they are legal or not. We define illegal clauses as follows: 
+
+Definition 4.1 (Illegal clause). An illegal clause refers to any clause that has been previously prohibited or appears as a component of any lemma in lemmaSeq , which would cause redundancy or failure in the candidate lemma. In each search, we maintain a temporary data structure lemmaList , which stores all CNFs to be checked. At the beginning of the search, the CNFs of reserveSet are transferred to lemmaList 
+
+as the initial elements. If new literals are received, we update the clauseSet . First, the literals become new unit clauses. Then, we produce new binary clauses by conducting pairwise disjunction between different literals within new literals and between each new literal and each old unit clause. These new clauses will be added to clauseSet and lemmaList .Next, we search for candidate lemmas in lemmaList . For each CNF, if it is falsified by any positive counterexample, we remove it from lemmaList and prohibit it from being conjuncted with other clauses. If it is falsified by any inductive counterexample, we decide whether to refine it based on its clause number. If it contains only one clause, we refine it by conducting a conjunction between it and each legal unit clause. Otherwise, we just remove it from lemmaList . If it cannot exclude any negative counterexample, we move it from lemmaList to reserveSet because it may exclude a negative counterexample in the future. After the search procedure, if lemmaList becomes an empty set, we stop searching and go to the fallback learning process. Otherwise, the shortest one will be selected as a candidate lemma and submitted to the Lemma Validator for a rigorous check. In our design, the 2-CNF search strategy is a trade-off between expressive power and search efficiency. The 2-CNF structure constrains the combinatorial form of lemmas to enable efficient search, while expressive power is provided primarily by literals generated by LLM. Our empirical results indicate that 2-CNF combinations of literals generated by the LLM are sufficient to synthesize  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:10 Trovato et al.
+
+Algorithm 2: Procedure 2CNFLemmaSynthesizer 
+
+Input: New literals newLiterals , clause set clauseSet , lemma sequence lemmaSeq ,counterexample set CESet : (CE p, CE i, CE n), reserved lemmas reserveSet .
+
+Output: Candidate lemma candidate  
+
+> 1
+
+Function 2CNFLemmaSynthesizer( newLiterals , clauseSet , lemmaSeq , CESet , reserveSet ): 
+
+> 2
+
+lemmaList , 𝑐𝑎𝑛𝑑𝑖𝑑𝑎𝑡𝑒 ← ∅ ; 
+
+> 3
+
+if newLiterals ≠ ∅ then  
+
+> 4
+
+oldLiterals ← 𝐺𝑒𝑡𝑈 𝑛𝑖𝑡𝐶𝑙𝑎𝑢𝑠𝑒 (clauses ); 
+
+> 5
+
+newClauses ← 𝐿𝑜𝑔𝑖𝑐𝑎𝑙𝐷𝑖𝑠 𝑗𝑢𝑛𝑐𝑡𝑖𝑜𝑛 (newLiterals , oldLiterals ); 
+
+> 6
+
+clauses .𝑎𝑝𝑝𝑒𝑛𝑑 (newClauses ); 
+
+> 7
+
+lemmaList ← newClauses ; 
+
+> 8
+
+𝑆𝑒𝑡𝑀𝑜𝑣𝑒 (reserveSet , lemmaList ); // Move the elements of reserveSet to lemmaList  
+
+> 9
+
+foreach CNF ∈ lemmaList do  
+
+> 10
+
+if 𝑛𝑜𝑡 𝐶ℎ𝑒𝑐𝑘𝐴𝑙𝑙 (CNF , CE p) then  
+
+> 11
+
+𝑃𝑟𝑜ℎ𝑖𝑏𝑖𝑡 (clauseSet , CNF ); 
+
+> 12
+
+else if 𝑛𝑜𝑡 𝐶ℎ𝑒𝑐𝑘𝐴𝑙𝑙 (CNF , CE i) then  
+
+> 13
+
+lemmaList .𝑈 𝑛𝑖𝑡𝑅𝑒 𝑓 𝑖𝑛𝑒 (CNF , clauseSet ); 
+
+> 14
+
+else if 𝑛𝑜𝑡 𝐶ℎ𝑒𝑐𝑘𝐴𝑛𝑦 (CNF , CE n) then  
+
+> 15
+
+𝑆𝑖𝑛𝑔𝑙𝑒𝑀𝑜𝑣𝑒 (CNF , lemmaList , reserveSet ); 
+
+> 16
+
+if lemmaList ≠ ∅ then  
+
+> 17
+
+candidate ← 𝐺𝑒𝑡𝑆ℎ𝑜𝑟𝑡𝑒𝑠𝑡 (lemmaList ); 
+
+> 18
+
+reserveSet .𝑎𝑝𝑝𝑒𝑛𝑑 (lemmaList / candidate ); 
+
+> 19
+
+return candidate ;the majority of loop invariants in the evaluated benchmarks. Moreover, in an incremental setting, the performance of 2-CNF–based search strategies is more stable and controllable than monolithic approaches. 
+
+4.2.3 Lemma Validator. This section introduces the Lemma Validator, which is designed to validate the candidate lemma with respect to the lemmaSeq and guide the subsequent search process. In practice, this module is responsible for validating the candidates proposed by both synthesizers. However, the validator described in this section is only used to validate the results of the 2-CNF Lemma Synthesizer. The validation of ICE-DT will be introduced in Section 4.3. When the candidate does not hold initially or is not inductive relative to the lemmaSeq , the processing methods are similar to the search process in Section 4.2.2, except for the degree of refinement. Here, we refine the candidate using all legal clauses and do not restrict the number of clauses because the high-quality candidate deserves more attention. When the candidate lemma is proven to be initial and relatively inductive, we add it to the lemmaSeq . If the accumulated lemmas are enough to prove the property, the conjunction of the lemmaSeq will be returned as a complete loop invariant. Otherwise, we use it to filter the current counterexamples as described in Section 3.2. At this point, due to the introduction of a new valid lemma, all legal clauses may become relatively inductive again. Thus, we refresh the search procedure by replacing reserveSet with all legal clauses in clauseSet . 
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:11
+
+Algorithm 3: Procedure LemmaValidator 
+
+Input: Candidate Lemma candidate , clause set clauseSet , lemma sequence lemmaSeq ,counterexample set CESet , reserved lemmas reserveSet .
+
+Output: Proof status status  
+
+> 1
+
+Function LemmaValidator( candidate , clauseSet , lemmaSeq , CESet , reserveSet ): 
+
+> 2
+
+[Pre , Indu , Post ], newCE ← 𝑆𝑀𝑇𝐶ℎ𝑒𝑐𝑘 (candidate , lemmaSeq ); 
+
+> 3
+
+CESet .𝑎𝑝𝑝𝑒𝑛𝑑 (newCE ); 
+
+> 4
+
+if 𝑛𝑜𝑡 Pre then  
+
+> 5
+
+𝑃𝑟𝑜ℎ𝑖𝑏𝑖𝑡 (clauseSet , candidate ); 
+
+> 6
+
+else if 𝑛𝑜𝑡 Indu then  
+
+> 7
+
+𝑟𝑒 𝑓 𝑖𝑛𝑒𝑆𝑒𝑡 ← 𝐴𝑙𝑙𝑅𝑒 𝑓 𝑖𝑛𝑒 (candidate , clauseSet ); 
+
+> 8
+
+reserveSet .𝑎𝑝𝑝𝑒𝑛𝑑 (𝑟𝑒 𝑓 𝑖𝑛𝑒𝑆𝑒𝑡 ); 
+
+> 9
+
+else if 𝑛𝑜𝑡 Post then  
+
+> 10
+
+lemmaSeq .𝑎𝑝𝑝𝑒𝑛𝑑 (candidate ); 
+
+> 11
+
+𝐶𝐸𝐹𝑖𝑙𝑡𝑒𝑟 (CESet , candidate ); 
+
+> 12
+
+reserveSet ← 𝐺𝑒𝑡𝐿𝑒𝑔𝑎𝑙 (clauses ) // Refresh  
+
+> 13
+
+else  
+
+> 14
+
+lemmaSeq .𝑎𝑝𝑝𝑒𝑛𝑑 (candidate ); 
+
+> 15
+
+return True ; 
+
+> 16
+
+return False ;
+
+4.3 ICE-DT Fallback Learning Process 
+
+When the 2-CNF Lemma Synthesizer fails to propose a new candidate lemma, we turn to ICE-DT [ 17 ]to synthesize the missing part. Since our Incremental ICE framework involves a counterexample filtering mechanism, the retained counterexamples partially characterize the properties that the missing lemma must satisfy. ICE-DT can perform fine-grained synthesis with respect to the full set of counterexamples, whereas LLMs are not well-suited for this task. Thus, here we iteratively call ICE-DT until it synthesizes the final lemmas or reaches the maximum number of iterations. In practice, we observe that ICE-DT either produces incorrect predicates or complete invariants, and only rarely produces lemmas that are insufficient to prove the postcondition. This is because satisfying inductiveness is the core challenge of ICE-DT. Therefore, when validating the candidates of ICE-DT, we only check whether they can fully solve the problem, and do not refine the candidates or add them to reserveSet . Integrating with ICE-DT can alleviate the LLM’s lack of precise reasoning ability and improve the loop invariant synthesis efficiency. 
+
+5 Evaluation 
+
+In this section, we present the experimental results that are designed to answer the following research questions: 
+
+RQ1. How does LimICE compare in efficiency and effectiveness to the state-of-the-art methods? 
+
+RQ2. How does the choice of different LLM backends affect the performance of LLM-based methods? 
+
+RQ3. How does the incremental combination compare to the monolithic combination? 
+
+RQ4. How do different design choices within LimICE affect its overall performance?  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:12 Trovato et al.
+
+5.1 Setup 
+
+Benchmarks. We evaluate our approach on both linear and non-linear benchmarks to cover comple-mentary problem characteristics. The linear benchmarks comprise 367 instances drawn from three subsets: 313 problems collected by LaM4Inv [ 39 ], including 133 instances originally introduced by Code2Inv [ 34 ] and 180 new benchmarks newly constructed in LaM4Inv, as well as 54 new benchmarks crafted by us. The new benchmarks are obtained by manually applying equivalence-preserving rewrites of the benchmarks in the CHC-COMP repository [ 31 ]. For existing linear benchmark sets, we discover some systemic errors and apply a set of correctness-oriented and semantics-preserving refinements to ensure benchmark validity, including removing redundant classes, reforming trivial instances, and eliminating factual inconsistencies; as a result, the refined benchmarks become slightly more challenging due to the removal of trivial or redundant cases. The non-linear benchmarks consist of 50 instances collected by Clause2Inv [ 5 ], including 30 instances originally introduced by LIPuS [ 43 ] and 20 benchmarks newly constructed in Clause2Inv. These benchmarks have also undergone some error corrections. Detailed descriptions of the benchmarks and all modifications are provided in the supplementary material. 
+
+Baselines. To evaluate our approach, we compare it with the following baselines. 
+
+• ICE-DT [ 17 ] synthesizes program invariants by extending decision tree learning to the ICE framework, enabling consistent and convergent learning from counterexamples; 
+
+• ICE-DT-Interval [ 41 ] accelerates loop invariant learning by introducing interval counterex-amples and extending decision tree learning to handle them, significantly reducing learning rounds and verification time; 
+
+• LoopInvGen [ 27 ] synthesizes loop invariants by iteratively using data-driven precondition synthesis with on-demand feature learning and SMT-based counterexample refinement; 
+
+• Code2Inv [34] synthesizes loop invariants using a reinforcement-learning approach guided by graph neural network representations of programs and feedback from a theorem prover; 
+
+• LIPuS [ 43 ] synthesizes loop invariants by generating invariant templates using reinforcement learning and then determining the template parameters by solving counterexamples; 
+
+• CLN2INV [ 33 ] synthesizes loop invariants by learning explicit SMT formulas from execution traces using Continuous Logic Networks, which map logical constraints to differentiable continuous semantics; 
+
+• LaM4Inv [ 39 ] synthesizes loop invariants by filtering valid components of candidate loop invariants generated by LLM via bounded model checking and reassembling them into a new invariant; 
+
+• Clause2Inv [ 5 ] synthesizes loop invariants by generating atomic literals using LLMs and combining them into a correct invariant using a counterexample-driven method under a generate-combine-check framework. Among these baselines, LaM4Inv and Clause2Inv are LLM-based methods, LoopInvGen is a traditional symbolic method, and the rest are learning-based methods. For linear benchmarks, we compare all baselines except LIPuS, while for nonlinear benchmarks, we compare LIPuS, LaM4Inv, Clause2Inv, and ICE-DT-Interval, which are good at handling nonlinear problems. 
+
+Evaluation metrics. To evaluate the efficiency and effectiveness of different methods, we record the number of successfully generated loop invariants and the average time consumed on all benchmarks successfully solved. In some experiments, we also compared the number of SMT solver queries to aid in efficiency comparison. 
+
+Implementations. All experiments are conducted under identical settings. In terms of hardware, the CPU is the 13th Gen Intel(R) Xeon(R) Silver 4314, equipped with 256GB of onboard RAM. The GPU is RTX A6000. For the LLM-based method, we all adopt DeepSeek V3.2 by default. For LimICE,  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:13
+> Table 1. Performance Comparison on Linear Problems.
+
+Methods NeurIPS-18 (133) ASE-24 (180) CHC-Comp (54) Total (367) Solved Time (s) Solved Time (s) Solved Time (s) Solved Time (s) 
+
+LimICE 133 3.9 179 9.1 37 85.1 349 15.2 
+
+LoopInvGen 103 6.4 104 12.8 0 0.0 207 9.6 ICE-DT 128 2.8 111 6.0 8 76.1 247 6.6 ICE-DT-Interval 128 0.8 123 4.3 12 25.2 263 3.5 Code2Inv 106 46.5 85 71.6 4 149.2 195 59.5 CLN2INV 120 0.2 94 0.2 2 0.3 216 0.2 Clause2Inv 119 13.0 170 20.0 22 109.6 311 23.7 LaM4Inv 111 18.9 163 29.5 18 70.0 292 28.0 we set the iteration number of ICE-DT in each iteration to 30. We set a time limit of 600 seconds for each method to solve per problem. 
+
+5.2 RQ1. Efficiency and Effectiveness 
+
+Performance comparison on linear problems We first compare the different methods’ performance on linear benchmarks. The results are shown in Table 1, where the time column is the average time computed on all benchmarks successfully solved by the tool. It can be observed that LimICE achieves the best results on all datasets in terms of the number of solved benchmarks. LimICE generates at least 86 more invariants than the non-LLM baseline. In comparison, existing non-LLM methods solve substantially fewer instances. Although these methods achieve relatively strong performance on the first, less complex dataset, their effectiveness degrades noticeably as the dataset complexity increases. In particular, on the newly introduced dataset, even the best-performing baseline solves only 22 % of the instances. LimICE integrates LLM with ICE-DT under an incremental framework and exhibits good scalability. However, the average solving time of LimICE is higher than that of most of these methods. This is primarily due to the additional communication overhead introduced by querying the LLM, as well as the fact that our approach solves more challenging problems. Compared with the LLM-based method, LimICE demonstrates higher efficiency and effectiveness. It takes 64 % of the time of Clause2Inv while solving 38 more problems; likewise, it takes 54 % of the time of LaM4Inv while solving 57 more problems. There is no model advantage here because all three methods adopt DeepSeek V3.2. But LimICE incorporates a warm start mechanism and the ICE-DT fallback mechanism, and these components allow it to move beyond solely relying on LLM to solve problems. In contrast, both LaM4Inv and Clause2Inv are limited by the efficiency and capability of LLMs. 
+
+Performance comparison on nonlinear problems In this paper, we compare LimICE with LIPuS, ICE-DT-Interval, Clause2Inv, and LaM4Inv, because these methods perform well on nonlinear problems. The results are shown in Table 2. It can be observed that LimICE has significant advantages in both effectiveness and efficiency. For ICE-DT-Interval, its time efficiency differs significantly between linear and nonlinear bench-marks, with the average time increasing from 3.5s to 155.9s. One possible explanation for this phenomenon is that it can only use linear expressions when constructing the decision tree, and this does not solve nonlinear problems well. However, LLM-based methods are not limited by expressive ability and thus exhibit more stable performance. For LIPuS, its two-dimensional reward  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:14 Trovato et al.
+> Table 2. Performance Comparison on Nonlinear Problems.
+
+Methods ISSTA-23 (30) ISSTA-25 (20) Total (50) Solved Time (s) Solved Time (s) Solved Time (s) 
+
+LimICE 29 10.0 18 6.8 47 8.8 
+
+LIPuS 20 6.3 0 0 20 6.3 ICE-DT-Interval 6 188.1 10 136.5 16 155.9 Clause2Inv 23 33.7 15 7.9 38 23.5 LaM4Inv 16 38.6 15 43.0 31 40.7 design relies on manually determined parameters and leads to significant performance fluctuations across different datasets. Compared with the other two LLM-based methods, LimICE has a significant efficiency advantage. Through careful analysis of the synthesis process, we find that the incremental combination strategy plays an important role. The goal of LimICE is to find new lemmas instead of a complete loop invariant, and this has an advantage in exploring the space of literal combinations. So, LimICE can solve 37 benchmarks in a single LLM query round. In contrast, there are several times that all the literals that make up a correct invariant have been generated, but Clause2inv fails to combine a complete loop invariant. In addition, LaM4Inv’s strategy of filtering valid predicates from invariants appears to be less effective for solving non-linear problems. 
+
+5.3 RQ2. Different LLM 
+
+In this section, we evaluate the adaptability of LLM-based approaches across different LLM backends. Since DeepSeek has been used for comparison in Section 5.2, we further consider two representa-tive models: GPT-3.5-Turbo and QWen2.5-7B-Instruct. GPT-3.5-Turbo serves as a widely adopted baseline model, while QWen2.5-7B-Instruct is chosen to assess the effectiveness of our approach on models with significantly fewer parameters. In order to strike a balance between the communi-cation overhead and parallel response costs associated with local and online LLMs, this experiment also constrains the maximum number of iterations to 50 in addition to the time limit. The results are shown in Table 3. It can be observed that our approach provides stability in linear problems. Even with a relatively small 7B model, LimICE still solves 88.8 % of the linear benchmarks. This is because the integration of the ICE-DT fallback mechanism allows our method to avoid being overly dependent on the capabilities of LLMs. The role of fallback mechanisms becomes increasingly prominent as model capabilities decline. However, we observe that non-linear problems are more challenging when using the 7B model. This is because the ICE-DT can only generate decision trees using linear decision nodes, which are inherently less effective for handling non-linear problems. Thus, only after the LLM solves most of the problems can ICE-DT synthesize the final lemmas. Despite this limitation, our approach still solves more problems with higher efficiency than both LaM4Inv and Clause2Inv. We also observe that Clause2Inv exhibits reasonable stability on larger models. However, it is limited by the capabilities of the models, leading to significant performance degradation on the 7B model. In addition, LaM4Inv is most sensitive to the choice of model, as it relies on filtering valid predicates directly from the complete loop invariants generated by LLMs. 
+
+5.4 RQ3. Incremental Combination vs. Monolithic Combination 
+
+In this subsection, we remove all components and simply compare the ability of LimICE and Clause2Inv to combine invariants from the atomic literal set, with the latter being an excellent  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:15
+> Table 3. Performance Comparison of LLM-Based Methods on Different LLM.
+
+Models Linearity Solved Benchmarks Average Time (s) LimICE LaM4Inv Clause2Inv LimICE LaM4Inv Clause2Inv QWen2-5:7B Linear 326 (39) 221 258 34.4 159.3 91.4 Nonlinear 32 (0) 10 28 45.6 126.4 115.9 GPT 3.5 Turbo Linear 339 (13) 306 306 15.1 60.6 25.9 Nonlinear 45 (1) 20 37 26.4 92.3 29.8 
+
+> Notice: In the "LimICE" column of the Solved Benchmarks, the number in parentheses indicates the number of problems directly addressed by the ICE-DT fallback synthesizer.
+
+instance of the monolithic method. To control the randomness of LLM-based literal generation and ensure fair comparison across methods, we let DeepSeek generate 10 consecutive rounds of literals using the random generation method and repeat this process five times to obtain five fixed generation sequences. Then, we use these fixed sequences as the input of two methods and record, for each round, the number of problems successfully solved and the number of SMT solver calls incurred. The final results are summarized in Table 4. Success@B denotes the average performance in round B over the five sequences. It can be observed that the incremental combination strategy is superior to the monolithic combination strategy in both effectiveness and efficiency. The overall scope reports the results on the full benchmark suite. For linear problems, our incremental approach performs slightly better than the monolithic approach. However, for nonlinear problems, we demonstrate a relatively significant advantage. Under identical inputs and over 10 iterations, our incremental method solves 27.8 % more problems without requiring additional SMT solver calls, and consistently outperforms the monolithic approach in every round. This shows that the incremental approach offers better performance and stability. In addition, through careful analysis of the results, we found that the majority of benchmarks can be quickly solved by two methods within a few rounds. Such simple benchmarks tend to obscure the differences among methods. Therefore, we filter out benchmarks that can be solved by both methods within five rounds across all five fixed sequences, resulting in a set of challenging benchmarks including 105 linear problems and 24 nonlinear problems. The results on these benchmarks are shown in the hard scope, and it can be observed that there is a more obvious difference between the two approaches, and the incremental approach performs better on complex benchmarks. 
+
+5.5 RQ4. Ablation Study 
+
+We have known that the incremental combination strategy can solve the majority of nonlinear problems, as shown in section 5.4. So, only linear problems will be used to compare the performance of different models in the ablation study. Meanwhile, the hard benchmarks identified in section 5.4 are also used here for a more comprehensive analysis. The results are shown in Table 5. 
+
+LLM Only. The open-source tool of LaM4Inv [ 39 ] provides a dedicated configuration that allows us to ask LLM to generate complete loop invariants directly. We use it to test the effect of using DeepSeek alone. The result is shown in Table 5, and we can find that performance declines significantly, with the number of solved problems decreasing from 349 to 195, while the average time increased from 15.2 seconds to 37.1 seconds. This means that when dealing with complex problems, it is necessary to take additional measures to strengthen the ability of LLMs. 
+
+Effect of different components. We next analyze the impact of individual components, including the reason generation method, the warm start mechanism, and the ICE-DT fallback mechanism. The  
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:16 Trovato et al.
+> Table 4. Performance Comparison Between the Incremental Approach and the Monolithic Approach.
+
+Scope Linearity Methods Success@1 Success@2 Success@5 Success@10 Solved SMT Solved SMT Solved SMT Solved SMT Overall Linear Monolithic 254 4.0 271 4.3 289 4.7 298 4.9 Incremental 257 3.8 279 4.1 298 4.5 309 4.7 Nonlinear Monolithic 27 6.7 31 7.6 33 8.9 36 10.1 Incremental 36 7.1 39 7.6 42 8.7 46 9.9 Hard Linear Monolithic 9 7.5 18 8.6 27 9.5 36 10.0 Incremental 12 7.3 24 8.0 36 9.3 47 9.7 Nonlinear Monolithic 3 10.1 5 12.0 7 14.7 10 17.6 Incremental 10 10.7 13 11.3 16 13.2 20 15.2 
+
+> Table 5. Result of Ablation Study.
+
+Models Overall(133/180/54) Hard(24/35/46) Solved Time (s) Solved Time (s) LLM Only 195(70/117/8) 37.1 21(2/13/6) 67.0 LimICE-base 322(122/175/25) 21.0 63(16/30/17) 84.9 LimICE-base + Reason 333(125/177/31) 21.5 71(16/32/23) 75.8 LimICE-base + Warm 342(133/178/31) 14.6 80(24/33/23) 45.1 LimICE-base + ICEDT 339(133/177/29) 12.1 77(24/32/21) 34.6 LimICE-full 349(133/179/37) 15.2 87(24/34/29) 46.1 LimICE-base consists only of the random generation method, the 2-CNF Lemma Synthesizer, and the Lemma Validator. Through comparison with Section 5.2, we observe that even the LimICE-base configuration can achieve SOTA performance. We then incrementally add each component to the LimICE-base and report the corresponding results. The results show that all three methods can help solve difficult problems. Using the warm start and ICE-DT fallback mechanism can solve more problems while significantly improving solution efficiency. The combination of reason generation methods can allow LLM to generate more targeted results and mitigate the problem of model output saturation. This approach fully exploits the LLM’s capabilities, but its efficiency gains remain limited. The LimICE-full, which integrates all three components, achieves the best performance, suggesting that these components complement each other. 
+
+5.6 Case Studies 
+
+5.6.1 Case study 1. We first show a complex problem that is only solved by LimICE. The problem is shown in Figure 3. The final loop invariant synthesized by LimICE is as follows: 
+
+𝑥 >= 0 ∧ (( 𝑦 >= −2 ∗ ( 𝑥 − 2500 ) ∨ 𝑦 >= −10000 ) ∧ 𝑦 >= −2 ∗ 𝑥 ) ∧ (𝑦 <= (𝑥 − 2500 ) ∨ 𝑦 = −2 ∗ ( 𝑥 − 2500 ) − 5000 ) ∧ (𝑦 <= (𝑥 − 7500 ) ∨ 𝑦 = −2 ∗ ( 𝑥 − 2500 ) − 5000 ) ∧ 
+
+𝑦 <= −2 ∗ ( 𝑥 − 12500 ) + 1 ∗ 5000 + 1 ∗ 2500 ∧
+
+2 ∗ 𝑥 + 𝑦 <= 30000 ∧ ( 7500 − 𝑥 >= 0 − 𝑦 ∨ 𝑦 = −2 ∗ 𝑥 + 30000 ). 
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:17
+
+int main (){ 
+
+int x , y; // pre - conditions x = 0; y = 0; // loop body 
+
+while ( unknown ()){ 
+
+if (x >= 7500){ 
+
+if (x >= 12500){ y = y - 2; } else {y = y + 1; }}
+
+else {
+
+if (x >= 2500){ y = y + 1; } else {y = y - 2; }}x = x + 1; }// post - condition 
+
+if (x == 15000){ assert (y == 0); }}
+
+Fig. 3. A complex benchmark of cast study 1. 
+
+The complete invariant is complex, and when the problem is solved, the number of cumulative literals generated by LLM and warm start has reached 91. Finding such an invariant in the vast combinatorial space is difficult. However, LimICE adopts an incremental approach; it discovers seven relatively simple lemmas during the synthesis process rather than trying to obtain the complete invariant once. Therefore, it has certain advantages when facing complex problems. 
+
+5.6.2 Case study 2. Next, we show another complex example to demonstrate how the components of our system interact and collectively contribute to solving challenging cases. The problem is shown in Figure 4. 
+
+int main (){ 
+
+int x , y , z; // pre - conditions x = 0; y = 10; z = 0; // loop body 
+
+while ( unknown ()){ 
+
+if (x == y ){ z = 0; }
+
+else {z = z + 1; }x = (x + 1) % 10; y = (y - 1) % 10; }// post - condition assert (z <= 5); }
+
+Fig. 4. A complex benchmark of cast study 2. 
+
+LimICE first synthesizes the following five lemmas: 
+
+(1) 𝑥 ≥ 0 ∨ 𝑥 = 0 (4) ( 𝑥 + 𝑦 = 10 ∨ 𝑥 = 𝑦 ) ∧ ( 𝑥 + 𝑦 = 10 ∨ 𝑥 = 0)(2) 𝑥 ≤ 9 (5) 𝑧 ≤ 10 − ( 𝑦 − 𝑥 ) ∨ 𝑥 = 𝑦 
+
+(3) 𝑦 ≥ 0
+
+. 
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:18 Trovato et al.
+
+In the literals that make up the lemmas, 𝑥 = 𝑦 and 𝑥 = 0 are derived from the warm start. Based on the five lemmas above, the ICE-DT fallback mechanism successfully synthesizes the final lemmas: 
+
+(𝑦 + 𝑧 <= 10 ∧ 𝑦 <= 4 ∧ 𝑦 + 𝑧 <= 4) ∨ ( 𝑦 + 𝑧 <= 10 ∧ 𝑦 > 4).
+
+These lemmas can solve the problem, and the whole process consumes only 15.1 seconds. The absence of any component will make the problem unsolvable or significantly increase the time cost. 
+
+6 Threats to Validity 
+
+There are three main validity threats to the validity of our work. First, the LLM is an important component of our method, which introduces inherent nondeterminism. However, techniques warm start, and the ICE-DT fallback mechanism in our design reduces reliance on the LLM and helps improve overall stability. In addition, we also conduct experiments with fixed LLM outputs to more accurately evaluate the effectiveness of our method. Second, although we evaluated our approach on a set of 417 benchmarks, the complexity of these benchmarks is generally lower than that of real-world programs. However, the selected benchmarks are widely used in the research community and originate from internationally recognized compe-titions, making them representative of common evaluation scenarios. Future work will develop more complex and comprehensive benchmarks. Third, the capabilities of SMT solvers limit our method. It is an essential component for ensuring the correctness of the results, but its efficiency is limited when performing operations such as multiplication, division, and exponentiation. In addition, recent research [ 38 ] has found some soundness bugs in the SMT solver, which might threaten the verification results. 
+
+7 Related Work 
+
+Traditional methods for invariant generation include techniques such as abstract interpreta-tion [ 7, 8, 32 ], counterexample guided abstraction refinement [ 30 , 44 ], model checking [ 20 , 37 ], Craig interpolation [ 21 , 25 ], constraint solving [ 18 , 35 ], abductive reasoning [ 10 , 11 ], and dynamic inference [ 9, 12 , 26 ]. In traditional methods, IC3 [ 3 , 4, 36 ] applies the relative inductiveness to automated synthesis, which serves as the inspiration for our approach. These methods are generally stable on different problems, but face scalability issues. Learning-based methods typically follow a guess-and-check framework, leveraging machine learning techniques to generate candidate invariants from counterexample sets, program execution sequences, or program code. Garg et al. [ 16 ] introduce the inductive counterexample and propose ICE, which is a robust and strongly convergent framework for counterexample-based learning methods. Variants of the ICE framework include ICE-DT [ 17 ], ICE-DT-Interval [ 41 ], Hore-ICE [ 13 ], Tapis [ 2 ], etc. CLN2INV [ 33 ] and G-CLN [ 42 ] learn an invariant from a program execution sequence using a continuous logic network. Code2Inv [ 34 ] and LIPuS [ 43 ], on the other hand, utilize a reinforcement learning framework to learn invariants directly from the programs. Recent research has tried to leverage LLMs to synthesize loop invariants. Akhond et al. [ 1]conduct a detailed and systematic analysis of the ability of LLMs to generate and repair invariants; Pei et al. [ 28 ] enhance generation capabilities through fine-tuning; Chakraborty et al. [ 6 ] introduce a re-ranking approach and can distinguish between correct and incorrect inductive invariants; Wu et al. [ 39 ] use bounded model checking to filter valid predicates from complete invariants generated by LLMs; Cao et al. [ 5 ] leverage LLMs only to generate literals, and use a counterexample-driven method to combine a complete loop invariant. LimICE is orthogonal to a wide range of these methods. For example, it can be combined with the re-ranking approach proposed by Chakraborty 
+
+> J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018.
+
+LimICE: Integrating LLM into ICE Framework for Efficient Loop Invariant Inference 111:19 
+
+et al. [ 6 ] to accelerate lemma search, or integrates the fine-tuning technology of Pei et al. [ 28 ] to enhance the literal-generation capabilities of LLMs. 
+
+8 Conclusion 
+
+In this paper, we propose a new framework, Incremental ICE, for incremental synthesis using learning methods. Under this framework, we instantiate an efficient loop invariant synthesis tool called LimICE, which integrates LLMs with the ICE-DT method and can provide more structured guidance to LLMs. Meanwhile, we design a warm start mechanism as a complement to LLMs. Evaluations on 367 linear and 50 nonlinear benchmarks demonstrate that LimICE performs better than other state-of-the-art methods. Our work shows the advantages of the incremental approach over the monolithic approach from multiple perspectives. 
+
+References 
+
+[1] Mostafijur Rahman Akhond, Saikat Chakraborty, and Gias Uddin. 2025. LLM For Loop Invariant Generation and Fixing: How Far Are We? arXiv preprint arXiv:2511.06552 (2025). [2] Ahmed Bouajjani, Wael-Amine Boutglay, and Peter Habermehl. 2025. Data-driven verification of procedural programs with integer arrays. In International Conference on Computer Aided Verification . Springer, 338–363. [3] Aaron R Bradley. 2011. SAT-based model checking without unrolling. In International Workshop on Verification, Model Checking, and Abstract Interpretation . Springer, 70–87. [4] Aaron R Bradley. 2012. Understanding ic3. In International Conference on Theory and Applications of Satisfiability Testing . Springer, 1–14. [5] Weining Cao, Guangyuan Wu, Tangzhi Xu, Yuan Yao, Hengfeng Wei, Taolue Chen, and Xiaoxing Ma. 2025. Clause2Inv: A Generate-Combine-Check Framework for Loop Invariant Inference. Proceedings of the ACM on Software Engineering 
+
+2, ISSTA (2025), 1009–1030. [6] Saikat Chakraborty, Shuvendu Lahiri, Sarah Fakhoury, Akash Lal, Madanlal Musuvathi, Aseem Rastogi, Aditya Senthilnathan, Rahul Sharma, and Nikhil Swamy. 2023. Ranking llm-generated loop invariants for program verification. In Findings of the Association for Computational Linguistics: EMNLP 2023 . 9164–9175. [7] Patrick Cousot and Radhia Cousot. 1977. Abstract interpretation: a unified lattice model for static analysis of programs by construction or approximation of fixpoints. In Proceedings of the 4th ACM SIGACT-SIGPLAN symposium on Principles of programming languages . 238–252. [8] Patrick Cousot and Nicolas Halbwachs. 1978. Automatic discovery of linear restraints among variables of a program. In Proceedings of the 5th ACM SIGACT-SIGPLAN symposium on Principles of programming languages . 84–96. [9] Christoph Csallner, Nikolai Tillmann, and Yannis Smaragdakis. 2008. DySy: Dynamic symbolic execution for invariant inference. In Proceedings of the 30th international conference on Software engineering . 281–290. [10] Isil Dillig, Thomas Dillig, Boyang Li, and Ken McMillan. 2013. Inductive invariant generation via abductive inference. 
+
+Acm Sigplan Notices 48, 10 (2013), 443–456. [11] Mnacho Echenim, Nicolas Peltier, and Yanis Sellami. 2019. Ilinva: Using abduction to generate loop invariants. In 
+
+International Symposium on Frontiers of Combining Systems . Springer, 77–93. [12] Michael D Ernst, Jake Cockrell, William G Griswold, and David Notkin. 2001. Dynamically discovering likely program invariants to support program evolution. IEEE transactions on software engineering 27, 2 (2001), 99–123. [13] P Ezudheen, Daniel Neider, Deepak D’Souza, Pranav Garg, and P Madhusudan. 2018. Horn-ICE learning for synthesizing invariants and contracts. Proceedings of the ACM on Programming Languages 2, OOPSLA (2018), 1–25. [14] Robert W Floyd. 1993. Assigning meanings to programs. In Program Verification: Fundamental Issues in Computer Science . Springer, 65–81. [15] Carlo A Furia, Bertrand Meyer, and Sergey Velder. 2014. Loop invariants: Analysis, classification, and examples. ACM Computing Surveys (CSUR) 46, 3 (2014), 1–51. [16] Pranav Garg, Christof Löding, Parthasarathy Madhusudan, and Daniel Neider. 2014. ICE: A robust framework for learning invariants. In International Conference on Computer Aided Verification . Springer, 69–87. [17] Pranav Garg, Daniel Neider, Parthasarathy Madhusudan, and Dan Roth. 2016. Learning invariants using decision trees and implication counterexamples. ACM Sigplan Notices 51, 1 (2016), 499–512. [18] Ashutosh Gupta, Rupak Majumdar, and Andrey Rybalchenko. 2009. From tests to proofs. In International Conference on Tools and Algorithms for the Construction and Analysis of Systems . Springer, 262–276. [19] Charles Antony Richard Hoare. 1969. An axiomatic basis for computer programming. Commun. ACM 12, 10 (1969), 576–580. J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018. 111:20 Trovato et al. 
+
+[20] Hossein Hojjat and Philipp Rümmer. 2018. The ELDARICA horn solver. In 2018 Formal Methods in Computer Aided Design (FMCAD) . IEEE, 1–7. [21] Ranjit Jhala and Kenneth L McMillan. 2006. A practical and complete approach to predicate refinement. In International Conference on Tools and Algorithms for the Construction and Analysis of Systems . Springer, 459–473. [22] Adharsh Kamath, Aditya Senthilnathan, Saikat Chakraborty, Pantazis Deligiannis, Shuvendu K Lahiri, Akash Lal, Aseem Rastogi, Subhajit Roy, and Rahul Sharma. 2023. Finding inductive loop invariants using large language models. 
+
+arXiv preprint arXiv:2311.07948 (2023). [23] Chang Liu, Xiwei Wu, Yuan Feng, Qinxiang Cao, and Junchi Yan. 2024. Towards general loop invariant generation: a benchmark of programs with memory manipulation. Advances in Neural Information Processing Systems 37 (2024), 129120–129145. [24] Zohar Manna and Amir Pnueli. 2012. Temporal verification of reactive systems: safety . Springer Science & Business Media. [25] Kenneth L McMillan. 2010. Lazy annotation for program testing and verification. In International Conference on Computer Aided Verification . Springer, 104–118. [26] ThanhVu Nguyen, Deepak Kapur, Westley Weimer, and Stephanie Forrest. 2012. Using dynamic analysis to discover polynomial and array invariants. In 2012 34th International Conference on Software Engineering (ICSE) . IEEE, 683–693. [27] Saswat Padhi, Rahul Sharma, and Todd Millstein. 2016. Data-driven precondition inference with learned features. 
+
+ACM SIGPLAN Notices 51, 6 (2016), 42–56. [28] Kexin Pei, David Bieber, Kensen Shi, Charles Sutton, and Pengcheng Yin. 2023. Can large language models reason about program invariants?. In International Conference on Machine Learning . PMLR, 27496–27520. [29] Muhammad AA Pirzada, Giles Reger, Ahmed Bhayat, and Lucas C Cordeiro. 2024. Llm-generated invariants for bounded model checking without loop unrolling. In Proceedings of the 39th IEEE/ACM International Conference on Automated Software Engineering . 1395–1407. [30] Daniel Riley and Grigory Fedyukovich. 2022. Multi-phase invariant synthesis. In Proceedings of the 30th ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering . 607–619. [31] Philipp Rimmer. 2025. aeval-benchmarks . https://github.com/chc-comp/aeval-benchmarks Accessed: 2025. [32] Enric Rodríguez-Carbonell and Deepak Kapur. 2004. Program verification using automatic generation of invariants. In 
+
+International Colloquium on Theoretical Aspects of Computing . Springer, 325–340. [33] Gabriel Ryan, Justin Wong, Jianan Yao, Ronghui Gu, and Suman Jana. 2019. CLN2INV: learning loop invariants with continuous logic networks. arXiv preprint arXiv:1909.11542 (2019). [34] Xujie Si, Hanjun Dai, Mukund Raghothaman, Mayur Naik, and Le Song. 2018. Learning loop invariants for program verification. Advances in Neural Information Processing Systems 31 (2018). [35] Constraint Solving. 2003. Linear Invariant Generation Using Non-linear. Computer-aided Verification: Proceedings 
+
+(2003), 420. [36] Fabio Somenzi and Aaron R Bradley. 2011. IC3: where monolithic and incremental meet. In 2011 Formal Methods in Computer-Aided Design (FMCAD) . IEEE, 3–8. [37] Hari Govind Vediramana Krishnan, YuTing Chen, Sharon Shoham, and Arie Gurfinkel. 2024. Global guidance for local generalization in model checking. Formal Methods in System Design 63, 1 (2024), 81–109. [38] Dominik Winterer, Chengyu Zhang, and Zhendong Su. 2020. Validating SMT solvers via semantic fusion. In Proceedings of the 41st ACM SIGPLAN Conference on programming language design and implementation . 718–730. [39] Guangyuan Wu, Weining Cao, Yuan Yao, Hengfeng Wei, Taolue Chen, and Xiaoxing Ma. 2024. Llm meets bounded model checking: Neuro-symbolic loop invariant inference. In Proceedings of the 39th IEEE/ACM International Conference on Automated Software Engineering . 406–417. [40] Haoze Wu, Clark Barrett, and Nina Narodytska. 2023. Lemur: Integrating large language models in automated program verification. arXiv preprint arXiv:2310.04870 (2023). [41] Rongchen Xu, Fei He, and Bow-Yaw Wang. 2020. Interval counterexamples for loop invariant learning. In Proceedings of the 28th ACM Joint Meeting on European Software Engineering Conference and Symposium on the Foundations of Software Engineering . 111–122. [42] Jianan Yao, Gabriel Ryan, Justin Wong, Suman Jana, and Ronghui Gu. 2020. Learning nonlinear loop invariants with gated continuous logic networks. In Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implementation . 106–120. [43] Shiwen Yu, Ting Wang, and Ji Wang. 2023. Loop invariant inference through SMT solving enhanced reinforcement learning. In Proceedings of the 32nd ACM SIGSOFT International Symposium on Software Testing and Analysis . 175–187. [44] He Zhu, Aditya V Nori, and Suresh Jagannathan. 2015. Learning refinement types. ACM SIGPLAN Notices 50, 9 (2015), 400–411. J. ACM, Vol. 37, No. 4, Article 111. Publication date: August 2018.

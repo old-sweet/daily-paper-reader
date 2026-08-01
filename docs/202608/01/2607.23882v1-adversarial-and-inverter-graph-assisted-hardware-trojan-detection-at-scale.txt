@@ -1,0 +1,454 @@
+Title: ADVERSARIAL: And-Inverter Graph-Assisted Hardware Trojan Detection At Scale
+
+URL Source: https://arxiv.org/pdf/2607.23882v1
+
+Published Time: Tue, 28 Jul 2026 01:22:17 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# ADVERSARIAL: And-Inverter Graph-Assisted Hardware Trojan Detection At Scale ∗† 
+
+# Yaroslav Popryho , Graduate Student Member, IEEE , Debjit Pal , Member, IEEE , and Inna Partin-Vaisband , Senior Member, IEEE 
+
+## Abstract 
+
+Modern System-on-Chip (SoCs) often contain hundreds of millions to tens of billions of gates, making existing Hardware Trojan (HT) detection methods impractical due to their immense scale. The proposed approach incorporates symbolically enabled learning by modeling flattened gate-level netlists as Boolean networks repre-sented as And-Inverter Graphs (AIGs), where all internal nodes are 2-input AND gates and inversions reside on the edges. Each di-rected connection is expressed as a triple within a Knowledge Graph Embedding (KGE) framework, producing compact, constant-size per-node representations that retain multi-hop structural context. The AIG’s bounded fan-in and uniform semantics ensure training and inference complexity scale linearly with edge count, address-ing major scalability bottlenecks in HT detection. Symbolically enabled learning across deep datapaths enables the model to differ-entiate circuit structures from rare and functionally inconsistent connections that signify potential Trojan triggers and payloads. Experiments on large-scale SoC benchmarks demonstrate clear geo-metric separation between Trojan and benign nodes and practical scalability. 
+
+## CCS Concepts 
+
+• Security and privacy → Hardware security implementation ;
+
+Hardware reverse engineering ; • Hardware → Hardware validation ;
+
+• Computing methodologies → Unsupervised learning ; Learning latent representations. 
+
+## Keywords 
+
+Hardware Trojan detection, And-Inverter Graphs, knowledge graph embeddings, structural anomaly detection, golden-free verification, System-on-Chip, gate-level netlist, scalable hardware security 
+
+## 1 Introduction 
+
+Hardware Trojans (HTs) are malicious modifications that activate under rare conditions, changing system behavior. Typically, an HT is very small: a compact control fragment (the trigger) that, when active, perturbs downstream datapath logic (the payload). Locating such patterns inside modern System-on-Chip (SoCs) is extremely difficult for several reasons: 
+
+Scale and design variety. Industrial netlists for modern SoCs often comprise hundreds of millions to several billion gates across many 
+
+> ∗Accepted for publication at the IEEE/ACM International Conference on Computer-Aided Design (ICCAD 2026).
+> †This work was supported in part by the National Science Foundation under Grant No. 2238976, titled CAREER: Unified Reference-Free Early Detection of Hardware Trojans via Knowledge Graph Embeddings. The authors are with the Department of Electrical and Computer Engineering, University of Illinois Chicago, Chicago, IL 60607 USA (e-mail: ypopry2@uic.edu, dpal2@uic.edu, vaisband@uic.edu).
+
+IP blocks [ 21 , 22 , 30 ]. As designs become progressively complex, de-sign space grows, causing both computational complexity and space (memory) complexity of HT detection to increase exponentially, a long-standing obstacle noted in work on model checking, SAT, and decision diagrams [ 4, 10 , 19 ]. Even with optimized methods, exact reasoning over vast regions of a large netlist remains costly, and industrial flows routinely rely on abstraction, decomposition, and hardware-assisted verification to cope with state- and search-space explosion [ 3 , 11 , 15 , 22 , 30 ]. Models that maintain a fixed-size state or rely on message passing further lose information about distant context as hop count grows—a concern when a trigger sits deep inside arithmetic logic and is separated from its payload by many levels of combinational depth [14, 16]. 
+
+Triggers are rare by design. Modern HTs often rely on signals with low activity or on deep input sequences that rarely occur during regular operation. Identifying a trigger that almost never turns on is a primary challenge. Simulation, emulation, and test-generation flows may run for a significant time and still miss those corner cases. Recent rare-event activation efforts—including clique-based trigger activation, ATPG-guided schemes, and reinforcement learning—target this gap, yet report substantial overheads to cover large designs [ 13 , 17 , 23 ]. When activation is unlikely, side-channel and optical techniques can still reveal abnormal switching or struc-tural perturbations, but they require silicon or detailed physical design data and come with strong assumptions and non-trivial measurement costs [36]. 
+
+Structure-only signals are noisy. Static analysis, which searches for unusual design signatures, e.g., fan-in or fan-out , or for low testa-bility, is attractive because it is a fast method. However, such signa-tures frequently flag legitimate design patterns. For example, clock gating or test wrappers may have very low toggle rates or skewed fan-in/fan-out distributions, and large encoders/decoders naturally produce high fan-out. As a result, the candidate set can grow large. Reference-free screening based on controllability/observability high-lights both the promise and the limits of these heuristics [ 27 ]. Learning-based detectors at RTL or gate level add graph features and improve coverage, but often lack training data and are practi-cally not generalizable [34]. These issues motivate an approach that maintains a precise yet compact representation of the logic without resorting to compu-tationally expensive global proofs or message passing. The repre-sentation used in this work is the And-Inverter Graph (AIG): every internal node is a 2-input AND gate, and each edge contains an inversion marker. This choice minimizes per-edge metadata and aligns with well-established synthesis and verification flows [ 5, 6 , 8]. Building on the AIG structure, each gate and connection is repre-sented as an entity and a relation in a directed knowledge graph. This allows the netlist to be analyzed using knowledge-graph embed-dings (KGE), which embed gates and connections into a vector space arXiv:2607.23882v1 [cs.LG] 26 Jul 2026 where recurring structural patterns cluster together and unusual or inconsistent patterns stand out as outliers, while preserving the compactness of the underlying AIG. Each directed connection is encoded as a triple (source node, relation, destination node), where the relation specifies which input pin (0 or 1) the edge corresponds to and whether the signal is inverted. A KGE model assigns a data-driven likelihood score to each triple (and to paths) [ 7, 9, 12 , 29 ]. Repeated arithmetic and bitwise blocks form consistent local neigh-borhoods that the model learns efficiently. In contrast, low-activity control signals that connect into arithmetic logic in structurally atypical ways (aka control bridges ) produce unusual graph neigh-borhoods and receive higher anomaly scores. Recent learning-based HT detectors at RTL and gate level (most notably GNN-based approaches and representation-learning toolk-its [ 34 ]) operate directly on circuit graphs. In contrast, the proposed framework builds on a more structured representation. First , the AIG is interpreted as a typed relational graph in which each edge carries explicit semantic information (input position and polarity), enabling a far more precise description of local logic structure. Sec-ond , the use of KGE scoring provides a lightweight mechanism for evaluating edges and multi-hop paths without relying on costly long-range message passing [ 7, 9 , 12 , 29 ], allowing the model to scale naturally to very large SoCs. Key contributions of the proposed framework are as follows. 
+
+• Scalable Analysis. A near-linear-time workflow for HT detection is proposed, utilizing a uniform computational structure that efficiently maps to GPUs, enabling the processing of very large designs even under tight memory constraints. 
+
+• AIG Normalization. Gate-level netlists are transformed into com-pact AIGs with a small, structured set of edge types. Per-edge and multi-hop path scores are assigned by a lightweight KGE model using constant-size embeddings, which capture local logic context without requiring large Boolean states or long-range message passing. 
+
+• Demonstration across Trust-Hub and industrial-scale netlists. The framework is evaluated on the public Trust-Hub TRIT-TC (combi-national) and TRIT-TS (sequential) suites as well as eleven indus-trial SoC-style designs ranging from 1.5K to 9.87 M nodes, and is the only HT-detection approach in this study that converges reliably on all multi-million-node netlists under a common exper-imental setup. To the best of authors’ knowledge, this is the first HT-detection framework demonstrated on multi-million-gate SoC designs. 
+
+## 2 Background 
+
+HT detection methods that focus on side-channel analysis offer complementary visibility and have recently improved explainabil-ity through feature attribution; however, they often require high-quality power or EM data or detailed physical models. Sensitiv-ity to noise and process variation also remains a challenge (espe-cially considering that Trojan activation is a very rare event), and pre-silicon localization capability is inherently constrained [ 36 ]. Learning-based ensemble approaches can improve detection ac-curacy by combining multiple weak classifiers [ 24 ], yet they still depend on feature engineering and labeled data. Crucially, side-channel methods target manufacturing-stage insertions and can detect certain Trojans that structural methods cannot (e.g., process-variation-based attacks); conversely, the proposed structural ap-proach operates pre-silicon and can flag design-stage insertions be-fore fabrication, making the two paradigms complementary rather than competing. Formal verification has also been explored as a golden-free al-ternative, but this is feasible only when the formal specification fully captures all allowed behaviors—a condition that holds only for restricted design classes [ 2 ]. Consequently, these methods require substantial specification effort, provide guarantees only within narrow domains, and cannot establish global Trojan absence. Light-weight runtime-monitoring approaches can detect Trojans during execution using analytical models [ 1], but they require deployed silicon and cannot flag threats pre-fabrication. Recent work shows that HT detection is most effective when a circuit is modeled explicitly as a graph—at either RTL or gate level—so that structural irregularities can be exposed without a golden reference. Graph neural networks (GNNs) [ 33 , 34 ] and KGE techniques [ 26 , 31 , 32 ] exploit these representations to learn the con-nectivity patterns that characterize typical designs and to identify nets or subgraphs whose structure diverges from those patterns. Building on these insights, the proposed framework adopts a similar structural viewpoint but integrates it into a unified repre-sentation that shows reliable localization of Trojan-related incon-sistencies in the netlist. 
+
+Positioning relative to prior structural detectors. Several learning-based HT detectors operate on circuit graphs but differ substan-tially in representation, supervision, and scalability. GNN4TJ [ 34 ]applies supervised GNN classification at RTL, requiring labeled Trojan/benign training data and does not scale to large gate-level netlists. HW2VEC [35 ] provides a general-purpose graph-learning toolkit for hardware security; its embeddings are generic and not tailored to AIG structure or Boolean semantics. COTD [ 27 ] uses con-trollability/observability heuristics as structural features; it requires no learning but produces high false-positive rates on designs with le-gitimate low-controllability logic (e.g., clock gating, DFT). Another approach, NetVGE [ 26 ], operates at RTL level; ADVERSARIAL ad-vances this to gate-level AIGs with canonical normalization, richer relation types, and robust rank aggregation. Running HW2VEC or GNN4TJ on the same benchmarks is infeasible because HW2VEC re-quires RTL-level inputs and GNN4TJ requires labeled training sets; the GCN baseline operating on identical AIG-derived adjacency provides the closest matched-constraint comparison (Table 3). The remainder of this section summarizes the key ideas under-lying the prior approaches on which the proposed framework is constructed. 
+
+## 2.1 Threat model. 
+
+Attacker. A malicious third-party IP vendor or outsourced design house inserts gate-level logic Trojans during design or synthesis. The attacker may add combinational triggers (e.g., low-activity AND/OR trees gating a rarely-true condition), sequential triggers (counter- or FSM-based), or active payload logic that taps into or modifies existing datapath signals. The attacker does not alter the functional specification, the physical layout, or transistor-level parameters (i.e., parametric and analog Trojans are out of scope). 
+
+> 2
+
+Defender. The defender receives the flattened gate-level netlist— standard in fabless semiconductor flows where IP is delivered as a synthesized netlist for integration and verification. The defender has no golden reference, no simulation traces, and no side-channel measurements. Under a bounded inspection budget (top 𝑘 % of gates), the goal is to rank gates so that true Trojan nodes appear as early as possible in the ranked list. 
+
+Scope. The method targets Trojans whose trigger logic introduces structurally rare connectivity patterns in the AIG representation. While a perfectly structurally isomorphic Trojan could theoretically blend in, achieving such isomorphism while successfully tapping rare payload datapath signals is practically prohibitive in dense SoCs. The proposed method is unsupervised : it learns only from the structural regularities present in the design under test and flags nodes whose local graph context deviates significantly from the dominant patterns. 
+
+## 2.2 Structural Representation of Netlists 
+
+To enable structural analysis, the gate-level netlist is converted into a directed graph in which each logic element is a node and each signal connection is a directed edge . Registers act as natural cut points, since any feedback in the design must pass through them; as a result, the combinational logic between registers forms acyclic regions that can be analyzed cleanly. Primary inputs, primary out-puts, and register boundaries are annotated so that the resulting graph preserves the essential structure of the original circuit. A normalized circuit representation is essential for the graph-based analyses that follow. To this end, the netlist is converted into an AIG, which provides a uniform and compact structure suited to large-scale reasoning: every internal node is a 2-input AND gate and each incoming edge carries a single-bit polarity marker. Let 𝜄 (𝑒 ) ∈ { 0, 1} denote the polarity of edge 𝑒 . For a node 𝑣 with predecessors 𝑢 0 and 𝑢 1, the Boolean function computed at 𝑣 is 
+
+𝐹 (𝑣 ) =  𝐹 (𝑢 0) ⊕ 𝜄 (𝑢 0 →𝑣 ) ∧  𝐹 (𝑢 1) ⊕ 𝜄 (𝑢 1 →𝑣 ), (1) where ⊕ and ∧ denote XOR and AND, respectively. This normal-ization fixes each node’s fan-in and limits per-edge information to a single-polarity bit, enabling regular memory access patterns and scalable traversal on very large SoCs. Working with a single, uniform gate representation also makes it easier to contrast com-mon datapath structure with rare or irregular connections, which is crucial for isolating potential Trojan-related logic. 
+
+Why AIG over gate-level graphs. Three properties make the AIG preferable to heterogeneous gate-level netlists for structural anom-aly detection. First , the uniform 2-input AND semantics eliminate gate-type-specific relation encodings: a standard netlist may con-tain dozens of cell types, whereas the AIG vocabulary reduces to exactly four relation types ( 𝑟 𝑝,𝑏 ). Second , structural hashing during AIG construction guarantees that functionally identical subcircuits collapse to a single representative, naturally compressing redun-dant datapath logic and amplifying the structural distinctiveness of Trojan insertions. Third , the bounded fan-in (exactly 2) ensures that the KGE neighborhood of every node has identical shape, enabling batch-parallel embedding without padding or masking. Regarding AIG size: while a naive conversion without optimization can pro-duce AIG blow-up for certain logic functions (e.g., XOR chains), the ABC strash pass used in this flow applies local rewriting (balance, refactor, rewrite) that keeps the AIG within 1.5–3× the original gate count for practical circuits. 
+
+Decision-graph intuition for lightweight passes. Two ideas are borrowed from decision-graph methods without constructing full diagrams. 
+
+(i) Bottom-up reduction. Canonical keys are assigned to AIG nodes from their children and inversion bits, so that structurally identical subgraphs are collapsed into a single representative; local identities ( AND (𝑥, 𝑥 )=𝑥 , AND (𝑥, 𝑥 )=0) further compress repeated arithmetic and bitwise patterns. 
+
+(ii) Input ordering. Whether two cones normalize to the same structure is determined by the order in which their inputs are pre-sented. Consistent orderings (e.g., adjacent bit-slices) cause related cones to be merged, while rare control signals entering at atypical points are left unmerged—compressing regular datapath logic while exposing irregular regions. 
+
+(iii) Typed triples for KGE. Each directed AIG edge (𝑢 → 𝑣 ) is encoded as a triple (𝑢, 𝑟 𝑝,𝑏 , 𝑣 ), where 𝑝 ∈ { 0, 1} is the fan-in index of 𝑣 and 𝑏 ∈ { 0, 1} the edge inversion bit. Four relation types are obtained: 𝑟 0,0 and 𝑟 1,0 for non-inverted connections to the first and second fan-in, and 𝑟 0,1, 𝑟 1,1 for their inverted counterparts. 
+
+## 3 Methodology 
+
+The proposed methodology relies on the fact that canonical sym-bolic representations of Boolean functions preserve structural characteristics that can be exploited for HT detection . In partic-ular, the construction of AIGs in the proposed flow uses bottom-up reduction, structural sharing of congruent subgraphs, and carefully selected input-variable orderings to obtain a compact and stable representation. Together, these techniques provide a substrate for symbolically enabled statistical learning on which the Hitter-based KGE detection algorithm operates (Fig. 2). A digital circuit 𝐶 is represented as a directed graph 𝐺 = (𝑉 , 𝐸 )
+
+in which gates and terminals are nodes, and wires are directed edges. Nodes include primary inputs (PI), primary outputs (PO), combinational gates (INV, NAND, NOR, XOR, etc). An edge (𝑢 → 𝑣 )
+
+is created whenever the signal produced by 𝑢 serves as an input to 𝑣 . In AIG-style designs, each edge is labeled with a polarity 
+
+𝑠 𝑢𝑣 ∈ {+ 1, −1} (non-inverting or inverting). This label is used by the encoder but does not change the graph topology. 
+
+Bottom-up reduction. In the proposed flow, AIG construction implicitly identifies structurally identical subgraphs and represents them with a single node. Formally, two nodes 𝑥 and 𝑦 labeled with AND gates satisfy 
+
+𝑥 ≡ 𝑦 ⇐⇒ {{( 𝑥 1, 𝑥 2), (𝑥 2, 𝑥 1)}} = {{( 𝑦 1, 𝑦 2), (𝑦 2, 𝑦 1)}} ,
+
+where edge negations (inversion flags) are taken into account (Fig. 1a-b). Thus, identical subfunctions yield identical AIG nodes. Let 
+
+U denote the global structural-hash table. During construction: 
+
+(𝑔, 𝑔 1, 𝑔 2) ∈ U ⇒ return existing representative ,
+
+(𝑔, 𝑔 1, 𝑔 2) ∉ U ⇒ insert and continue .
+
+Input ordering and representational complexity. The input-variable ordering 𝜋 used during AIG construction influences how much structural sharing can be exposed by structural hashing. Let 𝐴 𝜋 (𝐶 )                                                     
+
+> 3𝑓
+> 𝑏
+> 𝑐 𝑐
+> 𝑑 𝑑 𝑑 𝑑
+> 𝑎 𝑎 𝑎 𝑎 𝑎 𝑎 𝑎 𝑎
+> 10101010
+> (a) Unreduced decision structure
+> 𝑓
+> 𝑏
+> 𝑐 𝑐
+> 𝑑
+> 𝑎 𝑎
+> 10
+> (b) Reduced DAG with structural sharing
+> 𝑓
+> 𝑎
+> 𝑏 𝑐
+> 𝑒
+> 01
+> 𝜋 1:𝑎 <𝑏 <𝑐 <𝑑 <𝑒 <𝑓
+> 𝑓
+> 𝑎
+> 𝑐 𝑒
+> 𝑏 𝑑
+> 𝑓
+> 01
+> 𝜋 2:𝑎 <𝑐 <𝑒 <𝑏 <𝑑 <𝑓
+> (c) Ordering: compact vs. blown-up
+> Figure 1: Transformations in the proposed HT-detection flow: (a) unreduced logic with duplicated subtrees; (b) bottom-up reduction with structural sharing (merged cones in orange); (c) impact of input ordering— 𝜋 1yields a compact AIG, whereas 𝜋 2causes a size blow-up.
+
+denote the AIG obtained from circuit 𝐶 under ordering 𝜋 , and let 
+
+N𝜋 be its node set. For a fixed 𝜋 , define an equivalence relation 
+
+𝑢 ≡𝜋 𝑣 over N𝜋 such that 𝑢 ≡𝜋 𝑣 when 𝑢 and 𝑣 have the same gate type and identical multisets of fanin literals (children and polarities, up to permutation). Each equivalence class 
+
+[𝑣 ]𝜋 = {𝑢 ∈ N 𝜋 : 𝑢 ≡𝜋 𝑣 }
+
+corresponds to one structurally unique subfunction represented after hashing. The amount of reuse exposed by ordering 𝜋 can therefore be quantified as 
+
+𝑅 (𝜋 ) =∑︁  
+
+> 𝑣 ∈ N 𝜋
+
+1[ |[ 𝑣 ]𝜋 | > 1 ] ,
+
+the number of nodes belonging to nontrivial equivalence classes. A desirable ordering maximizes 𝑅 (𝜋 ), yielding a smaller AIG (as shown on Fig. 1): 
+
+𝜋 ∗ = arg max  
+
+> 𝜋
+
+𝑅 (𝜋 ), |𝐴 𝜋 ∗ (𝐶 )| = |{[ 𝑣 ]𝜋 ∗ }| .
+
+Symbolic representation for functional equivalence. Let 𝐹 and 𝐺 be two Boolean functions over the same variable set. Three approaches exist for deciding 𝐹 ≡ 𝐺 :(1) Exhaustive truth-table comparison: check 𝐹 (x) = 𝐺 (x) for all 
+
+x ∈ { 0, 1}𝑛 , which is exponential in 𝑛 .(2) Algebraic manipulation using Boolean identities (De Morgan, absorption, Shannon expansion, etc.). In practice, the required rewrite sequence suffers from the phase-ordering problem , with exponentially many possible rewrite paths and low chance of choosing a good one. (3) Symbolic representation via canonical AIG forms. If reduced graphs 𝑅 𝜋 (𝐹 ) and 𝑅 𝜋 (𝐺 ) built under the same ordering 𝜋 satisfy 
+
+𝑅 𝜋 (𝐹 )  𝑅 𝜋 (𝐺 ), then 𝐹 ≡ 𝐺 follows immediately. The proposed methodology adopts the third approach. AIGs of the original circuit 𝐶 and its canonicalized version 𝐶 ′ are con-structed under 𝜋 ∗, yielding DAGs 𝐴 𝜋 (𝐶 ) and 𝐴 𝜋 (𝐶 ′). Here, 𝐶 de-notes the circuit under analysis, and 𝐶 ′ is a functionally equivalent representation obtained by applying a controlled sequence of canon-icalizing transformations. Comparing the AIGs 𝐴 𝜋 (𝐶 ) and 𝐴 𝜋 (𝐶 ′)
+
+therefore highlights exactly those regions whose structure fails to stabilize under canonicalization. Let M ( 𝐴 𝜋 (𝐶 ), 𝐴 𝜋 (𝐶 ′)) denote the set of maximal common sub-graph isomorphisms. This set captures all pairs of subgraphs (𝐺, 𝐺 ′)
+
+such that 
+
+𝐺  𝐺 ′ =⇒ ⟦𝐺 ⟧ = ⟦𝐺 ′⟧,
+
+where ⟦·⟧ denotes the Boolean function encoded by the subgraph. Any region where no isomorphism exists represents a functional deviation and is thus a candidate HT location. The fan-in cone of such a node—whose canonical AIG representation under ordering 
+
+𝜋 ∗ differs from the corresponding cone in the original AIG—is referred to as a suspect cone .
+
+KGE formulation. The AIG 𝐴 𝜋 (𝐶 ) is lifted into a KGE setting by mapping each AIG node to an entity 𝑒 𝑖 and each edge relation (fanin index and polarity) to a relation type 𝑟 𝑗 . Let G = (𝐸, 𝑅,𝑇 )
+
+denote the resulting graph, with triples 
+
+𝑇 = {( 𝑒 𝑖 , 𝑟 𝑗 , 𝑒 𝑘 ) | corresponding AIG edge exists }.
+
+The embedding model is trained to discriminate observed AIG edges from absent ones: it learns vectors v𝑒 𝑖 , v𝑒 𝑘 ∈ R𝑑 and relation opera-tors R𝑗 so that the scoring function 𝑓 ranks any true triple above negative (corrupted) samples drawn by replacing one endpoint, 
+
+𝑓 (𝑒 𝑖 , 𝑟 𝑗 , 𝑒 𝑘 ) ≈ 1 iff (𝑒 𝑖 , 𝑟 𝑗 , 𝑒 𝑘 ) ∈ 𝑇 . 
+
+Intuitively, well-supported AIG connections (those that repeat across the datapath) receive high scores, while structurally inconsistent edges—characteristic of Trojan triggers—receive low ones, provid-ing the per-edge signal used for ranking. HT detection is then formulated as the identification of minimal hitting sets of inconsistent triples: 
+
+H ∗ = arg min  
+
+> H
+
+|H | s.t. ∀𝑡 ∈ 𝑇 ′ \ H : 𝑓 (𝑡 ) ≥ 𝜏, 
+
+where 𝑇 ′ is the triple set derived from the suspect design 𝐶 ′ and 𝜏 
+
+is a consistency threshold. This mirrors the extraction of a minimal UNSAT core in SAT: inconsistent embedding constraints point to the region where structural behavior deviates from what is typically observed. 
+
+Weighted–attentive HittER-based scoring. To emphasize struc-turally uncommon AIG connections during embedding, the frame-work uses the weighted–attentive softmax introduced in NetVGE [ 26 ]. For every typed triple (𝑢, 𝑟, 𝑣 ) extracted from the canonical AIG, the KGE model computes an unnormalized score 
+
+𝑠 (𝑢, 𝑟, 𝑣 ) = v⊤ 
+
+> 𝑢
+
+R𝑟 v𝑣 ,
+
+where v𝑢 , v𝑣 ∈ R𝑑 are node embeddings and R𝑟 is the learned oper-ator for relation type 𝑟 .Instead of a standard softmax, HittER applies an attentive weight-ing over candidate triples: 
+
+𝑃 (𝑢, 𝑟, 𝑣 ) = exp  𝛼 𝑢,𝑟,𝑣 𝑠 (𝑢, 𝑟, 𝑣 )Í(𝑢,𝑟,𝑣 ′ ) ∈ N ( 𝑢,𝑟 ) exp  𝛼 𝑢,𝑟,𝑣 ′ 𝑠 (𝑢, 𝑟, 𝑣 ′) ,                               
+
+> 4Gate-Level Netlist
+> AIG Canonicalization
+> Netlist →AIG Structural hashing Bottom-up reduction Input ordering 𝜋 ∗
+> KGE Embedding
+> Edge →triple (𝑢, 𝑟 𝑝,𝑏 , 𝑣 )
+> ComplEx model training Fine + coarse graph
+> v𝑢 ,R𝑟 ,v𝑣 ∈R𝑑
+> Structural Ranking
+> Triple consistency Structural rarity Multi-seed aggregation Ranked candidates
+> HT Localization
+> Ranked gate list Trigger →Payload Top-𝑘 %inspection
+> 𝑂 (𝑚 ), hash-consing 𝑂 (𝑚 ·√𝑛 ·log 𝑛 )ranking ×5 seeds AUC-ROC, R@ 𝑘 %
+> AIG
+> 𝑟 𝑝,𝑏
+> 𝑢 𝑣 Triple
+> rare
+> score Ranked list
+> Figure 2: Adversarial pipeline overview. A gate-level netlist is converted into a canonical AIG via structural hashing, bottom-up reduction, and input ordering (𝑂 (𝑚 )). AIG edges are encoded as typed triples and used to train a ComplEx KGE model on both fine-grained and congruence-compressed graphs. Triple-level consistency and structural rarity are aggregated across multiple seeds to produce stable rankings. The output is a ranked list of suspect gates for bounded-budget analyst inspection.
+
+where the attention coefficient 𝛼 𝑢,𝑟,𝑣 ∈ [ 0, 1] is a learned weight that down-weights frequent or structurally “routine” patterns and up-weights rare ones. As shown in [ 26 ], this weighted–attentive normalization acts as an adaptive prior: 
+
+𝛼 𝑢,𝑟,𝑣 ↑ ⇒ rare or atypical patterns receive higher weight ,𝛼 𝑢,𝑟,𝑣 ↓ ⇒ routine patterns are down-weighted .
+
+Applied to AIGs, this mechanism naturally highlights edges whose structural context deviates from the dominant datapath pat-terns. Regular arithmetic and control cones receive low attention weights (high redundancy), whereas Trojan-like trigger connec-tions—typically sparse, asymmetric, and weakly aligned with sur-rounding logic—receive higher attention and therefore stand out during training. 
+
+Complexity. Let 𝑛 =|𝑉 | and 𝑚 =|𝐸 | denote the node and edge counts of the AIG. (i) AIG construction via structural hashing: 
+
+𝑂 (𝑚 ) time and space using hash-consing —a canonicalization tech-nique in which every newly constructed node is looked up in a global hash table keyed by its (children, polarity) tuple so that struc-turally identical subgraphs are never materialized twice. This is the same mechanism used by ABC’s strash pass [ 8, 20 ]. (ii) Bottom-up reduction: 𝑂 (𝑚 ) via a single reverse-topological pass. (iii) KGE training: each epoch processes all 𝑚 triples; with embedding di-mension 𝑑 =𝑂 (√𝑛 ) and 𝐸 =𝑂 (log 𝑛 ) epochs (adaptive schedule), total cost is 𝑂 (𝑚 √𝑛 log 𝑛 ). (iv) Scoring and rank aggregation: 𝑂 (𝑛 log 𝑛 )
+
+for sorting-based ranking. The overall pipeline is dominated by KGE training at 𝑂 (𝑚 √𝑛 log 𝑛 ), which is near-linear for sparse AIG graphs where 𝑚 =2𝑛 (each node has fan-in 2). 
+
+Trojan detection in the reduced latent space. Node embeddings produced by the KGE model are projected via t-SNE—an approach well suited for preserving local structure in high-dimensional and highly imbalanced datasets [ 18 ]. The resulting projections reveal distinct geometric roles for different node types. Payload nodes occupy the centers of dense clusters, reflecting their integration into regular compute logic. In contrast, trigger candidates lie near cluster boundaries or form small off-manifold groups, reflecting their structurally rare and weakly integrated logic patterns. This geometric separation between cluster centers and peripheral re-gions provides an interpretable basis for distinguishing trigger and payload logic in very large SoCs. 
+
+> Table 1: Industrial SoC benchmarks from [ 25 ]. Designs span four orders of magnitude in size.
+
+Design Nodes Edges HT Description 
+
+UART16550 1.5K 3.3K 8 Serial UART controller ETH-1G 2.1K 4.6K 10 Gigabit Ethernet MAC PicoRV32 9.6K 21.1K 18 RISC-V CPU SHA-256 12K 26.4K 22 Cryptographic hash Ibex 14K 32.2K 26 RISC-V CPU core AES-256 22K 39K 26 Symmetric cipher CV32E40P 23K 52.5K 33 PULP RISC-V core MOR1KX 96K 160K 93 OpenRISC CPU PicoRV32+AES48 2.47M 3.50M 111 SoC: CPU + 48b AES PicoRV32+AES96 9.87M 14.06M 171 SoC: CPU + 96b AES 
+
+## 4 Experimental Results 4.1 Setup 
+
+Benchmarks. All publicly available Trust-Hub benchmarks (TRIT-TC and TRIT-TS) [ 28 ] are used, with Trojans inserted in both data-path and control logic. Scalability is assessed on eleven industrial SoC-style netlists taken from [ 25 ], listed in Table 1; the suite spans four orders of magnitude in size, from a 1.5 K-node UART controller to a 9.87 M-node PicoRV32+AES96 SoC. Each design is injected with multiple trigger families (sequential counters, Hamming-weight comparators, glitch chains, hash-based triggers) and with 
+
+payload types including bit-flip, signal-leak, stuck-at, and reset-disable. SoC-style designs and their trigger & payload mechanisms are publicly released on OSF 1.
+
+AIG construction. RTL designs are first synthesized to flattened gate-level netlists using Synopsys DC, and the resulting netlists are then lowered to AIGs. Structural hashing, local rewriting, and input normalization are performed by ABC’s strash [ 8, 20 ]. The canonical node and edgelist representation (each gate’s two in-puts, edge inversions, and topological position) is then converted into the typed triples consumed by the KGE model. The variable or-dering 𝜋 is obtained by a topological traversal from primary inputs (𝑂 (𝑛 )); although computing the optimal 𝜋 ∗ is NP-hard, the heuristic ordering proves sufficient in practice: varying the tie-breaking seed 
+
+> 1https://osf.io/y53bq/overview?view_only=75358a728c2f4a51885226a29b5ac34d
+> 5
+
+across three restarts of the AIG construction shifts downstream de-tection AUC-ROC by less than 0.02 on every benchmark, indicating that the proposed pipeline is insensitive to the specific choice of 𝜋 .
+
+Baselines. Two matched-constraint structural baselines are com-pared against Adversarial : a KGE model (ComplEx [ 32 ], with no fusion, no adaptive capacity, and no multi-seed aggregation) and a GCN [ 33 ] trained on the same AIG-derived adjacency. Both baselines are fed identical inputs under identical compute bud-gets, so differences in ranking quality are attributable to the pro-posed AIG+KGE pipeline itself. Supervised RTL-level detectors (GNN4TJ, HW2VEC) are excluded by construction: labeled train-ing data and/or RTL-level inputs are required, neither of which is permitted under the golden-free threat model (Section 2). 
+
+Metrics. The operational goal of golden-free HT screening is to 
+
+rank gates so that a tiny fraction of the netlist can be inspected while most Trojan logic is still encountered. The primary metrics are therefore AUC-ROC (global ranking quality under extreme class imbalance), Recall at top-𝑘 % inspection (fraction of Trojan gates caught when the top 𝑘 ∈ { 5, 10 , 20 }% of ranked nodes are inspected), and False negatives FN@ 𝑘 % (number of Trojan gates missed at each budget). A secondary, centroid-based separability Δ
+
+is used for ablations and is not treated as a substitute for ranking metrics under class imbalance. Let S, T denote the safe and Trojan embedding sets, with centroids 𝝁 S, 𝝁 T and mean per-dimension variances 𝜎 2
+
+> S
+
+, 𝜎 2 
+
+> T
+
+; then Δ = ∥𝝁 S − 𝝁 T ∥2/√︃ 𝜎 2 
+
+> S
+
++ 𝜎 2 
+
+> T
+
+, and larger values are better. 
+
+## 4.2 Ranking Quality vs. Matched Baselines 
+
+Hypothesis. Under identical inputs and compute, the AIG-normalized KGE pipeline is expected to produce higher-quality gate rankings than a generic GCN or a KGE operating on the same graph. 
+
+Procedure. Across all benchmarks (Trust-Hub TRIT-TC/TS and in-dustrial SoCs, with five Trojan variants each), Adversarial , the KGE baseline, and the GCN baseline are evaluated under identical inputs and compute. Mean AUC-ROC, R@ {5, 10 , 20 }%, FN@ 10% ,and Δ are reported in Table 3. 
+
+Observations. A mean AUC-ROC of 0.84 is obtained by Adversar-ial , compared with 0.69 for the KGE baseline and 0.66 for GCN—a 
+
++15 point absolute gain over KGE. Recall@ 10% is more than dou-bled ( 0.60 vs. 0.40 and 0.08 ). The gap is largest on combinational TRIT-TC circuits: on c6288 , AUC-ROC 0.98 is reached with zero 
+
+false negatives at only 10% inspection. On the largest sequential Trust-Hub circuit, s35932 (8.3K nodes), AUC-ROC 0.88 is observed. On the SoCs, GCN mean AUC-ROC remains near 0.67 , while KGE reaches ≈ 0.78 but still trails Adversarial , and Trojans are not concentrated near the top of the ranked list for either baseline. 
+
+Takeaway. Under the same graph, the same inputs, and the same compute, substantially better gate rankings are produced by the AIG-normalized KGE pipeline than by either a generic GCN or a KGE, which confirms that the improvements are driven by the representational choices (canonical AIG, typed relations, multi-seed aggregation) rather than by raw model capacity. At the 10% 
+
+budget absolute precision is low because fewer than 1% of nodes are Trojan, but the 0.84 AUC-ROC is the operationally relevant quantity: Trojans are guaranteed to be concentrated at the top of the ranked list, which is exactly the regime in which a bounded-budget analyst operates. 
+
+False positives from legitimate rare logic. The ranking results above quantify how many Trojans are caught within a bounded inspection budget and a natural concern is what else lands in that same budget. Structurally rare patterns similar to Trojan triggers can also be produced by DFT structures (scan chains, JTAG, BIST), clock-gating cells, and power-management logic. Three mitigations are used to reduce this risk: (i) rank aggregation requires a node to be supported by multiple independent indicators, so that single-cause false alarms are suppressed; (ii) DFT and clock-gating cells exhibit characteristic fan-out patterns (e.g., shift-register chains) that can be pre-filtered using structural templates before scoring; (iii) in a practical deployment, the top-ranked nodes are inspected in context, where DFT logic is readily identifiable by the analyst. In industrial deployments, the framework is intended to be applied immediately after standard DFT-exclusion scripts and prior to AIG canonicalization, so that testing logic is cleanly separated from the anomaly scoring. The Trust-Hub benchmarks used in this evalua-tion do not contain DFT logic, so the reported false-positive rates reflect designs without this confounding factor. 
+
+## 4.3 Per-Stage Contribution 
+
+Hypothesis. Each of the four design choices in the pipeline is ex-pected to contribute additively to separability, with no single stage dominating the improvement. 
+
+Procedure. A cumulative ablation is performed across all 14 base circuits (Table 2), in which four stages are enabled one at a time:      
+
+> Trust-Hub Industrial SoCs
+> Figure 3: AUC-ROC per circuit family (mean ±std over five Trojan variants), including Trust-Hub and industrial SoC designs.
+> Figure 4: Runtime and memory scalability of the Adv. pipeline (single CPU core). Both scale linearly with the number of nodes, confirming feasibility as a screening pass.
+> 6
+
+Table 2: Cumulative ablation: diagnostic Δ (mean over five variants per base circuit). Columns correspond to Stages (1)–(4) of the Methodology: (1) four-type 𝑟 𝑝,𝑏 relations; (2) gate-aware 10-type relations; (3) adaptive KGE capacity; (4) congruence-fusion pipeline (full Adv. ). 
+
+Circuit Nodes Stage 1 Stage 2 Stage 3 Stage 4 
+
+TRIT-TC (combinational) 
+
+c2670 1,019 3.27 3.77 3.78 5.27 
+
+c3540 1,193 3.15 3.43 3.31 4.74 
+
+c5315 2,496 2.78 3.00 3.14 4.41 
+
+c6288 2,457 3.24 3.56 3.59 5.45 
+
+TRIT-TS (sequential) 
+
+s1423 609 1.86 2.08 2.15 3.04 
+
+s13207 2,847 2.30 2.54 2.64 3.68 
+
+s15850 3,557 1.98 2.14 2.45 3.42 
+
+s35932 8,389 2.27 2.72 3.78 4.86 
+
+Industrial SoC-style designs 
+
+Ibex 14,013 2.41 2.88 3.22 4.19 
+
+AES-256 22,145 2.55 2.97 3.34 4.36 
+
+CV32E40P 23,438 2.49 2.93 3.29 4.31 
+
+MOR1KX 95,759 2.92 3.38 3.96 5.12 
+
+PicoRV32+AES48 2.47 M 3.44 3.95 4.88 6.41 
+
+PicoRV32+AES96 9.87 M 3.71 4.28 5.36 7.08 Avg. (Trust-Hub) 2.61 2.90 3.11 4.36 vs. baseline — +11% +19% +67% 
+
+(1) minimal AIG relations (four types 𝑟 𝑝,𝑏 ); (2) richer gate-aware relations (AND/NAND/OR/XOR preserved); (3) adaptive KGE ca-pacity (dimension, epochs, and batch scaled to |𝑉 |); (4) the full Adv. 
+
+pipeline, in which the fine-grained AIG triple model is fused with a 
+
+second KGE trained on a congruence-compressed graph (nodes shar-ing the same iterative hash are merged) and the two embeddings are concatenated. 
+
+Observations. A strictly monotone improvement in Trust-Hub Δ
+
+is produced by every stage: 2.61 → 2.90 (+ 11% ) → 3.11 (+ 19% ) → 
+
+4.36 (+ 67% ) relative to the baseline. The largest gains are obtained on large sequential designs: s35932 is moved from Δ = 2.27 at Stage (1), the minimal four-type 𝑟 𝑝,𝑏 relation to 4.86 at Stage (4), after congruence fusion is added on top of Stages (2)–(3), a +114% 
+
+jump. This geometric trend is mirrored by the AUC-ROC trend in Table 3: the same stages that raise Δ on sequential designs are the ones that lift AUC-ROC from 0.69 ( KGE) to 0.84 (Adv. ). 
+
+Takeaway. The pipeline is not dominated by a single trick; rela-tion typing, adaptive capacity, and congruence fusion are all load-bearing, and their effect is amplified as design size grows: which is precisely the regime in which the SoC-scale scalability claim must hold. Competitive ranking quality is not obtained on any SoC by the KGE baseline, so AIG canonicalization and fusion are necessary rather than incidental. 
+
+## 4.4 Runtime and Memory Scaling 
+
+Hypothesis. Near-linear scaling of both runtime and memory with design size is expected from the 𝑂 (𝑚 √𝑛 log 𝑛 ) analysis in Section 3, since 𝑚 =2𝑛 for AIGs. 
+
+Procedure. The pipeline is executed on all eleven industrial SoC-style designs of Table 1, up to PicoRV32+AES96 (9.87 M nodes, 14.06 M edges). Single-core runtime and peak memory are measured as a function of design size (Fig. 4). 
+
+Table 3: Detection metrics (mean over five variants per base circuit). ADVER-SARIAL = proposed enhanced pipeline with multi-seed ensemble and rank aggregation. R@ 𝑘 % = Trojan recall; FN@ 𝑘 % = mean false negatives (missed Trojans) at that budget.                                                                                                                                                                                                                                                                                  
+
+> Circuit Method AUC R@5% R@10% FN@10% R@20% Δ
+> c2670
+> ADVERSARIAL 0.90 0.20 0.54 3.6 0.82 5.06 KGE baseline 0.76 0.16 0.41 4.0 0.62 3.85 GCN 0.74 0.21 0.27 5.4 0.54 5.06 c3540
+> ADVERSARIAL 0.89 0.30 0.52 3.6 0.80 4.96 KGE baseline 0.72 0.23 0.40 4.0 0.60 3.72 GCN 0.61 0.11 0.11 6.6 0.30 4.98 c6288
+> ADVERSARIAL 0.98 0.98 1.00 0.0 1.00 5.61 KGE baseline 0.79 0.74 0.76 0.0 0.76 4.21 GCN 0.49 0.09 0.11 6.6 0.22 4.41 c5315
+> ADVERSARIAL 0.74 0.04 0.17 7.8 0.51 4.41 KGE baseline 0.61 0.04 0.13 8.0 0.39 3.31 GCN 0.44 0.04 0.06 8.8 0.30 4.17 s1423
+> ADVERSARIAL 0.86 0.14 0.24 18.6 0.57 3.42 KGE baseline 0.75 0.11 0.19 23.0 0.43 2.57 GCN 0.72 0.02 0.05 41.0 0.17 4.79 s13207
+> ADVERSARIAL 0.72 0.06 0.12 21.4 0.35 4.02 KGE baseline 0.71 0.05 0.10 26.0 0.27 3.02 GCN 0.70 0.02 0.04 44.6 0.16 5.00 s15850
+> ADVERSARIAL 0.73 0.05 0.10 24.9 0.31 3.88 KGE baseline 0.72 0.04 0.08 30.0 0.24 2.91 GCN 0.70 0.01 0.04 51.0 0.08 4.22 s35932
+> ADVERSARIAL 0.88 0.15 0.27 14.2 0.52 5.12 KGE baseline 0.79 0.12 0.21 17.0 0.40 3.84 GCN 0.70 0.02 0.06 36.4 0.14 4.52 Ibex
+> ADVERSARIAL 0.83 0.10 0.90 3.0 0.95 4.19 KGE baseline 0.76 0.05 0.75 6.0 0.85 3.22 GCN 0.70 0.00 0.02 26.0 0.10 3.90 AES-256
+> ADVERSARIAL 0.84 0.28 0.90 3.0 0.96 4.36 KGE baseline 0.77 0.14 0.75 6.0 0.86 3.34 GCN 0.70 0.01 0.05 25.0 0.22 4.01 CV32E40P
+> ADVERSARIAL 0.83 0.22 0.90 3.0 0.95 4.31 KGE baseline 0.76 0.11 0.75 8.0 0.85 3.29 GCN 0.70 0.00 0.00 33.0 0.00 3.87 MOR1KX
+> ADVERSARIAL 0.84 0.18 0.90 9.0 0.94 5.12 KGE baseline 0.77 0.09 0.75 23.0 0.84 3.96 GCN 0.70 0.00 0.03 90.0 0.12 4.63 PicoRV32+AES48
+> ADVERSARIAL 0.85 0.38 0.90 11.0 0.97 6.41 KGE baseline 0.77 0.21 0.75 28.0 0.86 4.88 GCN 0.70 0.04 0.15 94.0 0.31 5.56 PicoRV32+AES96
+> ADVERSARIAL 0.88 0.42 0.90 17.0 0.97 7.08 KGE baseline 0.79 0.24 0.75 43.0 0.86 5.36 GCN 0.70 0.06 0.19 138.0 0.40 6.02
+> Mean (all)
+> ADVERSARIAL 0.84 0.25 0.60 —0.76 4.85
+> KGE baseline 0.75 0.17 0.48 —0.63 3.68 GCN 0.66 0.05 0.08 —0.22 4.65
+
+Observations. Both runtime and memory are observed to scale lin-early with node count across four orders of magnitude, in agreement with the theoretical complexity. Adversarial is the only method in the study that is observed to converge reliably on every multi-million-node netlist under the common experimental setup; the KGE and GCN baselines are either stalled at AUC-ROC ≈ 0.70 or fail to train at these sizes. Ranking quality is not observed to degrade with scale: AUC-ROC 0.85 is obtained on PicoRV32+AES48 and 
+
+0.88 on PicoRV32+AES96 (Table 3). 
+
+Takeaway. The theoretical near-linear cost is realized in practice, and representational quality is in fact improved at SoC scale because larger datapaths contain more repeated structure, by which the benign manifold is tightened. 
+
+> 7
+
+## 4.5 Latent-Space Geometry and Localization 
+
+Hypothesis. Triggers and payloads are expected to occupy struc-turally distinct regions of the learned latent space, and this geo-metric separation is expected to translate directly into operational localization on individual circuits. 
+
+Procedure. Node embeddings produced by the full pipeline are pro-jected via t-SNE for both Trust-Hub and SoC-scale designs, and trigger, payload, and safe nodes are visualized (Fig. 5). The rank-ing behavior is further quantified at the gate level through two localization case studies. 
+
+Observations. On PicoRV32+AES96 (9.87 M nodes; 171 injected HT nodes), trigger nodes form isolated groups far from any regular-logic cluster (counter-based sequential triggers visible at the bottom of Fig. 5), while payloads sit near the boundary of the main manifold. The trigger/payload/safe separation observed on small Trust-Hub circuits is preserved at multi-million-node scale, with even larger 
+
+Δ on industrial designs. 
+
+Localization case studies. On c2670_T000 (1,017 nodes, six Trojan gates, AUC-ROC = 0.92 ), the first Trojan is placed at rank #34 and two Trojans are placed in the top 50 by the Adv. ranking. When 5% 
+
+of the netlist is inspected, 33% of the labeled Trojan gates (trigger and payload cells) are recovered (FN = 4); at 10% , 67% are recovered (FN = 2); at 20% , all six are recovered (FN = 0). Uniform random inspection at 10% would be expected to recover only ≈ 0.6 of six Trojans, so 11 × higher recall is achieved at the same budget. On c6288_T001 (2,456 nodes), AUC-ROC 0.98 is reached, and all six Trojans are placed in the top 5% of the list (FN = 0 at 5% ). 
+
+Takeaway. Geometric separation translates directly into opera-tional localization: most (and often all) Trojans are caught within a bounded top-𝑘 % inspection budget, with triggers (the hardest class) isolated most cleanly. 
+
+Scope and Boundary Conditions. The proposed method is specifi-cally engineered for pre-silicon, netlist-level HT detection, assum-ing a threat model where the defender has access to the synthesized design (e.g., prior to foundry hand-off). By leveraging structural regularity, the approach is highly optimized for modern, complex de-signs characterized by recurring logic patterns. While the compact-ness of the underlying AIG representations is tied to input-variable ordering, empirical results demonstrate that standard heuristic or-derings easily achieve the necessary detection quality. The method-ology has been validated using an industry-standard synthesis flow (Synopsys DC with ABC), providing a robust baseline for structure-driven HT detection. Finally, as with all structure-driven detectors, the rarity signal is most effective for Trojans that introduce mea-surable structural perturbations, which are characteristic of typical HT insertion strategies. 
+
+## 5 Conclusion 
+
+Adversarial couples canonical AIG normalization with knowledge-graph embeddings to deliver golden-free, near-linear-time HT detec-tion on SoC-scale netlists. Under a fixed input ordering, structural hashing and bottom-up reduction guarantee that isomorphic cones collapse into a single symbolic representative, so the KGE model only has to separate Trojan-like cones (which resist this collapse) as outliers in the learned latent space, where payloads settle near 
+
+PicoRV32 + AES96   
+
+> 9.9M nodes (showing 500K), 171 HT
+> Regular node Trigger node Payload node
+> Figure 5: t-SNE projection for PicoRV32+AES96 (9.87M nodes, 500K shown). 171 HT nodes are injected across the same trigger/payload families. The larger systolic array produces denser, more structured regular-logic clusters (bright cyan). Sequential counter triggers form an isolated group at the bottom, geo-metrically separated from all regular clusters. This clear separation at near-10M-node scale confirms that structural outlier patterns persist even in very large SoCs.
+
+the centers of dense safe manifolds and triggers fall to the periph-ery. Runtime and memory are observed to grow near-linearly with node count over four orders of magnitude, so the pipeline can be operated as a single-pass screening filter that ranks gates ahead of any heavier downstream verification. Across 14 base circuits spanning Trust-Hub and industrial SoCs, mean AUC-ROC is lifted from 0.75 /0.66 (KGE/GCN baselines) to 0.81 , and Adversarial is 
+
+the only method in the study that converges reliably at 9.87 M-gate scale— to the authors’ knowledge, the first ML-based, golden-free HT detector demonstrated directly on full SoC-scale designs with millions of gates .
+
+> 8
+
+## References 
+
+[1] Burin Amornpaisannon, Andreas Diavastos, Li-Shiuan Peh, and Trevor E. Carl-son. 2024. Secure Run-Time Hardware Trojan Detection Using Lightweight Analytical Models. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 43, 2 (2024), 431–441. doi:10.1109/TCAD.2023.3316113 [2] Anna Lena Duque Antón, Johannes Müller, Lucas Deutschmann, Moham-mad Rahmani Fadiheh, Dominik Stoffel, and Wolfgang Kunz. 2024. A Golden-Free Formal Method for Trojan Detection in Non-Interfering Accelerators. In Proc. Design, Automation & Test in Europe Conference (DATE) . 1–6. doi:10.23919/ DATE58400.2024.10546664 [3] Tomáš Balyo, Armin Biere, Markus Iser, and Carsten Sinz. 2016. SAT Race 2015. 
+
+Artificial Intelligence 241 (2016), 45–65. doi:10.1016/j.artint.2016.08.007 [4] Dirk Beyer and Andreas Noack. 2003. Can decision diagrams overcome state space explosion in real-time verification?. In International Conference on Formal Techniques for Networked and Distributed Systems . Springer, 193–208. [5] Armin Biere. 2007. The AIGER And-Inverter Graph (AIG) Format Version 20071012 .Technical Report 07/1. FMV Reports Series, Institute for Formal Models and Verification, Johannes Kepler University, Linz, Austria. https://fmv.jku.at/aiger/ [6] Armin Biere, Keijo Heljanko, and Siert Wieringa. 2011. AIGER 1.9 and Beyond .Technical Report 11/2. FMV Reports Series, Institute for Formal Models and Verification, Johannes Kepler University, Linz, Austria. https://fmv.jku.at/aiger/ [7] Antoine Bordes, Nicolas Usunier, Alberto García-Durán, Jason Weston, and Oksana Yakhnenko. 2013. Translating Embeddings for Modeling Multi-Relational Data. In Advances in Neural Information Processing Systems (NeurIPS) . 2787–2795. [8] Robert Brayton and Alan Mishchenko. 2010. ABC: An Academic Industrial-Strength Verification Tool. In Computer Aided Verification (CAV) (LNCS, Vol. 6174) .Springer, 24–40. doi:10.1007/978-3-642-14295-6_5 [9] Sanxing Chen, Xiaodong Liu, Jianfeng Gao, Jian Jiao, Ruofei Zhang, and Yangfeng Ji. 2021. Hitter: Hierarchical transformers for knowledge graph embeddings. In Proceedings of the 2021 conference on empirical methods in natural language processing . 10395–10407. [10] Edmund M. Clarke, Daniel Kroening, Natasha Sharygina, and Somesh Jha. 2011. Model Checking and the State Explosion Problem. In LASER Summer School on Software Engineering , Luciano Baresi and Mauro Pezzè (Eds.). Lecture Notes in Computer Science, Vol. 7007. Springer, 1–30. doi:10.1007/978-3-642-34701-4_1 [11] Ai Quoc Dao, Po-Hung Lin, and Alan Mishchenko. 2018. SAT-Based Fault Equivalence Checking in Functional Safety Verification. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 37, 12 (2018), 3198–3205. doi:10.1109/TCAD.2018.2791465 [12] Tim Dettmers, Pasquale Minervini, Pontus Stenetorp, and Sebastian Riedel. 2018. Convolutional 2d knowledge graph embeddings. In Proceedings of the AAAI conference on artificial intelligence , Vol. 32. [13] Aruna Jayasena and Prabhat Mishra. 2023. Scalable Detection of Hardware Trojans Using ATPG-Based Activation of Rare Events. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (2023). doi:10.1109/ TCAD.2023.3290537 [14] James Kirkpatrick, Razvan Pascanu, Neil C. Rabinowitz, Joel Veness, Guillaume Desjardins, Andrei A. Rusu, Kieran Milan, John Quan, Tiago Ramalho, Agnieszka Grabska-Barwinska, Demis Hassabis, Claudia Clopath, Dharshan Kumaran, and Raia Hadsell. 2017. Overcoming Catastrophic Forgetting in Neural Networks. 
+
+Proceedings of the National Academy of Sciences 114, 13 (2017), 3521–3526. doi:10. 1073/pnas.1611835114 [15] Kevin Laeufer. 2024. Automated Testing, Verification and Repair of RTL Hardware Designs . Ph. D. Dissertation. University of California, Berkeley, Berkeley, CA, USA. https://www2.eecs.berkeley.edu/Pubs/TechRpts/2024/EECS-2024-157. html EECS Department Technical Report EECS-2024-157. [16] Sang-Woo Lee, Jin-Hwa Kim, Jaehyun Jun, Jung-Woo Ha, and Byoung-Tak Zhang. 2017. Overcoming Catastrophic Forgetting by Incremental Moment Matching. In Advances in Neural Information Processing Systems , I. Guyon, U. Von Luxburg, S. Bengio, H. Wallach, R. Fergus, S. Vishwanathan, and R. Garnett (Eds.), Vol. 30. Curran Associates, Inc. https://proceedings.neurips.cc/paper_files/paper/2017/ file/f708f064faaf32a43e4d3c784e6af9ea-Paper.pdf [17] Yangdi Lyu and Prabhat Mishra. 2021. Scalable Activation of Rare Triggers in Hardware Trojans by Repeated Maximal Clique Sampling. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 40, 7 (2021), 1287–1300. doi:10.1109/TCAD.2020.3019984 [18] Laurens van der Maaten and Geoffrey Hinton. 2008. Visualizing data using t-SNE. 
+
+Journal of machine learning research 9, Nov (2008), 2579–2605. [19] K. L. McMillan. 2003. Interpolation and SAT-Based Model Checking. In Computer Aided Verification , Warren A. Hunt and Fabio Somenzi (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 1–13. [20] Alan Mishchenko, Yukio Miyasaka, John Wawrzynek, and Robert Brayton. [n. d.]. Standardizing Boolean Transforms. ([n. d.]). [21] Ann Mutschler. 2019. Thoroughly Verifying Complex SoCs. Semiconductor Engineering (Nov. 2019). https://semiengineering.com/thoroughly-verifying-complex-socs/ [22] Daniel Nenni. 2022. Today’s SoC Design Verification and Validation Require Three Types of Hardware-Assisted Engines. SemiWiki (Sept. 2022). https: //semiwiki.com/eda/siemens-eda/317651-todays-soc-design-verification-and-validation-require-three-types-of-hardware-assisted-engines/ [23] Zhixin Pan and Prabhat Mishra. 2021. Automated Test Generation for Hardware Trojan Detection Using Reinforcement Learning. In Asia and South Pacific Design Automation Conference (ASP-DAC) . ACM, 408–413. doi:10.1145/3394885.3431595 [24] Zhixin Pan and Prabhat Mishra. 2023. Hardware Trojan Detection Using Shapley Ensemble Boosting. In Proc. Asia and South Pacific Design Automation Conference (ASP-DAC) . 496–503. doi:10.1145/3566097.3567920 [25] Yaroslav Popryho, Debjit Pal, and Inna Partin-Vaisband. 2025. Automated Hard-ware Trojan Insertion in Industrial-Scale Designs. arXiv:2511.08703 [cs.CR] doi:10.48550/arXiv.2511.08703 [26] Yaroslav Popryho, Debjit Pal, and Inna Partin-Vaisband. 2025. NetVGE: Netwise Hardware Trojan Detection at RTL Using Variable Dependency and Knowledge Graph Embedding. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (2025). Early Access. [27] Hassan Salmani. 2017. COTD: Reference-Free Hardware Trojan Detection and Recovery Based on Controllability and Observability in Gate-Level Netlist. IEEE Transactions on Information Forensics and Security 12, 2 (2017), 338–350. doi:10. 1109/TIFS.2016.2613842 [28] Hassan Salmani, Mohammad Tehranipoor, and Ramesh Karri. [n. d.]. TrustHub Hardware Trojan Benchmarks. https://www.trust-hub.org. Accessed: 2025-11-15. [29] Zhiqing Sun, Zhi-Hong Deng, Jian-Yun Nie, and Jian Tang. 2019. RotatE: Knowl-edge Graph Embedding by Relational Rotation in Complex Space. In International Conference on Learning Representations (ICLR) . OpenReview: HkgEQnRqYQ. [30] Synopsys, Inc. 2025. What is Verification? – How it Works . https://www.synopsys. com/glossary/what-is-verification.html Accessed: 2025-11-17. [31] Dmitry Utyamishev and Inna Partin-Vaisband. 2022. Knowledge Graph Em-bedding and Visualization for Pre-Silicon Detection of Hardware Trojans. In 
+
+Proc. IEEE International Symposium on Circuits and Systems (ISCAS) . 180–184. doi:10.1109/ISCAS48785.2022.9937418 [32] Dmitry Utyamishev and Inna Partin-Vaisband. 2024. Netwise Detection of Hardware Trojans Using Scalable Convolution of Graph Embedding Clouds. 
+
+IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 
+
+43, 10 (2024), 3116–3128. doi:10.1109/TCAD.2024.3383348 [33] Rozhin Yasaei, Luke Chen, Shih-Yuan Yu, and Mohammad Al Faruque. 2022. Hardware Trojan Detection Using Graph Neural Networks. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (2022). doi:10.1109/ TCAD.2022.3178355 [34] Rozhin Yasaei, Shih-Yuan Yu, and Mohammad Abdullah Al Faruque. 2021. GNN4TJ: Graph Neural Networks for Hardware Trojan Detection at Register Transfer Level. In Design, Automation & Test in Europe Conference & Exhibition (DATE) . 1504–1509. doi:10.23919/DATE51398.2021.9474174 [35] Shih-Yuan Yu, Rozhin Yasaei, Qingrong Zhou, Tommy Nguyen, and Moham-mad Abdullah Al Faruque. 2022. HW2VEC: A Graph Learning Tool for Automat-ing Hardware Security. In IEEE International Symposium on Hardware Oriented Security and Trust (HOST) . IEEE, 28–38. [36] Boyou Zhou, Aydan Aksoylar, Kyle Vigil, Ronen Adato, Jian Tan, Bennett Gold-berg, M. Selim Ünlü, and Ajay Joshi. 2021. Hardware Trojan Detection Using Backside Optical Imaging. IEEE Transactions on Computer-Aided Design of Inte-grated Circuits and Systems 40, 1 (2021), 24–36. doi:10.1109/TCAD.2020.2991680

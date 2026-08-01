@@ -1,0 +1,989 @@
+Title: Kairos: Generating Tick-Indexed Proof Obligations for Synchronous Temporal Contracts
+
+URL Source: https://arxiv.org/pdf/2607.23178v1
+
+Published Time: Tue, 28 Jul 2026 00:34:27 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Kairos: Generating Tick-Indexed Proof Obligations for Synchronous Temporal Contracts 
+
+Frédéric Dabrowski 
+
+Univ. Orléans, INSA Centre Val de Loire, LIFO UR 4022, Orléans, France 
+
+frederic.dabrowski@univ-orleans.fr 
+
+Abstract. Requirements for synchronous programs relate observations across ticks, while general-purpose deductive backends use first-order conditions on local steps. Kairos is a prototype toolchain generating such obligations from synchronous programs and source-level temporal safety contracts in assume-guarantee form. Using the standard automata-theoretic reduction, it translates their linear temporal logic (LTL) formu-las into bad-state automata, forms their product with the program, and derives tick-indexed Why3 obligations. We formalize the underlying prin-ciples and prove reactive contract correctness: under the stated program and automaton hypotheses, every input trace satisfying the environment assumptions induces a unique execution satisfying the temporal guaran-tees. The definitions, obligation construction, and proof are mechanized in Rocq. A medical infusion controller illustrates the workflow. 
+
+Keywords: deductive verification · temporal contracts · synchronous software · proof obligations · verification tools 
+
+# 1 Introduction 
+
+Synchronous reactive programs execute in logical ticks: each tick samples inputs, updates internal state, and publishes outputs. Their requirements are naturally temporal: an alarm should remain latched until it is acknowledged, a motor should stay off while a hazard is active, and displayed values should track accumulated histories. Classical automata-theoretic verification represents temporal specifica-tions by automata and reasons over a product with the program transition system [ 23 , 2]. For safety properties, the proof can be organized as an invariant-style exclusion of bad product states [1]. Connecting this invariant argument to a general-purpose deductive backend requires transforming product transitions into first-order pre/postconditions for program commands. This transformation raises several related challenges: one product source may admit several compatible guarantee successors, proved safe incoming cases must be propagated as a disjunction to the obligations generated from their destination, source and destination annotations describe histories before and after the command, so their historical reads require explicit shifts, and assumption-bad and guarantee-bad successors impose different proof requirements. The result must be a finite family of first-order obligations that arXiv:2607.23178v1 [cs.LO] 25 Jul 2026 2 F. Dabrowski 
+
+covers every compatible automaton successor and preserves the semantics of historical assertions. 
+
+Kairos realizes this bridge for a synchronous source language. Users write source-level assume/guarantee safety contracts over current and historical values. The prototype translates them to safety automata and synchronizes the automata with normalized program ticks. It then groups the resulting product cases by normalized tick, product source, and assumption successor, retaining every com-patible guarantee successor in guarded disjunctive postconditions, transporting historical assertions between tick endpoints, and emitting preservation or bad-guarantee exclusion tasks. Why3 then receives first-order obligations around the actual command body [15]. Under the stated program and automaton hypotheses, validity of the gen-erated obligations entails reactive correctness: every input trace satisfying the assumptions induces a unique execution satisfying the temporal guarantees. The argument, mechanized in Rocq, connects these local obligations to the trace-level result. 
+
+Contributions. We contribute the Kairos language and end-to-end toolchain, illustrated by a medical infusion controller; the tick-indexed obligation construc-tion; and its mechanized reactive-correctness theorem. The implementation and Rocq formalization are available online. 
+
+# 2 Running Example 
+
+This section introduces the Kairos language through a medical infusion controller represented as a node , the unit compiled and verified by the tool. At each tick, it samples an infusion request ( infusionRequested ), acknowledgment of a latched alarm ( ack ), occlusion signal ( occlusion ), requested rate ( rate ), volume delivered during the preceding sampling interval ( delivered ), and prescription-or device-configured limits ( maxRate , doseLimit ). It outputs the next-interval motor command ( motorOn ), latched alarm state ( alarmLatched ), and cumulative delivered dose ( totalDose ). Listing 1.1 shows a compact fragment centered on the alarm-response transition and its immediate-response and weak-until guarantees, followed below. It omits predicates and branches supporting admission, initialization, flow checks, and alarm release, whose relevant roles are described below. Node contracts are safety LTL formulas over tick-observation sequences, with atomic propositions given by first-order assertions whose historical expressions may read current values or bounded history. Besides standard Boolean connectives, 
+
+X φ requires φ at the next tick, G φ at every tick, and φ W ψ requires φ until ψ,or forever if ψ never occurs. Within atoms, pre(x) reads x one tick back and 
+
+pre_k(x,k) k ticks back; every historical read must be initialized on each path to its use. The listing uses one-step history in the observer recurrence and a temporal predicate; deeper reads are supported but unnecessary here. Kairos Tick-Indexed Proof Obligations 3
+
+Listing 1.1. Medical infusion controller fragment used in the running example.  
+
+> 1
+
+spec def holds_until_release(trigger: Formula, hold: Formula,  
+
+> 2
+
+clear: Formula) = X G ($trigger => X($hold W $clear));  
+
+> 3
+
+node medical_infusion_light(  
+
+> 4
+
+infusionRequested: bool, occlusion: bool, ack: bool,  
+
+> 5
+
+rate: int, delivered: int, maxRate: int, doseLimit: int)  
+
+> 6
+
+returns (motorOn: bool, alarmLatched: bool, totalDose: int)  
+
+> 7
+
+observers  
+
+> 8
+
+measuredDose : int = delivered -> pre(measuredDose) + delivered;  
+
+> 9
+
+predicate hazardActive() = occlusion = true;  
+
+> 10
+
+predicate alarmCondition() = hazardActive() or rate > maxRate  
+
+> 11
+
+or totalDose + delivered > doseLimit or unexpectedFlow();  
+
+> 12
+
+predicate doseWouldExceedAtTickEntry() =  
+
+> 13
+
+pre(totalDose) + delivered > doseLimit;  
+
+> 14
+
+predicate alarmConditionAtTickEntry() =  
+
+> 15
+
+hazardActive() or rate > maxRate or doseWouldExceedAtTickEntry()  
+
+> 16
+
+or unexpectedFlowAtTickEntry();  
+
+> 17
+
+predicate clearAlarmAtTickEntry() =  
+
+> 18
+
+ack = true and not alarmConditionAtTickEntry();  
+
+> 19
+
+// omitted: admission, initialization, flow, and executable release  
+
+> 20
+
+action finishTick() { totalDose := totalDose + delivered; }  
+
+> 21
+
+contracts  
+
+> 22
+
+requires: G (rate >= 0 and delivered >= 0  
+
+> 23
+
+and maxRate >= 0 and doseLimit >= 0);  
+
+> 24
+
+ensures: G ((hazardActive() or rate > maxRate) =>  
+
+> 25
+
+alarmLatched = true and motorOn = false);  
+
+> 26
+
+ensures: holds_until_release([alarmLatched = true and ack = false],  
+
+> 27
+
+[alarmLatched = true and motorOn = false],[clearAlarmAtTickEntry()]);  
+
+> 28
+
+// omitted: dose, display, flow, latch, and bounded-operation guarantees  
+
+> 29
+
+states  
+
+> 30
+
+Init(init), Idle, Running, AlarmResponse, AlarmLatched;  
+
+> 31
+
+invariants  
+
+> 32
+
+in states except {Init}: totalDose = measuredDose;  
+
+> 33
+
+in states except {Init, Running}: motorOn = false;  
+
+> 34
+
+in {AlarmResponse, AlarmLatched}: alarmLatched = true;  
+
+> 35
+
+transitions  
+
+> 36
+
+// omitted: Init, Idle, and AlarmResponse branches  
+
+> 37
+
+Running:  
+
+> 38
+
+to AlarmResponse when alarmCondition()  
+
+> 39
+
+{ motorOn, alarmLatched := false, true; finishTick(); }  
+
+> 40
+
+to Running when admittedNow() { finishTick(); }  
+
+> 41
+
+to Idle { motorOn, alarmLatched := false, false; finishTick(); }  
+
+> 42
+
+AlarmLatched:  
+
+> 43
+
+to AlarmResponse when alarmCondition() { finishTick(); }  
+
+> 44
+
+to Idle when clearAlarm() { motorOn, alarmLatched := false, false; }  
+
+> 45
+
+end 4 F. Dabrowski 
+
+Lines 1–2 define holds_until_release . Its Formula parameters are instan-tiated by bracketed call-site formulas, whose occurrences are marked by $. Spec-ification definitions may also accept historical expressions or expansion-time natural numbers, for example to set pre_k depths. Lines 3–6 declare the node interface, separating sampled environment inputs from controller-maintained outputs; nodes may also declare persistent locals, absent here. Lines 7–20 contain constructs elaborated before obligation generation. The specification-only observer defines cumulative delivery: measuredDose is initially 
+
+delivered and thereafter its previous value plus the current sample. Predicates are pure Boolean macros: executable uses are evaluated without history at transition entry, whereas contract uses are evaluated on tick observations and may contain pre . Lines 12–16 reconstruct entry dose overflow and combine it with occlusion, excessive rate, and positive delivery after pre(motorOn) was false; lines 17–18 require ack and negate that condition for release. Omitted predicates handle admission (a request, no alarm or hazard, in-range values, and either a previously active motor or zero delivery), first-tick initialization, and the corresponding executable release. finishTick expands to totalDose := totalDose + delivered in each transition body. Elaboration expands definitions and macros, lowers observers to proof-only variables updated after transitions, and yields contracts over a finite control graph. Lines 21–28 declare contracts: requires states an input-only environment assumption, under which each ensures is proved. The shown guarantees demand a latched alarm and stopped motor on occlusion or excessive rate, and maintain that response after an unacknowledged alarm until an acknowledged alarm-free release (or forever). Omitted guarantees require displayed and observed cumulative dose to agree from the next tick onward, and cover unexpected delivery, alarm latching, and dose bounds. Lines 29–34 declare finite control, with Init(init) initial, and attach first-order invariants to states selected by in . These are local proof annotations, not global assumptions: obligations may use the source annotation and must establish the destination annotation. Since destination invariants are shifted into command postconditions, they may read past but not current input samples. The three shown annotations relate display to observer, keep the motor off outside infusion, and characterize alarm states. Lines 35–45 show selected transitions. Omitted Init branches test initial alarm and admission, initialize outputs, and enter the main control states; Idle 
+
+likewise prioritizes alarm over admission and otherwise self-loops with the motor off. AlarmResponse branches handle a fresh alarm or enter AlarmLatched .In to S when g { c } , selecting g moves control to S and executes c. Com-mand bodies support assignments, skip , conditionals, matches, and annotated 
+
+while loops. Source order sets priority; if no branch is enabled at a state, in-cluding one with no declared transitions, normalization adds an empty self-step. An unguarded final branch is therefore used as the default, as in Running , and multiple assignment updates both outputs together. Kairos Tick-Indexed Proof Obligations 5
+
+Operationally, each logical tick starts from stored control, outputs, and locals, then samples fresh inputs. The selected transition atomically updates control and store; the visible observation combines sampled inputs with resulting outputs, while unassigned outputs and locals persist. Iterating this reaction over successive samples of an input stream yields the node’s visible input/output trace. 
+
+# 3 Obligation-Generation Pipeline 
+
+This section follows the medical controller’s Running -to-AlarmResponse transi-tion through the executable pipeline, from source-node normalization and product summarization to the finite first-order contracts submitted to Why3, and provides intuition for the construction proved correct in Section 4. 
+
+From source ticks to product summaries. Obligation construction starts from normalized transitions with a priority-aware guard and atomic body. First, the source assumptions are conjoined into a single requirement R. Spot checks that 
+
+R and each Gi denote safety properties, then builds one complete assumption automaton AR and one complete guarantee automaton AGi for each Gi [ 14 ]. Completeness means that every state has an outgoing edge for every tick observa-tion. For each i, Kairos forms the synchronized product P × AR × AGi . A bad state records a violating prefix. Assumption-bad successors impose no guarantee obligation and are discarded. From active product sources, whose assumption and guarantee components are both non-bad, Kairos groups the remaining edges by product source, normalized program transition, and assumption edge, producing one summary per group. A summary may therefore contain several guarantee edges for the same program transition. Intuitively, the guarantee automaton may admit several continuations for that reaction; their guards identify those compatible with the resulting observation, and verification must establish that at least one is enabled. For illustration, let C denote the predicate clearAlarmAtTickEntry , and let T ≡ alarmLatched ∧ ¬ ack , D ≡ occlusion ∨ rate > maxRate , and H ≡
+
+alarmLatched ∧ ¬ motorOn . We consider only the guarantees GW ≡ XG (T ⇒
+
+X(H W C)) and GA ≡ G(D ⇒ H). Space precludes displaying P × AR × AGW
+
+and P × AR × AGA in full. The automata AR, A GW , A GA respectively have states A0, A bad , GW 
+
+> 0
+
+, G W 
+
+> 1
+
+, G W 
+
+> 2
+
+, G W
+
+> bad
+
+, and GA 
+
+> 0
+
+, G A
+
+> bad
+
+; the 0-states are initial, the explicitly marked states are bad, and all others non-bad. For the program transition τA : Running → AlarmResponse , grouping the induced edges yields summaries σW and σA. Both use eR : A0
+
+> α
+
+−→ A0. Their respective source keys are 
+
+κW = ( Running , A 0, G W 
+
+> 2
+
+) and κA = ( Running , A 0, G A 
+
+> 0
+
+). Their guarantee-edge projections, partitioned into safe and bad G successors, are 
+
+σW : safe : GW
+
+> 2
+> γa
+
+−→ GW 
+
+> 2
+
+, GW
+
+> 2
+> γp
+
+−→ GW 
+
+> 1
+
+;
+
+σA : safe : GA
+
+> 0
+> γs
+
+−→ GA 
+
+> 0
+
+, bad G : GA
+
+> 0
+> γb
+
+−→ GA
+
+> bad
+
+.
+
+For readability, we show source-level formulas equivalent to the emitted ex-panded guards. The assumption edge has guard α ≡ rate ≥ 0 ∧ delivered ≥6 F. Dabrowski 
+
+0 ∧ maxRate ≥ 0 ∧ doseLimit ≥ 0. The weak-until edges use γa ≡ ack ∨¬alarmLatched and γp ≡ ¬ ack ∧ alarmLatched ; the GA edges use γs ≡ ¬ D ∨ H
+
+for satisfaction and γb ≡ D ∧ ¬ H for violation. 
+
+From the summaries to proof obligations. For σ ∈ { σW , σ A}, the generated precondition has the same abstract shape 
+
+Pre σ = URunning ∧ Incoming (κσ ) ∧ Bσ ∧ α ∧ EntryCoherence .URunning is the current user annotation, including totalDose = measuredDose .Section 4.3 defines Incoming exactly. For both κW and κA, it is a disjunction of safe 
+
+Init , Idle , and Running predecessor cases. At source level, each case says that the preceding tick admitted infusion and reached Running with ¬alarmLatched ∧
+
+totalDose = measuredDose . The cases differ in predecessor control state and in the transported source annotation, program and guarantee guards, sampled-input assumption, and body equations. The remaining factors concern the current tick: 
+
+Bσ represents the normalized alarmCondition() guard at tick entry, α is the assumption-edge guard defined above, and EntryCoherence enforces y = pre (y)
+
+for every stored non-input y.The outgoing guarantee cases determine the postconditions: SomeSafe σW =
+
+γa ∨ γp, SomeSafe σA = γs, and NoBad σA = ¬γb. For X ∈ { W, A }, the resulting postconditions have the abstract shapes 
+
+Post + 
+
+> σX
+
+= SomeSafe σX ∧ Inv post  
+
+> AlarmResponse
+
+∧ Contrib post  
+
+> σX
+
+, Post − 
+
+> σA
+
+= NoBad σA .
+
+Safe successors share the AlarmResponse annotation H ∧ totalDose =
+
+measuredDose , yielding Inv post 
+
+> AlarmResponse
+
+. Its transport is trivial here; generally, past reads move one boundary toward the present and current-input reads are ex-cluded because the destination sample is unavailable. For σ ∈ { σW , σ A}, each safe edge e targeting a noninitial key contributes to Contrib post  
+
+> σ
+
+a γe-guarded record transporting URunning and Bσ to the post-state and retaining α, γe, and βσ , the body-effect formula. The soundness result is parametric in βσ : any strengthening proved by the safe obligation may be propagated, and ⊤ is always admissible. The prototype proposes βσ by straight-line symbolic execution, adding frame equalities and forgetting variables modified by unsupported compound statements. Thus σW records γa and γp for GW 
+
+> 2
+
+and GW 
+
+> 1
+
+, while σA records γs for GA 
+
+> 0
+
+; the destination annotation is the separate Inv post conjunct. The common body cτA
+
+establishes H, increments both totalDose and measuredDose by delivered .For σW , γa ∨ γp reduces to ack ∨ ¬ ack , establishing safe progress; for σA, H
+
+establishes γs and excludes γb. Together, these facts establish SomeSafe , which asserts the existence of a compatible non-bad guarantee successor; Contrib post 
+
+instead carries proved path facts into later preconditions. The resulting formulas yield the positive contracts for both summaries and the alarm-response exclusion contract around the same body: 
+
+{Pre σW } cτA {Post + 
+
+> σW
+
+}, {Pre σA } cτA {Post + 
+
+> σA
+
+}, {Pre σA } cτA {Post − 
+
+> σA
+
+}.Kairos Tick-Indexed Proof Obligations 7
+
+The semantic safety goal excludes any product step to a guarantee-bad state while the assumption remains non-bad. Inductively, each safe obligation proves a compatible safe successor and a sound post-state record; transporting that record into the destination characteristic strengthens later local preconditions. Thus every propagated fact derives from a proved safe-predecessor obligation. 
+
+From proof obligations to Why3. The backend lowers the remaining symbolic 
+
+pre /pre_k reads to immutable WhyML parameters for source-history slots. The obligations quantify universally over these parameters, which represent the considered tick history. Their discharge proves total correctness of the normalized body, justifying the total statement denotation used in Section 4. 
+
+Generated artifacts. The following table reports artifacts generated for the accepted medical programs. The light case is the running example; the full case adds patient-controlled boluses with remaining-dose memory, post-bolus lockout, explicit stop handling, another setup hazard, and richer display/audit histories for peak rate and classified delivered dose. Proof timings use 10 parallel jobs and a 20 s per-goal timeout. LoC counts non-comment lines; St., Tr., A, and G count states, transitions, assumptions, and guarantees. Prod./Summ. count product states and canonical intermediate-representation summaries across all guarantees; summaries precede backend grouping, whereas Safe/BadG count the resulting Why3 goals after grouping and splitting. Valid gives discharged/total goals; Wall gives elapsed Kairos time in seconds.                     
+
+> Case LoC St. Tr. A/G Prod. Summ. Safe BadG Valid Wall(s) medical light 81 512 1/7 34 95 17 69 86/86 0.9 medical full 502 943 2/21 186 882 56 638 694/694 32.3
+
+Both medical examples are available in the repository, together with further examples and counterexamples used for regression testing. 
+
+# 4 Correctness of Generated Obligations 
+
+This section establishes the correctness of the mathematical construction underly-ing the obligations of Section 3. The proof has two layers. A standard bad-prefix argument reduces contract validity to a local invariant certificate. The Kairos -specific layer instantiates this argument with the normalized statement core, constructs its summaries and deductive obligations, and proves that their validity provides such a certificate. Each layer states its own assumptions: automata must expose violations, normalized programs must react deterministically without changing inputs, and generated formulas must encode product cases at available history depths. 
+
+4.1 Product semantics and invariant certificate 
+
+At the semantic level, we represent a program by a labelled transition system 
+
+P = ( S, s 0, O, ·
+
+−→), where S is its state space, s0 ∈ S its initial state, O its 8 F. Dabrowski 
+
+observation space, and ·
+
+−→⊆ S × O × S its labelled transition relation. Intuitively, 
+
+s o
+
+−→ s′ represents one logical tick from s to s′, and o carries the semantic data on which contract guards are evaluated; the normalized instance below exposes inputs and outputs through a projection of this label. An observation automaton over U is A = ( Q, q 0, bad , δ ), where Q is its state space, q0 ∈ Q its initial state, 
+
+bad ⊆ Q its set of bad states, and δ ⊆ U × Q × Q its transition relation. It is complete when ∀u, q. ∃q′. δ (u, q, q ′). For w ∈ U ω , let Covered A(w) mean that every finite prefix of w labels a run from q0, and let BadReach A(w) mean that some such run reaches bad . The induced safety semantics on infinite words is 
+
+w ⊩ A ⇐⇒ Covered A(w) ∧ ¬ BadReach A(w).
+
+The coverage conjunct is essential: absence of a reachable bad state alone would let a partial automaton accept by blocking. Both contract automata read O.Since safety is closed under conjunction, the formalization uses one AG for all guarantees; the implementation processes them separately to avoid a larger conjunctive automaton and product. Synchronizing the program and automata makes a contract violation a reach-able product state with a non-bad assumption and bad guarantee component. For supplied automata AR = ( QR, r 0, bad R, δ R) and AG = ( QG, g 0, bad G, δ G),product states are x = ( s, r, g ), and the initial state is x0 = ( s0, r 0, g 0).
+
+Standing automaton assumptions. Assume non-bad initial states, complete AG,and absorbing AR-bad states: bad R(r) ∧ δR(o, r, r ′) ⇒ bad R(r′). These support initialization, trace coverage, and invariant soundness; finite edge lists and trace characterization appear below. The product synchronizes them on the observation labeling the program step: 
+
+(s, r, g ) o
+
+=⇒ (s′, r ′, g ′) ⇐⇒ s o
+
+−→ s′ ∧ δR(o, r, r ′) ∧ δG(o, g, g ′).
+
+We distinguish active states from guarantee-bad states: 
+
+Active (s, r, g ) ≜ ¬bad R(r) ∧ ¬ bad G(g), BadG (s, r, g ) ≜ ¬bad R(r) ∧ bad G(g).
+
+Writing ∗
+
+=⇒ for product reachability, with edge labels existentially hidden, define 
+
+ContractValid (P, A R, A G) ≜ ∀x. x 0
+
+> ∗
+
+=⇒ x ⇒ ¬ BadG (x).
+
+Along a product path, absorption means that a non-bad assumption state rules out an earlier bad assumption state on that path. No analogous condition is required for AG, since reaching a guarantee-bad state while the assumption is non-bad already yields a violating prefix. To establish ContractValid (P, A R, A G) inductively, we use a predicate I over product states to record the state facts carried between active states. It is a certificate when, for every edge label o, it satisfies 
+
+Init : I(x0) ∧ ¬ BadG (x0),
+
+Pres : I(x) ∧ Active (x) ∧ x o
+
+=⇒ y ∧ Active (y) ⇒ I(y),
+
+Excl : I(x) ∧ Active (x) ∧ x o
+
+=⇒ y ∧ BadG (y) ⇒ ⊥ .
+
+(1) Kairos Tick-Indexed Proof Obligations 9
+
+The non-bad Init conjunct follows from the standing assumptions and is not generated. Thus Pres handles active successors, Excl rules out guarantee-bad successors, and assumption-bad successors require no condition. 
+
+Theorem 1 (Invariant soundness). Every predicate satisfying (1) establishes 
+
+ContractValid (P, A R, A G).
+
+Alpern and Schneider combine invariants for safety with candidate and variant functions for liveness over Boolean combinations of Büchi automata [ 2]. Our theorem retains only the safety-invariant component of their method and specializes the invariant domain to the combined state of a program with separate assumption and guarantee safety automata. This specialization yields an asymmetric proof rule: assumption-bad successors carry no obligation, whereas guarantee-bad successors are excluded while the assumption remains non-bad. The following subsections connect this principle to the toolchain by defining the normalized tick semantics and proving that the generated first-order obligations establish the required certificate. 
+
+4.2 Normalized programs and tick semantics 
+
+We now instantiate P with normalized tick semantics, exposing the endpoints used by generated assertions. Fix sets Var and V of variables and values. A store is a valuation ρ ∈ Store = Var → V . An executable expression is modeled extensionally as an element of Expr = Store → V , and a guard as an element of Guard = 2 Store . A statement is represented extensionally by a total state transformer Stmt = Store → Store . We use e ∈ Expr , b ∈ Guard , and c ∈ Stmt 
+
+as metavariables; e(ρ) and c(ρ) denote expression evaluation and statement execution. Modeling executable expressions and statements as total functions simplifies the temporal proof. Kairos accepts a program only after Why3 has established, under each generated transition precondition, that the corresponding body is defined, fault-free, and terminating; totality is therefore not an additional assumption for accepted programs. To interpret transported assertions, memories contain both a persistent store and its history. Let Hist = ( Var × N) → V , and let M be the set of memories m =(ρm, past m), with ρm ∈ Store and past m ∈ Hist . For J ⊆ Var , let Coherent J (m) ≜
+
+∀v / ∈ J. ρ m(v) = past m(v, 0) . A normalized program is a tuple C = ( In , Out ,Q, q 0, m 0, T ), where In , Out ⊆ Var are its named input and output variables, Q
+
+is a set of control states, q0 ∈ Q is the initial control state, m0 ∈ M satisfies 
+
+Coherent In (m0), and T ⊆ Q × Guard × Stmt × Q is a finite set of transitions. The condition on m0 only initializes this representation invariant. We write 
+
+τ = ( q, b, c, q ′) ∈ T for a transition. Its configurations are pairs s = ( q, m ) ∈ S =
+
+Q × M , with s0 
+
+> C
+
+= ( q0, m 0) initially. An input sample is a function ι : In → V , and an output sample is a function u : Out → V . A memory m and an input sample ι
+
+determine the valuation ρm,ι , obtained by installing ι in ρm: input variables take their sampled values and other variables retain their current values. For source memory m and destination memory m′, define the entry and post histories by 10 F. Dabrowski 
+
+Hm,ι  
+
+> e
+
+(x, 0) = ρm,ι (x), Hm,m ′ 
+
+> p
+
+(x, 0) = ρm′ (x), and, for k ≥ 0, Hm,ι  
+
+> e
+
+(x, k + 1) = 
+
+Hm,m ′ 
+
+> p
+
+(x, k + 1) = past m(x, k ). Let O = ( In → V ) × (Out → V ) × Hist × Hist . A semantic tick label is o = ( ι, u, H m,ι  
+
+> e
+
+, H m,m ′ 
+
+> p
+
+); write He(o) and Hp(o) for its history components and vis (o) = ( ι, u ) for its visible I/O projection. These histories are logical views of the memories, not additional runtime state. The tick rule uses two boundary predicates: InputStable preserves the sampled inputs, while Complete 
+
+installs the resulting store and advances its history. For τ = ( q, b, c, q ′) ∈ T and the label o above, define 
+
+(q, m ) o
+
+−→ 
+
+> τ
+
+(q′, m ′) ⇐⇒ ρm,ι ∈ b ∧ InputStable (ρm,ι , c (ρm,ι )) 
+
+∧ Complete (m, c (ρm,ι ), m ′) ∧ u = ρm′ |Out 
+
+where InputStable (ρ, ρ ′) ≜ ∀x ∈ In . ρ ′(x) = ρ(x),
+
+Complete (m, ρ ′, m ′) ≜ ρm′ = ρ′ ∧ ∀ x. past m′ (x, 0) = ρ′(x)
+
+∧ ∀ x, k. past m′ (x, k + 1) = past m(x, k ).
+
+The predicate Complete establishes Coherent In (m′); consequently this property holds at every reachable tick boundary. This rule induces the transition system 
+
+P = JCKtick : s o
+
+−→ s′ holds exactly when the rule above holds for some τ ∈ T . A run is ϱ = (( sn)n∈N, (on)n∈N) with s0 = s0 
+
+> C
+
+and snon
+
+−→ sn+1 for every n. Let 
+
+Runs (P) be the set of runs and tr (ϱ) = o0o1 . . . its semantic tick-label trace. For an input stream ¯ι ∈ (In → V )ω , Runs (P, ¯ι) contains the runs whose labels have input projection ¯ι; applying vis pointwise yields their visible input/output traces. Run existence and uniqueness additionally require three structural conditions. Let Cover abbreviate ∀(q, m ), ι. ∃(q, b, c, q ′) ∈ T. ρ m,ι ∈ b, while InputReadOnly 
+
+abbreviates ∀(q, b, c, q ′) ∈ T, ρ, x ∈ In . c (ρ)( x) = ρ(x). Finally, Det requires, for all (q, m ), ι and (q, b j , c j , q ′ 
+
+> j
+
+) ∈ T , j ∈ { 1, 2}, that ρm,ι ∈ b1 ∩ b2 imply 
+
+(q′
+
+> 1
+
+, c 1(ρm,ι )) = ( q′
+
+> 2
+
+, c 2(ρm,ι )) .
+
+Standing normalized-core assumptions. The model assumes Cover , InputReadOnly ,and Det , ensured in Kairos cores by complementary self-loops, frontend input-read-only validation, and priority-disjoint guards, respectively. 
+
+4.3 Construction of deductive obligations 
+
+To derive the certificate (1) , we align historical endpoints, summarize every active product edge, and turn safe and bad summaries into preservation and exclusion triples. We first fix the syntax and admissible depths of generated historical assertions. Fix a normalized program C and let P = JCKtick . Each memory m represents the total history Hm ∈ Hist , with Hm(x, 0) = ρm(x) and Hm(x, k + 1) = past m(x, k );the frontier below excludes uninitialized reads. Generated historical assertions range over Φ, defined by 
+
+t ::= v@k, φ ::= ⊤ | ⊥ | A(¯ t) | ¬ φ | φ ∧ φ | φ ∨ φ | φ ⇒ φ. Kairos Tick-Indexed Proof Obligations 11 
+
+Here v ∈ Var , k ∈ N, ¯t is a finite term sequence, and A is an arbitrary pure predicate over its values. For H ∈ Hist , Jv@kKH = H(v, k ); satisfaction H |= φ
+
+is standard for atoms and Boolean connectives. Thus v@0 denotes the current value, v@1 corresponds to pre(v) , and positive depths represent the source pre_k 
+
+reads. Let d(φ) be zero for read-free φ, otherwise its maximum read depth. An initialization frontier assigns lower-bound ages a(κ) to product keys κ = ( q, r, g );
+
+κ0 = ( q0, r 0, g 0) has age 0, and each key edge satisfies a(κ′) ≤ a(κ) + 1 ; hence 
+
+a(κ) ≤ n on any n-edge path to κ. Every control annotation, normalized guard, automaton edge label, and predecessor record φ used at κ must satisfy d(φ) ≤
+
+a(κ), making its truth independent of pre-execution history. State annotations use the restricted formula type Φst ≜ {φ ∈ Φ | NoCurIn (φ)}, with U : Q → Φst ,where NoCurIn excludes every current read v@0 with v ∈ In ; current reads of other variables and past reads of inputs remain admissible. We write Uq for the annotation of q. Source programs cannot annotate q0, so normalization fixes 
+
+Uq0 = ⊤. Write Φin ≜ {φ ∈ Φ | ∀ (v@k) ∈ reads (φ). v ∈ In }. For obligation construction, the automata are supplied as finite edge lists ER, labelled by Φin ,and EG, labelled by Φ, with relations defined by 
+
+δR(o, r, r ′) ⇐⇒ ∃ α. (r, α, r ′) ∈ ER ∧ He(o) |= α, δG(o, g, g ′) ⇐⇒ ∃ γ. (g, γ, g ′) ∈ EG ∧ Hp(o) |= γ. 
+
+Thus automaton guards and generated assertions share the same formula se-mantics, while assumptions and guarantees read the entry and post endpoint, respectively. Input stability and tick completion give He(o) |= α ⇐⇒ Hp(o) |= α
+
+for α ∈ Φin , justifying the unchanged assumption guard in propagated post-state records. Three non-uniform maps transport assertions between tick entry, post-state, and next entry: 
+
+E(v@0) = v@0 ( v ∈ In ), E(v@0) = v@1 ( v / ∈ In ), E(v@( k + 1)) = v@( k + 1) ,
+
+F(v@0) = v@1 ( v ∈ In ), F(v@0) = v@0 ( v / ∈ In ), F(v@( k + 1)) = v@( k + 2) ,
+
+B(v@0) = v@0 , B(v@( k + 1)) = v@k. 
+
+(2) Their extension to formulas is structural. E moves an entry fact to the post-state frame, F moves a proved post-state fact to the next entry, and B moves a destination annotation into a postcondition. For a tick with post-store ρ′ = c(ρm,ι ),let He and Hp denote the entry and post-state histories. They agree with Hm
+
+at positive depths, with He(v, 0) = ρm,ι (v) and Hp(v, 0) = ρ′(v). Under the side conditions stated below, the endpoint transports satisfy 
+
+Hp |= Eφ ⇐⇒ He |= φ; Hm′ |= Fφ ⇐⇒ Hp |= φ; Hp |= Bφ ⇐⇒ Hm′ |= φ. 
+
+The first equivalence requires coherence of m, input stability, and completion from 
+
+m to m′. The second requires only completion; the third additionally requires φ
+
+to contain no current-input read and therefore applies to every Uq by its type. These maps preserve availability: a post-state record available at age a yields an 
+
+F-image available at age a + 1 along that route. Finite summaries identify the product cases handled by local triples. For 
+
+x = (( q, m ), r, g ), write q(x) = q, m(x) = m, and κ(x) = ( q, r, g ). The generator 12 F. Dabrowski 
+
+explores the product-key graph from κ0, combining outgoing program and au-tomaton edges; write KReach (κ) for membership in this explored fragment. It groups cases by a key κσ = ( qσ , r σ , g σ ), a core transition τσ = ( qσ , b τσ , c τσ , q ′ 
+
+> σ
+
+),and an assumption edge eRσ = ( rσ , α σ , r ′ 
+
+> σ
+
+). The finite list Σ contains exactly the triples for which the source key is structurally reachable with non-bad assump-tion and guarantee components, the assumption destination is non-bad, and the guarantee source has an outgoing edge. To interpret the Hoare triple generated for a summary, we separate the selected command body from the guards placed in its precondition. For x = (( q, m ), r, g ),
+
+s′ = ( q′, m ′), and o = ( ι, u, H e, H p), define 
+
+Frame σ (x, o, s ′) ⇐⇒ κ(x) = κσ ∧ τσ ∈ T ∧ eRσ ∈ ER ∧ q′ = q′ 
+
+> σ
+
+∧ ¬ bad R(r′ 
+
+> σ
+
+)
+
+∧ InputStable (ρm,ι , c τσ (ρm,ι )) ∧ Complete (m, c τσ (ρm,ι ), m ′)
+
+∧ u = ρm′ |Out ∧ He = Hm,ι  
+
+> e
+
+∧ Hp = Hm,m ′ 
+
+> p
+
+.
+
+Frame σ is the guard-independent semantic frame of that triple: it fixes the summary context, executes cτσ , and records the program destination and tick observation. It deliberately omits the program and assumption-edge guards. Guard correspondence represents these omitted guards by historical formulas: each summary supplies Bσ ∈ Φ such that, under Frame σ (x, o, s ′), He(o) |=
+
+Bσ ⇐⇒ ρm,ι ∈ bτσ ; the assumption edge label ασ is interpreted directly on He(o).For an edge e = ( gσ , γ σ,e , g ′
+
+> e
+
+) ∈ EG, let dst σ (s′, e ) = ( s′, r ′ 
+
+> σ
+
+, g ′
+
+> e
+
+). The finite safe and bad case lists classify outgoing edges by destination: 
+
+C+ 
+
+> σ
+
+≜ {e = ( gσ , γ, g ′) ∈ EG | ¬ bad G(g′)},C− 
+
+> σ
+
+≜ {e = ( gσ , γ, g ′) ∈ EG | bad G(g′)}.
+
+For each such edge, let Gσ,e (o) ≜ Hp(o) |= γσ,e ; the distinction between C+ 
+
+> σ
+
+and 
+
+C− 
+
+> σ
+
+determines whether that guard is propagated or excluded. Write E± 
+
+> σ
+
+(o) = {e ∈
+
+C± 
+
+> σ
+
+| Gσ,e (o)} for the compatible safe or bad successor cases, and let Target + =
+
+Active and Target − = BadG , and write KActive (x) = KReach (κ(x)) ∧ Active (x). A summary represents an actual product case only when its program and assumption guards hold. Define 
+
+Exec σ (x, o, s ′) ≜ Frame σ (x, o, s ′) ∧ He(o) |= Bσ ∧ He(o) |= ασ . (3) For a product state y = ( s, r, g ), write prog (y) = s. Using (3) , the summaries characterize, for every x, o, y and ϵ ∈ { +, −} , the corresponding product edges in both directions: 
+
+KActive (x) ∧ x o
+
+=⇒ y ∧ Target ϵ(y) ⇐⇒ ∃ σ ∈ Σ, e ∈ Eϵσ (o).y = dst σ (prog (y), e ) ∧ Exec σ (x, o, prog (y)) .
+
+(4) The forward implication decomposes an observed product step and the reverse implication reconstructs one. Both are proved for the finite symbolic summaries, not assumed by the generated-obligation theorem. Kairos Tick-Indexed Proof Obligations 13 
+
+The certificate (1) combines two persistent facts: the user annotation Uq =
+
+U (q) ∈ Φst of each program control state, and a generated product characteristic recording how a selected product state was entered. For each safe edge e, let 
+
+βσ ∈ Φ be a post-state summary of the body and define 
+
+Dpost  
+
+> σ,e
+
+≜ E(Uqσ ) ∧ E(Bσ ) ∧ ασ ∧ γσ,e ∧ βσ . (5) These guarded records form Contrib post in Section 3; the first conjunct retains source-annotation facts needed by later historical reads. The implementation obtains βσ by symbolic execution of straight-line assignments and frame equal-ities; values assigned by unsupported compound statements are omitted. This weakening remains sound: the safe obligation executes the actual body and must prove (5) afterward. For e ∈ C+ 
+
+> σ
+
+, write κσ,e ≜ (q′ 
+
+> σ
+
+, r ′ 
+
+> σ
+
+, g ′
+
+> e
+
+) for the combined destination key. For each product key κ, define 
+
+Lκ ≜ {(σ, e ) | σ ∈ Σ, e ∈ C+ 
+
+> σ
+
+, κ σ,e = κ}.
+
+Let Start κ be ⊤ when κ = κ0 and ⊥ otherwise. The generator enumerates Lκ
+
+exactly and defines 
+
+χentry  
+
+> κ
+
+≜ F
+
+Start κ ∨ _
+
+> (σ,e )∈Lκ
+
+Dpost 
+
+> σ,e
+
+ . (6) Each Dpost  
+
+> σ,e
+
+is established by one safe predecessor obligation, whereas χentry  
+
+> κ
+
+is their shifted disjunction, assumed by obligations whose source key is κ. It is 
+
+Incoming (κ) in Section 3. The startup disjunct makes χentry  
+
+> κ0
+
+= ⊤. Accordingly, 
+
+D◦ 
+
+> σ,e
+
+≜ Dpost  
+
+> σ,e
+
+∨ Start κσ,e is Dpost  
+
+> σ,e
+
+for a noninitial destination and ⊤ for the initial destination, which is also reachable at startup without a predecessor. The construction yields pre- and postconditions that preserve the certificate or exclude guarantee-bad successors. The formulas emitted for a summary are 
+
+Rσ ≜ Uqσ ∧ χentry  
+
+> κσ
+
+∧ Bσ ∧ ασ , Q− 
+
+> σ
+
+≜ ^
+
+> e∈C−
+> σ
+
+¬γσ,e ,Q+ 
+
+> σ
+
+≜
+
+ _
+
+> e∈C+
+> σ
+
+γσ,e 
+
+
+
+∧ ^
+
+> e∈C+
+> σ
+
+
+
+γσ,e ⇒ [B(Uq′ 
+
+> σ
+
+) ∧ D◦
+
+> σ,e
+
+]
+
+
+
+.
+
+(7) In Section 3’s notation, the safe disjunction is SomeSafe , the guarded conjunction establishes Inv post = B(U ) and Contrib post from D◦, and Q− 
+
+> σ
+
+is NoBad . The semantic Coherent In premise corresponds to the finite EntryCoherence equalities emitted by the prototype. 
+
+Generated-family conditions. Frontier certificates make generated formulas inde-pendent of unavailable history, and each Bσ denotes its executable guard. For nonempty Cϵσ , the family contains 
+
+{Rσ } cτσ {Qϵσ }, ϵ ∈ { +, −} , Cϵσ̸ = ∅. (8) 14 F. Dabrowski 
+
+A triple is valid when, for every x, o, s ′, Frame σ (x, o, s ′), Coherent In (m(x)) , and 
+
+He(o) |= Rσ imply Hp(o) |= Qϵσ . Validity uses Frame σ , rather than Exec σ , because 
+
+Bσ and ασ occur explicitly in Rσ , exactly as in the emitted Why3 precondition. Why3 total-correctness justifies the total command denotation used by Frame σ .These conditions and valid safe and bad triples constitute generated-obligation validity. Endpoint transport and summary exactness are proved by construction; source-formula characterization and normalized-core assumptions are used only for trace soundness and reactivity. 
+
+Theorem 2 (Generated-obligation soundness). Generated-obligation va-lidity for (8) entails ContractValid (P, A R, A G).
+
+Through (7) , safe obligations propagate proved records to build the invariant; bad ones use it to exclude violating successors. The certificate is: 
+
+I(x) ≜ KReach (κ(x)) ∧  Hm(x) |= Uq(x)
+
+ ∧ Coherent In (m(x)) ∧  Hm(x) |= χentry 
+
+> κ(x)
+
+.
+
+(9) The KReach conjunct of (9) records finite product exploration in the metaproof and is not emitted to the backend. By (4) , every active safe product edge from such a key has a generated case. Its obligation establishes the destination encoding of 
+
+U and the corresponding incoming disjunct at every noninitial destination, while 
+
+Complete re-establishes coherence; the endpoint shifts (2) therefore establish I at the successor, giving Pres . At a source with a bad successor, its characteristic (6) supplies the previously proved incoming disjunction and the bad obligation gives Excl . The initial Uq0 = ⊤, initial-memory coherence, and the non-bad guarantee initial state give Init ; Theorem 1 then applies. Contract validity is a product-level bad-prefix property. Completeness of AG
+
+also ensures a non-bad guarantee successor whenever a reachable program state advances and the assumption remains non-bad. 
+
+Trace-characterization assumptions. Let R and G denote source trace properties and πin select inputs pointwise; for every observation word w, require 
+
+πin (w) |= R ⇐⇒ w ⊩ AR, w |= G ⇐⇒ w ⊩ AG.
+
+For an existing program run satisfying R, the first equivalence supplies assumption coverage and excludes assumption-bad prefixes. Product soundness excludes guarantee-bad prefixes, and completeness of AG supplies the coverage needed by the second equivalence. Hence Theorem 2 has the trace-level corollary 
+
+∀ϱ ∈ Runs (P). πin (tr (ϱ)) |= R ⇒ tr (ϱ) |= G, (10) Trace soundness remains conditional on a run; the normalized-core assump-tions ensure its existence and uniqueness for each input stream. 
+
+Theorem 3 (Reactive contract correctness). Validity of the generated obligations entails that every ¯ι |= R induces a unique ϱ ∈ Runs (P, ¯ι) satisfying 
+
+tr (ϱ) |= G.
+
+Coverage, input preservation, and total statement denotations construct a run; determinism makes it unique, and (10) establishes G.Kairos Tick-Indexed Proof Obligations 15 
+
+4.4 Formalization boundary 
+
+The formalized core connects normalized ticks and histories to the edge-labelled product, proves the exactness of finite summaries, incoming characteristics, and historical shifts, and derives reactive correctness from generated Hoare triples; source syntax and construction enter only through their denotations. Trust assumptions cover source-normalization correspondence (priority, fallback coverage, input discipline, and expression and statement denotations), automata translation, OCaml enumeration, Why3 encoding and solver answers, lowering 
+
+pre /pre_k reads to backend parameters, history-depth checks, and the link from backend total correctness to total denotations. At the automata boundary, Spot checks safety and returns finite complete automata whose rejected prefixes characterize the source formulas [ 14 ]. The adapter merges rejecting states into a sink; the product builder rejects bad initial states and checks AR-absorption. Thus finiteness, characterization, non-bad initials, AG-completeness, and AR-absorption are supplied or checked externally. 
+
+# 5 Related Work 
+
+Kairos combines synchronous programming, automata-theoretic verification, assertional proof, and SMT-backed deduction. We compare related workflows by their temporal proof boundary: a synchronous observer, symbolic transition system, abstract product, or generated deductive interface. 
+
+Synchronous contracts and symbolic engines. Kairos follows the logical-instant model of Lustre and Esterel [ 7, 10 , 5] and SCADE-style explicit modes [ 12 ]. Observer-based Lustre workflows encode temporal requirements into syn-chronous state and prove the resulting Boolean streams invariant [ 18 ]; Kind 2 and JKind symbolically verify Lustre programs and contracts [ 11 , 16 ], while AGREE compositionally analyzes architectural assume–guarantee contracts using engines such as JKind [ 3,16 ]. At this verification boundary, temporal intent must already be encoded as observer state or stream/contract equations, manually or by an upstream frontend. Kairos instead accepts temporal assumptions and guarantees at source level and generates automata carrying only their finite temporal control. Imperative bodies and data are handled separately by the deductive backend, so support for data theories and command constructs depends on that backend rather than on a symbolic temporal engine. 
+
+Automata and assertional temporal proof. The automata-theoretic treatment of temporal specifications is classical [ 23 , 24 ]. The safety/liveness distinction of Alpern and Schneider explains why the present construction can reduce safety to exclusion of bad product states [ 1]. Their assertional method already derives local obligations over a program–automaton structure, using invariants for safety and variants for progress [ 2]. We therefore do not claim either the automata-product principle or its assertional reading as new. The contribution is the synchronous source-to-obligation boundary needed to realize the safety case in an executable tool. Edge observations must align automata with sampled program ticks; assumptions and guarantees impose different obligations; historical 16 F. Dabrowski 
+
+assertions must be transported between entry and exit endpoints; current inputs cannot become persistent state facts; safe predecessor information must be propagated; and finite summaries must retain every compatible successor. 
+
+Deductive verification of reactive programs. Manna–Pnueli and STeP combine temporal specifications with assertions, verification diagrams, abstraction, and de-duction [ 19 ,6], leaving temporal reasoning within the proof problem. Lustre/PVS methods are closer: they use continuous induction to reduce safety properties already encoded as Lustre observers to scalar PVS obligations [ 4,9]. Gesell and Schneider give Hoare rules for synchronous macro-steps [ 17 ], while recent Why3 work translates Ladder code and state-transition diagrams into WhyML tasks [ 13 ]. Compared with these approaches, Kairos translates temporal assume–guarantee contracts through safety automata into ordinary first-order pre/postconditions around source commands. Product summaries, incoming characteristics, and historical shifts account for temporal meaning before Why3 and SMT solvers discharge the resulting data and command obligations [15,20]. 
+
+Mechanization, compilation, and monitoring. The normalized imperative core resembles intermediate forms used in synchronous compilation, notably object-based code (OBC) in Bourke et al.’s verified Lustre compiler [ 8]. Whereas that work proves compilation correctness, we mechanize the correctness of temporal-contract obligation construction over such a core [ 22 ]. Runtime verification, including Copilot, compiles temporal intent into state maintained during execu-tion [ 21 ]. Kairos instead uses automata statically to organize obligations over symbolic source ticks, rather than monitoring a single execution. 
+
+# 6 Conclusion 
+
+We presented Kairos , a source-level toolchain translating assume–guarantee safety contracts into automata synchronized with normalized program ticks and then into first-order preservation and guarantee-bad exclusion obligations around command bodies. Finite summaries retain every compatible guarantee successor; incoming characteristics and explicit historical shifts propagate proved safe cases into later preconditions. This exact synchronous interface realizes the classical reduction of temporal safety to product invariance. The Rocq mechanization establishes that valid generated initial and transition obligations imply con-tract validity and, with coverage, input preservation, determinism, and total command denotations, that every assumption-satisfying input trace induces a unique guarantee-satisfying execution. Future directions include proving non-spuriousness, which would replace regression-based confidence with a proof that supplied annotations yield suitable local assertions for valid contracts, and reduc-ing trust through checkable certificates linking generated summaries, backend obligations, Why3 total correctness, and command denotations. Further directions are AGREE-style compositional assume–guarantee verification of synchronous-node networks [ 3 ], separation of private generated temporal state from reusable interfaces, and ranking or variant obligations beyond safety [2]. Kairos Tick-Indexed Proof Obligations 17 
+
+# References 
+
+1. Alpern, B., Schneider, F.B.: Defining liveness. Information Processing Letters 21 (4), 181–185 (1985). https://doi.org/10.1016/0020-0190(85)90056-0 
+
+2. Alpern, B., Schneider, F.B.: Verifying temporal properties without temporal logic. ACM Transactions on Programming Languages and Systems 11 (1), 147–167 (1989). 
+
+https://doi.org/10.1145/59287.62028 
+
+3. Backes, J., Cofer, D., Amundson, I.: The assume guarantee reasoning environment with application to an unmanned helicopter. Tech. rep., Loonwerks (2021), https: //loonwerks.com/publications/pdf/backes2021techreport.pdf 
+
+4. Bensalem, S., Caspi, P., Dumas, C., Parent-Vigouroux, C.: A methodology for proving control systems with lustre and PVS. In: Dependable Computing for Critical Applications—7. Dependable Computing and Fault Tolerant Systems, vol. 12, pp. 89–107. IEEE Computer Society, San Jose, CA, USA (1999). https: //doi.org/10.1109/DCFTS.1999.814291 
+
+5. Benveniste, A., Caspi, P., Edwards, S.A., Halbwachs, N., Le Guernic, P., de Simone, R.: The synchronous languages 12 years later. Proceedings of the IEEE 91 (1), 64–83 (2003). https://doi.org/10.1109/JPROC.2002.805826 
+
+6. Berghammer, R., Lakhnech, Y., Manna, Z., Bjørner, N.S., Browne, A., Colón, M., Finkbeiner, B., Pichora, M., Sipma, H.B., Uribe, T.E.: An update on STeP: Deductive-algorithmic verification of reactive systems. In: Tool Support for System Specification, Development and Verification, pp. 174–188. Springer Vienna, Vienna (1999). https://doi.org/10.1007/978-3-7091-6355-9_13 
+
+7. Berry, G., Gonthier, G.: The esterel synchronous programming language: Design, semantics, implementation. Science of Computer Programming 19 (2), 87–152 (1992). 
+
+https://doi.org/10.1016/0167-6423(92)90005-V 
+
+8. Bourke, T., Brun, L., Dagand, P.E., Leroy, X., Pouzet, M., Rieg, L.: A formally verified compiler for lustre. In: Proceedings of the 38th ACM SIGPLAN Conference on Programming Language Design and Implementation. pp. 586–601. ACM, New York, NY, USA (2017). https://doi.org/10.1145/3062341.3062358 
+
+9. Canovas-Dumas, C., Caspi, P.: A PVS proof obligation generator for lustre programs. In: Logic for Programming and Automated Reasoning. Lecture Notes in Artificial Intelligence, vol. 1955, pp. 179–188. Springer, Berlin, Heidelberg (2000). https: //doi.org/10.1007/3-540-44404-1_12 
+
+10. Caspi, P., Pilaud, D., Halbwachs, N., Plaice, J.A.: LUSTRE: A declarative language for real-time programming. In: Proceedings of the 14th ACM SIGACT-SIGPLAN Symposium on Principles of Programming Languages. pp. 178–188. ACM, New York, NY, USA (1987). https://doi.org/10.1145/41625.41641 
+
+11. Champion, A., Mebsout, A., Sticksel, C., Tinelli, C.: The Kind 2 model checker. In: Computer Aided Verification. Lecture Notes in Computer Science, vol. 9780, pp. 510– 517. Springer, Cham (2016). https://doi.org/10.1007/978-3-319-41540-6_29 
+
+12. Colaço, J.L., Pagano, B., Pouzet, M.: SCADE 6: A formal language for embedded critical software development. In: Theoretical Aspects of Software Engineering. pp. 1–11. IEEE Computer Society, Los Alamitos, CA, USA (2017). https://doi.org/ 10.1109/TASE.2017.8285623 
+
+13. Cousineau, D., Inoue, H., Marché, C., Faissole, F., Mentré, D.: Conformity of ladder programs against state transition diagrams. Tech. Rep. RR-9584, Inria (Mar 2025), 
+
+https://inria.hal.science/hal-05001069 
+
+14. Duret-Lutz, A., Renault, E., Colange, M., Renkin, F., Aisse, A.G., Schlehuber-Caissier, P., Medioni, T., Martin, A., Dubois, J., Gillard, C., Lauko, H.: From spot 18 F. Dabrowski 2.0 to spot 2.10: What’s new? In: Computer Aided Verification. Lecture Notes in Computer Science, vol. 13372, pp. 174–187. Springer, Cham (2022). https: //doi.org/10.1007/978-3-031-13188-2_9 
+
+15. Filliâtre, J.C., Paskevich, A.: Why3 — where programs meet provers. In: Program-ming Languages and Systems. Lecture Notes in Computer Science, vol. 7792, pp. 125–128. Springer, Berlin, Heidelberg (2013). https://doi.org/10.1007/ 978-3-642-37036-6_8 
+
+16. Gacek, A., Backes, J., Whalen, M., Wagner, L., Ghassabani, E.: The JKind model checker. In: Computer Aided Verification. Lecture Notes in Computer Sci-ence, vol. 10982, pp. 20–27. Springer, Cham (2018). https://doi.org/10.1007/ 978-3-319-96142-2_3 
+
+17. Gesell, M., Schneider, K.: A hoare calculus for the verification of synchronous languages. In: Proceedings of the 6th Workshop on Programming Languages Meets Program Verification. pp. 37–48. ACM, New York, NY, USA (2012). https://doi. org/10.1145/2103776.2103782 
+
+18. Halbwachs, N., Lagnier, F., Raymond, P.: Synchronous observers and the verification of reactive systems. In: Algebraic Methodology and Software Technology. pp. 83–96. Workshops in Computing, Springer, London, UK (1993). https://doi.org/10. 1007/978-1-4471-3227-1_8 
+
+19. Manna, Z., Pnueli, A.: Temporal Verification of Reactive Systems: Safety. Springer, New York, NY, USA (1995). https://doi.org/10.1007/978-1-4612-4222-2 
+
+20. de Moura, L., Bjørner, N.: Z3: An efficient SMT solver. In: Tools and Algorithms for the Construction and Analysis of Systems. Lecture Notes in Computer Science, vol. 4963, pp. 337–340. Springer, Berlin, Heidelberg (2008). https://doi.org/10. 1007/978-3-540-78800-3_24 
+
+21. Pike, L., Wegmann, N., Niller, S., Goodloe, A.: Copilot: Monitoring embedded systems. Innovations in Systems and Software Engineering 9(4), 235–255 (2013). 
+
+https://doi.org/10.1007/s11334-013-0223-x 
+
+22. The Rocq Development Team: The rocq prover. Software, Version 9.1.0 (2025), 
+
+https://rocq-prover.org/ 
+
+23. Vardi, M.Y., Wolper, P.: An automata-theoretic approach to automatic program verification. In: Proceedings of the First Symposium on Logic in Computer Science. pp. 332–344. IEEE Computer Society, Los Alamitos, CA, USA (1986) 24. Vardi, M.Y., Wolper, P.: Reasoning about infinite computations. Information and Computation 115 (1), 1–37 (1994). https://doi.org/10.1006/inco.1994.1092

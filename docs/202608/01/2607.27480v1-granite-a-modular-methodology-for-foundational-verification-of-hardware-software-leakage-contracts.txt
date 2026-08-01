@@ -1,0 +1,829 @@
+Title: Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts
+
+URL Source: https://arxiv.org/pdf/2607.27480v1
+
+Published Time: Fri, 31 Jul 2026 00:14:55 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 
+
+STELLA LAU, Massachusetts Institute of Technology, USA 
+
+ANDRES ERBSEN, Google and University of Washington, USA 
+
+ADAM CHLIPALA, Massachusetts Institute of Technology, USA Granite is a methodology for modular verification of both functional correctness and nonleakage of RTL processors against ISA contracts. We prove that the cycle-by-cycle timing of a pipelined RISC design—with speculation, precise interrupts, and I/O—is determined solely by observables specified in an ISA leakage contract. For programs that keep observables independent of secrets (i.e., following the cryptographic-constant-time discipline), this result conclusively rules out information leakage through known and unknown timing side channels. Granite’s specifications only constrain functional correctness and information-flow dependencies: not how many cycles an instruction takes, at which instruction an interrupt is handled, or the exact latencies of submodules such as multipliers and memory. Granite’s central technique is leakage-aware refinement via determinism , which establishes correctness and confidentiality together as trace equivalence with respect to a family of cycle-level, deterministic spec machines. Secret-independent nondeterminism is handled by 
+
+existentially parameterizing specifications with untrusted, deterministic functions acting only on public data. Submodules are proved against their own leakage-aware specifications, and these proofs compose into the whole-design guarantee—which therefore holds over a space of secure implementations. We believe this work is the first to achieve modular and foundational connection between instruction-set-level leakage contracts and microarchitecture-specific cycle-by-cycle execution with wire-level observations. Our proofs compose with a certified static analysis that recognizes cryptographic-constant-time code to derive a single Rocq theorem about the cycle-by-cycle confidentiality of a hardware-and-software cryptographic implementation—eliminating every intermediate specification, including the ISA contract itself, from the trusted computing base. 
+
+1 Introduction 
+
+Microarchitectural timing attacks have revealed a systemic security lapse within computer architec-ture. For years, cryptographers relied on constant-time programming to ensure that the wall-clock time when executing cryptographic software on hardware is independent of secrets. However, starting with Spectre [ 27 ] and Meltdown [ 29 ], there has been a surge of microarchitectural timing vulnerabilities invalidating traditional constant-time assumptions and exposing novel leakage vectors. Despite years of mitigations, new attack vectors continue to be discovered. Formal verification against leakage-aware architectural specifications offers a compelling ap-proach, adopted by this paper, for ruling out timing side channels. A leakage-aware hardware-software contract specifies both the functional instruction set architecture (ISA) semantics and a declassification policy that characterizes exactly which architectural events may influence observ-able timing. For example, the constant-time policy states that only addresses of memory accesses, branch conditions, and arguments to variable-latency instructions are leaked. Proving that an RTL processor implementation satisfies such a contract yields a mathematical guarantee that hardware does not introduce unexpected timing channels beyond what is explicitly permitted by the contract. For such a formal-verification approach to be trustworthy as the primary assurance mechanism and applicable to practical designs, the methodology should satisfy four critical requirements: 1) it is auditable, with a specification simple enough to inspect and with the RTL implementation removed from the trusted computing base (TCB); 2) it composes with software proofs for end-to-end, hardware-software guarantees that eliminate the hardware-software contract itself from the TCB; 3) it is expressive enough for real hardware, supporting the nondeterminism arising from arXiv:2607.27480v1 [cs.CR] 29 Jul 2026 2
+
+asynchronous interrupts, inputs, and unspecified behaviour; and 4) it is modular, both to tame the state-explosion problem encountered in hardware verification and to let designers reason about early-stage designs. No prior methodology for verifying processors against hardware-software leakage contracts achieved all four. Granite addresses this gap. 
+
+Existing approaches. Various works propose sophisticated leakage models [ 11 , 24 , 30 ] and de-fenses [ 1 , 14 , 18 ] but are either unverified or do not provide formal guarantees for RTL implemen-tations. A line of work [ 19 , 39 , 41 ] uses model checkers to verify noninterference of RTL designs against ISA leakage models. However, these methods assume functional correctness (and therefore require auditing the implementation), use a limited specification language of model checkers that does not smoothly compose with software proofs for end-to-end hardware-software guarantees, and lack the modular decomposition needed to tackle the state-explosion problem and scale to larger designs. Another line of work [ 9 , 13 , 20 ] uses proof assistants to prove functional correctness of processors as refinement against one-instruction-at-a-time (OIAAT) specifications, but refine-ment does not generally suffice for confidentiality as nondeterminism leaks secrets [ 34 ]. Lastly, Notary [ 4] and Parfait [ 5 ] collapse the hardware-software stack to prove functional correctness and confidentiality for specific programs on specific processors, but the approaches used do not yield a blueprint for modular engineering and verification of their software and hardware components. 
+
+1.1 Our Approach 
+
+Granite is a methodology, formalized in Rocq, for end-to-end verification of both functional correct-ness and nonleakage of cycle-accurate RTL processors against ISA-level specifications. We show how to build modular proofs for processors and their components, with specifications that capture which information flows are allowed without prescribing specific implementation behaviours or re-quiring determinism. Compared to existing hardware-verification techniques, the specification style we recommend is closer to that used in functional-correctness proofs [ 9, 13 , 20 ] than established noninterference-verification work [19, 39, 41]. We present three aspects: 
+
+A specification approach capturing both functional correctness and nonleakage, supporting non-determinism. Granite uses a specification approach, leakage-aware refinement via determinism ,that reduces both functional correctness and nonleakage to trace equivalence with respect to a family of deterministic, cycle-accurate state machines. The central challenge is supporting nonde-terminism without underspecifying (allowing unintended leakage) or overspecifying (ruling out secure implementations). Our strategy is to existentially parameterize each specification with a deterministic, public driver —depending only on public information (public inputs, the program, and declassified leakage), responsible for resolving secret-independent nondeterminism such as the timing of outputting an MMIO request or at which instruction boundary to take a precise interrupt—and a deterministic witness for nondeterminism that may legitimately depend on secrets. These parameters are untrusted. We formalize nonleakage as the existence of a global leakage transformer mapping the trace of public inputs to adversary observations (e.g. timing), with the (static) choice of that function left intentionally unconstrained to allow for implementation variability. This property trivially implies the classical notion of noninterference. A simple example appears in Figure 1. This idea takes a variety of shapes when reconciling differences between specification and implementation; we show how to capture that: 
+
+• A zero-skip multiplier’s (public) latency can depend on whether either operand is zero but not on other aspects of input data. Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 3                                                                  
+
+> Record req_t := {input_a :bv width; input_b: bv width }. Record MulSt := {reqs: list req_t; hist :list ActionMethod }. Definition leakage_of_AM (m: ActionMethod) :LeakEvent := match mwith |Enq req => LeakEnq ((req.(input_a) =0) || (req.(input_b) =0)) |Deq => LeakDeq |Tick => LeakTick end. Definition RespReadyOk impl spec := exists leakageTransformer, impl.(RespReady) =match spec.(reqs) with |[] => false |_=> leakageTransformer (map leakage_of_AM spec.(hist)) end.
+
+Fig. 1. Example fragment of a module specification: the public timing of a zero-skip multiplier is a fixed function of whether its operands are zero. Functional correctness requires a pending request for RespReady 
+
+to be high. 
+
+• The response time of a memory subsystem may depend on addresses but not on values stored and loaded. 
+
+• While the instruction-set specification processes one instruction per step, a processor cycle may or may not commit a new instruction—but it must not decide based on secrets. 
+
+• Timing of external inputs and interrupts can influence processor progress, but values of inputs cannot in general be revealed. 
+
+• A processor can delay taking an interrupt (note that this decision can alter the sequence of instructions executed and thus the ISA-level observations!), but the decision of when to take the interrupt should not depend on secrets. We show how to formalize an ISA leakage contract (covering I/O, exceptions, and interrupts) in this style by lowering the ISA specification—written in the style of RISCV-COQ [ 8, 15 ] and extended with a leakage model emitting declassified events (e.g. memory addresses, branch conditions)—into a cycle-level machine whose nondeterminism is constrained by existential parameters. Functional correctness becomes I/O-trace equivalence over all programs, data, and inputs; nonleakage becomes the existence of a leakage transformer from public inputs, public data, and the specification leakage trace to public outputs. 
+
+A verification approach structured around horizontal and vertical modularity. Vertically (c.f. Fig-ure 2), a layered approach decouples ISA-specific details from microarchitectural design and param-eterizes the proof over different ISA encodings and existential parameters; we show that connecting the layer to RTL amounts to instantiating the existential parameters by running a public “shadow” copy of the implementation. Horizontally , we construct per-component specifications—with canon-ical representations capturing both correctness and leakage, plus sub-cycle invariants—extending prior one-method-at-a-time modular refinement [ 7 , 9 , 13 ] to cycle-accurate nonleakage, yielding theorems general enough to cover classes of designs and to verify early-stage designs and defenses. 
+
+An end-to-end, machine-checked guarantee from software to RTL. We build a confidentiality-and-correctness proof for a pipelined RISC processor (as synthesizable RTL) featuring branch prediction, exceptions, interrupts, and memory-mapped input and output. We then demonstrate suitability of the instruction-set specification for integration verification by implementing and proving a static analysis for constant-time programming: any program accepted by the static analysis, run on a processor satisfying the specification, does not leak secrets at the RTL. Instantiated on a 4
+
+Salsa20 program compiled with a standard RISC-V toolchain, this proof architecture yields a single, foundational proof connecting the source-level constant-time discipline to RTL and eliminates intermediate specification layers (including the hardware-software contract) from the trusted computing base. 
+
+Contributions. This paper contributes: 
+
+• A specification approach for functional correctness and nonleakage under nondeterminism, via trace equivalence with deterministic, cycle-accurate state machines. 
+
+• A formal HW/SW leakage contract covering I/O, exceptions, and interrupts. 
+
+• A methodology for modular proofs of functional correctness and nonleakage of RTL designs. 
+
+• A machine-checked proof of a synthesizable, pipelined RISC processor (speculation, inter-rupts, I/O) against a constant-time ISA contract. 
+
+• An end-to-end proof combining the above with verified-constant-time software into an RTL confidentiality theorem, stated without reference to the novel specs. Source code for Granite will be open-source and is included as an anonymized supplement. 
+
+Limitations and nongoals. The proofs we demonstrate rely on determinism of the hardware-description-language fragment we use, and thus it is not immediately clear how to extend our approach to reason about combined behaviour of modules in different clock domains. Less fun-damentally, we use a minimal RISC instruction set (assorted instructions from RISC-V), consider only single-hardware-thread executions with read-only instruction memory (we expect challenges with extensions on this front to be predominantly related to functional correctness rather than timing leakage), and do not actually connect our proofs to the compiler-verification work [ 15 ]that inspired aspects of our ISA specification. The only side channel considered in this work is cycle-by-cycle timing; observations of within-cycle timing or power consumption are out-of-scope, as are attacks involving physical access. 
+
+2 Background and Motivation 2.1 Hardware-Software Leakage Contracts 
+
+The ISA is the contract between hardware and software. An ISA such as RISC-V or x86 defines an architectural model, consisting of registers and memory, and how each instruction updates architectural state, granting hardware designers freedom to optimize (e.g. via pipelining, branch prediction, and caching) so long as architectural state matches a sequential execution of instructions 1.Traditionally, this contract has been purely functional, omitting microarchitectural state and abstracting over latency. As the ISA says nothing about timing, optimizations can leak secrets through timing side channels. A leakage contract closes this gap by specifying which architectural events may influence timing, acting as a declassification policy. Under the cryptographic constant-time policy, only control flow, addresses of memory accesses, and inputs to variable-latency instructions are leaked; it is then the software programmer’s responsibility to keep secrets out of these channels. Numerous libraries hold all cryptographic code to this contract, either informally (BoringSSL, BearSSL) or formally (HACL ∗ [49] and EverCrypt [35]). Guarantees provided by these contracts are only as sound as the leakage model, and models routinely make assumptions that some real processors do not satisfy. For example, HACL ∗ assumes integer multiplication is constant-time, but integer multiplication can be variable-time on some ARM and i386 platforms; OpenSSL shipped cryptographic code deemed secure under a leakage  
+
+> 1Relaxed with weak memory, outside the scope of this paper. Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 5
+
+model that did not account for time-variable arithmetic operations [3]; and hardware verification exposes still more (c.f. § 6). 
+
+Transient-execution attacks. Worse, transient-execution attacks such as Spectre [ 27 ] and Melt-down [ 29 ] revealed that modern processors violate even the constant-time contract: speculatively executed instructions leave secret-dependent side effects in caches, TLBs, and branch predictors the policy ignores. Proposed defenses [ 1, 2, 25 , 36 , 44 ] aim to restore the guarantee discussed next, but none has a verified RTL implementation. 
+
+2.2 Contractual Noninterference 
+
+Granite’s formalization of nonleakage is based on speculative noninterference [ 11 , 14 , 39 , 45 , 46 ], which (informally) captures the notion that if a program does not leak information under the ISA model (e.g. it satisfies the constant-time contract), then running on hardware does not leak information. This property is the one we verify; because leakage can arise without speculation and contracts generalize beyond it, we adopt the more general term contractual noninterference. We first state the property in the deterministic setting (consistent with definitions from prior work on speculative noninterference), where the architectural specification and implementation can both be modeled as deterministic state machines; § 2.3 discusses challenges with generalizing to nondeterminism; and § 3.3 presents our approach to generalize to nondeterministic specs. 
+
+Definition 1 (Contractual noninterference without nondeterminism) . Let Pub represent public initial state (such as program instructions and public data), and Sec 1 and Sec 2 represent secret data. Let 𝑂 𝑛  
+
+> ISA
+
+(Pub , Sec ) denote the specification leakage trace generated by running the ISA machine for 
+
+𝑛 steps and 𝑂 𝑚 𝜇 (Pub , Sec ) denote the trace of cycle-accurate observations generated by running the RTL implementation for 𝑚 clock cycles. The implementation satisfies contractual noninterference without nondeterminism if ∀Pub :
+
+ ∀Sec 1, Sec 2, 𝑛. 𝑂 𝑛  
+
+> ISA
+
+(Pub , Sec 1) = 𝑂 𝑛  
+
+> ISA
+
+(Pub , Sec 2) →
+
+
+
+∀Sec 1, Sec 2, 𝑚. 𝑂 𝑚 𝜇 (Pub , Sec 1) = 𝑂 𝑚 𝜇 (Pub , Sec 2)
+
+
+
+Leakage transformers. The above definition is a 4-copy property, stating that if the ISA leakage trace is independent of secrets (or therefore, the ISA leakage trace is public information), then the microarchitectural leakage trace is also independent of secrets (and therefore, there exists a function such that the microarchitectural trace is a function of public information). The latter function is exactly the “leakage transformer” we use to express nonleakage: 
+
+ ∃𝑔. ∀𝑛, Sec . 𝑂 𝑛  
+
+> ISA
+
+(Pub , Sec ) = 𝑔 (𝑛, Pub ) →
+
+
+
+∃𝑓 . ∀𝑚, Sec . 𝑂 𝑚 𝜇 (Pub , Sec ) = 𝑓 (𝑚, Pub )
+
+
+
+.
+
+Challenges with proving contractual noninterference. Exploiting the assumption that the ISA leakage trace is public requires relating microarchitectural state to instruction-set-level state (which instructions have retired and will retire), a challenging task akin to proving functional correctness. An important simplification in model-checking-based work [ 19 , 39 , 41 ] assumes functional correctness of the processor, using the retire stage of the processor in place of the state of the ISA execution. While appealing due to avoiding the need to model and reason about the instruction-set specification, this approach runs into state-space-explosion challenges (due to needing to show that an instruction will retire). Furthermore, we are not aware of any work that establishes an integrated correctness-and-confidentiality theorem based on separate functional verification and constant-time-assuming-functional verification of a processor. Doing so seems 6
+
+challenging given leading approaches for comprehensive functional verification allow a rather flexible “flushing relation” [ 9 , 38 ] between the retire-stage state and instruction-set-level state instead of establishing strict equality. As a goal of this work is a combined hardware-software result in which the hardware-software contract is only an intermediate specification, we seek a different approach. 
+
+2.3 Refinement and Nondeterminism 
+
+Our approach is to extend—to the nonleakage setting—an approach to processor-functional-correctness verification [ 9, 13 ] based on using proof assistants to establish correctness via re-finement: i.e., every behaviour of the implementation is a possible behaviour of the specification. Refinement extends cleanly to nonleakage for deterministic specifications (as trace equivalence proved via bisimulation), but architectural specifications support various types of nondetermin-ism to allow for interaction with the external world and to allow hardware designers freedom to optimize. Sources of nondeterminism, covered by this paper 2, include: 
+
+• Execution time: the number of cycles it takes to execute instructions; 
+
+• Input nondeterminism from the external world, such as from MMIO and interrupts; 
+
+• Secret-independent nondeterminism, such as at which instruction boundary an asynchro-nous interrupt is handled; and 
+
+• Unconstrained output nondeterminism, such as the value on a data signal when the corre-sponding valid bit is low in a ready/valid handshaking interface. 3
+
+2.3.1 Specification challenges arising from inputs and nondeterminism. Nondeterminism gives rise to challenges with straightforward application of refinement techniques to Definition 1: 
+
+Challenge 1: Nondeterminism leaks secrets: the need for secret-independent nondeterminism. Classi-cal refinement becomes unsound for nonleakage: when a specification nondeterministically permits several behaviours, an implementation may resolve the choice on secrets—e.g., taking an interrupt immediately if and only if a secret bit is set—and the leak is then “explained away” by an adversarial choice of specification nondeterminism. To preserve microarchitectural flexibility while preventing side channels, specification frameworks must support secret-independent nondeterminism to en-sure that while an implementation retains the freedom to resolve design choices (such as at which instruction boundary to take an interrupt), the choice is independent of secrets. 
+
+Challenge 2: Nondeterminism from inputs and interrupts affects the specification leakage trace. If execution time were the sole source of nondeterminism and the software leakage trace were inde-pendent of execution time (as is standard in idealized constant-time models [ 15 ]), then Definition 1 would be sufficient, as the specification leakage trace would be invariant under implementation design choices 4. Real-world hardware, however, introduces dynamic sources of nondeterminism that directly influence the specification’s leakage trace. For example, the values returned by MMIO requests can be affected by previous interactions with the external world, which has downstream effects on leakage. Additionally, asynchronous interrupts are scheduled nondeterministically: while an ISA may mandate that precise interrupts occur at instruction boundaries [ 42 ], it often permits flexibility regarding which specific instruction boundary traps the event. This hardware-driven scheduling decision actively diverges program control flow to an interrupt handler, altering the resulting sequence of specification leakage events.      
+
+> 2We elide, for example, nondeterminism from weak memory but discuss how the framework could be extended in § 8.3.
+> 3Here, we assume it is the consumer’s responsibility to use the data signal only when the corresponding valid bit is high.
+> 4This definition is used in prior work [15], which does not address input nondeterminism. Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 7
+
+Challenge 3: Inputs and different step sizes. The mismatch in step sizes between instruction-level software specifications and cycle-level hardware implementations not only is a key cause of the underspecification leading to microarchitectural timing side channels, but it also complicates interactions with the external world 5. The external world can be modeled as a function of the cycle-level outputs of the microarchitectural machine, but high-level ISA specifications typically lack structural notions of clock cycles. Thus, Granite lowers the ISA machine into a cycle-level state-transition system so both layers interact with a synchronized model of the external world, enabling a reduction of functional correctness and nonleakage to trace equivalence provable by standard single-cycle induction. 
+
+2.4 Specifying Information Flow in Combinational Methods 
+
+We augment the specifications used for modular functional-correctness verification of the pro-cessor’s submodules with timing specifications. The intuition is that any functional-correctness specifications suitable for modular verification of the processor must already capture some relation between the inputs and outputs of each module that is sufficiently precise to eventually relate these values to instruction-set-level state. Augmenting these specifications with constraints on what the timing of the output may depend on in terms of the module’s inputs allows confiden-tiality verification to benefit from the modular structure of functional-correctness proofs. While functional-correctness proofs are nontrivial, the methodology for crafting them is established and reasonably consistent across different hardware-description languages [9, 12, 13]. As noted (§ 2.3.1), the nondeterminism and refinement that functional-correctness frameworks embrace do not suffice for confidentiality. Our approach, therefore, is to show equivalence (degen-erately, refinement of a deterministic specification) after resolving all nondeterministic choices preemptively by instantiating the existential parameters. 
+
+2.4.1 Quartz: A deterministic HDL enabling one-method-at-a-time semantics. This strategy in turn leads us to choose a deterministic language, Quartz, for expressing our hardware designs. We work with the intersection of Rocq’s native language Gallina and SystemVerilog functions operating on pairs, sums, records, and arithmetic modulo powers of 2. All concurrency is implicit—independent subexpressions in a functional program can be evaluated in parallel, and hardware-synthesis tools naturally produce implementations that do so. Strictly speaking, all operations syntactically representable in our fragment are combinational. As RTL model-checking tools can trivially prove equivalence of encodings of the same circuit as different RTL programs, and our fragment can express any circuit, this encoding choice is not a capability limitation. Following the tradition of Bluespec and hardware-verification frameworks it inspired [ 9 , 10 , 13 ], we specify modules in terms of atomic methods that deterministically produce updated state and output given a starting state and input, perhaps calling other methods in the process. Each clock cycle involves several methods firing, in our case through deterministic, purely functional calls from the top-level tick method. A module implementation can then be verified independently as trace equivalence against a deterministic spec, existentially instantiated. 
+
+3 Overview 
+
+Granite establishes an end-to-end guarantee—a constant-time program running on synthesizable RTL leaks nothing through timing—by composing a chain of proofs, shown in Figure 2. This section highlights aspects of the proof chain and introduces an example, a zero-skip multiplier, that exposes the specification challenge of the paper: a specification must admit a whole family of functionally correct designs with legitimately varying timing yet forbid any timing that depends on secrets. 
+
+> 5This step-size mismatch is also a key challenge in verifying functional correctness, discussed in § 4.5. 8
+
+Constant-time program 
+
+Static analysis 
+
+HW/SW contract (SW-style) ★
+
+HW/SW contract (HW-style) 
+
+Abstract HW in Rocq ★
+
+Concrete HW in Rocq 
+
+Concrete HW in Quartz 
+
+Synthesizable SystemVerilog          
+
+> StaticAnalysis (prog) ⇓Safe
+> ∀prog .StaticAnalysisSound →ConstantTime ConstantTime →noninterference
+> Equivalence
+> Leakage-aware refinement ★
+> Submodule refinement ★, substitution
+> Equivalence
+> RTL pretty-printing (in TCB)
+> Focus
+
+Fig. 2. Layered, end-to-end proof structure. A program is deemed constant-time by a static analysis proven sound against a software-style ISA contract. Observations are the timing of externally observable be-haviours (e.g. MMIO output). An equiva-lence proof lowers the software-style ISA contract to a hardware-style ISA contract that uses hardware-optimized, combina-tional decode and execute logic shared across instructions. A processor implemen-tation with abstract submodules, specified using leakage contracts, is proven to re-fine the hardware-style ISA contract. After proving concrete submodules individually satisfy their specifications, the resulting processor is proven equivalent to an imple-mentation in Quartz and pretty-printed to SystemVerilog. 
+
+3.1 Example: Zero-Skip Multiplier 
+
+Before the full ISA contract, we introduce the specification style on two toy examples. We provide intuition for how a family of deterministic specifications can admit a space of functionally correct designs with secure timing variations. 
+
+Warm-up: a combinational circuit. The smallest interesting case has no state. A combinational cir-cuit 𝜎 maps a public input and a secret input to a public output and a secret output, (𝑜𝑢𝑡 pub , 𝑜𝑢𝑡 sec ) =
+
+𝜎 (𝑖𝑛 pub , 𝑖𝑛 sec ). Confidentiality requires only that the public output not depend on the secret input: that there exist a function 𝑓 with 𝑜𝑢𝑡 pub = 𝑓 (𝑖𝑛 pub ), while 𝑜𝑢𝑡 sec is free to be any function of everything. We write this requirement as 
+
+∃𝑓 , 𝑔. ∀𝑖𝑛 pub , 𝑖𝑛 sec . 𝜎 (𝑖𝑛 pub , 𝑖𝑛 sec ) =  𝑓 (𝑖𝑛 pub ), 𝑔 (𝑖𝑛 pub , 𝑖𝑛 sec ).
+
+The exact value of 𝑜𝑢𝑡 pub is left unspecified, but the existential 𝑓 forces it to be secret-independent :this device is our basic one for capturing secret-independent nondeterminism without overcon-straining 𝜎 . The unconstrained 𝑔 captures behaviour that is permitted to depend on secrets. 
+
+Adding state and time: the zero-skip multiplier. The combinational case fixed which outputs may depend on secrets. State and clock cycles raise a second question: when does an output appear, and what may that timing depend on? We answer both with the same strategy as before but applied over traces rather than single values: every public output, now including the cycle when it becomes available, must be a fixed function of the module’s public inputs trace. Consider a zero-skip multiplier that computes 𝑎 ∗𝑏 , returning in one cycle when either operand is zero and in 𝑛 cycles otherwise. We intend to place it inside a processor whose multiply instruction declassifies only whether an operand is zero; the multiplier’s contract must therefore permit the zero-skip optimization while forbidding any other data-dependent timing. We model implementation Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 9
+
+Fig. 3. Implementation (left) and specification (right) of a pipelined, zero-skip multiplier. Functional cor-rectness is specified based on a canonical representation of state as a FIFO of requests. Leakage-aware nondeterminism is specified using witness and driver components, with canonical representation of state as the history of their inputs. An implementation is correct and secure if there exist a driver (a function of the history of public inputs; deciding latency) and witness (a function of all inputs; deciding the value of 
+
+> Peek
+
+-when-not-ready) such that it is equivalent to the specification instantiated with the parameters. 
+
+and specification as Mealy machines 6 over the method calls Enq , Deq , Tick , Full , RespReady , and 
+
+> Peek
+
+, with correctness defined as output-trace equivalence, summarized in Figure 3. A specification should admit a whole family of secure implementations, so it leaves several behaviours nondeterministic—of the two kinds from the warm-up. A secret-independent driver 
+
+(here d.RespReady /d.Full , a function of only the public leakage trace) fixes the timing, seeing the zero bit but nothing else, playing the role of 𝑓 . An unconstrained witness (here the Peek -while-invalid value, which may reflect secrets) plays the role of 𝑔 . These parameters are untrusted: an implementation is functionally correct and secure exactly when there exist driver and witness instantiations under which its trace equals the specification’s. § 5.2.1 gives the full contract in Rocq and proof method—we show that the witness is trivially instantiated with the implementation, and the driver is instantiated with a “shadow copy” of the implementation with inputs reconstructed from public inputs. 
+
+3.2 Security Goal and Threat Model 
+
+We consider HW/SW contracts based on three components: a software or ISA specification with leakage semantics, a hardware or microarchitectural implementation, and an adversary model specifying what aspects of the microarchitecture are observable. 
+
+Adversary capability. Granite considers adversaries with direct access to the microarchitecture’s digital I/O boundary, capable of driving input signals and observing output signals at every clock cycle. We formalize this capability by defining a public observation function 𝑂 𝜇 over execution traces of the microarchitectural state machine. For example, our case study (§ 6) defines observations as the cycle-by-cycle ready/valid handshake wires of the external MMIO bus. Fixing observations at this system boundary means internal microarchitectural transitions need not be audited directly. 7
+
+The threat model includes digital timing side channels but excludes arbitrary side channels such as power or EM radiation. 
+
+Security goal. Granite proves the implementation satisfies its leakage contract —the contractual-noninterference property of Definition 1, so observations are a function of what the contract declassifies or designates as public—and additionally proves functional correctness (refinement of   
+
+> 6A Mealy machine is a deterministic finite-state machine whose output values are determined both by its current state and the current input.
+> 7Our intermediate theorems also prove secret independence of other commonly used observations, such as instruction completion time or the timing and addresses of all memory requests. 10
+
+the ISA’s I/O behaviour, universally over all programs, data, and inputs). § 3.3 generalizes contractual noninterference to nondeterminism and I/O over infinite traces. 
+
+ISA specification with leakage semantics. Granite’s methodology is parameterized over an ISA specification defined as a state machine, consisting of architectural states and a transition function, together with a leakage function that emits the information the contract declassifies at each step. We focus on ISAs with sequential, one-instruction-at-a-time semantics on a single core. 8 As a concrete example, our case study considers a representative subset of RISC-V under the constant-time policy. Architectural states are 𝜎 = ⟨rf , pc , imem , dmem ⟩—a register file rf , program counter 
+
+pc , and separate instruction and data memories imem and dmem mapping addresses to bytes (we restrict to non-self-modifying programs)—with step : 𝜎 → 𝜎 giving the standard “one-instruction-at-a-time” fetch-decode-execute transition. A leakage function leak computes the leakage of an instruction, excerpted below, for a constant-time contract for RISC-V with zero-skip multiplication. We additionally treat the byte-encoded instructions themselves as leaked, along with writes to interrupt-related CSRs (c.f. § 6 explains why).                                                                                                        
+
+> |Add rd rs1 rs2 ⇒LeakAdd (* All inputs are secret. *) |Beq rs1 rs2 offset ⇒LeakBeq (rf[rs1] =rf[rs2]) (* The branch condition is leaked. *) |Lw rd rs1 offset ⇒LeakLw (rf[rs1]) (* The load address is leaked. *) |Sw rs1 rs2 offset ⇒LeakSw (rf[rs1]) (* The store address is leaked (but the store data is not). *) |Mul rd rs1 rs2 ⇒LeakMul (rf[rs1] =0∨rf[rs2] =0) (* Whether either argument is zero is leaked. *) |Csrrw rd rs1 csr ⇒match csr with
+> |mtvec ⇒LeakCsrrwMtvec rf[rs1] |mie ⇒LeakCsrrwMie rf[rs1] |_⇒LeakCsrrw
+> end
+
+3.3 Architectural Specifications Under Nondeterminism 
+
+Recall the three challenges of § 2.3.1: secure implementation choices affect the leakage trace, nondeterminism can leak secrets, and step sizes mismatch. We resolve all three with a single con-struction, applying the secret-independent driver and secret-dependent witness that determinized the multiplier of § 3.1 to the ISA machine. First, we lower the one-instruction-at-a-time ISA machine into a cycle-accurate state machine, aligning specification steps with implementation cycles and letting both interact with a synchronized model of the external world. Second, we determinize the remaining nondeterminism with explicit existential parameters [28], of the same two kinds as in the multiplier: 
+
+• a secret-independent driver , fed only public data, that resolves secret-independent choices (i.e. when the machine steps and triggers I/O, or when it takes a pending interrupt); and 
+
+• an unconstrained witness , which may depend on secrets, modeling unspecified behaviour such as the value driven on a data bus while its valid bit is low. A separate secret-independent leakage transformer maps the specification’s declassified leakage trace to the adversary’s cycle-level observations; its existence is the security property. An imple-mentation is then functionally correct and secure when there exist a driver, witness, and leakage transformer under which it is trace-equivalent to the resulting deterministic, cycle-accurate specifi-cation (Figure 4). All three parameters are untrusted, so only the cycle-accurate ISA machine—not the implementation nor the parameters—must be audited. § 4 develops the construction in full, and § 7 shows that trace equivalence to it implies the classical noninterference property of Definition 1.  
+
+> 8See § 8.3 for discussion of generalizing beyond sequential ISAs and to multicore. Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 11
+> (a) Implementation state machine, cycle-level, with public and secret I/O at the wire level. The public output wires, observed by the adversary, are du-plicated for convenience to assert both functional correctness and nonleakage as trace equivalence.
+> (b) Specification state machine, cycle-level, constructed by parameterizing a trusted ISA machine generating de-classified leakages with a secret-independent driver, a secret-independent leakage transformer, and an uncon-strained witness. The black boxes are untrusted. Fig. 4. An implementation satisfies a leakage-aware ISA contract—and hence is both functionally correct and secure—if there exist a witness, driver, and leakage transformer under which the implementation and specification traces are equivalent. Red wires carry public, adversary-observable information. Only public information is fed into the leakage transformer, which produces the adversary-observable output.
+
+3.4 Two Axes of Modularity 
+
+Granite decomposes the proof along two axes, which together tame the state-space explosion of monolithic hardware verification and let the framework reason about early-stage designs. 
+
+Vertical Modularity. Figure 2 shows Granite’s layered refinement chain: a constant-time program, a software-style ISA contract amenable to software proofs (§ 6), a hardware-style contract sharing combinational decode/execute/writeback logic (reused across spec and implementation), abstract-submodule and HDL-independent layers (useful for reasoning about early-stage designs and defenses), and finally Quartz with a trusted SystemVerilog pretty-printer. Crucially, refinement preserves not just functional state but leakage: we chain leakage-transformer functions so the implementation’s cycle-level leakage trace is provably a function of the top-level specification’s. 
+
+Horizontal modularity (§ 5). Horizontally, the abstract-hardware design decomposes into submodules— FIFOs, multipliers, branch predictors, memory—that interact only through method calls and are each specified (correctness and nonleakage) and verified independently (as previewed in § 3.1). This tames state-space explosion and lets a designer swap algorithms or reason about an early-stage defense without redoing the top-level proof; § 5 develops the details. 
+
+4 Specifying HW/SW Leakage Contracts 
+
+This section shows how Granite turns a traditional ISA contract into a family of deterministic, cycle-accurate state machines suitable for leakage-aware refinement proofs. We build up to, and present details of, the specification in Figure 4 supporting I/O and interrupts. Starting with an example baseline ISA state machine, we lower it to a cycle-accurate machine that reconciles the step-size mismatch with implementations (§ 4.1), describe its existential parameters (§ 4.2), and discharge both functional correctness and nonleakage with a single trace-equivalence obligation (§ 4.3). We then discuss the bug classes ruled out and outline the proof strategy. 
+
+4.1 Lowering an ISA Contract to a Cycle-Accurate Machine 
+
+State machines. We model state machines as Mealy machines. A state machine 𝑀 : Machine 𝐼 𝑂 is a triple (State , 𝑠 0, 𝛿 ) of a state type, an initial state 𝑠 0 ∈ State , and a transition function 𝛿 : State ×𝐼 →12 
+
+𝑂 × State . Driving 𝑀 with an input sequence ®𝚤 𝑛 = 𝑖 1 · · · 𝑖 𝑛 yields an 𝑛 -element output trace, written 
+
+Tr 𝑛 𝑀 (® 𝚤 ). Both the specifications and implementations are Mealy machines; this section works toward equating their traces. 
+
+Baseline ISA machine. The baseline ISA is a Mealy machine over architectural states 𝜎 =
+
+⟨rf , pc , imem , dmem ⟩—a register file, program counter, and separate instruction and data mem-ories (§ 3.2). Instructions are encoded as an inductive type Instr with a decode function decode 
+
+mapping machine words to Instr and an execute function exec : 𝜎 × Instr → 𝜎 × LeakEvent that updates the architectural state and emits the per-instruction leakage event prescribed by the con-tract. The baseline one-instruction-at-a-time machine, which takes no inputs, has the following state-transition function: 
+
+step : 𝜎 × unit → 𝜎 × LeakEvent ≜ 𝜆𝑠. exec (𝑠, decode (imem [𝑠. pc ])) .
+
+Supporting I/O with a wire-level, cycle-level machine. We want to support I/O (we use MMIO as a running example). As such, we aim to relate specifications and implementation cycle-by-cycle , so that both react to the same external inputs at the same instant. However, step executes a whole instruction atomically, whereas an implementation may spread one instruction across many cycles and retire nothing at all on a stalled cycle. In addition, an MMIO load request can block until a response is received, breaking the one-instruction-at-a-time semantics. Furthermore, we need to add a trusted wire-level interface to support MMIO: to demonstrate, we extend 𝜎 with a handshaking ready/valid/data interface, considering ready/valid signals to be public and data signals to be secret. 
+
+Cycle-accurate machine with I/O. We lower the ISA into a cycle-accurate machine of type 
+
+Cycle −ISA : Machine (PubIn × SecIn × DriverOut × WitnessOut ) ( PubOut × SecOut × LeakEvent )
+
+whose transitions are split so that each carries at most one distinct leakage or observable effect, letting a single implementation cycle map to zero or more specification steps. As shown in Figure 4, the machine is existentially parameterized with a driver and witness: 
+
+Driver : Machine (PubIn × LeakEvent ) DriverOut Witness : Machine (PubIn × SecIn ) WitnessOut 
+
+responsible for resolving secret-independent choices (in this case, whether to take a step and cause external I/O observations from sending/receiving MMIO requests) and plausibly-secret-dependent choices (e.g. the value of the data wire when the valid signal is low) respectively. At heart this machine is still the trusted OIAAT ISA, now emitting its per-instruction leakage stepwise (under the constant-time policy: branch conditions, load/store addresses, and inputs to variable-latency instructions); it is the only component that must be audited; the driver and witness are untrusted. Here, Cycle −ISA is decomposed into three stages (extended in Figure 5 with interrupts) in which MMIO is the only observable effect: (1) StepLeak : when driven, emits the leakage of the next instruction (at the program counter) without executing it. (2) StepInstr : when driven, runs one fetch–decode–execute to completion—except when the instruction issues an MMIO request, in which case it emits the observable request (by appropriately setting ready/valid/data wires) and waits. (3) StepWaitMMIOResp : when driven, consumes an MMIO response if one is available (else blocks). Which cycle the response arrives is observable (altering the ready signal) and may differ from when the external world sent it. Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 13      
+
+> StepLeak StepInstr StepWaitMMIOResp StepInterrupt
+> leakage
+> (is MMIO)
+> sendReq
+> (not MMIO)
+> recvResp
+> takeInterrupt?
+> Fig. 5. The Cycle −ISA state machine. The driver directs the machine to take steps and decides when an interrupt is taken. The machine outputs declassified leakage and drives wires on the MMIO interface.
+
+The wire-level interface and functional correctness. A trusted layer bridges the gap between the specification’s abstract “send an MMIO request” with the wire-level “ready/valid” I/O interface: the outgoing valid is held high while a request is pending, and the response is consumed when the input ready is also high; similarly, the outgoing ready is held high exactly when the machine is in StepWaitMMIOResp . This interface specifies functional correctness: the ISA spec enforces that outgoing requests correspond to MMIO requests in the ISA semantics. 
+
+Supporting interrupts. In the above, an implementation has freedom to vary timing (in a secret-independent manner) on the MMIO interface and to set the MMIO data wire when the valid signal is low; we additionally want to support interrupts. Typically, interrupts must be precise, corresponding to a sequential execution of the program that can take an interrupt after an instruction, but the implementation can choose after which instruction to take an interrupt. This choice should be independent of secrets but is a true nondeterministic choice that depends on I/O and alters the instructions being executed. We extend our three-state Cycle −ISA machine to support interrupts with a fourth StepInterrupt 
+
+state, summarized in Figure 5. DriverOut is extended to provide (to StepInterrupt ) a Boolean argument for whether to trap: if true, an interrupt is pending, and interrupts are enabled, then the machine traps to the handler; otherwise, no interrupt is taken. This staging lets the implementation choose at which instruction boundary to trap an interrupt. 
+
+Generality. § 8.3 discusses how this transformation generalizes to settings with multiple “next states,” such as verifying a processor independently of memory, where instruction- and data-memory requests are part of the external interface. To allow speculative loads with secret-independent timing and addresses, the machine can be extended with, e.g., a SendLoadReq addr directive issuable by the secret-independent driver at any step. 
+
+4.2 Determinizing Nondeterminism via Existential Parameters 
+
+Recall from § 3.3 that the cycle-level specification is parameterized by three untrusted black boxes; we give their types and their roles in the context of an ISA specification. 
+
+The driver. Driver : Machine (PubIn × LeakEvent ) DriverOut , fed only public data, emits a se-quence of commands to the ISA machine. In the baseline of Figure 5 a command is a list of Booleans dictating how many steps to take and whether to trap (ignored unless at StepInterrupt ); when a state admits multiple transitions (e.g. exposing memory requests, c.f. § 8.3) it selects the transition, such as whether to issue a speculative load. 
+
+The witness. Witness : Machine (PubIn × SecIn ) WitnessOut models unspecified, possibly secret-dependent behaviour—in our case study, the MMIO output wire on cycles when valid is low, which 14 
+
+the consumer must ignore. § 5 shows composition with a parent module removes witness-induced leakage from the TCB. 
+
+The leakage transformer. LT : Machine (PubIn × LeakEvent ) PubOut maps cycle-level leakage to adversary observations using public data only. Its existence is the security property: observations— including timing signals such as ready/valid—reveal nothing beyond what the contract declassifies. 
+
+4.3 Functional Correctness and Nonleakage via Trace Equivalence 
+
+The above construction allows a single trace-equivalence theorem to discharge both properties at once (and a trivial transitivity property, useful for modular proofs). Composing the pieces as in Figure 4, the specification machine 
+
+Spec {LT ,Driver ,Witness } : Machine (PubIn × SecIn ) ( PubOut × PubOut × SecOut )
+
+exposes two public-output channels: one driven by the leakage transformer (observations) and one by the ISA’s functional-correctness definition. Lifting the implementation 𝜇 : Machine (PubIn ×
+
+SecIn ) ( PubOut × SecOut ) to the same interface by duplicating its public-output wires lets both properties be discharged by a standard trace-equivalence theorem (this duplication is not essential; the equality can be asserted separately). 
+
+Definition 2 (Correctness and nonleakage under a leakage-aware contract) . An implementation is functionally correct and nonleaking under a leakage-aware ISA if there exist leakage-transformer, driver, and witness machines such that the implementation and specification traces are equivalent (for all cycle counts 𝑛 and public and secret inputs, ®Pub 𝑛 and ®Sec 𝑛 , of length 𝑛 ): 
+
+∃LT , Driver , Witness . ∀𝑛, ®Pub 𝑛 , ®Sec 𝑛 .𝑂 𝑛 𝜇 ( ®Pub 𝑛 , ®Sec 𝑛 ) = LT 𝑛 ( ®Pub 𝑛 , 𝑂 𝑛  
+
+> Cycle −ISA {Driver ,Witness }
+
+( ®Pub 𝑛 , ®Sec 𝑛 )) ∧ 
+
+Func 𝑛 𝜇 ( ®Pub 𝑛 , ®Sec 𝑛 ) = Func 𝑛  
+
+> Cycle −ISA {Driver ,Witness }
+
+( ®Pub 𝑛 , ®Sec 𝑛 ),
+
+where 𝑂 𝜇 denotes the adversary observation trace (of type list PubOutput ), Func the functional (I/O) trace (of type list (PubOutput × SecOutput )), and 𝑂 Cycle −ISA the specification leakage trace. Equivalently, as a single-trace equation: 
+
+∃LT , Driver , Witness . ∀𝑛, ®Pub 𝑛 , ®Sec 𝑛 .
+
+Tr 𝑛 𝜇 ( ®Pub 𝑛 , ®Sec 𝑛 ) = Tr 𝑛  
+
+> Spec {LT ,Driver ,Witness }
+
+( ®Pub 𝑛 , ®Sec 𝑛 )
+
+4.4 Classes of Bugs Ruled Out by the Top-Level Specification 
+
+Proving trace equivalence between the top-level specification and synthesizable RTL rules out entire classes of microarchitectural and security bugs without enumerating individual attacks, yielding robustness to attacks-not-yet-discovered. 
+
+Functional-correctness bugs ruled out. Equivalence to a sequential, OIAAT ISA specification elimi-nates standard and edge-case correctness bugs: incorrect instruction-decoding and execution-logic errors, data hazards and pipeline races, and imprecise traps (for precise exceptions and asynchro-nous interrupts, bugs that trigger mid-instruction or corrupt saved contexts; the StepInterrupt 
+
+stage guarantees interrupts land only at instruction boundaries). 
+
+4.4.1 Timing-side-channel and security bugs ruled out. Timing leakage is an emergent property of subtle microarchitectural interactions that classical functional testing ignores. Granite’s noninterfer-ence proof rules out vulnerabilities—without naming speculated instructions or microarchitectural structures—such as: Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 15 
+
+• Transient/speculative-execution attacks (e.g. Spectre, Meltdown): side effects of transiently executed instructions (on misspeculated, unreachable paths) cannot leak secrets. Because the specification declassifies leakage only for instructions on correct paths, speculative state changes remain secret-independent; a secret-dependent speculative load or branch with observable timing effects would make it impossible to construct a secret-independent shadow machine with matching timing for all public data. 
+
+• Speculative interference and port-contention leaks: younger, misspeculated instructions cannot alter timing of older, bound-to-retire instructions via contention on ALUs, MSHRs, or functional units, since such instructions do not appear in the specification leakage trace. 
+
+• Secret-dependent interrupt timing leaks: classical refinement permits handling an interrupt immediately when a secret is zero but delaying it otherwise; Granite rules out this behaviour. 
+
+4.5 Proof Strategy and Instantiating Existential Parameters 
+
+Definition 2 yields a formulaic proof strategy: construct a deterministic specification machine and cycle-level bisimulation relation, reducing the proof obligation to single-cycle preservation of a simulation relation between three machines—the Cycle −ISA machine, the implementation, and the “shadow machine” (a copy of the implementation that runs only on public data). We summarize the elements below (see § 6 for detail). 
+
+1) Instantiating the existential parameters. The witness is simply a copy of the implementation machine. The leakage transformer and driver can be instantiated with shadow copies of the implementation containing only public data. As the shadow copies execute, they replace data dependent on ISA-declassified information with information from leakage events (e.g. the address of a load/store request is replaced with the address from the leakage trace). The shadow machines differ from the implementation on, e.g., register-file contents and parts of microarchitectural state, but they will likely agree on aspects of microarchitectural state influencing control flow (such as branch-predictor state). The specification does not prescribe what the shadow machine consists of, and there are multiple valid instantiations (for example, leakage information can be threaded through at any point before it affects observable timing). The driver essentially precomputes whether, in the upcoming cycle, the next instruction reaches its visibility point (allowing a leakage event to be generated), an observable event occurs (e.g., sending/receiving an MMIO request/response), or it is resolved whether an interrupt is taken after the previously committed instruction. 
+
+2) Relating the implementation state to the ISA state machine. This element is standard in functional-correctness proofs in the style of Fjfj and Kami. We state a simulation relation between specification and implementation state as a flushing invariant [ 38 ]: an instruction bound-to-commit in the imple-mentation relates to the specification’s state after that instruction has committed. Nondeterminism not-yet-resolved, such as whether an interrupt is taken, is delayed in the specification until the implementation resolves it. In other words, the driver cannot drive choices with observable side effects (MMIO loads/stores, taking interrupts) until the implementation has resolved the choices (in this case, one would fail to construct a valid proof). 
+
+3) Relating the implementation state to the shadow machine. Given the shadow machine above, the implementation and shadow machine share the same microarchitectural state. The relation amounts to designating which signals are public (typically signals related to control logic or that affect timing) and equating them—e.g., branch-predictor state, state derived from fetched instructions, and the valid bits of pipeline FIFOs. § 5 showcases how an abstract, method-call-history representation of submodules supports a lightweight strategy of asserting that public state 16 
+
+is equivalent across submodules based on asserting equivalence of public traces, independent of their concrete implementation. 
+
+5 Horizontal Modularity via Modular Abstractions 
+
+Granite is also horizontally modular: a design at the abstract hardware layer is decomposed into submodules—FIFOs, multipliers, branch predictors, the memory subsystem—that interact only through method calls. Each submodule is specified by its own contract capturing both functional correctness and leakage, independent of the rest of the design. 
+
+One method at a time. The key enabler is a one-method-at-a-time abstraction, the method-call analogue of the one-rule-at-a-time discipline of rule-based HDLs such as Bluespec [ 7 ]. Rather than reasoning about concurrently updating wires, Granite restricts intercomponent communication to method calls with a deterministic, sequential semantics: each call is evaluated atomically, and cycle-accurate timing is recovered by a tick method whose top-level invocation constitutes one clock cycle. This structure lets each submodule be verified in isolation by simulation against its specification and then substituted into the larger design, so the whole-processor proof reasons over canonical representations and abstracts over implementation details of subcomponents. This intercomponent modularity is formalized in Rocq using freer monads to represent component interactions, with the one-method-at-a-time sequential abstraction. 
+
+Substitution principle. A substitution principle , proven sound based on the one-method-at-a-time reasoning, allows substitution in proofs. 
+
+Definition 3 (Leakage refinement) . Let SubImpl be a Mealy machine and SubSpec [·] be a parame-terized family of Mealy machines. We say a SubImpl leakage-refines its local specification SubSpec 
+
+if there exist parameters SubParams such that SubImpl is equivalent to SubSpec [SubParams ] for all inputs, denoted as SubImpl ⊑∃ SubSpec [·] ≜ ∃SubParams . SubImpl ≡ SubSpec [SubParams ].
+
+Theorem 1 (Substitution principle). Let SubImpl ⊑∃ SubSpec [·] as above. If a top-level im-plementation Impl (·) verified with submodule SubSpec [·] is equivalent to Spec for all choices of 
+
+SubParams , then the Impl instantiated with the concrete submodule SubImpl is equivalent to the specification: 
+
+SubImpl ⊑∃ SubSpec [·] ∧ (∀ SubParams . Impl (SubSpec [SubParams ]) ≡ Spec )→ Impl (SubImpl ) ≡ Spec 
+
+Composing with parameterization of Spec follows readily. 
+
+5.1 Hardware Semantics 
+
+To formalize modular hardware components within Rocq, Granite uses a lightweight program embedding structured as a freer monad, summarized in Figure 6. A hardware program of type prog is parameterized by a method signature Method and return type  
+
+> Ret
+
+(lines 1-3). A component specification is a record type Spec containing the internal state type, a per-method evaluation function, and an initial state (lines 4-7). A hardware module is an instance of Module , associating an interface signature with a base specification and an implementation of each method (lines 8-12). Programs are interpreted sequentially by invoking the base specification at each method call (lines 13-21) and can be lifted to define component specifications (lines 22-24). Refinement between two component specifications sharing a method interface is a simulation relation over their state spaces: Rel is a simulation if, for any two related states, executing the same method yields equal output and related successor states (lines 25-29). This definition gives Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 17      
+
+> 1Inductive prog {Method: Type
+
+→ Type} {Ret: Type} :=      
+
+> 2|Return :Ret
+
+→ prog        
+
+> 3|Call {A} :Method A
+
+→ (A → prog) → prog.      
+
+> 4Record Spec {Method: Type
+
+→ Type} :=           
+
+> 5{State :Type;
+> 6EvalMethod {A} :Method A
+
+→ State → A * State;         
+
+> 7initialState: State }
+> 8Record Module {Method: Type
+
+→ Type} :=     
+
+> 9{ModuleMethod: Type
+
+→ Type;           
+
+> 10 ModuleBase :Spec ModuleMethod;
+> 11 ModuleProgram: forall Ret, Method Ret
+
+→                             
+
+> 12 prog ModuleMethod Ret }
+> 13 Fixpoint evalProg
+> 14 {Method} (spec: Spec Method) {R}
+> 15 (p: prog Method R) (st: spec.(State))
+> 16 :R*spec.(State) :=
+> 17 match pwith
+> 18 |Return e
+
+⇒ (e, st)      
+
+> 19 |Call mf
+
+⇒ let '(r, st') := spec.(EvalMethod) m st in                 
+
+> 20 evalProg (f r) st'
+> 21 end .
+> 22 Definition refines Rel :=
+> 23 forall s1 s2, Rel s1 s2
+
+→           
+
+> 24 (forall method rs1', spec1.EvalMethod method s1 =(r, s1')
+
+→         
+
+> 25 exists s2', spec2.EvalMethod method s2 =(r, s2')
+
+∧                
+
+> 26 Rel s1' s2').
+> 27 Definition simulates (spec1 spec2: Spec Method) :=
+> 28 exists Rel, Rel spec1.initialState spec2.initialState
+
+∧  
+
+> 29 refines Rel.
+
+Fig. 6. The freer-monad encoding of modular hardware in Rocq. For verification convenience (elided here), our Rocq implementation distinguishes value methods, which do not alter state, from action methods. 
+
+rise to a substitution principle, where a parent module driving the same method sequence into the implementation and specification cannot tell them apart. The encoding is independent of the underlying HDL, enabling language-agnostic reasoning and early-stage exploration. When state and programs are written in a synthesizable fragment of Gallina, they can be proven to correspond to designs in a deeply embedded HDL and synthesized to RTL, for an end-to-end theorem. 
+
+5.2 Intercomponent Modularity 
+
+Modules are specified as abstract specifications exposing method calls, formalized as Mealy machines whose inputs are method calls. We adopt two modeling principles. First, we use canonical functional representations (e.g., a hardware FIFO realized as a circular buffer has many states corresponding to a FIFO with one element; we represent FIFOs as lists). Second, we extend the state representation with a leakage history that projects the trace of method calls (inputs) down to the information permitted to influence timing (the public inputs) 9. Submodules are existentially parameterized with the same parameters in § 4.2: a secret-independent driver over the module’s public leakage history fixes its timing, and an unconstrained witness supplies its unspecified outputs. 
+
+5.2.1 Example: zero-skip multiplier. Recall the multiplier from § 3.1. Figure 7 gives the Rocq spec. 
+
+Functional correctness. The multiplier is functionally correct as long as it computes the product of its inputs and returns results in FIFO order. Full and RespReady act as the ready/valid handshake. Unlike conventional Bluespec models, where method conflicts block illegal transitions, here Enq 
+
+and Deq may always fire—enabling purely local reasoning about each method, which simplifies verification; we synthesize circuits from this style in § 7. It is therefore the caller’s responsibility to check Full before an Enq , and RespReady before a Deq or using the result of a Peek .
+
+Security: the leakage contract. A multiplier implementation is secure if its timing behaviour is a deterministic function of the specification’s declassified leakage trace—here, the history of action-method calls ( Enq , Deq , and Tick ) with each Enq recorded along with whether either input 
+
+> 9
+
+The leakage history could also carry data declassified during execution, as in the top-level ISA spec, but our case studies did not require such declassification. 18 
+
+1 Record req_t := { a : bv width; b : bv width }. 
+
+2 Inductive Method: Type → Type := 
+
+3 | Enq (arg: req_t) : Method unit 
+
+4 | Deq : Method unit 
+
+5 | Tick : Method unit 
+
+6 | RespReady : Method bool 
+
+7 | Full : Method bool 
+
+8 | Peek : Method (bv (width + width)). 
+
+9 Inductive LeakEvent := 
+
+10 | LeakEnq (zeroArg: bool) | LeakDeq | LeakTick. 
+
+11 Definition leakTrace_t := list LeakEvent. 
+
+12 Definition trace_t := list (Method unit). 
+
+13 Class specParams := 
+
+14 { default_peek: trace_t → bv (width + width) 
+
+15 ; resp_ready : leakTrace_t → bool 
+
+16 ; is_full : leakTrace_t → bool }. 
+
+17 Definition leakage (tr: trace_t) : leakTrace_t := 
+
+18 map (fun m ⇒
+
+19 match m with 
+
+20 | Enq req ⇒ LeakEnq (req.a = 0 || req.b = 0) 
+
+21 | Deq ⇒ LeakDeq | Tick ⇒ LeakTick end ) tr. 
+
+22 Record St := { reqs: list req_t; hist : trace_t }. 
+
+23 Definition enq (req: req_t) (st: St) := 
+
+24 {| reqs := if is_full (leakage st.hist) then st.reqs 
+
+25 else st.reqs ++ [req]; 
+
+26 hist := st.hist ++ [Enq req] |}. 
+
+27 Definition deq (st: St) := 
+
+28 {| reqs := if resp_ready (leakage st.hist) 
+
+29 then list.tail st.(reqs) else st.(reqs); 
+
+30 hist := st.hist ++ [Deq] |}. 
+
+31 Definition tick (st: St) := 
+
+32 {| reqs := st.reqs; 
+
+33 hist := st.hist ++ [Tick] |}. 
+
+34 Definition full (st: St) := params.is_full (leakage st.hist). 
+
+35 Definition respReady (st: St) := 
+
+36 match st.(reqs) with 
+
+37 | [] ⇒ false (* for functional correctness *) 
+
+38 | _ ⇒ resp_ready (leakage st.hist) end .
+
+39 Definition peek (st: St) := 
+
+40 if respReady (leakage st.hist) then 
+
+41 match st.reqs with 
+
+42 | [] ⇒ default_peek st.hist 
+
+43 | req::_ ⇒ req.a * req.b end 
+
+44 else default_peek st.hist. 
+
+45 Definition evalMethod {A} (m: Method A) (st: St) : A * St := 
+
+46 match m with 
+
+47 | Enq req ⇒ ((), enq req st) 
+
+48 ... 
+
+49 | Full ⇒ (full st, st) end .
+
+Fig. 7. Zero-skip multiplier specification in Rocq. NB: simplified to remove value/action method distinction. 
+
+argument is zero. Zero-skip optimization is permitted because that bit is logged in the trace; all other latency variation must be a function of the trace, ruling out operand-dependent timing channels. It is the caller’s responsibility to ensure that the zero-operand bit is indeed public. 
+
+Specification structure. The specification state tracks a FIFO of outstanding requests and a history of past operations. To admit a range of implementation choices (varying pipeline depths, multipli-cation algorithms), it is parameterized over two driver functions of only the public leakage trace, 
+
+resp_ready and is_full , so response time depends exclusively on public or explicitly declassified data. To model unspecified behaviour, such as the value of Peek when RespReady is false (cor-responding to the data wire while valid is low), the specification includes a witness parameter 
+
+default_peek , letting that output vary or even hold secret-dependent values while invalid and shifting the obligation to the consumer to ignore it until valid . The tick method marks clock-cycle progression, giving implementations a point to update internal state. 
+
+Proof structure. A concrete implementation realizes every method using a synthesizable fragment of Gallina (e.g. using bitvectors and vectors rather than naturals and lists). We provide both a shallow-embedded and a deeply-embedded-HDL implementation (§ 6). As in § 4.5, each existential parameter is instantiated with a shadow copy of the implementation: the witness default_peek runs the implementation on the method-call trace, while the secret-independent parameters resp_ready 
+
+and is_full run shadow machines on lifted method calls: 
+
+1 Definition lift_leakage_event (ev: LeakEvent) : Method unit := 
+
+2 match ev with 
+
+3 | LeakDeq ⇒ Deq | LeakTick ⇒ Tick 
+
+4 | LeakEnq zero_arg ⇒
+
+5 Enq (if zero_arg then {| a := zeroes; b := zeroes |} else {| a := ones; b := ones |} )
+
+6 end .Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 19 
+
+The proof writer then states and proves a simulation relation between the implementation and both the specification and shadow machines. Against the specification, the relation maps valid implementation states to the canonical list-of-requests representation. Against the shadow machine, it relates public information: equality of public registers and “leakage equivalence” of states (e.g. data derived from requests need not be equal, only equal modulo whether either operand was zero). The simulation lets the top-level proof treat the multiplier as a black box, substituting any compliant implementation, and allowing a high-level simulation relation in terms of the abstract multiplier’s state (FIFOs and traces of method calls). 
+
+5.2.2 Specifying the memory. Memory is modeled abstractly in a similar style and with the same API as the multiplier (with a different enqueue request type and peek response type). Functionally, it is a map from address to byte together with a FIFO of requests and the history of method calls updating state (enqueue, dequeue, and tick). This pattern is standard for pipelined submodules that service requests in order, one at a time 10 . As with the multiplier, response time is asserted to be a function of public information; here the leakage trace includes addresses of requests but not data. This work does not tackle verifying memory hierarchies, and so, the spec of memory is trusted. 
+
+5.3 Intracomponent Modularity 
+
+Within a single component such as the processor core, the tick cycle-update function is decomposed into sequential steps for individual pipeline stages (fetch, decode, execute, writeback). This lets designers and verification engineers establish Hoare-style pre-/postconditions at stage and function boundaries—structuring each stage to preserve a simulation relation, and supporting both high-level and optimized low-level implementations of functions. 
+
+6 Verification Case Study: A Pipelined Processor 
+
+We verify a four-stage pipelined core implementing a representative subset of RISC-V—with arith-metic, memory, control, and CSR instructions—against the cycle-accurate specification of § 4, composed with the model of memory of § 5.2.2. 
+
+Contract bug found in our work. We initially verified our processor directly against the constant-time policy: it declassifies load/store addresses, branch conditions, and whether a multiplier operand is zero. Verifying hardware against the contract exposed a declassification our software-level intuition had missed: writes to the interrupt-configuration CSRs ( mie , mtvec ) must themselves be leaked, because the processor jumps to mtvec on an interrupt, and thus the trap target influences observable control flow. Prior work verifying constant-time software down to RISC-V [ 15 ] did not account for this leakage, because reasoning at the ISA level alone does not force the question. The proof could not be completed without the extra leakage clause, demonstrating that verifying hardware against ISA specs catches subtle, easy-to-miss policy omissions. 
+
+Processor stages. The processor is a standard fetch-decode-execute-writeback pipeline: fetch speculates instruction loads using a BTB-predicted PC and an epoch tag; decode checks the epoch, stalls on scoreboard hazards (and until older instructions commit before a CSR access) then reads registers; execute resolves branches (bumping the epoch and flushing on mispredict) and dispatches variable-latency work to the multiplier and memory; writeback commits results and takes precise exceptions and interrupts (flushing the pipeline if need be). The case study’s focus is not on the pipeline but on aspects connecting it to the spec: the visibility point, shadow core, and driver. 
+
+> 10 We can extend to out-of-order modules by relaxing the FIFO nature of the request queue and adding a secret-independent parameter to choose which request is handled next. 20
+
+Identifying the visibility point. The specification is one-instruction-at-a-time, but the implemen-tation has many instructions in-flight. The visibility point of an instruction is the cycle at which it becomes bound-to-commit—no longer discardable by an older instruction’s mispredict, exception, or interrupt. It tells the driver when to advance the specification (for functional-correctness proof) and it marks when an instruction’s leakage (e.g. a branch direction) is safe to declassify to the shadow core. It is sufficient to define a visibility point (which could differ based on instruction type) such that any leakage information that could influence execution time in the shadow machine does so strictly after the visibility point. Then, the leakage information is available to be used early enough by the shadow core to replicate the implementation’s timing behaviours. In our core, we safely define the visibility point as a simple predicate on occupancy of pipeline queues: an instruction is visible when it is at the head of the decode-to-execute ( d2e ) queue, there are no instructions at the execute-to-writeback ( e2w ) queue, and it is at the correct epochs. With  
+
+> e2w
+
+empty, no older instruction remains that could trap or be interrupted. This visibility point suffices as leakage information is not needed in the shadow machine until the execute stage. Tighter, state-dependent conditions are possible (e.g. a lone, in-flight instruction with correct epochs is always correct-path) but not necessary. 
+
+Driving nondeterministic choices. Analogously, the driver should not drive the specification past nondeterministic choices influencing observables (MMIO, interrupts) until the implementation resolves nondeterministic choices. For example, the driver should not drive the spec to not take an interrupt until the implementation has resolved to not take an interrupt after the corresponding instruction in the spec. The driver is untrusted: a poor choice of driver will not lead to bugs in the security guarantee but simply a failure to prove the theorem. 
+
+Constructing the shadow core. To prove that the processor’s timing is independent, Granite’s framework uses a public shadow core that replicates the processor’s control logic but operates only on public data. Data memory is initialized with constant dummy values (e.g. zero), with data affecting control flow driven by the public leakage trace. Before the execute stage, the shadow core runs identically to the real core: instructions are fetched speculatively based on the public pc and public branch-predictor state, and registers read from the shadow core in the decode stage contain dummy data. At execute, it substitutes leakage from the secret-dependent decisions: (1) The output of control logic determining whether a branch is taken for a control instruction is replaced with the Boolean from the leakage trace. (2) The address of a memory load/store is replaced with the address from the leakage trace. (3) Arguments to the multiplier are reconstructed based on a Boolean of whether either argu-ment is zero (e.g. by passing in zeroes if true and ones if false). (4) Writes to the mie and mtvec CSRs are replaced accordingly in the shadow machine. Because every decision that eventually affects timing is replaced by public leakage, the shadow core’s timing is a function of only public data. 
+
+Relating the implementation and ISA machine. The driver keeps the specification in-sync with the implementation, advancing it at visibility points as follows: 
+
+• When an instruction leaves e2w to commit next cycle (its multiplier/memory responses are ready), the specification is at StepWaitMMIOResp or StepInterrupt . The driver advances the specification two steps for an MMIO response and one otherwise, passing the interrupt bit and transitioning to StepLeak .
+
+• When an instruction advances from d2e to e2w (hence correct-path), all older instructions have committed, and the specification is at StepLeak . The driver advances the spec two Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 21 
+
+steps (corresponding to StepLeak and StepInstr ), ensuring leakage information is available before the implementation executes the instruction. The implementation and ISA state machine are related by a flushing relation [ 38 ]: an instruction in  
+
+> e2w
+
+is related to the specification after it commits (the spec machine already executed the instruction and updated the register files), and unresolved nondeterminism (e.g. whether an interrupt is taken) is delayed in the specification until the implementation resolves it. 
+
+Relating the implementation and shadow machine. The simulation relation between the imple-mentation and shadow machine equates state with downstream effects on timing. For example: 
+
+• Memory/multiplier: request histories are equal modulo store data (no effect on timing) and zero-operand quotient, respectively, forcing identical latencies. 
+
+• Pipeline FIFOs: equal occupancy and valid bits (hence identical stalls) and equal public bookkeeping state (such as instructions and epoch bits) 
+
+• Branch predictor: updated only from public information, so its state (modeled as a trace of method calls) stays public. This invariant is used to guarantee that the PC and speculated instructions remain public. Notably, specifying leakage components of modules in terms of traces of method calls enables a streamlined recipe for stating simulation relations that is independent of underlying imple-mentations. We prove simulation relations are preserved at each fetch-decode-execute-writeback stage boundary of the processor, for all submodule implementations satisfying their respective specifications (recall Theorem 1). 
+
+7 Integration Verification 
+
+This section describes how software can be verified against the ISA specification via a certified static analysis and extends the processor proof down to RTL via Quartz, yielding an end-to-end proof that eliminates the ISA specification from the TCB. The static analysis and HDL are not the paper’s focus but serve to validate the ISA spec and our methodology for integration verification, culminating in a noninterference theorem for a constant-time Salsa20 binary down to RTL. 
+
+7.1 Software Static Analysis 
+
+We implement a sound (not complete) ISA-level static analysis deciding whether a RISC-V binary is constant-time. Implementation and proof of the analysis took ∼2 days. 
+
+Definition 4 (Static analysis sound) . ∀prog . analyze (prog ) ⇓ Safe → IsConstantTime ISA (prog ),
+
+where ⇓ Safe means the analysis terminates with outcome Safe .11 
+
+Definition 5 (Constant time) . A program is constant-time if for all instantiations of the existential parameters, the ISA-level leakage trace is secret-independent. 
+
+IsConstantTime ISA (𝑝𝑟𝑜𝑔 ) ≜∀Driver , Witness , 𝑛, ®Pub 𝑛 , ®Sec n1 , ®Sec n2 .𝑂 𝑛  
+
+> Cycle −ISA {Driver ,Witness }
+
+( ®Pub 𝑛 , ®Sec 1 
+
+> 𝑛
+
+) = 𝑂 𝑛  
+
+> Cycle −ISA {Driver ,Witness }
+
+( ®Pub 𝑛 , ®Sec 2 
+
+> 𝑛
+
+)
+
+Theorem 2 (End-to-end noninterference). Let 𝜇 be an implementation satisfying Definition 2. For any program with analyze (prog ) ⇓ Safe ,
+
+∀𝑛, ®Sec 1
+
+> 𝑛
+
+, ®Sec 2 
+
+> 𝑛
+
+. 𝑂 𝑛 𝜇 ( ®Pub 𝑛 , ®Sec 1 
+
+> 𝑛
+
+) = 𝑂 𝑛 𝜇 ( ®Pub 𝑛 , ®Sec 2 
+
+> 𝑛
+
+).
+
+> 11 In Rocq, formalized as there existing some fuel
+
+22  
+
+> SymbVal
+
+𝜏 :: = Public (n: 𝜏 ) | Secret RegFile = Reg → SymbVal Word Memory = Addr → SymbVal Byte st ∈ SymbState = {Pc : Addr, Rf : RegFile, Mem : Memory, Csrs : CsrFile } 
+
+> res
+
+∈ SymbResult :: = Safe | Unsafe | Running(st) 
+
+rs1 = 0 rs2 = 0 offset = 0 interruptsDisabled (st )⟨Beq rs1 rs2 offset, st ⟩ → Safe Beq-Spin 
+
+¬Spin st.Rf(rs1) = Public v1 st.Rf(rs2) = Public v2 v1 = v2 aligned (st .Pc + offset )⟨Beq rs1 rs2 offset, st ⟩ → Running (st [Pc ← st .Pc + offset ] ) Beq-Taken 
+
+¬Spin st.Rf(rs1) = Public v1 st.Rf(rs2) = Public v2 v1 = v2 ¬aligned (st .Pc + offset )⟨Beq rs1 rs2 offset, st ⟩ → Unsafe Beq-Exn 
+
+¬Spin st.Rf(rs1) = Public v1 st.Rf(rs2) = Public v2 v1 != v2 
+
+⟨Beq rs1 rs2 offset, st ⟩ → Running (st [Pc ← st .Pc + 4] ) Beq-Not-Taken 
+
+¬Spin st.Rf(rs1) = Secret ∨ st.Rf(rs2) = Secret 
+
+⟨Beq rs1 rs2 offset, st ⟩ → Unsafe Beq-Secret 
+
+Fig. 8. Symbolic state and representative Beq rules of the constant-time analysis. 
+
+Proof sketch. Soundness of the static analysis gives IsConstantTime ISA (prog ), so the ISA leak-age trace is secret-independent; since the leakage transformer reads only public data and that trace, its output LT 𝑛 ( ®Pub 𝑛 , 𝑂 Cycle −ISA ) is also secret-independent; and Definition 2 equates this output with 𝑂 𝜇 . Noninterference is a trace property preserved by trace equivalence, so the result is preserved under successive trace-equivalence proofs down to RTL (§ 7.2). □
+
+Static analysis. The static analysis symbolically executes the program over states that tag each register, CSR, and byte in memory as Public n or Secret (imprecise but sufficient in our case study, where the only initial public data is instruction memory), ensuring all branch conditions, arguments to variable-latency instructions, and addresses of memory accesses are independent of Secret 
+
+values. Our analysis is not designed to handle infinite loops (it terminates soundly on the spin-loop pattern Beq x0 x0 0) or interrupt/exception handlers. Figure 8 shows the state representation and the representative Beq rules; a secret operand is rejected ( Beq-Secret ), a public branch advances the symbolic PC ( Beq-Taken ), and a misaligned branch target is rejected ( Beq-Exn ). The remaining rules are analogous. 
+
+Salsa20 example. We compile an existing constant-time C implementation of Salsa20 to RISC-V with a standard toolchain, treating data memory (key, message, nonce) as secret and the program as public, and run the analysis in under a second. Theorem 2 yields an end-to-end noninterference proof for the binary on our processor. This proof rules out bugs in intermediate layers, including any bugs in our encoding of the RISC-V spec, and also does not require trusting the RISC-V compiler. 
+
+7.2 Lowering to RTL via Quartz 
+
+Our top-level proofs use a shallow embedding in a synthesizable fragment of Gallina, describing a cycle-accurate design as a first-order functional program using operations commonly available in hardware-description languages. To validate this design choice, we also give this fragment a Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 23 
+
+deeply embedded syntax we call Quartz, and prove the design thus expressed equivalent to the Gallina-native version. In Quartz, functions are written in terms of combinational expressions and let-expressions, methods are functions that take state and input as arguments and return state and output, modules are collections of methods operating on the same type. This equivalence proof is straightforward, only deviating from a partial evaluation of the Quartz interpreter to reconcile encoding details such as use of native Gallina structs vs. deeply embedded structs interpreted as tuples (as Gallina does not support polymorphism over lists of struct fields). The Quartz implementation of the processor is pretty-printed as SystemVerilog, generating reasonably readable code where variable names are preserved and e.g. source-level structs are represented as (packed, synthesizable) SystemVerilog structs. While we consider it desirable to verify the translation, we are not aware of an adequately featureful formalization of SystemVerilog semantics against which it could be performed. Thus the 200-line syntax-mapping function is currently part of our TCB. We confirmed that the extracted top-level cycle function (and a trivial always-block wrapper) can be successfully synthesized for the ECP5 FPGA using open-source tools Yosys and NextPnR [ 37 ], but we have not integrated it into a SoC design for post-synthesis testing. To prove another RTL description of the same cycle-update function in, e.g., Verilog is equivalent to our implementation, one could use automated tools for equivalence checking at RTL. The proof obligation amounts to proving equivalence at a single cycle, which is less likely to run into challenges related to state-space explosion. 
+
+8 Discussion 
+
+This section discusses what is in the trusted computing base (§ 8.1); what changes to the spec and proof were needed when adding branch predictors, exceptions, and interrupts (§ 8.2); and how the methodology applies to verifying the processor independently of the memory subsystem (§ 8.3). 
+
+8.1 Trusted Computing Base 
+
+The TCB contains the 𝐶𝑦𝑐𝑙𝑒 −𝐼𝑆𝐴 contract specifying functional and leakage semantics of a fragment of RISC-V ( ∼700 LoC), the observation/adversary functions defining the I/O interface, the abstract model of the memory hierarchy, the model of the external world, the Rocq kernel, and the Quartz pretty-printer from circuits to Verilog. The RTL processor, leakage transformer, driver, and every submodule implementation are not in the TCB; they are eliminated via machine-checked proof. When connecting with a software proof, such as via a verified software static analysis, the 𝐶𝑦𝑐𝑙𝑒 −𝐼𝑆𝐴 
+
+is eliminated from the TCB. Intermediate specification layers are not in the TCB. 
+
+8.2 Design Modifications 
+
+Our initial design and proof had no branch predictors nor support for exceptions, interrupts, and CSRs. We discuss how the proofs changed as these features were added. 
+
+Adding a branch predictor. Adding a branch history table and branch target buffer took < 1 day with no changes to the spec. Predictors are specified as abstract state machines whose state is public (defined as a trace of method calls). As our processor enforces that branch predictors are only updated with public information, the branch histories in the implementation and shadow machine are equivalent. As there is no functional-correctness obligation, instantiating the branch-predictor specs with concrete implementations is trivial. 
+
+Adding exceptions and interrupts. This extension required modifying the spec, adding CSRs for handling exceptions, exception semantics for instructions, and an interrupt-handling step. Additionally, it required extending the driver commands from simply outputting the number of steps to including whether an interrupt is taken at the interrupt-handling step. Notably, adding 24 
+
+interrupts moved the visibility point later: an instruction in the execute-to-writeback queue may now be followed by an interrupt that flushes the pipeline, so the driver and invariants were updated to treat an instruction as visible only once no older instruction can cause a flush. 
+
+A multicycle processor. To validate that the specification supports different processor architectures, we also verified a three-stage multicycle design, which required a significantly different top-level proof but no meaningful changes to the spec. 
+
+8.3 Independent Verification of the Processor 
+
+Fjfj [ 9 ] verifies a processor independently of the memory subsystem; the core question is specifying allowed load/store behaviour, since a processor may speculatively issue loads absent from the sequential ISA and reorder loads and stores. These speculative loads are permitted when the speculative addresses and the decision to issue are secret-independent. We give an example proof of a processor specified independently of memory, allowed to have speculative loads: the processor specification has load buffers and is existentially parameterized with a driver that can instruct it to take a normal step, issue a load request, or receive a response. As the driver is a function of only public information, implementation observations remain a function of public information—also demonstrating how driver commands generalize to specs with different next-state transitions. This specification assumes no functional correctness of memory, specifying allowed behaviours of the processor in the face of arbitrary memory behaviour. As in Fjfj [ 9], one should be able to prove that composing with a well-behaved memory yields the top-level ISA spec, though the challenge is that the two specifications’ leakage traces differ. We found that proving a processor while assuming an abstract model of memory allowed for a more satisfying specification without many additional assumptions. An implementation processor would still be free to issue loads and reorder stores speculatively, as these are internal to the system and invisible at the observation level. A specification of the processor independently of assumptions about memory has to specify what memory reorderings are allowed. This processor spec may be important for multicore semantics and weak memory models, but it is unnecessarily complicated for single-core designs. Nevertheless, we provide an example of how one could implement a speci-fication machine with speculative loads and load buffering, while encapsulating nondeterminism and specifying leakage semantics. 
+
+9 Related Work 
+
+Verifying leakage contracts with model checkers. LeaVe [ 41 ], UPEC and UPEC-DIT [ 19 , 21 ], and Contract Shadow Logic [ 39 ] use model checkers to verify speculative constant-time contracts on Verilog. However, they assume functional correctness (so the RTL stays in the TCB), they do not natively model the nondeterminism of interrupts and I/O (typically assuming none occur), and their SMT-based property languages, effective for bounded relational checks, are less suited for high-level software specifications and compositional statements combining functional correctness and nondeterminism. In contrast, Granite verifies both functional correctness and security of RTL designs against high-level hardware-software specifications encompassing nondeterminism, obtaining an easy-to-audit proof that composes with software proofs for an end-to-end guarantee. 
+
+Functional correctness via refinement and rule-based HDLs. Kami [ 13 ] and Fjfj [ 9 ] prove functional correctness of processors written in rule-based HDLs. However, their semantics abstracts away cycle-accurate timing, and they do not address leakage. Lightbulb [ 20 ] extends Kami with integration verification from software to hardware but likewise does not target leakage. MTIsolation [ 28 ] uses Kôika [ 10 ], a rule-based HDL with cycle-accurate semantics, to prove enclave timing isolation via a hybrid Rocq–SMT approach and, like Granite, uses existential parameters for unspecified Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 25 
+
+behaviour. Granite extends these ideas with nondeterminism, processor functional correctness, and the dynamic declassification of HW/SW leakage contracts. 
+
+Information-preserving and secure refinement. Similar to our security goal, Knox [ 6] introduces information-preserving refinement (IPR) for hardware security modules but targets transaction-level calls rather than ISA leakage contracts; Parfait [ 5] proves IPR by collapsing hardware-software boundaries but for a specific program on a minimal core (PicoRV32). Pantomime [ 43 ] also derives the implementation leakage trace from a specification trace via a simulator, but its specification trace comes from a circuit-level description of complexity comparable to the implementation, whereas Granite relates RTL to an instruction-set-level leakage trace. Correnson et al. [ 16 ] give a deductive system for a property analogous to contractual noninterference but assume deterministic semantics and do not verify RTL. 
+
+Abstract models, leakage models, and mitigations. Pensieve [ 45 ], Guarnieri et al. [ 24 ], and Check-Mate [ 40 ] target abstract processor models. These models are useful for early-stage designs and defenses but underspecify the cycle-level implementation details that can lead to leakages (Pen-sieve shares our decomposition of functional and leakage submodule specs but does not prove implementations satisfy them and is bounded to nine steps). Motivated by transient-execution attacks, richer leakage models [ 11 , 30 ] with fuzzing-based validation [ 32 , 33 ], processors designed for secure speculation such as ProSpeCT [ 18 ], defenses such as GhostMinion [ 1], and compilers such as Serberus [31] all aim to close the leakage gap but remain unverified at the RTL. 
+
+Noninterference and information flow. Various works on verifying the seL4 kernel [ 26 ], mCer-tiKOS hypervisor [ 17 ], and Komodo security monitor [ 22 ] have formalized noninterference and information-flow security at the ISA level, but do not tackle RTL verification. HyperFlow [ 23 ], SecVerilog [ 48 ], and SpecVerilog [ 47 ] enforce security with information-flow type systems: these approaches are automated but face completeness limitations common in static-analysis approaches. For soundness, type systems are conservative and may reject secure designs because the type systems cannot reason about the functional logic that prevents leakage. For expressivity, designers use declassification policies to express allowed leakages. However, when defined at a low level associated with a particular implementation’s code, understanding the security guarantee requires detailed auditing and deep understanding of the system. We propose a spec that is auditable without understanding low-level details of the implementation. 
+
+Security verification under nondeterminism. O’Neill et al. [ 34 ] use refiners to determinize nondeter-ministic semantics for an information-flow noninterference definition—analogous to our existential parameters, but their focus is on information-flow static analyses rather than specifications and proofs, and they do not address the challenge of declassification. Conoly et al. [ 15 ] use predictors to prove a compiler preserves constant time under allocation and I/O nondeterminism, also via leakage transformers, but do not tackle anything analogous to the underspecification of the mapping of instruction boundaries. 
+
+10 Conclusion 
+
+Granite shows that a particular combination of specification and proof techniques allows functional correctness and nonleakage guarantees to be achieved in a modular fashion, for the first time composing timing-security proof of digital-logic modules all the way up to the instruction-set-level specification (and then with software proofs). More broadly, Granite suggests that the decades of refinement-based functional-correctness technology built for proof assistants can be repurposed, largely intact, for microarchitectural timing security—provided nondeterminism is determinized rather than abstracted away. 26 
+
+References 
+
+[1] Sam Ainsworth. 2021. GhostMinion: A Strictness-Ordered Cache System for Spectre Mitigation. In MICRO-54: 54th Annual IEEE/ACM International Symposium on Microarchitecture (Virtual Event, Greece) (MICRO ’21) . Association for Computing Machinery, New York, NY, USA, 592–606. [2] Sam Ainsworth and Timothy M. Jones. 2020. MuonTrap: Preventing Cross-Domain Spectre-Like Attacks by Capturing Speculative State. In 2020 ACM/IEEE 47th Annual International Symposium on Computer Architecture (ISCA) . 132–144. https://doi.org/10.1109/ISCA45697.2020.00022 [3] Basavesh Ammanaghatta Shivakumar, Gilles Barthe, Benjamin Grégoire, Vincent Laporte, and Swarn Priya. 2022. Enforcing fine-grained constant-time policies. In Proceedings of the 2022 ACM SIGSAC conference on computer and communications security . 83–96. [4] Anish Athalye, Adam Belay, M Frans Kaashoek, Robert Morris, and Nickolai Zeldovich. 2019. Notary: A device for secure transaction approval. In Proceedings of the 27th ACM Symposium on Operating Systems Principles . 97–113. [5] Anish Athalye, Henry Corrigan-Gibbs, Frans Kaashoek, Joseph Tassarotti, and Nickolai Zeldovich. 2024. Modular Verification of Secure and Leakage-Free Systems: From Application Specification to Circuit-Level Implementation. In Proceedings of the ACM SIGOPS 30th Symposium on Operating Systems Principles (Austin, TX, USA) (SOSP ’24) .Association for Computing Machinery, New York, NY, USA, 655–672. https://doi.org/10.1145/3694715.3695956 [6] Anish Athalye, M Frans Kaashoek, and Nickolai Zeldovich. 2022. Verifying Hardware Security Modules with Information-Preserving Refinement. In 16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22) . 503–519. [7] Bluespec 2004. Bluespec System Verilog: Efficient, Correct RTL from High Level Specifications. In Proceedings of the Second ACM/IEEE International Conference on Formal Methods and Models for Co-Design (MEMOCODE ’04) . IEEE Computer Society, USA, 69–70. https://doi.org/10.1109/MEMCOD.2004.1459818 [8] Thomas Bourgeat, Ian Clester, Andres Erbsen, Samuel Gruetter, Pratap Singh, Andy Wright, and Adam Chlipala. 2023. Flexible Instruction-Set Semantics via Abstract Monads (Experience Report). Proc. ACM Program. Lang. 7, ICFP, Article 192 (Aug. 2023), 17 pages. https://doi.org/10.1145/3607833 [9] Thomas Bourgeat, Jiazheng Liu, Adam Chlipala, and Arvind. 2025. Making Concurrent Hardware Verification Sequential. Proc. ACM Program. Lang. 9, PLDI, Article 228 (June 2025), 25 pages. https://doi.org/10.1145/3729331 [10] Thomas Bourgeat, Clément Pit-Claudel, Adam Chlipala, and Arvind. 2020. The essence of Bluespec: a core language for rule-based hardware design. In Proceedings of the 41st ACM SIGPLAN International Conference on Programming Language Design and Implementation, PLDI 2020, London, UK, June 15-20, 2020 , Alastair F. Donaldson and Emina Torlak (Eds.). ACM, 243–257. https://doi.org/10.1145/3385412.3385965 [11] Sunjay Cauligi, Craig Disselkoen, Klaus v. Gleissenthall, Dean Tullsen, Deian Stefan, Tamara Rezk, and Gilles Barthe. 2020. Constant-time foundations for the new Spectre era. In Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implementation (London, UK) (PLDI 2020) . Association for Computing Machinery, New York, NY, USA, 913–926. https://doi.org/10.1145/3385412.3385970 [12] Joonwon Choi, Jaewoo Kim, and Jeehoon Kang. 2025. Revamping Verilog Semantics for Foundational Verification. 
+
+Proc. ACM Program. Lang. 9, OOPSLA2, Article 306 (Oct. 2025), 28 pages. https://doi.org/10.1145/3763084 [13] Joonwon Choi, Muralidaran Vijayaraghavan, Benjamin Sherman, Adam Chlipala, and Arvind. 2017. Kami: a platform for high-level parametric hardware specification and its modular verification. Proceedings of the ACM on Programming Languages 1, ICFP (2017), 1–30. [14] Rutvik Choudhary, Jiyong Yu, Christopher Fletcher, and Adam Morrison. 2021. Speculative Privacy Tracking (SPT): Leaking Information From Speculative Execution Without Compromising Privacy. In MICRO-54: 54th Annual IEEE/ACM International Symposium on Microarchitecture (Virtual Event, Greece) (MICRO ’21) . Association for Computing Ma-chinery, New York, NY, USA, 607–622. https://doi.org/10.1145/3466752.3480068 [15] Owen Conoly, Andres Erbsen, and Adam Chlipala. 2025. Smooth, Integrated Proofs of Cryptographic Constant Time for Nondeterministic Programs and Compilers. Proc. ACM Program. Lang. 9, PLDI, Article 215 (June 2025), 24 pages. https://doi.org/10.1145/3729318 [16] Arthur Correnson, Haoyi Zeng, and Jana Hofmann. 2026. A Deductive System for Contract Satisfaction Proofs. Proc. ACM Program. Lang. 10, PLDI, Article 173 (June 2026), 25 pages. https://doi.org/10.1145/3808251 [17] David Costanzo, Zhong Shao, and Ronghui Gu. 2016. End-to-End Verification of Information-Flow Security for C and Assembly Programs. In Proceedings of the 37th ACM SIGPLAN Conference on Programming Language Design and Implementation (Santa Barbara, CA, USA) (PLDI ’16) . Association for Computing Machinery, New York, NY, USA, 648–664. https://doi.org/10.1145/2908080.2908100 [18] Lesly-Ann Daniel, Marton Bognar, Job Noorman, Sébastien Bardin, Tamara Rezk, and Frank Piessens. 2023. ProSpeCT: Provably Secure Speculation for the Constant-Time Policy. In 32nd USENIX Security Symposium (USENIX Security 23) .7161–7178. Granite: A Modular Methodology for Foundational Verification of Hardware-Software Leakage Contracts 27 
+
+[19] Lucas Deutschmann, Johannes Müller, Mohammad Rahmani Fadiheh, Dominik Stoffel, and Wolfgang Kunz. 2024. A Scalable Formal Verification Methodology for Data-Oblivious Hardware. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 43, 9 (2024), 2551–2564. https://doi.org/10.1109/TCAD.2024.3374249 [20] Andres Erbsen, Samuel Gruetter, Joonwon Choi, Clark Wood, and Adam Chlipala. 2021. Integration verification across software and hardware for a simple embedded system. In Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and Implementation (Virtual, Canada) (PLDI 2021) . Association for Computing Machinery, New York, NY, USA, 604–619. https://doi.org/10.1145/3453483.3454065 [21] Mohammad Rahmani Fadiheh, Alex Wezel, Johannes Müller, Jörg Bormann, Sayak Ray, Jason M Fung, Subhasish Mitra, Dominik Stoffel, and Wolfgang Kunz. 2022. An exhaustive approach to detecting transient execution side channels in RTL designs of processors. IEEE Trans. Comput. 72, 1 (2022), 222–235. [22] Andrew Ferraiuolo, Andrew Baumann, Chris Hawblitzel, and Bryan Parno. 2017. Komodo: Using Verification to Disentangle Secure-Enclave Hardware from Software. In Proceedings of the 26th Symposium on Operating Systems Principles (Shanghai, China) (SOSP ’17) . Association for Computing Machinery, New York, NY, USA, 287–305. https: //doi.org/10.1145/3132747.3132782 [23] Andrew Ferraiuolo, Mark Zhao, Andrew C. Myers, and G. Edward Suh. 2018. HyperFlow: A Processor Architecture for Nonmalleable, Timing-Safe Information Flow Security. In Proceedings of the 2018 ACM SIGSAC Conference on Computer and Communications Security (Toronto, Canada) (CCS ’18) . Association for Computing Machinery, New York, NY, USA, 1583–1600. https://doi.org/10.1145/3243734.3243743 [24] Marco Guarnieri, Boris Köpf, Jan Reineke, and Pepe Vila. 2021. Hardware-software contracts for secure speculation. In 2021 IEEE Symposium on Security and Privacy (SP) . IEEE, 1868–1883. [25] Khaled N. Khasawneh, Esmaeil Mohammadian Koruyeh, Chengyu Song, Dmitry Evtyushkin, Dmitry Ponomarev, and Nael Abu-Ghazaleh. 2019. SafeSpec: Banishing the Spectre of a Meltdown with Leakage-Free Speculation. In 2019 56th ACM/IEEE Design Automation Conference (DAC) . 1–6. [26] Gerwin Klein, June Andronick, Kevin Elphinstone, Gernot Heiser, David Cock, Philip Derrin, Dhammika Elkaduwe, Kai Engelhardt, Rafal Kolanski, Michael Norrish, Thomas Sewell, Harvey Tuch, and Simon Winwood. 2010. seL4: formal verification of an operating-system kernel. Commun. ACM 53, 6 (June 2010), 107–115. https://doi.org/10.1145/ 1743546.1743574 [27] P. Kocher, J. Horn, A. Fogh, D. Genkin, D. Gruss, W. Haas, M. Hamburg, M. Lipp, S. Mangard, T. Prescher, M. Schwarz, and Y. Yarom. 2019. Spectre Attacks: Exploiting Speculative Execution. In 2019 IEEE Symposium on Security and Privacy (SP) . 1–19. https://doi.org/10.1109/SP.2019.00002 [28] Stella Lau, Thomas Bourgeat, Clément Pit-Claudel, and Adam Chlipala. 2024. Specification and Verification of Strong Timing Isolation of Hardware Enclaves. In Proceedings of the 2024 on ACM SIGSAC Conference on Computer and Communications Security (Salt Lake City, UT, USA) (CCS ’24) . Association for Computing Machinery, New York, NY, USA, 1121–1135. https://doi.org/10.1145/3658644.3690203 [29] Moritz Lipp, Michael Schwarz, Daniel Gruss, Thomas Prescher, Werner Haas, Anders Fogh, Jann Horn, Stefan Mangard, Paul Kocher, Daniel Genkin, Yuval Yarom, and Mike Hamburg. 2018. Meltdown: Reading Kernel Memory from User Space. In 27th USENIX Security Symposium (USENIX Security 18) . USENIX Association, Baltimore, MD, 973–990. https://www.usenix.org/conference/usenixsecurity18/presentation/lipp [30] Nicholas Mosier, Hanna Lachnitt, Hamed Nemati, and Caroline Trippel. 2022. Axiomatic Hardware-Software Contracts for Security. In Proceedings of the 49th Annual International Symposium on Computer Architecture (New York, New York) 
+
+(ISCA ’22) . Association for Computing Machinery, New York, NY, USA, 72–86. https://doi.org/10.1145/3470496.3527412 [31] Nicholas Mosier, Hamed Nemati, John C. Mitchell, and Caroline Trippel. 2024. Serberus: Protecting Cryptographic Code from Spectres at Compile-Time. In 2024 IEEE Symposium on Security and Privacy (SP) . 4200–4219. https: //doi.org/10.1109/SP54263.2024.00048 [32] Oleksii Oleksenko, Christof Fetzer, Boris Köpf, and Mark Silberstein. 2022. Revizor: Testing Black-Box CPUs against Speculation Contracts. In Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (Lausanne, Switzerland) (ASPLOS ’22) . Association for Computing Machinery, New York, NY, USA, 226–239. https://doi.org/10.1145/3503222.3507729 [33] Oleksii Oleksenko, Marco Guarnieri, Boris Köpf, and Mark Silberstein. 2023. Hide and Seek with Spectres: Efficient discovery of speculative information leaks with random testing. In 2023 IEEE Symposium on Security and Privacy (SP) .IEEE, 1737–1752. [34] K.R. O’Neill, M.R. Clarkson, and S. Chong. 2006. Information-flow security for interactive programs. In 19th IEEE Computer Security Foundations Workshop (CSFW’06) . 12 pp.–201. https://doi.org/10.1109/CSFW.2006.16 [35] Jonathan Protzenko, Bryan Parno, Aymeric Fromherz, Chris Hawblitzel, Marina Polubelova, Karthikeyan Bhargavan, Benjamin Beurdouche, Joonwon Choi, Antoine Delignat-Lavaud, Cédric Fournet, Natalia Kulatova, Tahina Ramananan-dro, Aseem Rastogi, Nikhil Swamy, Christoph M. Wintersteiger, and Santiago Zanella-Beguelin. 2020. EverCrypt: A Fast, Verified, Cross-Platform Cryptographic Provider. In 2020 IEEE Symposium on Security and Privacy (SP) . 983–1002. 28 
+
+https://doi.org/10.1109/SP40000.2020.00114 [36] Christos Sakalis, Stefanos Kaxiras, Alberto Ros, Alexandra Jimborean, and Magnus Själander. 2019. Efficient Invisible Speculative Execution through Selective Delay and Value Prediction. In 2019 ACM/IEEE 46th Annual International Symposium on Computer Architecture (ISCA) . 723–735. [37] David Shah, Eddie Hung, Clifford Wolf, Serge Bazanski, Dan Gisselquist, and Miodrag Milanović. 2019. Yosys+nextpnr: an Open Source Framework from Verilog to Bitstream for Commercial FPGAs. arXiv:1903.10407 [cs.DC] https: //arxiv.org/abs/1903.10407 [38] Jeffrey X Su, David L Dill, and Clark W Barrett. 1996. Automatic generation of invariants in processor verification. In 
+
+International Conference on Formal Methods in Computer-Aided Design . Springer, 377–388. [39] Qinhan Tan, Yuheng Yang, Thomas Bourgeat, Sharad Malik, and Mengjia Yan. 2025. RTL Verification for Secure Spec-ulation Using Contract Shadow Logic. In Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 1 (Rotterdam, Netherlands) (ASPLOS ’25) . Association for Computing Machinery, New York, NY, USA, 970–986. https://doi.org/10.1145/3669940.3707243 [40] Caroline Trippel, Daniel Lustig, and Margaret Martonosi. 2018. Checkmate: Automated synthesis of hardware exploits and security litmus tests. In 2018 51st Annual IEEE/ACM International Symposium on Microarchitecture (MICRO) . IEEE, 947–960. [41] Zilong Wang, Gideon Mohr, Klaus von Gleissenthall, Jan Reineke, and Marco Guarnieri. 2023. Specification and Verification of Side-channel Security for Open-source Processors via Leakage Contracts. In Proceedings of the 2023 ACM SIGSAC Conference on Computer and Communications Security (Copenhagen, Denmark) (CCS ’23) . Association for Computing Machinery, New York, NY, USA, 2128–2142. https://doi.org/10.1145/3576915.3623192 [42] Andrew Waterman, Yunsup Lee, Rimas Avizienis, David A Patterson, and Krste Asanovic. 2015. The risc-v instruction set manual volume 2: Privileged architecture version 1.7 . Technical Report. [43] Robin Webbers, Robert Schenck, Wind Wong, Kristina Sojakova, and Klaus von Gleissenthall. 2026. Pantomime: Constructive Leakage Proofs via Simulation. Proc. ACM Program. Lang. 10, PLDI, Article 262 (June 2026), 26 pages. https://doi.org/10.1145/3808340 [44] Mengjia Yan, Jiho Choi, Dimitrios Skarlatos, Adam Morrison, Christopher Fletcher, and Josep Torrellas. 2018. InvisiSpec: Making Speculative Execution Invisible in the Cache Hierarchy. In 2018 51st Annual IEEE/ACM International Symposium on Microarchitecture (MICRO) . 428–441. https://doi.org/10.1109/MICRO.2018.00042 [45] Yuheng Yang, Thomas Bourgeat, Stella Lau, and Mengjia Yan. 2023. Pensieve: Microarchitectural Modeling for Security Evaluation. In Proceedings of the 50th Annual International Symposium on Computer Architecture (Orlando, FL, USA) (ISCA ’23) . Association for Computing Machinery, New York, NY, USA, Article 59, 15 pages. https: //doi.org/10.1145/3579371.3589094 [46] Jiyong Yu, Mengjia Yan, Artem Khyzha, Adam Morrison, Josep Torrellas, and Christopher W. Fletcher. 2019. Speculative Taint Tracking (STT): A Comprehensive Protection for Speculatively Accessed Data. In Proceedings of the 52nd Annual IEEE/ACM International Symposium on Microarchitecture (Columbus, OH, USA) (MICRO-52) . Association for Computing Machinery, New York, NY, USA, 954–968. https://doi.org/10.1145/3352460.3358274 [47] Drew Zagieboylo, Charles Sherk, Andrew C. Myers, and G. Edward Suh. 2023. SpecVerilog: Adapting Information Flow Control for Secure Speculation. In Proceedings of the 2023 ACM SIGSAC Conference on Computer and Communications Security (Copenhagen, Denmark) (CCS ’23) . Association for Computing Machinery, New York, NY, USA, 2068–2082. https://doi.org/10.1145/3576915.3623074 [48] Danfeng Zhang, Yao Wang, G. Edward Suh, and Andrew C. Myers. 2015. A Hardware Design Language for Timing-Sensitive Information-Flow Security. In Proceedings of the Twentieth International Conference on Architectural Support for Programming Languages and Operating Systems (Istanbul, Turkey) (ASPLOS ’15) . Association for Computing Machinery, New York, NY, USA, 503–516. https://doi.org/10.1145/2694344.2694372 [49] Jean-Karim Zinzindohoué, Karthikeyan Bhargavan, Jonathan Protzenko, and Benjamin Beurdouche. 2017. HACL*: A Verified Modern Cryptographic Library. In Proceedings of the 2017 ACM SIGSAC Conference on Computer and Communications Security (Dallas, Texas, USA) (CCS ’17) . Association for Computing Machinery, New York, NY, USA, 1789–1806. https://doi.org/10.1145/3133956.3134043
