@@ -1,0 +1,1086 @@
+Title: A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations
+
+URL Source: https://arxiv.org/pdf/2607.26386v1
+
+Published Time: Thu, 30 Jul 2026 00:19:59 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 
+
+HANRUI ZUO, The State Key Laboratory of Blockchain and Data Security, Zhejiang University, China 
+
+PEISEN YAO ∗, The State Key Laboratory of Blockchain and Data Security, Zhejiang University, China 
+
+KUI REN, The State Key Laboratory of Blockchain and Data Security, Zhejiang University, China Synthesizing best inductive invariants (BII) is fundamental to program analysis and verification, yet existing approaches face significant efficiency challenges. We introduce a new formulation for the problem through the lens of mathematical optimization over quantified constraints in first-order theories. The formulation offers a constructive and operational perspective on the BII problem and opens new algorithmic avenues. Building on this formulation, we present two new algorithms for bit-vector programs: a strategically guided linear search that exploits the lattice structure and a bitwise greedy approach that resolves bound bits from high to low with a solver-call count linear in bit-width. We evaluate our approach on a comprehensive benchmark suite, demonstrating significant performance improvements over conventional methods based on symbolic abstraction and chaotic iteration. Experimental results demonstrate our approach solves up to 86% more benchmarks than baseline methods, with improved scaling in solver-call count for high bit-widths and improved verification effectiveness when integrated with k-induction. CCS Concepts: • Theory of computation → Program analysis ; Abstract interpretation .
+
+ACM Reference Format: 
+
+Hanrui Zuo, Peisen Yao, and Kui Ren. 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations. 1, 1 (July 2026), 28 pages. https://doi.org/10.1145/nnnnnnn.nnnnnnn 
+
+1 Introduction 
+
+A logical assertion at a program location is an invariant if it is always satisfied by the values of the program variables whenever the location is reached during program execution. The gen-eration of invariants has been key to the proof and analysis of crucial properties, such as non-interference [ 16 , 26 ] and complexity [ 1 , 65 ]. As a result, generating invariants has become a cornerstone of program analysis and verification. Over the years, numerous techniques have been proposed to automate invariant generation, such as abstract interpretation [ 22 , 25 , 58 , 70 ], the constraint-based approach [ 20 ], IC3/PDR [ 18 ], recurrence analysis [ 12 , 53 , 54 , 56 ], and machine learning [33, 80, 83, 89]. One of the foundational frameworks for deriving invariants is abstract interpretation [ 22 , 25 ], which systematically over-approximates behaviors using abstract domains–mathematical structures designed to represent sets of program states. A core concept in abstract interpretation is the Galois 
+
+> ∗
+
+Corresponding author Authors’ Contact Information: Hanrui Zuo, The State Key Laboratory of Blockchain and Data Security, Zhejiang University, China, zarin@zju.edu.cn; Peisen Yao, The State Key Laboratory of Blockchain and Data Security, Zhejiang University, China, pyaoaa@zju.edu.cn; Kui Ren, The State Key Laboratory of Blockchain and Data Security, Zhejiang University, China, kuiren@zju.edu.cn. Permission to make digital or hard copies of all or part of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for components of this work owned by others than the author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or republish, to post on servers or to redistribute to lists, requires prior specific permission and/or a fee. Request permissions from permissions@acm.org. 
+
+© 2026 Copyright held by the owner/author(s). Publication rights licensed to ACM. ACM XXXX-XXXX/2026/7-ART https://doi.org/10.1145/nnnnnnn.nnnnnnn , Vol. 1, No. 1, Article . Publication date: July 2026. arXiv:2607.26386v1 [cs.PL] 29 Jul 2026 2 Hanrui Zuo, Peisen Yao, and Kui Ren 
+
+connection C − −−→←−−−
+
+> 𝛼 𝛾
+
+A. Here, 𝛼 and 𝛾 represent the abstraction and concretization functions, which map between the concrete domain C and the abstract domain A.The choice of the abstract domain fundamentally limits the precision of abstract interpretation. For a given abstract domain A, the best abstract transformer (BAT) defines the most precise achievable abstraction. The BAT for a concrete transformer 𝑓 : C → C is the most precise abstract operator that over-approximates the concrete operator. Formally, the BAT is defined as 𝑓 ★ = 𝛼 ◦𝑓 ◦𝛾 .This equation defines the theoretical precision limit achievable within the abstract domain A.However, it is a non-constructive definition that does not directly yield a practical algorithm for computing BATs. Prior work has explored BAT computation for finite-height domains [ 70 ], template linear domains [10, 61], and polyhedral domains [86]. 
+
+Best Inductive Invariants (BIIs) . The best inductive invariant (BII) [ 85 ] for a program point is the most precise over-approximation of the program’s reachable states that satisfies the program’s inductiveness constraints within the abstract domain. For example, Houdini [31] solves a specific version of the BII problem, focusing on inferring conjunctive invariants from a predefined set of predicates. However, the Houdini paper does not frame its approach in the abstract interpretation framework and does not apply to conventional numerical domains. Unlike a sufficient invariant, which is tailored to a particular post-condition, the BII is determined only by the transition relation and the abstract domain. This distinction matters for at least three reasons. First, the BII is the theoretical precision ceiling of an abstract domain, and therefore a principled reference point for evaluating domain design. Second, BIIs are query-independent summaries that can be reused across multiple verification clients and properties. Third, stronger auxiliary invariants can improve downstream proof procedures, e.g., 𝑘 -induction, to reduce the required inference depth. The problem of computing Best Inductive Invariants (BII) has been the focus of significant research and can be broadly classified into two main directions: (1) Work focused on synthesizing the best abstract transformer (BAT) [ 11 , 41 , 55 , 62 , 68 , 70 , 86 , 88 , 93 ], which provides a solution to the BII problem; (2) Research specifically addressing the BII problem itself [ 31 , 34 , 92 ], often targeting specific domains. Most existing techniques for solving the BII problem rely on fixed-point computation methods, in which iterative refinement continues until convergence. Symbolic abstraction [ 70 ] is often employed to compute the best abstract transformers during these iterations to ensure optimality. However, this approach faces several challenges: computing the best abstract transformers is computationally expensive, and the Kleene-style iterative refinement process can suffer from slow convergence. 
+
+This Work . We address the computation of the Best Inductive Invariants (BII) within abstract domains over bit-vector arithmetic [ 11 , 67 , 69 ]. The domain is particularly well-suited for reasoning about machine integer semantics, including wrap-around behaviors and bitwise operations, with practical applications in analyzing eBPF bytecode, x86 binaries, and hardware designs. Conventional techniques for synthesizing BII often encounter significant efficiency challenges when applied to such domains, as observed in our experiments. In this paper, we revisit the BII problem and introduce a fundamentally different formulation. Drawing inspiration from constraint-based invariant generation [ 20 , 74 ], we express BII synthesis as a constrained optimization problem, precisely characterizing BIIs within a well-founded lattice of candidate invariants. This formulation is declarative and parameterized by the abstract domain, without relying on symbolic abstraction over loop-free fragments as a subroutine. Crucially, it is also constructive, serving as the foundation for new algorithmic strategies. We instantiate this formulation using a propose-and-refine framework that performs a directed search over the abstract domain. We introduce two algorithms within this framework: a baseline  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 3
+
+linear search (§ 4) that applies iterative coordinate descent, and an advanced bitwise greedy strategy (§ 5) inspired by binary lifting [ 3 ]. The bitwise approach exploits the domain’s bit-level structure to asymptotically reduce the worst-case number of solver invocations. Furthermore, we incorporate optimization strategies that leverage intermediate results to construct under-approximations and accelerate convergence. Using a diverse benchmark suite, we evaluate our algorithms against several baseline methods based on symbolic abstraction [ 88 , 90 ]. Our approach solves up to 86% more benchmarks, with the bitwise greedy strategy achieving a speedup of up to 17 .9× over the bilateral approach by Thakur et al.[88], the primary symbolic-abstraction baseline, which has the better aggregate runtime and generally fewer checks in our reported comparison. The proposed optimizations reduce solver calls by orders of magnitude, yielding substantial efficiency gains, particularly for higher bit-widths (64-bit and 128-bit variables). An ablation study demonstrates the necessity of each optimization in attaining these improvements. Additionally, integrating our approach with 𝑘 -induction increases verification effectiveness by improving provability while reducing induction depth and verification time. To summarize, we make the following main contributions: 
+
+• We introduce a new formulation for best inductive invariant (BII) synthesis that presents BIIs as query-independent, domain-optimal invariants and casts their computation as a constrained optimization problem. 
+
+• We present two new algorithms for solving the problem applicable to a wide range of abstract domains over bit-vector arithmetic. 
+
+• We conduct a thorough empirical evaluation comparing our algorithms against symbolic abstraction baselines and show that the inferred BIIs strengthen downstream 𝑘 -induction on a comprehensive benchmark suite. Our tool and benchmarks are available at https:// anonymous.4open.science/r/InvFinder-6CA2. 
+
+2 Preliminaries 
+
+This section first introduces the basic notions of inductive loop invariants and then reviews two families of approaches to invariant inference. 
+
+Inductive Loop Invariant . For a given loop while 𝐺 do 𝑇 , the loop invariant inference problem aims to identify a loop invariant 𝐼 that satisfies 
+
+𝑃𝑟𝑒 =⇒ 𝐼𝑛𝑣 {𝐼𝑛𝑣 ∧ 𝐺 }𝑇 {𝐼𝑛𝑣 } (𝐼𝑛𝑣 ∧ ¬ 𝐺 ) =⇒ 𝑃𝑜𝑠𝑡 
+
+{𝑃𝑟𝑒 } while 𝐺 do 𝑇 {𝑃𝑜𝑠𝑡 } (1) where 𝑃𝑟𝑒 is the pre-condition , 𝑃𝑜𝑠𝑡 is the post-condition , and 𝑇 is the loop body with 𝐺 as the loop guard (i.e., the condition for loop continuation). The goal is to identify an invariant, 𝐼𝑛𝑣 , that satisfies the following three key properties: 
+
+• Init : The loop invariant, 𝐼𝑛𝑣 , must include all program states reachable by the code executed before the loop. 
+
+• Inductiveness : For every program state within the loop invariant, after one loop execution, the resulting program state must also satisfy the invariant. 
+
+• Provability : When the loop exits (i.e., the guard 𝐺 evaluates to false), the program states described by the invariant must satisfy the intended post-condition, 𝑃𝑜𝑠𝑡 .In the verification community, numerous efforts over the last decade have focused on restricting the search space to invariants that suffice for a fixed post-condition. That direction is appropriate when the objective is to prove a single query as quickly as possible. In this work, we instead focus on the first two conditions to infer the best inductive invariants. This choice deliberately separates  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 4Hanrui Zuo, Peisen Yao, and Kui Ren
+
+invariant inference from any particular post-condition: the resulting invariant is query-independent and reusable across clients. 
+
+Abstract Interpretation for Invariant Inference . Abstract interpretation is a general framework that enables sound over-approximation of program behaviors. Given two complete lattices (C , ≤C )
+
+and (A , ≤A ), a pair of functions—an abstraction function 𝛼 : C → A and a concretization function 
+
+𝛾 : A → C —forms a Galois connection if, for any element 𝑐 ∈ C and 𝑎 ∈ A , the following equivalence holds: 𝛼 (𝑐 ) ≤ A 𝑎 ⇔ 𝑐 ≤C 𝛾 (𝑎 ).
+
+The semantics of a program is defined as the smallest solution of a recursive system of semantic equations 𝐹 . Hence, the abstract program semantics is a set of states 𝐴 of a lattice ⟨A , ⊑A ⟩ such that 𝐴 = 𝐹 (𝐴 ) where 𝐹 is a monotone abstract transformer. The solution 𝐴 is iteratively constructed by 𝐴 𝑖 +1 = 𝐴 𝑖 ⊔ 𝐹 (𝐴 𝑖 ), starting from 𝐴 0 = ⊥. The value ⊥ denotes the smallest element of A and the operation ⊔ denotes the join operation of A. The sequence (𝐴 𝑛 ) defines an ascending chain of elements of A. This chain may be infinite, so to enforce the convergence of this sequence, we may need to substitute the operator ⊔ by a widening operator ∇ that over-approximates ⊔.
+
+Constraint-based Invariant Inference . To solve the invariant generation problem, a large body of work follows the paradigm of the constraint-based approach [ 20 , 74 , 75 ] also referred to as the template-based approach. At a high level, the approach rests on the following formulation: 
+
+∀𝑋 .𝑃𝑟𝑒 (𝑋 ) → 𝐼𝑛𝑣 (𝑋 )∧ ∀𝑋, 𝑋 ′.𝐼𝑛𝑣 (𝑋 ) ∧ 𝐺 (𝑋 ) ∧ 𝑇 (𝑋, 𝑋 ′) → 𝐼𝑛𝑣 (𝑋 ′), (2) where 𝑋 denotes the program variables, 𝑋 ′ denotes their next-state values, while 𝐺 (𝑋 ) and 𝑇 (𝑋, 𝑋 ′)
+
+encode the loop guard and the loop body. To generate invariants, the key idea is to use invariant templates to restrict the search space for 𝐼𝑛𝑣 and to find invariants that match the template by extracting and solving constraints. Specifically, the approach involves the following steps. Template Selection . The process begins by fixing a parameterized template T ( 𝐴, 𝑋 ) to characterize the structure of the potential invariant. Here, 𝑋 denotes the vector of program variables, and 𝐴 
+
+denotes the vector of unknown parameters to be synthesized, which also constitutes an abstract element in the template domain D𝑇 . For instance, the template can take the form of a conjunction of inequalities Ó𝑚 𝑖 =1 𝑓 𝑖 (𝑋 ) ≤ 𝑝 𝑖 , where each 𝑓 𝑖 is a fixed function over 𝑋 and the bounds 𝑝 𝑖 constitute the parameters in 𝐴 . For brevity, we use the notation 𝐴 (𝑋 ) to refer to the logical formula T ( 𝐴, 𝑋 ),instantiated with the parameter 𝐴 .Constraint Encoding . Second, we generate constraints over the template parameters 𝐴 by enforcing the validation conditions (Eq. 2) on the template instance 𝐴 (𝑋 ). We capture these requirements in a single logical predicate 𝑃 (𝐴, 𝑋, 𝑋 ′), which encodes both the initiation and consecution properties: 
+
+𝑃 (𝐴, 𝑋, 𝑋 ′) ≜ Pre (𝑋 ) → 𝐴 (𝑋 ) ∧ 𝐴 (𝑋 ) ∧ 𝐺 (𝑋 ) ∧ 𝑇 (𝑋, 𝑋 ′) → 𝐴 (𝑋 ′) . (3) Consequently, finding a valid inductive invariant reduces to finding a parameter valuation 𝐴 that satisfies the formula: 
+
+∀𝑋, 𝑋 ′.𝑃 (𝐴, 𝑋, 𝑋 ′). (4) Constraint Solving . Finally, the encoded constraint (Eq. 4) can be solved to compute feasible values of the template parameters 𝐴 , which also form a valid inductive invariant in D𝑇 .
+
+3 Problem Formulation 
+
+In this section, we first formalize the problem of best inductive invariant (BII) synthesis (§ 3.1). We then examine an existing general framework for solving the problem and discuss its limitations (§ 3.2). Finally, we present our formulation and outline our algorithmic contributions (§ 3.3).  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 5
+
+Algorithm 1: Best invariant generation via chaotic iteration and symbolic abstraction 
+
+Input: A transition system and abstract domain A
+
+Output: The best inductive invariant 𝐴 ★ ∈ A  
+
+> 1
+
+𝐴 ← 𝛼 ({ 𝑋 |𝑃𝑟𝑒 (𝑋 )}) ; 
+
+> 2
+
+while 𝐴 ≠ 𝐴 ⊔ 𝑓 ★(𝐴 ) do  
+
+> 3
+
+𝐴 ← 𝐴 ⊔ 𝑓 ★(𝐴 ); // apply the symbolic abstraction operator 𝑓 ★(𝐴 ) 
+
+> 4
+
+return 𝐴 ;
+
+3.1 The Best Inductive Invariant 
+
+This work addresses the problem of computing the Best Inductive Invariant (BII) with respect to a specific abstract domain. Informally, the BII represents the strongest possible invariant expressible within the domain that satisfies the program’s inductive properties. 
+
+Definition 3.1 (Best Inductive Invariant). For a given abstract domain A and the program encoded by 𝑃 (𝐴, 𝑋, 𝑋 ′) (Eq. 3), an abstract element 𝐴 ★ ∈ A is the Best Inductive Invariant if and only if: (1) Validity: 𝐴 ★ is a valid inductive invariant: ∀𝑋, 𝑋 ′. 𝑃 (𝐴 ★, 𝑋, 𝑋 ′); (2) Optimality: 𝐴 ★ is the strongest among all valid inductive invariants in A: ∀𝐴 ∈ A . (∀ 𝑋, 𝑋 ′. 𝑃 (𝐴, 𝑋, 𝑋 ′)) =⇒ 𝐴 ★ ⊑ 𝐴 .In other words, 𝐴 ★ is the least element (in terms of the lattice order ⊑) of the set of all valid inductive invariants in A. The computation of the BII is of both theoretical and practical significance. From a theoretical perspective, it establishes the precision ceiling for any analysis constrained by a given abstract domain. In practice, BIIs enable the derivation of precise summaries for loops, functions, and other program constructs, which are critical for verification, bug detection, and other downstream tasks. 
+
+Remark 3.1. We would like to emphasize that our definition differs from the concept of “strongest (polynomial) invariants” commonly used in research on computability results, such as [ 47 , 48 , 52 , 63 , 64 ]. These studies typically focus on computing sets of affine or polynomial equalities that serve as loop invariants. For a comprehensive overview of these related results, we recommend consulting [64]. Example 3.2. The original predicate abstraction algorithm [ 41 ] can be viewed as an instance of BII synthesis. Given a set of predicates 𝑆 = {𝑃 1, . . . , 𝑃 𝑛 }, each element in the abstract domain represents a Boolean formula over these predicates. Their fixed-point algorithm computes the most precise inductive invariant expressible in this domain. 
+
+3.2 Existing Approach to BII Synthesis 
+
+In the most basic approach to solving the best inductive invariant (BII) problem, we assume we have a standard fixed-point solver performing chaotic iteration. Compared to standard equation solvers, the basic idea is to adopt the best abstract transformers to improve the precision of each iteration and, ultimately, the precision of the inferred invariant. 
+
+Best Abstract Transformer . Given a concrete transformer 𝑓 : C → C , the best abstract transformer 
+
+𝑓 ★ : A → A that over-approximates 𝑓 is defined as 𝑓 ★ = 𝛼 ◦ 𝑓 ◦ 𝛾 : A → A . This is the most precise sound abstraction of 𝑓 in the abstract domain A since, for any other sound abstraction 𝑓 #,it holds that 𝑓 ★(𝐴 ) ≤ A 𝑓 # (𝐴 ) for all 𝐴 ∈ A . However, two distinct practical issues remain: 
+
+• It is non-constructive , meaning it does not necessarily provide an algorithm to (1) compute an explicit representation of the most precise transfer function 𝑓 ★ or (2) to apply the function to abstract states and obtain the results.  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 6Hanrui Zuo, Peisen Yao, and Kui Ren
+
+• Best abstractions are not compositional in general. The composition of the best abstractions of two functions 𝑓 and 𝑔 does not always yield the best abstraction of their composition 𝑓 ◦ 𝑔 ,a known limitation of abstract interpretation. Symbolic abstraction [ 70 ] provides a practical mechanism for computing best abstract transform-ers. Given a formula 𝜑 that represents the concrete semantics and an abstract domain A, symbolic abstraction computes the best approximation of 𝜑 as an element in A (i.e., the strongest conse-quence of a formula 𝜑 ∈ L expressible within an abstract domain A.) Depending on the context, the formula 𝜑 ∈ L may encode different language constructs, such as a concrete transformer for an instruction, a basic block, or a loop-free program fragment. 
+
+Remark 3.2. The existence of best abstract transformers is not guaranteed for all abstract domains [ 23 –25 ]. In such cases, only one direction of the Galois connection may be maintained. Our work focuses exclusively on abstract domains where the best abstract transformers are well-defined. 
+
+Synthesizing BII via Symbolic Abstraction . Algorithm 1 illustrates the standard procedure for computing BIIs through symbolic abstraction within a fixed-point iteration framework. For abstract domains of finite height, Kleene iteration without widening is sufficient, generating increasingly precise under-approximations until a fixed point is reached. 
+
+Theorem 3.3 (Correctness and complexity of Algorithm 1). Assume that 𝑓 ★ is the exact best abstract transformer and that the part of A reachable from 𝛼 (Pre ) has finite height ℎ. Algorithm 1 makes at most ℎ strict updates, and returns the BII expressible in A [87]. 
+
+Proof. Let 𝐴 0 = 𝛼 (Pre ) and 𝐴 𝑛 +1 = 𝐴 𝑛 ⊔ 𝑓 ★(𝐴 𝑛 ). Monotonicity of 𝑓 ★ makes (𝐴 𝑛 )𝑛 ascending. For any inductive element 𝐼 , initiation gives 𝐴 0 ⊑ 𝐼 , and 𝑓 ★(𝐼 ) ⊑ 𝐼 ; induction therefore gives 
+
+𝐴 𝑛 ⊑ 𝐼 for every 𝑛 . Finite height ensures stabilization after at most ℎ strict updates. At stabilization, 
+
+𝑓 ★(𝐴 ) ⊑ 𝐴 , so 𝐴 is inductive; because 𝐴 ⊑ 𝐼 for every inductive 𝐼 , it is the BII by Definition 3.1. □
+
+Example 3.4. The predicate abstraction algorithm in [ 41 ] implements this approach by computing, at each iteration, the strongest consequence expressible using the given predicates. Various opti-mizations have been proposed to accelerate symbolic abstraction [ 57 ], but the general framework remains unchanged. Despite its theoretical elegance, the symbolic abstraction-based framework has several limitations: (1) the prohibitive expense of computing best abstract transformers, especially for complex domains; (2) the potential slow convergence of Kleene-style iterations; and (3) limited resilience to timeouts, i.e., returning non-trivial results (e.g., non-⊤) when computation cannot be completed. 
+
+Remark 3.3. Thakur et al. [ 88 ] proposed an “anytime algorithm” for symbolic abstraction, producing a nontrivial result in a timeout. However, the overall invariant inference process still requires a fixed-point iteration, and generating a nontrivial invariant remains challenging for timeout resilience. 
+
+3.3 Problem Statement 
+
+Constraint-based BII Synthesis . This work revisits the problem of Best Inductive Invariant (BII) synthesis from a constraint-optimization perspective. Inspired by constraint-based program analysis [ 20 , 74 , 75 ], we recast the BII problem as a direct optimization problem over the abstract domain A and the partial order ⊑ of its abstract elements:  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 7
+
+We define the lattice rank of an element 𝐴 ∈ A , denoted 𝑟𝑎𝑛𝑘 A (𝐴 ), as the length of the longest ascending chain from the bottom element ⊥ to 𝐴 . The BII synthesis problem is defined as: 
+
+Minimize 𝑟𝑎𝑛𝑘 A (𝐴 )
+
+Subject to ∀𝑋, 𝑋 ′. 𝑃 (𝐴, 𝑋, 𝑋 ′),
+
+where 𝑃 (𝐴, 𝑋, 𝑋 ′) denotes the inductiveness condition defined in Eq. 3. 
+
+This formulation characterizes the BII as the most precise (lowest-ranked) valid inductive invari-ant within the lattice. This approach offers several key advantages: 
+
+• It is declarative and parameterized by the abstract domain A and the partial order ⊑, providing a precise characterization of BIIs without invoking symbolic abstraction as a primitive. 
+
+• It is constructive, enabling the use of algorithmic strategies that can circumvent the conver-gence limitations of standard fixed-point iteration. 
+
+Template Domains over Bit-Vectors . We focus on template-based abstract domains over bit-vector variables. They admit a uniform vector representation, allowing us to treat invariant synthesis as an optimization problem. 
+
+Definition 3.5 (Template Domain). Let 𝑋 = (𝑥 1, . . . , 𝑥 𝑛 ) be the vector of program variables, and 
+
+𝐹 (𝑋 ) = [𝑓 1 (𝑋 ), . . . , 𝑓 𝑚 (𝑋 )] ⊤ be a fixed vector of template functions, where each 𝑓 𝑖 , linear or non-linear, maps the variables to a bit-vector of width bw 𝑖 . The template domain D𝑇 consists of all abstract elements 𝐴 defined by a pair of constant bound vectors 𝐿, 𝑈 ∈ Î𝑚 𝑖 =1 BV bw 𝑖 :
+
+𝐴 (𝑋 ) ⇐⇒ 𝐿 ≤ 𝐹 (𝑋 ) ≤ 𝑈 , 
+
+where the inequality holds component-wise (i.e., ∀𝑖. 𝑙 𝑖 ≤ 𝑓 𝑖 (𝑋 ) ≤ 𝑢 𝑖 ). Note the vector 𝐹 (𝑋 ) is chosen by the client as part of the abstract domain. The client-defined functions determine the semantics of the template: each 𝑓 𝑖 may have its own specified bit-width and arithmetic semantics, e.g., modular overflow and signedness. In the following sections, each template function 𝑓 𝑖 and its bounds are interpreted as unsigned bit-vectors, and comparisons use the standard unsigned numerical order. The template domain D𝑇 then forms a finite-height lattice ordered by the tightness of the interval bounds. The partial order ⊑ is defined such that 𝐴 ⊑ 𝐴 ′ if and only if its bounds are contained within those of 𝐴 ′(i.e., 𝐿 ′ ≤ 𝐿 and 𝑈 ≤ 𝑈 ′). Naturally, the lattice rank function that serves as our optimization target can be expressed as the sum of the interval widths, interpreted over mathematical integers, i.e., 𝑟𝑎𝑛𝑘 D𝑇 (𝐴 ) = Í𝑚 𝑖 =1 (𝑢 𝑖 − 𝑙 𝑖 + 1). According to Definition 3.5, each inequality 𝑙 𝑖 ≤ 𝑓 𝑖 (𝑋 ) ≤ 𝑢 𝑖 constrains only the scalar projection defined by 𝑓 𝑖 . We will exploit the component-wise nature of the optimization target by computing the optimal bounds (𝑙 𝑖 , 𝑢 𝑖 ) for each dimension 𝑖 .
+
+Solving the BII Problem . Our formulation can be viewed as a domain-specific instance of the Optimization Modulo Theories (OMT) problem [ 6, 77 – 79 ], which generalizes SMT by determining models that minimize a given objective function. Although this formulation is intuitively an OMT solvable instance, direct optimization requires solving an ∃∀ formula: the template bounds are selected existentially while inductiveness must hold universally. This quantified coupling makes each optimization step expensive and provides no predictable finite refinement sequence. To address this gap, we propose a propose-and-refine framework and two instantiations. The first (§ 4) is a linear search strategy over the lattice structure, iteratively refining the invariant by generating neighbors. The second (§ 5) is a bitwise greedy strategy that leverages the domain’s  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 8Hanrui Zuo, Peisen Yao, and Kui Ren
+
+Algorithm 2: Synthesizing BII via propose-and-refine 
+
+Input: Logic encoding 𝑃 (𝐴, 𝑋, 𝑋 ′)
+
+Output: Best Inductive Invariant 𝐴 ★ 
+
+> 1
+
+𝐴 ← ⊤ ;// Generate candidates  
+
+> 2
+
+C ← Propose (𝐴 ); 
+
+> 3
+
+while C ≠ ∅ do 
+
+// Attempt to refine A  
+
+> 4
+
+(𝐴, 𝑠𝑡𝑜𝑝 ) ← Refine (𝐴, C) ; 
+
+> 5
+
+if 𝑠𝑡𝑜𝑝 then 
+
+// Confirmed optimality  
+
+> 6
+
+break ; 
+
+> 7
+
+C ← Propose (𝐴 ); 
+
+> 8
+
+return 𝐴 ;
+
+Algorithm 3: A linear search strategy for BII 
+
+Input: Logic encoding 𝑃 (𝐴, 𝑋, 𝑋 ′)
+
+Output: Best Inductive Invariant 𝐴 ★ 
+
+> 1
+
+Function Propose( 𝐴 ): 
+
+> 2
+
+C ← ∅ ; 
+
+> 3
+
+foreach dimension 𝑖 ∈ { 1, . . . , 𝑚 } do 
+
+// Propose tightening bounds // if 𝑙 𝑖 > 𝑢 𝑖 or overflowed, the candidate is ⊥ 
+
+> 4
+
+𝐶 𝑙 ← 𝐴 [𝑙 𝑖 ← 𝐴.𝑙 𝑖 + 1]; 
+
+> 5
+
+𝐶 𝑢 ← 𝐴 [𝑢 𝑖 ← 𝐴.𝑢 𝑖 − 1]; 
+
+> 6
+
+C ← C ∪ { 𝐶 𝑙 , 𝐶 𝑢 }; 
+
+> 7
+
+return C; 
+
+> 8
+
+Function Refine( 𝐴, C): 
+
+> 9
+
+if ∃𝐴 ′ .(Ô𝐶 ∈ C 𝐴 ′ ⊑ 𝐶 ) ∧ ∀ 𝑋, 𝑋 ′ .𝑃 (𝐴 ′, 𝑋, 𝑋 ′) then  
+
+> 10
+
+return (𝐴 ′, false ); 
+
+> 11
+
+return (𝐴, true );
+
+bit-level structure. Crucially, both strategies operate “top-down” in the lattice, ensuring that any intermediate result remains a sound invariant. 
+
+4 A Propose-and-Refine Framework for BII Synthesis 
+
+The constraint-based formulation of BII synthesis naturally suggests a refinement-based approach: compute the strongest inductive invariant by iteratively tightening an initial over-approximation. We propose a propose-and-refine framework that casts BII synthesis as a directed search over a lattice-structured abstract domain. We formalize BII synthesis as a directed search over the lattice induced by the abstract domain 
+
+D𝑇 . The procedure maintains a current abstract element 𝐴 , initialized to the trivial invariant ⊤,and monotonically tightens 𝐴 while preserving inductiveness. The framework is parameterized by two operators: (1) Propose (𝐴 ): Generates a finite set of candidate abstract elements C that are strictly smaller than the current abstract element 𝐴 (i.e., ∀𝐶 ∈ C , 𝐶 ⊏ 𝐴 ). These candidates represent potential directions for refinement (e.g., cutting a specific dimension). (2) Refine (𝐴, C) : Attempts to refine the current invariant 𝐴 using candidates in C. It returns a pair (𝐴 ′, stop ), where 𝐴 ′ is the updated invariant (equal to 𝐴 if refinement failed, or tighter if successful) and stop is a boolean signal indicating whether the search should terminate immediately (if 𝐴 is proven to be the best inductive invariant). 
+
+Theorem 4.1 (Correctness of Algorithm 2). For brevity, write Inv (𝐴 ) ≡ ∀ 𝑋, 𝑋 ′. 𝑃 (𝐴, 𝑋, 𝑋 ′).Assume that the BII 𝐴 ★ exists and that Inv (⊤) holds. Suppose: 
+
+(1) if Refine (𝐴, C) = (𝐴 ′, stop ), then Inv (𝐴 ′) and 𝐴 ′ ⊑ 𝐴 ;
+
+(2) if Propose (𝐴 ) = ∅, then no 𝐵 ⊏ 𝐴 satisfies Inv (𝐵 );
+
+(3) if Refine (𝐴, C) = (𝐴 ′, true ), then no 𝐵 ⊏ 𝐴 ′ satisfies Inv (𝐵 ).Whenever Algorithm 2 terminates, it returns 𝐴 ★. If the abstract domain has descending height ℎ below 
+
+⊤, then 𝐴 is strictly refined at most ℎ times. 
+
+Proof. Initially, 𝐴 = ⊤ is inductive. By Condition 1, every subsequent value of 𝐴 remains inductive and the sequence of current elements is descending. Let 𝐴 be the returned element. By  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 9
+
+Conditions 2 and 3, whichever termination condition is used, no strictly tighter inductive element exists below 𝐴 . Since 𝐴 ★ is the BII and 𝐴 is inductive, 𝐴 ★ ⊑ 𝐴 . If 𝐴 ★ ≠ 𝐴 , then 𝐴 ★ ⊏ 𝐴 , contradicting the termination condition. Hence 𝐴 = 𝐴 ★. Finally, finite descending height bounds the number of strict refinements by ℎ. □
+
+Algorithm 2 presents the high-level procedure. The algorithm decouples the search strategy (Propose ) from the verification and update logic ( Refine ). By embedding the check within Refine ,we allow the operator to flexibly handle solver feedback depending on the specific instantiation. Note that the algorithm is naturally anytime, always maintaining a valid invariant 𝐴 that can be used for further verification even if it is terminated before it can fully compute the BII. 
+
+Remark 4.1. The framework is complete for abstract domains in which the initial over-approximation 
+
+⊤ has finite lattice rank with respect to the measure in § 3.3, e.g., the bit-vector template domains considered in this paper. By contrast, domains like reals contain elements of infinite rank; for such domains, the framework cannot guarantee convergence to the BII, but still can be viewed as an anytime procedure for computing progressively tighter invariants. 
+
+Base Strategy: Linear Search . We first instantiate this framework with a Linear Search strategy, as in Algorithm 3, which corresponds to a coordinate descent on the lattice. This is the most intuitive approach, as it proposes abstract elements that cover all descendants of 𝐴 .
+
+• Propose (𝐴 ): Generates the immediate neighbors of 𝐴 in the lattice. For a component 𝑧 𝑖 with bounds [𝑙 𝑖 , 𝑢 𝑖 ], it proposes candidates by incrementing lower bounds ( 𝑙 𝑖 + 1) or decrementing upper bounds ( 𝑢 𝑖 − 1). 
+
+• Refine (𝐴, C) : Validates the candidate set C using an ∃∀ solver. It returns a pair (𝐴 ′, stop ),where 𝐴 ′ is the updated invariant and stop is a boolean termination signal. 
+
+– If Sat , the solver returns a witness model 𝐴 ′. The operator returns (𝐴 ′, false ), effectively updating the invariant to 𝐴 ′ (where 𝐴 ′ ⊑ 𝐶 ⊏ 𝐴 ). The false signal indicates that refinement was successful and the search should continue. 
+
+– If Unsat , it implies that no valid inductive invariant exists within any of the proposed candidates. The operator returns (𝐴, true ). The true signal indicates that 𝐴 cannot be further refined, confirming it as the best inductive invariant and terminating the search. 
+
+Theorem 4.2 (Correctness and complexity of Algorithm 3). For the bit-vector template domain, Algorithm 3 returns the BII. It makes at most 1 + Í𝑚 𝑖 =1 (2bw 𝑖 − 1) solver queries; for uniform width 𝑏 , this is 𝑂 (𝑚 2𝑏 ). Each query contains at most 2𝑚 candidate disjuncts. 
+
+Proof. A satisfiable refinement query returns an inductive 𝐴 ′ ⊏ 𝐴 , while an unsatisfiable query leaves 𝐴 unchanged; hence Condition 1 of Theorem 4.1 holds. Every strict descendant 
+
+𝐵 ⊏ 𝐴 lies below an immediate candidate obtained by tightening one bound on which 𝐵 differs from 𝐴 ; therefore, if the disjunctive query is unsatisfiable, no strictly tighter inductive element exists, establishing Condition 3. Algorithm 3 never terminates through an empty candidate set, so Condition 2 is vacuous, and correctness follows from Theorem 4.1. For the query bound, let 
+
+𝜇 (𝐴 ) = Í𝑖 (𝐴.𝑢 𝑖 −𝐴.𝑙 𝑖 ). Every successful query decreases 𝜇 by at least one, while 𝜇 (⊤) = Í𝑖 (2bw 𝑖 −1).Thus there are at most Í𝑖 (2bw 𝑖 − 1) successful queries, followed by at most one unsuccessful query. □
+
+Example 4.3. Table 1 and Figure 1 demonstrate the execution of the Linear Search strategy (Algorithm 3) for a 3-bit variable 𝑥 .While this linear approach guarantees finding the BII by exhaustively proposing all possible solutions, its step-wise progression results in slow convergence.  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 10 Hanrui Zuo, Peisen Yao, and Kui Ren
+
+Table 1. Trace of the linear search strategy (Alg. 3) on variable 𝑥 .
+
+𝑃 (𝐴, 𝑋, 𝑋 ′) (𝑥 = 5 → 𝐴 (𝑋 )) ∧ ( 𝐴 (𝑋 ) ∧ 𝑥 < 6 ∧ 𝑥 ′ = 𝑥 + 1 → 𝐴 (𝑋 ′)) 
+
+Initialization 𝐴 ★ = [0, 7] (3-bit unsigned) 
+
+Iter Current 𝐴 ★ Candidate Set C Result Update Action 
+
+1 [0, 7] {[ 1, 7], [0, 6]} Sat (𝐴 ′ = [0, 6]) 𝐴 ★ ← [ 0, 6]
+
+2 [0, 6] {[ 1, 6], [0, 5]} Sat (𝐴 ′ = [3, 6]) 𝐴 ★ ← [ 3, 6]
+
+3 [3, 6] {[ 4, 6], [3, 5]} Sat (𝐴 ′ = [5, 6]) 𝐴 ★ ← [ 5, 6]
+
+4 [5, 6] {[ 6, 6], [5, 5]} Unsat Terminate Result The best interval invariant is [5, 6].0 1 2 3 4 5 6 7                            
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+
+Fig. 1. Illustration of the refining steps in Table 1. Blue indicates unavailable lattices, yellow indicates the current solution, and green indicates the lattices tested in each step. 
+
+5 Bitwise Principled Refinement for BII Synthesis 
+
+The propose-and-refine framework boils down to a directed search over a lattice-structured abstract domain. However, the naive linear descent is inefficient: each candidate requires an expensive legal-ity check, and fine-grained refinement converges slowly in large spaces. We introduce a refinement strategy whose solver-query count is linear in the total bit-width of the template functions. Inspired by binary lifting [ 3], we replace unit-step descent with exponential-step refinement, enabling efficient navigation of the search space (§ 5.1). Furthermore, we incorporate under-approximations derived to prune infeasible regions early and accelerate convergence (§ 5.2). 
+
+5.1 Proposing Strategy via Binary Lifting 
+
+Binary Lifting . Binary lifting is a classical algorithmic technique for efficiently answering queries over ordered structures, such as computing ancestors in trees. It exploits the binary representation of integers to reduce the number of search steps from linear to logarithmic. The method consists of a precomputation phase, in which jump pointers are constructed for powers of two, and a query phase, in which these pointers are used to incrementally refine a candidate solution. During a query, the algorithm iteratively considers jumps of size 2𝑘 , starting from the largest relevant 𝑘 and proceeding down to zero, updating the candidate when doing so yields a valid improvement. 
+
+Example 5.1. Consider finding the largest integer 𝑥 such that 𝑥 < 6, starting with 𝑥 = 1.(1) Phase 1: Precomputation. We test increments starting from 0 to find the largest exponent. 
+
+• Test 𝑥 + 20. The result 2 is valid, so 𝑥 ← 2.
+
+• Test 𝑥 + 21. The result 4 is valid, so 𝑥 ← 4.
+
+• Test 𝑥 + 22. The result 8 is invalid, so the precomputation phase ends here. (2) Phase 2: Query. We test increments from the last valid exponent ( 1) down to 0.
+
+• Test 𝑥 + 21. The result 6 is invalid, so keep 𝑥 = 4.
+
+• Test 𝑥 + 20. The result 5 is valid, so 𝑥 ← 5. 
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 11
+
+(3) Result. The procedure terminates with 𝑥 = 5.
+
+Bitwise Greedy Strategy . Adapting binary lifting to the BII synthesis formulation produces a 
+
+bitwise greedy strategy: deciding the binary representation of the final result bit-by-bit, and unlike the standard binary lifting, it can skip some bit positions with the help of the refinement procedure. This strategy operates on the principle that determining high-order bits first prunes the search space most aggressively. For a lower bound 𝑙 𝑖 (initialized to 0): 
+
+• Propose( 𝐴 ): At bit position 𝑘 , we hypothesize that the optimal lower bound is at least large enough to have the 𝑘 -th bit set. We propose a candidate 𝐶 where the 𝑘 -th bit is forced to 1. If the 𝑘 -th bit is already set (due to a previous update), we skip to the next lower bit. 
+
+• Refine( 𝐴, C): We query the solver to check if a valid inductive invariant exists within the candidate set C.
+
+– If Sat , the solver returns a witness model 𝐴 ′. We return (𝐴 ′, false ). This performs a greedy update : we immediately adopt the tighter witness 𝐴 ′ as the new current invariant 𝐴 . This often resolves multiple lower-order bits in a single step. The false signal ensures the search continues until all remaining unresolved bits are resolved. 
+
+– If Unsat , the proposed bit configuration is invalid. We return (𝐴, false ). This implies the 
+
+𝑘 -th bit must remain at its current value (e.g., 0 for a lower bound). Crucially, the stop signal remains false , as the failure to set the 𝑘 -th bit does not imply the search is complete; the algorithm must proceed to test the next bit ( 𝑘 − 1). A symmetric logic applies to the upper bound 𝑢 𝑖 , where we attempt to force bits to 0 (tightening the ceiling) from the highest bit position to the lowest bit position. Thus, every nonempty solver query resolves at least one previously unresolved bound bit. 
+
+Lemma 5.2 ( Bit preservation and progress). Assume that the BII 𝐴 ★ exists and that every solver query is exact. At every iteration of Algorithm 4, 𝐴 ★ ⊑ 𝐴 , and every lower- or upper-bound bit position already passed by Propose agrees with the corresponding bit of 𝐴 ★. Every nonempty solver query passes at least one additional bit position. 
+
+Proof. The claim holds initially because 𝐴 = ⊤ and no position has been passed. If a query is Sat , it returns an inductive witness 𝐴 ′ ⊑ 𝐴 . Since 𝐴 ★ is the BII, 𝐴 ★ ⊑ 𝐴 ′. Under the already fixed higher-order prefix, every tested or skipped lower-bound bit set to 1 in 𝐴 ′ must also be 1 in 𝐴 ★; otherwise 𝐴 ★.𝑙 𝑖 < 𝐴 ′.𝑙 𝑖 . The upper-bound case is symmetric. At least one candidate disjunct is satisfied, so at least one new position is passed. If a query is Unsat , no valid inductive element lies below any tested candidate. In particular, 𝐴 ★
+
+lies below none of them, so each tested bit retains its current value. Since 𝐴 is unchanged, the next call to Propose advances the corresponding position pointers. Thus the invariant is preserved, and every nonempty query passes at least one new position. This reasoning is inherently global: a Sat witness may simultaneously tighten multiple rows, and we never assume that feasibility factorizes across rows. □
+
+Theorem 5.3 (Correctness and complexity of Algorithm 4). Let 𝑊 = Í𝑚 𝑖 =1 bw 𝑖 . Assuming that the BII exists and that every solver query is exact, Algorithm 4 returns the BII and uses at most 
+
+2𝑊 solver queries. Each query contains at most 2𝑚 candidate disjuncts. For a uniform bit-width 𝑏 , the query count is 𝑂 (𝑚𝑏 ).
+
+Proof. Every refinement result is inductive and no greater than the current element, so Condi-tion 1 of Theorem 4.1 holds. Algorithm 4 never returns stop = true , so Condition 3 is vacuous. By Lemma 5.2, every nonempty query passes at least one previously unresolved lower- or upper-bound  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 12 Hanrui Zuo, Peisen Yao, and Kui Ren
+
+Algorithm 4: Bitwise greedy instantiation 
+
+Input: Logic encoding 𝑃 (𝐴, 𝑋, 𝑋 ′)
+
+Output: Best Inductive Invariant 𝐴 ★ 
+
+> 1
+
+global 𝐴 𝑙𝑎𝑠𝑡 ← ⊥ ;; // Shared with Algorithm 5  
+
+> 2
+
+Function Propose( 𝐴 ): 
+
+> 3
+
+static 𝑙𝑝𝑜𝑠 ← [ bw 1 − 1, . . . , bw 𝑚 − 1], 𝑢𝑝𝑜𝑠 ← [ bw 1 − 1, . . . , bw 𝑚 − 1] ; 
+
+> 4
+
+C ← ∅ ; 
+
+> 5
+
+foreach dimension 𝑖 ∈ { 1, . . . , 𝑚 } do  
+
+> 6
+
+if 𝐴 = 𝐴 𝑙𝑎𝑠𝑡 then  
+
+> 7
+
+𝑙𝑝𝑜𝑠 𝑖 ← 𝑙𝑝𝑜𝑠 𝑖 − 1, 𝑢𝑝𝑜𝑠 𝑖 ← 𝑢𝑝𝑜𝑠 𝑖 − 1; // Move all position pointers if not refined  
+
+> 8
+
+𝑙𝑝𝑜𝑠 𝑖 ← max {𝑘 ≤ 𝑙𝑝𝑜𝑠 𝑖 | ( 𝐴.𝑙 𝑖 )𝑘 = 0}; // Gets the highest unfixed unset(0) bit  
+
+> 9
+
+if 𝑙𝑝𝑜𝑠 𝑖 ≥ 0 then 
+
+// Set the bit and clear lower bits  
+
+> 10
+
+𝐶 𝑙 ← 𝐴 [𝑙 𝑖 ← ( 𝐴.𝑙 𝑖 & ∼ (( 1 ≪ 𝑙𝑝𝑜𝑠 𝑖 ) − 1)) | ( 1 ≪ 𝑙𝑝𝑜𝑠 𝑖 )] ; 
+
+> 11
+
+C ← C ∪ { 𝐶 𝑙 }; 
+
+> 12
+
+𝑢𝑝𝑜𝑠 𝑖 ← max {𝑘 ≤ 𝑢𝑝𝑜𝑠 𝑖 | ( 𝐴.𝑢 𝑖 )𝑘 = 1}; // Gets the highest unfixed set(1) bit  
+
+> 13
+
+if 𝑢𝑝𝑜𝑠 𝑖 ≥ 0 then 
+
+// Clear the bit and set lower bits  
+
+> 14
+
+𝐶 𝑢 ← 𝐴 [𝑢 𝑖 ← ( 𝐴.𝑢 𝑖 | (( 1 ≪ 𝑢𝑝𝑜𝑠 𝑖 ) − 1)) & ∼ ( 1 ≪ 𝑢𝑝𝑜𝑠 𝑖 )] ; 
+
+> 15
+
+C ← C ∪ { 𝐶 𝑢 }; 
+
+> 16
+
+𝐴 𝑙𝑎𝑠𝑡 ← 𝐴 ; 
+
+> 17
+
+return C; 
+
+> 18
+
+Function Refine( 𝐴, C): 
+
+> 19
+
+if ∃𝐴 ′.(Ô𝐶 ∈ C 𝐴 ′ ⊑ 𝐶 ) ∧ ∀ 𝑋, 𝑋 ′.𝑃 (𝐴 ′, 𝑋, 𝑋 ′) then  
+
+> 20
+
+return (𝐴 ′, false ); 
+
+> 21
+
+return (𝐴, false );bit. There are 2𝑊 such bit positions. When Propose (𝐴 ) = ∅, all positions have been passed, and every bound bit agrees with 𝐴 ★; hence 𝐴 = 𝐴 ★, establishing Condition 2. Correctness follows from Theorem 4.1, and the same progress argument gives the 2𝑊 query bound. □
+
+Example 5.4. Table 2 and Figure 2 demonstrate the bitwise greedy strategy (Algorithm 4) on the same 3-bit variable 𝑥 . The example shows that with a greedy update (at Bit 2), the algorithm can skip generating a candidate in the subsequent steps (at Bit 0). 
+
+5.2 Refining Strategy with the Under-Approximation 
+
+With the clear structural reduction from abstract elements to bounds, we are further able to detect an under-approximation from the 𝑅𝑒 𝑓 𝑖𝑛𝑒 (𝐴, C) process. The algorithms above exploit only the 
+
+Sat results. However, the Unsat results can also provide valuable information. By systematically tracking Unsat results, we can construct an under-approximation of the BII. 
+
+Boundary Limits . To present the under-approximation, we introduce auxiliary variables for each dimension 𝑖 , denoted as 𝑙𝑏 𝑖 and 𝑢𝑏 𝑖 for each component 𝑧 𝑖 , which we call the boundary limits .Unlike the current bounds 𝑙 𝑖 and 𝑢 𝑖 , which track the best valid invariant found so far, these auxiliary variables track the limits of the search space derived from failed checks. Specifically:  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 13
+
+Table 2. Trace of the bitwise greedy strategy (Alg. 4) on variable 𝑥 .
+
+𝑃 (𝐴, 𝑋, 𝑋 ′) (𝑥 = 5 → 𝐴 (𝑋 )) ∧ ( 𝐴 (𝑋 ) ∧ 𝑥 < 6 ∧ 𝑥 ′ = 𝑥 + 1 → 𝐴 (𝑋 ′)) 
+
+Initialization 𝐴 ★ = [000 (2) , 111 (2) ] ( [0, 7] ) (3-bit unsigned) 
+
+Iteration Current 𝐴 ★ Candidate Set C Result Update Action 
+
+1 [000 (2) , 111 (2) ] 𝐶 𝑙 : [100 (2) , 111 (2) ] Sat 𝐴 ★ ← [ 101 (2) , 111 (2) ]
+
+𝐶 𝑢 : [000 (2) , 011 (2) ] 𝐴 ′ = [101 (2) , 111 (2) ]
+
+2 [101 (2) , 111 (2) ] 𝐶 𝑙 : [110 (2) , 111 (2) ] Unsat None 
+
+𝐶 𝑢 : [101 (2) , 101 (2) ]
+
+3 [101 (2) , 111 (2) ] 𝐶 𝑙 : skipped(bit is 1) Sat 𝐴 ★ ← [ 101 (2) , 110 (2) ]
+
+𝐶 𝑢 : [101 (2) , 110 (2) ] 𝐴 ′ = [101 (2) , 110 (2) ]
+
+Result The best interval invariant is [101 (2) , 110 (2) ] ([5, 6]). 0 1 2 3 4 5 6 7                     
+
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+> 01234567
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> 7
+
+Fig. 2. Illustration of the refining steps in Table 2. Blue indicates unavailable lattices, yellow indicates the current solution, green indicates the lattices tested in each step, and white indicates the possible lattices temporarily not tested. 
+
+• 𝑙𝑏 𝑖 represents the maximum possible value for the optimal lower bound 𝑙 ★ 
+
+> 𝑖
+
+.
+
+• 𝑢𝑏 𝑖 represents the minimum possible value for the optimal upper bound 𝑢 ★ 
+
+> 𝑖
+
+.Together with the current abstract element 𝐴 , these variables constrain the optimal bounds within the ranges: 
+
+𝐴.𝑙 𝑖 ≤ 𝑙 ★ 
+
+> 𝑖
+
+≤ 𝑙𝑏 𝑖 and 𝑢𝑏 𝑖 ≤ 𝑢 ★ 
+
+> 𝑖
+
+≤ 𝐴.𝑢 𝑖 .
+
+We update these limits in the Refine (𝐴, C) step: 
+
+• Unsat (Pruning): If a proposal to tighten a lower bound to 𝐶.𝑙 𝑖 fails, it implies no valid invariant exists with a lower bound as high as 𝐶.𝑙 𝑖 . Thus, the optimal lower bound 𝑙 ★ 
+
+> 𝑖
+
+must be strictly less than 𝐶.𝑙 𝑖 . We update the limit: 𝑙𝑏 𝑖 ← min (𝑙𝑏 𝑖 , 𝐶.𝑙 𝑖 − 1). Symmetrically, if a proposal for an upper bound 𝑐.𝑢 𝑖 fails, we update 𝑢𝑏 𝑖 ← max (𝑢𝑏 𝑖 , 𝑐.𝑢 𝑖 + 1).
+
+• Sat (Tightening): If a proposal succeeds, the solver returns a witness model 𝐴 ′. This model is a valid inductive invariant, so we update the current best bounds 𝑙𝑏 𝑖 and 𝑢𝑏 𝑖 with respect to their counterparts 𝐴 ′.𝑢 𝑖 and 𝐴 ′.𝑙 𝑖 (i.e. 𝑙𝑏 𝑖 ← min (𝑙𝑏 𝑖 , 𝐴 ′.𝑢 𝑖 ), 𝑢𝑏 𝑖 ← max (𝑢𝑏 𝑖 , 𝐴 ′.𝑙 𝑖 )). These boundary limits define the effective termination points of the search. Any candidate falling outside the active regions [𝐴.𝑙 𝑖 , 𝑙𝑏 𝑖 ] or [𝑢𝑏 𝑖 , 𝐴.𝑢 𝑖 ] can be immediately pruned. Moreover, these bounds can serve as auxiliary variables to constrain the search space in an SMT check. The intervals 
+
+[𝑙𝑏 𝑖 , 𝑢𝑏 𝑖 ] record the search limits inferred from failed checks, and the conjunction Ó𝑖 [𝑙𝑏 𝑖 , 𝑢𝑏 𝑖 ] yields an under-approximation of the target invariant 𝐴 ★. We refer to this under-approximation as 𝐵 in the remainder of the paper. These updates maintain 𝐵 ⊑ 𝐴 ★, as established in Theorem 5.5.  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 14 Hanrui Zuo, Peisen Yao, and Kui Ren
+
+Algorithm 5: Refinement with under-approximation 
+
+Input: Logic encoding 𝑃 (𝐴, 𝑋, 𝑋 ′)
+
+Output: Best Inductive Invariant 𝐴 ★ 
+
+> 1
+
+Function Refine( 𝐴, C): 
+
+> 2
+
+static 𝑙𝑏 ← [ 2bw 𝑖 − 1, . . . ], 𝑢𝑏 ← [ 0, . . . ];// 1. Standard Check: Verify candidates  
+
+> 3
+
+if ∃𝐴 ′.(Ô𝐶 ∈ C 𝐴 ′ ⊑ 𝐶 ) ∧ ( Ó𝑖 𝐴 ′.𝑙 𝑖 ≤ 𝑙𝑏 𝑖 ) ∧ ( Ó𝑖 𝑢𝑏 𝑖 ≤ 𝐴 ′.𝑢 𝑖 ) ∧ ∀ 𝑋, 𝑋 ′.𝑃 (𝐴 ′, 𝑋, 𝑋 ′) then 
+
+// SAT: Witness found. Update limits using model 𝐴 ′. 
+
+> 4
+
+foreach dimension 𝑖 do  
+
+> 5
+
+𝑙𝑏 𝑖 ← min (𝑙𝑏 𝑖 , 𝐴 ′.𝑢 𝑖 ), 𝑢𝑏 𝑖 ← max (𝑢𝑏 𝑖 , 𝐴 ′.𝑙 𝑖 ); 
+
+> 6
+
+return (𝐴 ′, false );// 2. UNSAT: Prune limits based on failed candidates.  
+
+> 7
+
+foreach 𝐶 ∈ C do  
+
+> 8
+
+foreach dimension 𝑖 do  
+
+> 9
+
+if 𝐶.𝑙 𝑖 > 𝐴.𝑙 𝑖 then  
+
+> 10
+
+𝑙𝑏 𝑖 ← min (𝑙𝑏 𝑖 , 𝐶.𝑙 𝑖 − 1); // Attempt to tighten 𝑙 𝑖 failed =⇒ 𝑙 ★ 
+
+> 𝑖
+
+< 𝐶.𝑙 𝑖  
+
+> 11
+
+if 𝐶.𝑢 𝑖 < 𝐴.𝑢 𝑖 then  
+
+> 12
+
+𝑢𝑏 𝑖 ← max (𝑢𝑏 𝑖 , 𝐶.𝑢 𝑖 + 1); // Attempt to tighten 𝑢 𝑖 failed =⇒ 𝑢 ★ 
+
+> 𝑖
+
+> 𝐶.𝑢 𝑖 
+
+// 3. Bounded Leap: Try solving directly in the constrained region.  
+
+> 13
+
+𝐵 ← Ó𝑖 [𝑙𝑏 𝑖 , 𝑢𝑏 𝑖 ]; 
+
+> 14
+
+if 𝐵 ≠ ⊥ then  
+
+> 15
+
+if ∃𝐴 ′.𝐵 ⊑ 𝐴 ′ ⊏ 𝐴 ∧ ∀ 𝑋, 𝑋 ′.𝑃 (𝐴 ′, 𝑋, 𝑋 ′) then  
+
+> 16
+
+foreach dimension 𝑖 do  
+
+> 17
+
+𝑙𝑏 𝑖 ← min (𝑙𝑏 𝑖 , 𝐴 ′.𝑢 𝑖 ), 𝑢𝑏 𝑖 ← max (𝑢𝑏 𝑖 , 𝐴 ′.𝑙 𝑖 ); 
+
+> 18
+
+𝐴 𝑙𝑎𝑠𝑡 ← 𝐴 ′; // Consume the failed standard directions next  
+
+> 19
+
+return (𝐴 ′, false ); 
+
+> 20
+
+else  
+
+> 21
+
+return (𝐴, true ); // No tighter invariant exists  
+
+> 22
+
+return (𝐴, false );
+
+Bounded Leap . As the search progresses, the gap between the current invariant 𝐴 and the under-approximation defined by the boundary limit narrows. When the search space becomes sufficiently constrained, a proposing strategy can be less efficient than a direct solve. We introduce the bounded leap strategy to exploit this regime. Whenever the under-approximation 
+
+𝐵 ≠ ⊥ (i.e., ∀𝑖. 𝑙𝑏 𝑖 ≤ 𝑢𝑏 𝑖 ), we issue a single SMT query to refine the current invariant by finding an invariant within the constrained region: 
+
+∃𝐴 ′.∀𝑋, 𝑋 ′.𝑃 (𝐴 ′, 𝑋, 𝑋 ′) ∧ ( 𝐵 ⊑ 𝐴 ′ ⊏ 𝐴 ).
+
+If the query is Sat , the result yields a strictly tighter invariant 𝐴 ′. If the query is Unsat , we conclude that 𝐴 is the best inductive invariant within the bounded region, enabling early termination. After a successful bounded leap, we set 𝐴 𝑙𝑎𝑠𝑡 ← 𝐴 ′ so that the next proposal advances past the directions rejected by the preceding standard query. The enhanced refinement procedure is presented in Algorithm 5.  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 15
+
+Theorem 5.5 (Correctness and complexity with under-approximation). Let 𝑊 = Í𝑚 𝑖 =1 bw 𝑖 .Assume that the BII 𝐴 ★ exists, that Inv (⊤) holds, and that all solver queries are exact. Algorithm 4, using the refinement procedure in Algorithm 5, returns 𝐴 ★ and makes at most 4𝑊 solver queries. 
+
+Proof. Initially, 𝐵 = ⊥ ⊑ 𝐴 ★. A successful standard or bounded-leap query returns an inductive 
+
+𝐴 ′ ⊏ 𝐴 , while every other result leaves 𝐴 unchanged; hence Condition 1 of Theorem 4.1 holds. The corresponding boundary-limit updates preserve 𝐵 ⊑ 𝐴 ★.If a standard query is Unsat , it excludes only candidate regions that contain no valid inductive element satisfying the boundary limits. Since 𝐵 ⊑ 𝐴 ★, these additional limits do not exclude 𝐴 ★.Consequently, the bit-preservation and progress argument of Lemma 5.2 continues to hold. Thus, when Propose (𝐴 ) = ∅, Condition 2 holds. If a bounded-leap query is Unsat and 𝐴 ★ ⊏ 𝐴 , then 𝐴 ★ itself would satisfy 𝐵 ⊑ 𝐴 ★ ⊏ 𝐴 and 
+
+Inv (𝐴 ★), contradicting unsatisfiability. Hence 𝐴 = 𝐴 ★, establishing Condition 3. Correctness follows from Theorem 4.1. Lemma 5.2 bounds the number of standard queries by 2𝑊 . At most one bounded-leap query follows each failed standard query, and the update of 𝐴 𝑙𝑎𝑠𝑡 prevents the rejected directions from being retested. Therefore the total is at most 4𝑊 . □
+
+5.3 Summary 
+
+We have presented a propose-and-refine approach to BII synthesis over ordered abstract domains. The linear search instantiation serves as a simple and complete baseline, but its convergence is inherently incremental. The bitwise refinement strategy improves on this baseline by replacing unit-step descent with linear refinement in the bit width, while boundary limits and bounded leap further exploit solver feedback and construct an under-approximation to prune infeasible regions and accelerate the remaining search. The next section evaluates these design choices empirically and compares them with symbolic abstraction-based approaches for the same target domain [70, 88, 90]. 
+
+6 Evaluation 
+
+Here, we evaluate the presented algorithms by investigating the following research questions: 
+
+• RQ1 : How efficient are our algorithms compared to existing approaches (§ 6.1)? 
+
+• RQ2 : What factors influence the performance of the evaluated algorithms (§ 6.2)? 
+
+• RQ3 : What is the effect of the proposed strategies over the base implementation (§ 6.3)? 
+
+• RQ4 : To what extent can BII improve the effectiveness of 𝑘 -induction (§ 6.4)? 
+
+Abstract Domains . Our approach applies to abstract domains expressible in the canonical form 
+
+𝐿 ≤ 𝐹 (𝑋 ) ≤ 𝑈 . Our evaluation instantiates three fixed template families: intervals, octagons, and sparse template polyhedra. For variables 𝑥 1, . . . , 𝑥 𝑛 , the interval rows are 𝑥 𝑖 ; the octagon rows additionally include 𝑥 𝑖 +𝑥 𝑗 and 𝑥 𝑖 −𝑥 𝑗 for 𝑖 < 𝑗 ; and the sparse template-polyhedra rows additionally include canonical support-three forms 𝑥 𝑖 + 𝑠 𝑗 𝑥 𝑗 + 𝑠 𝑘 𝑥 𝑘 , where 𝑖 < 𝑗 < 𝑘 and 𝑠 𝑗 , 𝑠 𝑘 ∈ {− 1, 1}.
+
+Benchmarks . Our evaluation uses benchmarks adapted from multiple established sources, includ-ing (1) LoopInvGen, which aggregates tasks from SyGuS-COMP, SV-COMP, and other verification literature (e.g., HOLA [ 27 ]) and (2) the multi-phase benchmarks [ 71 ]). To assess performance under bit-vector semantics, we instantiate benchmark variables as 32-, 64-, and 128-bit vectors. At each selected width 𝑏 , we translate original integer values (including template rows and bounds) into unsigned bit-vectors of width 𝑏 . Thus, overflow is intentional and models program behavior with fixed-width integer types. To ensure a meaningful evaluation, each benchmark suite used in this paper retains only instances in which more than half of the components in 𝐹 (𝑋 ) have a non-trivial invariant (i.e., 
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026.
+
+16 Hanrui Zuo, Peisen Yao, and Kui Ren 
+
+Table 3. A summary of the evaluated algorithms. 
+
+Algorithm Description 
+
+CIBII(BS) § 3.2, Algorithm 1 with the binary search approach [90] for 𝑓 ★(𝑎 )
+
+CIBII(Bi) § 3.2, Algorithm 1 with the state-of-the-art approach [88] for 𝑓 ★(𝑎 )
+
+EFBII(Lin) § 4, Algorithm 3 implemented on our framework EFBII(G) § 5, Algorithm 4 + Algorithm 5 implemented on our framework 0 20 40 60 80 100 120 140 160 
+
+> Solved Instances
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Time Limit (seconds)
+> 87
+> 87
+> 148
+> 162
+> Algorithms
+> CIBII(BS)
+> CIBII(Bi)
+> EFBII(Lin)
+> EFBII(G)
+
+(a) Interval domain 0 10 20 30 40 50   
+
+> Solved Instances
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Time Limit (seconds)  56
+> 56
+> 52 55 Algorithms
+> CIBII(BS)
+> CIBII(Bi)
+> EFBII(Lin)
+> EFBII(G)
+
+(b) Octagon domain 0 10 20 30 40 50  
+
+> Solved Instances
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Time Limit (seconds)  42
+> 43
+> 38
+> 51
+> Algorithms
+> CIBII(BS)
+> CIBII(Bi)
+> EFBII(Lin)
+> EFBII(G)
+
+(c) Template polyhedra Fig. 3. Cactus plot comparing the performance of algorithms on the interval, octagon, and a sparse template polyhedra domain, showing the cumulative number of instances solved within a time limit. 
+
+distinct from [min , max ]). This criterion yields the evaluation suites used in this paper: 195 interval instances, 120 octagon instances, and 69 sparse template-polyhedra instances. The criterion is meant to avoid tables dominated by trivial top invariants, since many of the translated benchmarks have trivial variable ranges. 
+
+Baselines . We implement the algorithms in this paper as a tool, InvFinder, which takes Constraint Horn Clause (CHC) files as input and outputs minimal inductive loop invariants. By default, we consider the Init and Inductiveness conditions to infer query-independent invariants (§ 2). RQ1–RQ3 focus on exact BII synthesis in a fixed abstract domain. Accordingly, we compare against symbolic-abstraction procedures that target BIIs. Table 3 summarizes the synthesis baselines used in RQ1–RQ3. For each benchmark, all evaluated synthesis algorithms receive the same template vector 𝐹 , bit-widths, ordering semantics, and transition encoding; thus, they compute the BII in the same fixed abstract domain. RQ4 addresses a different question: whether BIIs improve downstream verification. For this purpose, we compare against established verifiers with different proof mechanisms with a hybrid verifier that combines 𝑘 -induction with EFBII(G) (see Table 3). 
+
+Environment . Our experiments are conducted on a machine equipped with an Intel(R) Xeon(R) Platinum 8176 CPU and 512 GB of RAM, running Ubuntu 22.04. A 60-second timeout is imposed for each synthesis task unless otherwise specified. 
+
+6.1 The Overall Performance Comparison (RQ1) 
+
+Figure 3 presents the cactus plots for the interval, octagon, and an example sparse template-polyhedra domain, illustrating the cumulative number of solved instances (i.e. instances that the BII is computed within the timeout) over time. Table 4 details the runtime statistics on the subset of instances solved by all algorithms. 
+
+, Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 17                                                                  
+
+> Table 4. Algorithm details on the commonly solved instances of the four algorithms (all bit sizes combined).
+> Algorithm Total (s) Avg (s) Total Checks Avg Checks Time/Check(ms) Interval Domain (66 instances)
+> CIBII(BS) 234.44 3.55 1,287,379 19505.74 0.18 CIBII(Bi) 217.78 3.30 633,592 9599.88 0.34 EFBII(Lin) 59.49 0.90 3,998 60.58 14.88 EFBII(G) 27.14 0.41 1,177 17.83 23.06
+> Octagon Domain (20 instances)
+> CIBII(BS) 180.27 9.01 963,706 48185.30 0.19 CIBII(Bi) 123.13 6.16 269,137 13456.85 0.46 EFBII(Lin) 30.58 1.53 364.00 18.20 84.01 EFBII(G) 6.86 0.34 198.00 9.90 34.67
+> Sparse Template Polyhedra Domain (24 instances)
+> CIBII(BS) 100.77 4.20 397,266 16552.75 0.25 CIBII(Bi) 78.55 3.27 134,642 5610.08 0.58 EFBII(Lin) 93.62 3.90 1,267 52.79 73.89 EFBII(G) 47.03 1.96 304 12.67 154.70
+
+The Symbolic Abstraction Approach . The two chaotic iteration-based algorithms, CIBII(BS) and CIBII(Bi), demonstrate similar efficacy in terms of the number of solved instances. In both the interval and octagon domains, they solved the same number of instances before timing out. While CIBII(Bi) requires fewer solver calls on average than CIBII(BS) (e.g., roughly half as many in the interval domain), both methods are constrained by the iterative nature of fixed-point computation. This limitation prevents them from scaling to harder instances in the interval domain, as evidenced by the sharp vertical asymptotes in Figure 3a. Given its better performance, we use CIBII(Bi) as the primary baseline for the following comparisons. 
+
+Symbolic Abstraction vs. Our Approach . The constraint-based approach, represented by EF-BII(G), significantly outperforms the CIBII baselines in the interval domain and demonstrates superior efficiency in the octagon domain, despite a slightly lower total number of solvable in-stances. Solvability : In the interval domain, the advantage is decisive. EFBII(G) solves 162 instances, nearly doubling the solvability of the CIBII methods, which plateau at 87. The linear search strategy, EFBII(Lin), also performs well, solving 148 instances. In the octagon domain, the results are mixed. The symbolic abstraction methods achieve the highest solvability (56 instances), while EFBII(G) solves 55 instances, and EFBII(Lin) solves 52 instances. Although EFBII(G) solves one fewer instance than the baseline, Figure 3b reveals that it is significantly faster for the vast majority of cases, maintaining a lower time curve before reaching its limit. This result suggests that the algorithms favor different problem structures: CIBII methods are effective for relational constraints, where symbolic abstraction can exploit specific geometric properties, whereas EFBII(G) is more general, excelling where bit-level precision and rapid search pruning are required. In the fixed sparse template-polyhedra domain, EFBII(G) also achieves the highest solvability, solving 51 instances compared with 42 for CIBII(BS), 43 for CIBII(Bi), and 38 for EFBII(Lin). Efficiency : The efficiency advantage of EFBII(G) is starkly evident on the subset of benchmarks solved by all algorithms (Table 4). In the interval domain (66 common instances), EFBII(G) requires only 27.14 seconds, achieving an 8.0× speedup over CIBII(Bi), which takes 217.78 seconds. In the octagon domain (20 common instances), the gap widens further: EFBII(G) finishes in just 6.86        
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 18 Hanrui Zuo, Peisen Yao, and Kui Ren 015 30 45 60 75 90 105 120
+> Differing Bit Position
+> 0
+> 20000
+> 40000
+> 60000
+> 80000
+> 100000
+> 120000
+> 140000
+> Number of Calls
+
+(a) CIBII(Bi) 0 15 30 45 60 75 90 105 120  
+
+> Differing Bit Position
+> 0
+> 200
+> 400
+> 600
+> 800
+> Number of Calls
+
+(b) EFBII(Lin) 0 15 30 45 60 75 90 105 120  
+
+> Differing Bit Position
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> Number of Calls
+
+(c) EFBII(G) Fig. 4. Count of solver calls on different invariant sizes (represented by the maximum differing bit position across all rows of the resulting BII). 
+
+seconds, representing an 17 .9× speedup over CIBII(Bi) (123.13s). The same pattern holds in the fixed sparse template-polyhedra domain: on its 24 commonly solved instances, EFBII(G) reduces the number of checks from 134,642 for CIBII(Bi) to 304 and reduces runtime from 78.55s to 47.03s. A critical algorithmic trade-off is also revealed: although the bitwise greedy queries in EFBII(G) are computationally heavier ( ∼23ms/check) than symbolic abstraction queries ( ∼0.34ms/check), the logarithmic convergence of the bitwise strategy drastically reduces the volume of necessary checks. For instance, in the interval domain, EFBII(G) reduces the check count from 633,592 to just 1,177. This allows EFBII(G) to achieve superior overall runtime and successfully solve harder instances that iterative CIBII approaches fail to solve. Its higher time per check in the sparse template-polyhedra domain (154.70ms/check) indicates that the larger relational templates make each quantified query more expensive. These results concern the evaluated fixed sparse-template domain, rather than unrestricted polyhedral analysis. 
+
+6.2 An In-Depth Analysis of Algorithm Performance (RQ2) 
+
+To understand the factors driving the performance differences in RQ1, we analyze the algorithms’ sensitivity to the bit-width of program variables and the complexity of the target invariant on the interval domain. 
+
+Sensitivity to Bit-Width . Table 5 details the performance of the algorithms on a subset of interval domain instances commonly solved across 32-bit, 64-bit, and 128-bit configurations. 
+
+• CIBII(Bi) scales poorly due to an explosion in iteration count . As the width increases from 32 to 128 bits, the number of symbolic abstraction checks more than quadruples (from ∼86,000 to ∼373,000). However, because chaotic iteration is relatively insensitive to the enlarged bit-vector search space, the average cost per check remains nearly stable (from 0.30ms to 0.38ms). Consequently, the total runtime increases by 5.4× (25.71s to 139.91s). 
+
+• EFBII(Lin) suffers from a compound effect: both the number of checks and the cost per check increase noticeably. The check count grows by ∼ 3.4× as the search space expands by 4×,raising the average time per check from 3.31ms to 15.06ms. These two factors combine to produce a severe degradation, increasing total runtime by over 15 × (from 2.29s to 35.74s). 
+
+• EFBII(G) demonstrates the most robust scaling in the number of checks. The number of checks increases by only 1.7× (from 255 to 429) as the bit-width quadruples, compared with a 4× increase on bit-width. However, the average cost per check increases from 6.84ms to  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 19
+> Table 5. Performance of 3 main algorithms on different bit-widths (60s timeout). The statistics are based on the 22 commonly solved instances across all methods and bit-widths in the interval domain.
+
+Algorithm Width #Checks Avg Checks #Time Time/Check(ms) 
+
+CIBII(Bi) 32 85,763 3898.32 25.71 0.30 64 175,228 7964.91 52.15 0.30 128 372,601 16936.41 139.91 0.38 EFBII(Lin) 32 691 31.41 2.29 3.31 64 933 42.41 13.10 14.04 128 2,374 107.91 35.74 15.06 EFBII(G) 32 255 11.59 1.74 6.84 64 268 12.18 6.25 23.32 128 429 19.50 27.63 64.42 
+
+64.42ms, causing the total runtime to increase by 15 .9× (from 1.74s to 27.63s), compared with 
+
+5.4× for CIBII(Bi). Nevertheless, its drastically lower check count allows EFBII(G) to remain approximately 5.1× faster than CIBII(Bi) on 128-bit tasks. 
+
+Impact of Invariant Size . We further examine how the complexity of the target invariant affects performance by plotting solver calls against the maximum differing-bit position across its rows (Figure 4). For a BII with rows 𝑙 𝑖 ≤ 𝑓 𝑖 (𝑋 ) ≤ 𝑢 𝑖 , we define this metric as max 𝑖 {𝑘 | ( 𝑙 𝑖 ⊕ 𝑢 𝑖 )𝑘 = 1} + 1,i.e., the maximum 1-based position at which a row’s lower and upper bounds differ, and use it as a coarse proxy for the magnitude of the bounds. A value of zero means that every row is a singleton interval. The results illustrate distinct behavioral profiles for each strategy. CIBII(Bi) proves highly unstable, with some instances requiring massive solver calls even for small invariant sizes, indicating that fixed-point iteration struggles to converge efficiently even on shallow invariants. In contrast, EFBII(Lin) reveals a linear dependence in which the search effort scales. EFBII(G) demonstrates remarkable stability: its call count remains uniformly low (under 140) regardless of the invariant size. This visually confirms the efficiency of the bitwise greedy strategy, which navigates to the target invariant with a predictable and minimal number of steps, regardless of the magnitude of the bounds. 
+
+6.3 Ablation Study of the EFBII Algorithm (RQ3) 
+
+To quantify the impact of our design decisions, we evaluate the evolution of the propose-and-refine framework on the interval domain by comparing the linear search baseline (EFBII(Lin)) against three progressive stages of the bitwise greedy strategy: the foundational bitwise greedy strategy (EFBII(G-Base)), the intermediate version incorporating boundary limits for pruning (EFBII(G-BL)), and the fully optimized algorithm equipped with bounded leap (EFBII(G)). The results are visualized in Figure 5, while the statistics on 123 commonly solved instances are summarized in Table 6. 
+
+The Efficiency-Solvability Trade-off (Linear vs. G-Base) . The comparison between EFBII(Lin) and EFBII(G-Base) reveals a distinct trade-off. In terms of solvability, EFBII(G-Base) is more robust, solving 148 instances compared to 139 for EFBII(Lin). This confirms that the bitwise strategy is necessary to handle the harder, large-width instances where linear search fails. However, on the set of commonly solved (and generally simpler) instances, EFBII(G-Base) is inefficient. It requires 731.4 seconds to solve the same subset that EFBII(Lin) clears in just 95.7 seconds. This is due to the heavy overhead of bitwise queries: the complex bit-masking constraints increase the solver  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 20 Hanrui Zuo, Peisen Yao, and Kui Ren
+
+Table 6. Comparing EFBII(G) across different configura-tions. Time and check statistics reflect 123 commonly solved instances.                                  
+
+> Algorithm Total(s) Avg(s) # Calls Avg Calls Time/Call(ms)
+> EFBII(Lin) 95.7 0.78 4,714 38.3 20.31 EFBII(G-Base) 731.4 5.95 10,308 83.8 70.95 EFBII(G-BL) 352.0 2.86 9,766 79.4 36.04 EFBII(G) 87.1 0.71 1,684 13.7 51.75 020 40 60 80 100 120 140 160
+> Solved Instances
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Time Limit (seconds)
+> 139
+> 148 156
+> 162
+> Algorithms
+> EFBII(Lin)
+> EFBII(G-Base)
+> EFBII(G-BL)
+> EFBII(G)
+
+Fig. 5. Cumulative invariant inference time of EFBII variations. 
+
+time per check to 70.95ms, compared to just 20.31ms for simple bounds in EFBII(Lin). Without optimization, EFBII(G-Base) overcomplicates simple problems and performs significantly worse than a naive linear descent. 
+
+Impact of Boundary Limits . Incorporating boundary limits (under-approximation) in EFBII(G-BL) significantly improves both metrics. It pushes solvability to 156 instances and cuts the total runtime on the common set by more than half (731.4s to 352.0s). The pruning effectively filters out the most computationally expensive invalid queries, reducing the average time per check from 70.95ms to 36.04ms. 
+
+Impact of Bounded Leap . Bounded-leap optimization is the critical factor that enables the bitwise strategy to outperform the linear baseline on the commonly solved set. It effectively mimics the efficiency of linear search on simple sub-problems, reducing the total number of calls from 9,766 to just 1,684. As a result, the fully optimized EFBII(G) achieves the best of both worlds: it achieves the highest solvability (162 instances) and is the fastest algorithm on the common set (87.1s), finally surpassing EFBII(Lin) (95.7s) in raw speed. This study confirms that while the bitwise strategy provides the scalability for hard problems, it incurs a heavy penalty on simple ones. The bounded leap optimization is strictly necessary to bridge this gap, ensuring the solver remains efficient across the entire complexity spectrum. 
+
+6.4 Enhancing 𝑘 -Induction using Auxiliary Invariants (RQ4) 
+
+To evaluate the practical benefits of our approach, we conduct an experiment that integrates our best-performing algorithm, EFBII(G), with a 𝑘 -induction engine. We assess whether supplying Best Inductive Invariants (BII) improves verification performance in two scenarios: first, by feeding pre-computed invariants of our algorithm to a standard 𝑘 -induction loop; and second, by creating a hybrid solver that interleaves EFBII(G) steps with 𝑘 -induction. The experiments use the full set of 195 benchmarks on the interval domain. 
+
+Assisting 𝑘 -Induction via Partial and Optimal Results . We call the result of one refinement iteration of EFBII(G) a partial invariant: it is a sound inductive interval invariant produced before the search has established optimality, and it may be weaker than the BII. The optimal invariant is the BII obtained after the search terminates. We supply both partial and optimal invariants on the interval domain to a 𝑘 -induction engine running with a 30-second timeout. The results, summarized in Table 7, demonstrate that the provided invariants significantly strengthen verification capability. 
+
+• Increased Proof Rate . Raw 𝑘 -induction proves 125 instances. Supplying an optimal invariant increases the number of solved cases to 137, reducing the number of unprovable instances to  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 21
+
+Table 7. The impact of using EFBII(G) to assist 𝑘 -induction. The Speedup is calculated from commonly solved instances.                                          
+
+> Invariant Type Proved cases in 𝑘 steps Unprovable
+> 1416 64 Raw 𝑘 -induction 90 106 121 125 70 Partial Inv. 90 106 123 127 68 Speedup 1.034 ×1.196 ×1.173 ×1.148 ×–Optimal Inv. 90 112 133 137 58 Speedup 1.035 ×1.190 ×1.178 ×1.157 ×–020 40 60 80 100 120 140
+> Solved Instances
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> Time Limit (seconds)
+> 127
+> 95
+> 142 91
+> 137
+> Verification Methods
+> K-induction
+> Z3
+> Eldarica
+> clause2inv
+> K-EFBII(G)
+
+Fig. 6. Verification performance of the mixed 𝑘 -induction and EFBII(G) strategy compared to other methods. 
+
+58—a 17% reduction in failed proofs. Partial invariants also yielded a benefit, solving 2 more instances than the raw 𝑘 -induction. 
+
+• Lower Inference Depth . The optimal invariants enable the engine to prove properties at shallower induction depths. For example, at 𝑘 = 16 , the raw engine solves 121 cases, while the engine equipped with optimal invariants solves 133. The extra precision is useful when the downstream prover cannot arbitrarily increase the number of iterations. 
+
+• Time Reduction . The auxiliary invariants provide substantial speedups. The optimal invariants achieve speedups ranging from 1.04 × to 1.19 × across different depths. Notably, the partial invariants also deliver comparable speedups, highlighting the practical value of EFBII(G)’s “anytime” nature. 
+
+Comparison with other Verifiers . To further assess the utility of BIIs, we build a hybrid solver that alternates between 16 steps of 𝑘 -induction and one EFBII(G) propose-and-refine iteration. We denote this solver by “ 𝑘 -EFBII(G)” and compare it against four baselines under the same 60-second timeout: raw 𝑘 -induction, Z3’s Spacer engine (IC3/PDR-based), Eldarica [ 46 ] (a CEGAR-based CHC solver that uses bit-vector interpolation [ 2 ] for refinement), and clause2inv[ 14 ] (a state-of-the-art LLM-assisted verify engine). At this timeout, Eldarica achieves the highest final coverage with 142 solved instances, followed closely by 𝑘 -EFBII(G) with 137. The hybrid closes most of the gap to the strongest baseline, reaching 96.5% of Eldarica’s solved count. Time Analysis . The hybrid dominates the front of the cactus curve. Within 1 second, 𝑘 -EFBII(G) already solves 131 instances, compared with 124 for plain 𝑘 -induction, 85 for Spacer, 13 for Eldarica, and none for clause2inv. In contrast, Eldarica obtains much of its advantage later in the run, increasing from 126 solved instances at 5 seconds to 141 at 20 seconds and 142 at 60 seconds. These data indicate that BII-guided refinement primarily improves time-to-proof. Importantly, the hybrid never loses an instance that plain 𝑘 -induction can prove within 60 seconds; the gain is strictly monotone. Overlap Analysis . The hybrid and Eldarica solve 130 common instances within 60 seconds, and in 129 of these instances, 𝑘 -EFBII(G) is faster. Nevertheless, Eldarica still solves 12 instances that the hybrid misses; conversely, the hybrid uniquely solves 7 instances that Eldarica does not prove. Analysis on these instances suggests genuine complementarity: interpolation-driven CEGAR remains stronger on structurally difficult cases, while exact interval BIIs are highly effective on loops with strong numeric regularity. Notably, 𝑘 -induction and 𝑘 -EFBII(G) are also the only methods that solve any nonlinear benchmark, thereby discharging one NIA instance that other tools fail to prove.  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. 22 Hanrui Zuo, Peisen Yao, and Kui Ren
+
+6.5 Discussions 
+
+Applicability of Best Inductive Invariants . Best Inductive Invariants (BII) provide a principled approach for computing minimal inductive invariants within a given abstract domain. In abstract interpretation, BIIs can make the results of semantic reduction and domain combination more precise. Beyond abstract interpretation, BII can enhance other verification techniques, including the generation of auxiliary invariants for 𝑘 -induction, as demonstrated in our evaluation. While prior work has explored the role of invariants in 𝑘 -induction [ 4], existing approaches often rely on non-optimal invariants. Furthermore, the optimality of BII is particularly advantageous in compositional verification [ 13 , 44 ], where imprecise invariants can propagate across components. 
+
+Generalization to More Abstract Domains . While our evaluation focuses on the interval, octagon, and sparse template-polyhedra domains, the proposed techniques can be generalized to a broader class of abstract domains. In the parity domain, for example, BII computes minimal congruences to track variable parities, thereby improving reasoning about modular arithmetic. Similarly, applying BII to zones, octagons, and affine relation domains over bit-vector arithmetic [ 28 ]could enhance the precision of analyzing modular linear constraints in low-level programs. In bit-level domains such as “known bits,” BII can infer precise must-information about individual bits (e.g., definite 0, definite 1, or unknown), further refining bitwise reasoning. 
+
+Optimality in Guess-and-Check Approach . Many invariant synthesis techniques follow a guess-and-check paradigm: candidate invariants are guessed — such as by instantiating templates with concrete values — and checked iteratively. Most existing methods typically do not attempt to find the best invariants. Recent work has explored similar ideas for considering optimality [ 50 , 66 ], but it uses two independent processes to verify soundness and optimality. In comparison, our framework integrates synthesis and optimality checking into a unified loop. A modular alternative would decouple these concerns by iteratively generating candidates and verifying their optimality, but may lack guidance for the candidate-generation process. 
+
+7 Related Work 
+
+Best Inductive Invariants . Research on best inductive invariants (BII) can be broadly divided into two categories: (1) studies that focus on synthesizing the best abstract transformer (BAT) [ 11 , 41 , 55 ,62 , 68 , 70 , 86 , 88 , 93 ], which indirectly solves the BII problem and (2) research that directly addresses the BII problem itself [ 31 , 34 , 92 ]. The optimization perspective on invariant computation also includes policy iteration [ 21 ], strategy iteration [ 36 ], and convex-optimization formulations [ 37 ]. These methods motivate treating invariant inference as an optimization problem, whereas our setting is specifically BII synthesis on finite bit-vector template domains. Existing approaches to BAT can be broadly categorized into two classes. The first class employs SMT-based iterative algo-rithms. Within this class, some techniques adopt a “bottom-up” approach, iteratively constructing a sequence of increasingly weaker implicants until one is entailed by 𝜑 [ 70 ]. In contrast, other techniques follow a “top-down” strategy, generating a sequence of progressively stronger implicants until no further strengthening is possible [ 86 , 88 ]. The second class of approaches reformulates the problem into other automated reasoning tasks, such as OMT solving [ 58 , 90 ] or quantifier elimination [11]. While the BII problem is closely related to the BAT problem, solving the former does not necessarily require solving the latter. For instance, our approach avoids using BAT synthesizers in its sub-procedures. The computation of BIIs is also linked to the problem of achieving completeness in abstract interpretation. Giacobazzi and Ranzato [38] , Giacobazzi et al . [40] provide a constructive framework for characterizing completeness in abstract interpretation. In this context, BIIs (when they exist) can serve as formal witnesses of completeness. However, our work does not address the  
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 23
+
+problem of deciding whether BIIs exist for a given program and abstract domain. For the problem, we refer the readers to [39] for a more thorough discussion. 
+
+Constraint-based Invariant Generation . Constraint-based invariant generation, also known as the template-based approach, formulates invariant inference as a constraint-solving problem over unknown parameters within a predefined template. This approach has been successfully applied to generate both linear invariants [ 20 , 45 , 74 ] and non-linear invariants [ 15 , 17 , 51 ]. Our work is inspired by the approach but differs in several dimensions. First, whereas prior methods aim to enumerate all valid invariants or derive sufficient invariants for verification, we focus on synthesizing the best inductive invariant. Second, we target bit-vector programs, whereas most existing techniques are designed for integer or real arithmetic. Prior approaches often rely on domain-specific reductions, such as Farkas’ lemma for linear arithmetic [ 74 ] or Ackermann’s reduction for uninterpreted functions [ 5 ], which do not directly extend to bit-vector semantics. Finally, most prior work is restricted to affine programs, where loop guards and variable updates are affine functions. In contrast, our approach handles nonlinear constructs. Constraint-solving perspectives on program analysis have also been surveyed by Gulwani et al. [ 43 ]; related logic-based invariant-generation procedures include [ 35 , 49 ]. The relation to template-polyhedral domains is also direct: prior work studies generalized templates, template polyhedra with additional structure, and bilinear optimization [19, 42, 73]. 
+
+Analysis of Modular Arithmetic . This discrepancy between mathematical integers and finite-precision integers has motivated significant research into abstract domains tailored for bit-vector arithmetic [ 32 , 60 , 81 , 84 ]. Below, we summarize key approaches that address this issue. Tools such as Astrée [ 7 ] and cccheck [ 29 ] focus on detecting expressions that are guaranteed to avoid overflow or underflow while issuing warnings for expressions that may be unsafe. The wrapped interval domain [ 32 ] precisely represents overflow and underflow by modeling the cyclic nature of bit-vector arithmetic. Recently, Yoon et al . [91] optimize loop-free program synthesis by combining unsigned interval, signed interval, and bitwise abstractions. These methods rely on instruction-level abstract interpretation and do not produce optimal abstract transformers. In contrast, symbolic abstraction provides a framework for computing optimal abstract transformers and has been successfully applied across a range of domains, including intervals [ 11 , 67 ], sets [ 10 ], affine relations [ 28 ], octagons [ 82 ], and polyhedra [ 82 , 90 ]. Our algorithms do not rely on standard chaotic iteration or symbolic abstraction at each refinement step; they avoid computing the best abstract transformers over loop-free fragments as subprocedures. For downstream verification, our use of BII as auxiliary facts is related to invariant-strengthened 𝑘 -induction [ 4 , 9 , 72 ]. Specifically, Brain et al. [ 9 ] also obtain logarithmic dependence on the finite value range via SMT-assisted binary search on one row. In contrast, our algorithm fixes the bound bits from high to low in joint-solver queries across all rows, so a single query can refine several rows simultaneously. 
+
+Optimal Program Synthesis . Optimal program synthesis has been studied most extensively in the programming-by-example (PBE) setting. Prior work formalizes optimality via explicit cost functions [ 8 , 30 , 76 ], allowing users to bias synthesis toward programs with desirable structural properties, e.g., minimal size. Several approaches instead adopt a probabilistic notion of optimality. Menon et al. [ 59 ], for example, define an optimal program as one with maximum likelihood under a probabilistic context-free grammar conditioned on the examples. This view prioritizes candidates that are statistically plausible given the observed input–output behavior. In contrast, our notion of optimality is derived from the underlying abstract domain rather than from client-specified objectives. This abstraction-centric formulation decouples the synthesis procedure from application-specific cost models, enabling a uniform and reusable approach. 
+
+> , Vol. 1, No. 1, Article . Publication date: July 2026.
+
+24 Hanrui Zuo, Peisen Yao, and Kui Ren 
+
+8 Conclusion 
+
+In this paper, we have revisited the problem of synthesizing best inductive invariants and presented a formulation that avoids invoking best-abstract-transformer computation over loop-free fragments as a primitive and derives two algorithms from it: a linear-search procedure and a bitwise greedy method with a solver-call count linear in total template bit-width (equivalently, logarithmic in the finite value-space size of the template rows). An empirical evaluation over different abstract domains shows substantial performance improvements over symbolic-abstraction baselines. Furthermore, we demonstrate the practical applicability of our approach by integrating it with 𝑘 -induction. 
+
+References 
+
+[1] Christophe Alias, Alain Darte, Paul Feautrier, and Laure Gonnord. [n. d.]. Multi-dimensional Rankings, Program Termination, and Complexity Bounds of Flowchart Programs. In Static Analysis Symposium (SAS’10). [2] Peter Backeman, Philipp Rümmer, and Aleksandar Zeljić. [n. d.]. Interpolating bit-vector formulas using uninterpreted predicates and Presburger arithmetic. Formal methods in system design (FMSD’21) ([n. d.]). [3] Michael A Bender and Martın Farach-Colton. 2004. The level ancestor problem simplified. Theoretical Computer Science 321, 1 (2004), 5–12. [4] Dirk Beyer, Matthias Dangl, and Philipp Wendler. 2015. Boosting k-induction with continuously-refined invari-ants. In Computer Aided Verification: 27th International Conference, CAV 2015 (Lecture Notes in Computer Science, Vol. 9206). Springer, San Francisco, CA, USA, 622–640. [5] Dirk Beyer, Thomas A Henzinger, Rupak Majumdar, and Andrey Rybalchenko. [n. d.]. Invariant synthesis for combined theories. In International Conference on Verification, Model Checking, and Abstract Interpretation (VMCAI’07). [6] Nikolaj Bjørner, Anh-Dung Phan, and Lars Fleckenstein. 2015. 𝜈 Z - An Optimizing SMT Solver. In Tools and Algorithms for the Construction and Analysis of Systems , Christel Baier and Cesare Tinelli (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg. [7] Bruno Blanchet, Patrick Cousot, Radhia Cousot, Jérôme Feret, Laurent Mauborgne, Antoine Miné, David Monniaux, and Xavier Rival. 2002. Design and implementation of a special-purpose static program analyzer for safety-critical real-time embedded software. In The essence of computation. Springer. [8] James Bornholt, Emina Torlak, Dan Grossman, and Luis Ceze. [n. d.]. Optimizing synthesis with metasketches. In Proceedings of the 43rd Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL’16). [9] Martin Brain, Saurabh Joshi, Daniel Kroening, and Peter Schrammel. [n. d.]. Safety verification and refutation by k-invariants and k-induction. In Static Analysis: 22nd International Symposium (SAS’15). [10] Jörg Brauer and Andy King. [n. d.]. Automatic Abstraction for Intervals Using Boolean Formulae.. In Proceedings of the 17th International Conference on Static Analysis (SAS’10). [11] Jörg Brauer and Andy King. 2011. Transfer function synthesis without quantifier elimination. In Proceedings of the 20th European Conference on Programming Languages and Systems: Part of the Joint European Conferences on Theory and Practice of Software (Saarbr&#252;cken, Germany) (ESOP’11/ETAPS’11). Springer-Verlag, Berlin, Heidelberg, 97–115. [12] Jason Breck, John Cyphert, Zachary Kincaid, and Thomas W. Reps. [n. d.]. Templates and recurrences: better to-gether. In Proceedings of the 41st ACM SIGPLAN International Conference on Programming Language Design and Implementation (PLDI’20). [13] Cristiano Calcagno, Dino Distefano, Peter O’Hearn, and Hongseok Yang. 2009. Compositional shape analysis by means of bi-abduction. In ACM SIGPLAN Notices, Vol. 44. ACM. [14] Weining Cao, Guangyuan Wu, Tangzhi Xu, Yuan Yao, Hengfeng Wei, Taolue Chen, and Xiaoxing Ma. 2025. Clause2Inv: A Generate-Combine-Check Framework for Loop Invariant Inference. Proceedings of the ACM on Software Engineering 2, ISSTA (2025), 1009–1030. doi:10.1145/3728920 [15] Krishnendu Chatterjee, Hongfei Fu, Amir Kafshdar Goharshady, and Ehsan Kafshdar Goharshady. [n. d.]. Polynomial invariant generation for non-deterministic recursive programs. In Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI’20). [16] Jia Chen, Jiayi Wei, Yu Feng, Osbert Bastani, and Isil Dillig. 2019. Relational verification using reinforcement learning. Proc. ACM Program. Lang. 3, OOPSLA (2019), 141:1–141:30. [17] Yu-Fang Chen, Chih-Duo Hong, Bow-Yaw Wang, and Lijun Zhang. [n. d.]. Counterexample-guided polynomial loop invariant generation by Lagrange interpolation. In Proceedings of the International Conference on Computer Aided Verification (CAV’15). , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 25 
+
+[18] Alessandro Cimatti, Alberto Griggio, Sergio Mover, and Stefano Tonetta. [n. d.]. IC3 modulo theories via implicit predicate abstraction. In International Conference on Tools and Algorithms for the Construction and Analysis of Systems (TACAS’14). [19] Michael A. Colón and Sriram Sankaranarayanan. 2011. Generalizing the Template Polyhedral Domain. In Programming Languages and Systems (Lecture Notes in Computer Science, Vol. 6602) . Springer, 176–195. doi:10.1007/978-3-642-19718-5_10 [20] Michael A Colón, Sriram Sankaranarayanan, and Henny B Sipma. [n. d.]. Linear invariant generation using non-linear constraint solving. In International Conference on Computer Aided Verification (CAV’03). [21] Alexandru Costan, Stephane Gaubert, Eric Goubault, Matthieu Martel, and Sylvie Putot. [n. d.]. A policy iteration algorithm for computing fixed points in static analysis of programs. In Computer Aided Verification: 17th International Conference (CAV’05). [22] Patrick Cousot and Radhia Cousot. 1976. Static determination of dynamic properties of programs. In Proceedings of the 2nd International Symposium on Programming, Paris, France. Dunod. [23] Patrick Cousot and Radhia Cousot. 1995. Formal language, grammar and set-constraint-based program analysis by abstract interpretation. In Proceedings of the seventh international conference on Functional programming languages and computer architecture. 170–181. [24] Patrick Cousot, Radhia Cousot, and Laurent Mauborgne. 2011. Logical abstract domains and interpretations. In The Future of Software Engineering. Springer, 48–71. [25] Patrick Cousot and Nicolas Halbwachs. [n. d.]. Automatic Discovery of Linear Restraints among Variables of a Program. In Proceedings of the 5th ACM SIGACT-SIGPLAN Symposium on Principles of Programming Languages (POPL’78). [26] Alessandra Di Pierro, Pascal Sotin, and Herbert Wiklicky. 2008. Relational analysis and precision via probabilistic abstract interpretation. Electronic Notes in Theoretical Computer Science 220, 3 (2008). [27] Isil Dillig, Thomas Dillig, Boyang Li, and Ken McMillan. [n. d.]. Inductive invariant generation via abductive inference. In Proceedings of the 2013 ACM SIGPLAN international conference on Object oriented programming systems languages & applications (OOPSLA’13). [28] Matt Elder, Junghee Lim, Tushar Sharma, Tycho Andersen, and Thomas Reps. 2014. Abstract domains of affine relations. ACM Transactions on Programming Languages and Systems (TOPLAS) 36, 4 (2014). [29] Manuel Fähndrich and Francesco Logozzo. 2010. Static contract checking with abstract interpretation. In International conference on formal verification of object-oriented software. Springer. [30] John K. Feser, Swarat Chaudhuri, and Isil Dillig. [n. d.]. Synthesizing data structure transformations from input-output examples. In Proceedings of the 36th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI’15). [31] C. Flanagan and K. R. M. Leino. 2001. Houdini, an annotation assistant for Esc/Java. In FME. [32] Graeme Gange, Jorge A. Navas, Peter Schachte, Harald Sondergaard, and Peter J. Stuckey. 2015. Interval Analysis and Machine Arithmetic: Why Signedness Ignorance Is Bliss. ACM Trans. Program. Lang. Syst. 37, 1, Article 1 (jan 2015). doi:10.1145/2651360 [33] Pranav Garg, Christof Löding, P Madhusudan, and Daniel Neider. [n. d.]. ICE: A robust framework for learning invariants. In International Conference on Computer Aided Verification (CAV’14). [34] P.-L. Garoche, T. Kahsai, and C. Tinelli. 2012. Invariant stream generators using automatic abstract transformers based on a decidable logic. Technical Report abs/1205.3758. CoRR. [35] Pierre-Loïc Garoche, Temesghen Kahsai, and Cesare Tinelli. 2013. Incremental invariant generation using logic-based automatic abstract transformers. In NASA Formal Methods (Lecture Notes in Computer Science, Vol. 7871). Springer, 139–154. doi:10.1007/978-3-642-38088-4_10 [36] Thomas Martin Gawlitza and Helmut Seidl. 2007. Precise relational invariants through strategy iteration. In Computer Science Logic (Lecture Notes in Computer Science, Vol. 4646). Springer, 23–40. doi:10.1007/978-3-540-74915-8_6 [37] Thomas Martin Gawlitza, Helmut Seidl, Assalé Adjé, Stéphane Gaubert, and Éric Goubault. 2012. Abstract interpretation meets convex optimization. Journal of Symbolic Computation 47, 12 (2012), 1416–1446. doi:10.1016/j.jsc.2011.12.048 [38] Roberto Giacobazzi and Francesco Ranzato. 1997. Completeness in abstract interpretation: A domain perspective. In International Conference on Algebraic Methodology and Software Technology. Springer. [39] Roberto Giacobazzi and Francesco Ranzato. 2025. The Best of Abstract Interpretations. Proceedings of the ACM on Programming Languages 9, POPL, Article 46 (January 2025), 31 pages. [40] Roberto Giacobazzi, Francesco Ranzato, and Francesca Scozzari. [n. d.]. Making abstract interpretations complete. Journal of the ACM (JACM’00) ([n. d.]). [41] Susanne Graf and Hassen Saïdi. 1997. Construction of Abstract State Graphs with PVS. In Proceedings of the 9th International Conference on Computer Aided Verification (CAV ’97). Springer-Verlag, London, UK, UK, 72–83. [42] Jessica Gronski, Mohamed Amin Ben Sassi, Stephen Becker, and Sriram Sankaranarayanan. 2019. Template polyhedra and bilinear optimization. Formal Methods in System Design 54, 1 (2019), 27–63. doi:10.1007/s10703-018-0323-1 , Vol. 1, No. 1, Article . Publication date: July 2026. 26 Hanrui Zuo, Peisen Yao, and Kui Ren 
+
+[43] Sumit Gulwani, Saurabh Srivastava, and Ramarathnam Venkatesan. [n. d.]. Program analysis as constraint solv-ing. In Proceedings of the 29th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI’08). [44] Anubhav Gupta, Kenneth L McMillan, and Zhaohui Fu. 2008. Automated assumption generation for compositional verification. Formal Methods in System Design 32, 3 (2008). [45] Ashutosh Gupta and Andrey Rybalchenko. [n. d.]. Invgen: An efficient invariant generator. In International Conference on Computer Aided Verification (CAV’09). [46] Hossein Hojjat and Philipp Rümmer. [n. d.]. The ELDARICA horn solver. In 2018 Formal Methods in Computer Aided Design (FMCAD’18). [47] Ehud Hrushovski, Joël Ouaknine, Amaury Pouly, and James Worrell. [n. d.]. Polynomial Invariants for Affine Programs. In Proceedings of the 33rd Annual ACM/IEEE Symposium on Logic in Computer Science (LICS’18). [48] Ehud Hrushovski, Joël Ouaknine, Amaury Pouly, and James Worrell. 2023. On Strongest Algebraic Program Invariants. J. ACM 70, 5 (2023), 29:1–29:22. doi:10.1145/3614319 [49] Temesghen Kahsai, Yeting Ge, and Cesare Tinelli. 2011. Instantiation-based invariant discovery. In NASA Formal Methods (Lecture Notes in Computer Science, Vol. 6617). Springer, 192–206. doi:10.1007/978-3-642-20398-5_15 [50] Pankaj Kumar Kalita, Sujit Kumar Muduli, Loris D’Antoni, Thomas W. Reps, and Subhajit Roy. 2022. Synthesizing abstract transformers. Proc. ACM Program. Lang. 6, OOPSLA2 (2022), 1291–1319. doi:10.1145/3563334 [51] Deepak Kapur. 2006. Automatically generating loop invariants using quantifier elimination. In Dagstuhl Seminar Proceedings. Schloss Dagstuhl-Leibniz-Zentrum für Informatik. [52] Michael Karr. 1976. Affine relationships among variables of a program. Acta informatica 6, 2 (1976), 133–151. [53] Zachary Kincaid, Jason Breck, Ashkan Forouhi Boroujeni, and Thomas W. Reps. [n. d.]. Compositional recurrence analysis revisited. In Proceedings of the 38th ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI’17). [54] Zachary Kincaid, John Cyphert, Jason Breck, and Thomas W. Reps. 2018. Non-linear reasoning for invariant synthesis. Proc. ACM Program. Lang. 2, POPL (2018). [55] A. King and H. Søndergaard. 2010. Automatic abstraction for congruences. In VMCAI. [56] Laura Kovács and Tudor Jebelean. [n. d.]. Automated generation of loop invariants by recurrence solving in theorema. In Proceedings of the 6th International Symposium on Symbolic and Numeric Algorithms for Scientific Computing (SYNASC’04). [57] Shuvendu K Lahiri, Robert Nieuwenhuis, and Albert Oliveras. 2006. SMT techniques for fast predicate abstraction. In Proceedings of the 18th International Conference on Computer Aided Verification (Seattle, WA) (CAV’06). Springer-Verlag, Berlin, Heidelberg, 424–437. doi:10.1007/11817963_39 [58] Yi Li, Aws Albarghouthi, Zachary Kincaid, Arie Gurfinkel, and Marsha Chechik. [n. d.]. Symbolic optimization with SMT solvers. In Proceedings of the 41st ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL’14). [59] Aditya Krishna Menon, Omer Tamuz, Sumit Gulwani, Butler Lampson, and Adam Tauman Kalai. [n. d.]. A Machine Learning Framework for Programming by Example. In Proceedings of the International Conference on Machine Learning (ICML’13). [60] Antoine Miné. 2012. Abstract domains for bit-level machine integer and floating-point operations. In WING’12 - 4th International Workshop on invariant Generation. Manchester, United Kingdom, 16. [61] David Monniaux. [n. d.]. Automatic Modular Abstractions for Linear Constraints. In Proceedings of the 36th Annual ACM SIGPLAN-SIGACT Symposium on Principles of Programming Languages (POPL’09). [62] D. Monniaux. 2010. Automatic modular abstractions for template numerical constraints. LMCS 6, 3 (2010). [63] Markus Müller-Olm and Helmut Seidl. 2004. A Note on Karr’s Algorithm. In Automata, Languages and Programming: 31st International Colloquium (Lecture Notes in Computer Science, Vol. 3142) . Springer, 1016–1028. doi:10.1007/978-3-540-27836-8_85 [64] Julian Müllner, Marcel Moosbrugger, and Laura Kovács. 2024. Strong Invariants Are Hard: On the Hardness of Strongest Polynomial Invariants for (Probabilistic) Programs. Proc. ACM Program. Lang. 8, POPL (2024), 882–910. doi:10.1145/3632872 [65] ThanhVu Nguyen, Deepak Kapur, Westley Weimer, and Stephanie Forrest. [n. d.]. Using Dynamic Analysis to Discover Polynomial and Array Invariants. In Proceedings of the 34th International Conference on Software Engineering (ICSE’12). [66] Kanghee Park, Loris D’Antoni, and Thomas W. Reps. 2023. Synthesizing Specifications. Proc. ACM Program. Lang. 7, OOPSLA2 (2023), 1787–1816. doi:10.1145/3622861 [67] John Regehr and Usit Duongsaa. 2006. Deriving abstract transfer functions for analyzing embedded software. In Proceedings of the 2006 ACM SIGPLAN/SIGBED conference on Language, compilers, and tool support for embedded systems. , Vol. 1, No. 1, Article . Publication date: July 2026. A Fresh Look at Best Inductive Loop Invariant Synthesis for Bit-Vector Relations 27 
+
+[68] J. Regehr and A. Reid. 2004. HOIST: A system for automatically deriving static analyzers for embedded systems. In ASPLOS. [69] Thomas Reps, Gogul Balakrishnan, and Junghee Lim. 2006. Intermediate-representation recovery from low-level code. In Proceedings of the 2006 ACM SIGPLAN symposium on Partial evaluation and semantics-based program manipulation. [70] Thomas Reps, Mooly Sagiv, and Greta Yorsh. [n. d.]. Symbolic implementation of the best transformer. In Verification, Model Checking, and Abstract Interpretation (VMCAI’04). [71] Daniel Riley and Grigory Fedyukovich. [n. d.]. Multi-phase invariant synthesis. In Proceedings of the 30th ACM Joint European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE’22). [72] Herbert Oliveira Rocha, Hussama Ismail, Lucas C. Cordeiro, and Raimundo S. Barreto. 2015. Model checking embedded C software using k-induction and invariants. In Brazilian Symposium on Computing Systems Engineering. IEEE Computer Society, 90–95. doi:10.1109/SBESC.2015.24 [73] Sriram Sankaranarayanan and Mohamed Amin Ben Sassi. 2017. Template polyhedra with a twist. In Static Analysis (Lecture Notes in Computer Science, Vol. 10422). Springer, 321–341. doi:10.1007/978-3-319-66706-5_16 [74] Sriram Sankaranarayanan, Henny B Sipma, and Zohar Manna. [n. d.]. Scalable analysis of linear systems using mathematical programming. In Proceedings of the 6th International Conference on Verification, Model Checking, and Abstract Interpretation (VMCAI’05). [75] Sriram Sankaranarayanan, Henny B Sipma, and Zohar Manna. 2004. Constraint-based linear-relations analysis. In Static Analysis: 11th International Symposium, SAS 2004 (Lecture Notes in Computer Science, Vol. 3148) . Springer, Verona, Italy, 53–68. [76] Eric Schkufza, Rahul Sharma, and Alex Aiken. 2013. Stochastic superoptimization. SIGPLAN Not. 48, 4 (March 2013), 305–316. [77] Roberto Sebastiani and Silvia Tomasi. 2015. Optimization modulo theories with linear rational costs. ACM Trans. Comput. Logic 16, 2, Article 12 (Feb. 2015), 43 pages. doi:10.1145/2699915 [78] Roberto Sebastiani and Patrick Trentin. 2015. OptiMathSAT: a tool for optimization modulo theories. In International conference on computer aided verification (CAV’15). Springer, Springer International Publishing, Cham, 447–454. [79] Roberto Sebastiani and Patrick Trentin. 2017. On Optimization Modulo Theories, MaxSMT and Sorting Networks. In Proceedings, Part II, of the 23rd International Conference on Tools and Algorithms for the Construction and Analysis of Systems - Volume 10206. Springer-Verlag, Berlin, Heidelberg, 231–248. doi:10.1007/978-3-662-54580-5_14 [80] Rahul Sharma, Aditya V Nori, and Alex Aiken. [n. d.]. Interpolants as classifiers. In International Conference on Computer Aided Verification (CAV’12). [81] Tushar Sharma and Thomas Reps. 2017. Sound Bit-Precise Numerical Domains. In Verification, Model Checking, and Abstract Interpretation (VMCAI 2017) (Lecture Notes in Computer Science, Vol. 10145) , Ahmed Bouajjani and David Monniaux (Eds.). Springer, 365–387. doi:10.1007/978-3-319-52234-0_27 [82] Tushar Sharma and Thomas Reps. 2017. Sound bit-precise numerical domains. In International Conference on Verification, Model Checking, and Abstract Interpretation. Springer. [83] Xujie Si, Aaditya Naik, Hanjun Dai, Mayur Naik, and Le Song. [n. d.]. Code2Inv: A deep learning framework for program verification. In International Conference on Computer Aided Verification (CAV’20). [84] Axel Simon and Andy King. 2007. Taming the Wrapping of Integer Arithmetic. In Static Analysis, Hanne Riis Nielson and Gilberto Filé (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 121–136. doi:10.1007/978-3-540-74061-2_8 [85] Aditya Thakur, Akash Lal, Junghee Lim, and Thomas Reps. 2015. PostHat and all that: Automating abstract interpreta-tion. Electronic Notes in Theoretical Computer Science 311 (2015), 15–32. [86] Aditya Thakur and Thomas Reps. [n. d.]. A Method for Symbolic Computation of Abstract Operations. In Proceedings of the 24th International Conference on Computer Aided Verification (CAV’12). [87] Aditya V Thakur. 2014. Symbolic abstraction: Algorithms and applications. Ph. D. Dissertation. The University of Wisconsin-Madison. [88] Aditya V Thakur, Matt Elder, and Thomas W Reps. [n. d.]. Bilateral Algorithms for Symbolic Abstraction.. In Proceedings of the 19th International Conference on Static Analysis (SAS’12). [89] Rongchen Xu, Fei He, and Bow-Yaw Wang. [n. d.]. Interval counterexamples for loop invariant learning. In Proceedings of the 28th ACM Joint Meeting on European Software Engineering Conference and Symposium on the Foundations of Software Engineering (ESEC/FSE’20). [90] Peisen Yao, Qingkai Shi, Heqing Huang, and Charles Zhang. 2021. Program analysis via efficient symbolic abstraction. Proceedings of the ACM on Programming Languages 5, OOPSLA (2021). [91] Yongho Yoon, Woosuk Lee, and Kwangkeun Yi. 2023. Inductive program synthesis via iterative forward-backward abstract interpretation. Proceedings of the ACM on Programming Languages 7, PLDI (2023), 1657–1681. doi:10.1145/ 3591288 , Vol. 1, No. 1, Article . Publication date: July 2026. 28 Hanrui Zuo, Peisen Yao, and Kui Ren 
+
+[92] G. Yorsh, T. Ball, and M. Sagiv. 2006. Testing, abstraction, theorem proving: Better together!. In ISSTA. [93] G. Yorsh, T. Reps, and M. Sagiv. 2004. Symbolically computing most-precise abstract operations for shape analysis. In TACAS. , Vol. 1, No. 1, Article . Publication date: July 2026.

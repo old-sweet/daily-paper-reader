@@ -1,0 +1,414 @@
+Title: CWEEP: A Lexical Static Analysis Framework for CWE Early Prevention
+
+URL Source: https://arxiv.org/pdf/2607.29604v1
+
+Published Time: Mon, 03 Aug 2026 01:08:31 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+> 1
+
+# CWEEP: A Lexical Static Analysis Framework for CWE Early Prevention 
+
+Bryan Kwan and Benjamin Tan Senior Member, IEEE 
+
+Abstract —As the hardware layer becomes a focus point for attackers, the need for improved hardware security verification techniques is more important than ever. State-of-the-art security verification techniques require significant manual effort from individuals with security expertise. Furthermore, there is no standard method to locate where the fault lies within the register transfer level (RTL) code. This paper presents CWEEP, a static analysis framework for detecting security weaknesses in RTL. CWEEP does not require a detailed security specification, so it can be used in the early stages of RTL development while properties are still under construction. Furthermore, CWEEP can identify the exact location in the RTL where the potential vul-nerability resides and supports automatic code repair suggestions when applicable. Using datasets from the literature, we evaluate the performance of CWEEP on a set of two SoC designs with manually inserted bugs and on a large language model generated dataset, consisting of 3874 buggy modules. We find that CWEEP issues a correct warning up to 60.8% of the time. In contrast, the tool from a previous work issued a correct warning 17.5% of the time for the same dataset. 
+
+Index Terms —static analysis, hardware security, common weakness enumeration 
+
+I. I NTRODUCTION 
+
+Growing awareness of security issues at the hardware level [1]–[3] motivates the need for techniques to evaluate and improve security, especially in earlier stages of the design flow. Prior work [4] proposes the Security Development Lifecycle (SDL), which is typically conducted in parallel with the digital product development cycle [1], as shown in Fig. 1. Existing methods for the various tasks, such as design review, often require extensive manual efforts and expertise. Manual inspection of the design is tedious and error-prone. Moreover, tooling for security verification often requires an extensive and rigorous definition of the security specifications. Considering the intertwined nature of the SDL and the Product Devel-opment Cycle (PDL), it would stand to reason that finding security bugs earlier in the cycle is more beneficial. The so-called rule of ten [5] implies that the cost of fixing a bug found in each stage of development multiplies by approximately ten as we progress through the cycle. Although hardware-level patching techniques have been proposed, such as those in [6], this is not typical in most designs (e.g. [7]). For this reason, we are motivated to explore security verification techniques that can be used in the earlier stages of development. There exist several state-of-the-art techniques for security verification, such as information flow tracking, assertion and 
+
+B. Kwan and B. Tan are with the Department of Electrical and Software Engineering, University of Calgary, Alberta, Canada. Email: 
+
+{bryan.kwan,benjamin.tan1 }@ucalgary.ca Design Exploration      
+
+> Architecture Design
+> Concept Definition
+> Threat Modeling
+> Bugs are Produced
+> Product
+> Development
+> Lifecycle
+> Security
+> Development
+> Lifecycle
+> RTL
+> Design
+> Verification Place and Route
+> Fabrication Testing and Post-silicon Validation
+> Deployment and Support
+> Design Review Security Verification Incident Response
+> Manual analysis / security verification Firmware patching
+
+Fig. 1. Security Development Lifecycle (SDL) and Product Develop-ment Lifecycle (PDL) adapted from [1] 
+
+property verification, fuzzing, Concolic testing, LLM-based detection, and static analysis. Of these, we explore static anal-ysis as a method for automated/semi-automated bug detection in the earliest stages of RTL design. Prior work [8] identified static analysis tools as one of the first stages in bug finding. This helps enable a shift-left approach [9], emphasizing secu-rity testing in the earliest stages of development. MITRE identifies several vulnerability categories, common weakness enumerations (CWE), which we can use to guide our detection efforts [10]. Although not all-encompassing, CWE entries are often accompanied by offending code snippets or actual examples. The CWE database provides a convenient nomenclature for communicating hardware vulnerabilities, and is the chosen framework for a significant portion of security verification work [11]–[15]. 
+
+Goals and Contributions . In this work, we present CWEEP, a static analysis framework for CWE-Early-Prevention, improving and expanding on prior related work [12]. We provide a new set of algorithms for a selection of CWEs, emphasizing those identified by MITRE as some of the most important weaknesses in industry [16]. Moreover, we re-implement the algorithms from previous work and provide optimizations for select scanners. CWEEP also provides a new solution for bug localization and automatic code repair, highlighting the exact location of the detected vulnerability in the RTL code and, when possible, providing bug fix suggestions. We evaluate the performance of our tool using two HACK@EVENT [1] SoCs. Furthermore, we propose a new evaluation methodology that separates the performance metrics of the two key processes in CWEEP. Note that CWEEP does not obviate the need for human review, nor does it intend to. Instead, we seek to make early-stage hardware security analysis easier by providing a curated list of potential vulnerabilities, reducing the manual burden. In arXiv:2607.29604v1 [cs.CR] 31 Jul 2026 2
+
+summary, our work:  
+
+> •
+
+Expands the number of search algorithms compared to prior work [12], focusing on key vulnerabilities identified in [16] (Section III).  
+
+> •
+
+Optimizes select algorithms from [12] (Section III), pro-viding, in the best case, an improvement in precision from 0.167 to 0.778.  
+
+> •
+
+Provides a novel solution that enables bug localization and automatic code repair, which was not present in the prior work by Ahmad et al. [12] (Section III).  
+
+> •
+
+Evaluates our tool, CWEEP, using several buggy datasets from the literature, manually analyzing the correctness of each warning raised (Section IV).  
+
+> •
+
+Introduces a new evaluation methodology that provides additional insight on the mechanism of correct overall detection (Section IV-B).  
+
+> •
+
+Provides the full results (and tool implementation) to aid reproducibility (Appendix A). The rest of this manuscript is as follows. Section II positions our work in the literature. Section III outlines our proposed approach, which we experimentally validate in Section IV. Section V provides additional insights into the feasibility of our proposed approach, and Section VI concludes. II. B ACKGROUND AND RELATED WORK 
+
+A. Related Work 
+
+Researchers have focused significant effort on the area of security verification using a myriad of techniques, including information flow tracking [17]–[19], assertion-based property verification [20] [21], fuzzing [22] [15], Concolic testing [23], LLM-based bug detection [14] [13], and static analysis [12]. In addition to the above vulnerability detection techniques, there are also techniques for bug localization [24] [25] and automatic code repair [26] [27]. 
+
+Information Flow Tracking : This method relies on keeping track of a set of properties in specific signals [17]. It tracks confidentiality – the property that some secret signal X does not propagate to public signal Y – as well as integrity – the property that some non-trusted signal X must not allow unauthorized access to Y . Information flow tracking (IFT) is a powerful tool for ensuring that sensitive signals do not leak or allow unintentional behaviour. Some IFT techniques, such as [28], utilize new languages. Although works such as RTLIFT [17] extend IFT to operate directly on the RTL, this method still requires manual definitions of design-specific properties, consequently demanding considerable time and expertise. 
+
+Assertion-based Property Verification : As the name sug-gests, this technique relies on assertions, which are defined based on the design-specific security policies. Commonly, Sys-temVerilog assertions (SVA) [29] are used. The construction of these assertions requires significant manual effort. Conse-quently, there is a focus on automatically generating assertions [30]. Some works use algorithms to produce the assertions [31]–[33], whilst others utilize LLMs [21]. However, these generated assertions do not always make sense. 
+
+Fuzzing : Fuzzing is a technique originating from software that has recently seen applications in hardware security [22]. The aim of the approach is to inject a predefined series of inputs in hopes of eliciting unintended behaviour and reveal-ing security vulnerabilities. However, similar to the previous methods, we must define what we consider as unintended behaviour in design-specific security policies, e.g. [34]. While some implementations use code coverage metrics instead of security properties, e.g. [35], code coverage is not necessarily indicative of security coverage [15]. 
+
+Concolic Testing : Concolic testing uses symbolic vari-able inputs during concrete simulation, hence “conc(rete-symb)olic” testing [23]. Indeed, there are general principles that Concolic testing can enforce, for instance, no negative addresses. However, many security properties must be defined with specific signals and design-specific details in mind. 
+
+LLM-based Bug Detection : Recently, LLMs have shown promise in areas such as security bug detection, threat mod-elling, and bug insertion [14] [13]. This method is more easily extended to a wide range of CWEs compared to other techniques, and typically benefits from improvements in the LLM itself [14]. However, LLMs tend to incur increasing cost as the models improve in performance [36]. 
+
+Static Analysis : Lexical static analysis (which we will refer to as static analysis from hereon), is a software technique which was extended for RTL in tools such as [37]. This method was adapted for hardware security in Ahmad et al. ’s CWEAT [12], a static analysis tool for finding CWEs in RTL. On its own, static analysis does not require design-specific context or security policies, since it searches for general patterns, or heuristics, in the code structure that may constitute a vulnerability. We will refer to this as contextless static analysis, i.e., static analysis without design-specific context. As a result, it is possible to run static analysis in the early stages of RTL development without compilation or simulation, unlike methods such as fuzzing and Concolic testing. However, due to its heuristic nature, this technique often results in a high false positive rate. Furthermore, it is difficult to develop static analysis checkers for certain CWEs which rely on design-specific context. 
+
+Bug Localization and Automatic Code Repair : Bug localization is the problem of finding which lines of code in the RTL cause the bug. Automatic code repair, as the name suggests, is concerned with autonomously fixing bugs in the RTL code. There is a significant body of work in bug localization [24], [25] and automatic code repair [26], [27], but it is unclear how to extend them to traditional hardware security verification techniques, since they rely on testbench simulations to determine when incorrect behaviour occurs – hardware security bugs can have obscure execution paths [22], which could impair the efficacy of these methods. [38] uses LLMs to repair security vulnerabilities directly in the RTL code. However, it requires the user to prompt the model with the offending code, the correctly identified security vulnerability, and a suggested template for the fix, i.e., it requires prior detection of the bug. 
+
+B. Motivation 
+
+In general, according to the rule of ten [5], it is much more costly to find bugs in the later stages of development; it is 3
+
+ideal to find such bugs during design. Furthermore, the existing security verification techniques tend to require significant manual effort (e.g. [20]). Hence, we desire a solution that can operate directly on the RTL without requiring significant setup effort and manual input. Static analysis and LLM-based bug detection search for patterns in the code that look like potential security bugs. In contrast, the other techniques use security properties to decide what behaviour is considered a security vulnerability. In the context of the SDL, static analysis and LLM-based bug detection are the earliest checks, since they do not require design-specific security policies. The computational cost of static analysis is relatively lightweight, particularly in comparison with LLM-based meth-ods. Hence, we explore static analysis as a method for early-stage bug detection, so that easily detectable bugs do not propagate to later stages of security verification. Currently, static analysis suffers from high false positive rates and still requires manual effort to review and implement fixes. Due to its heuristic nature, static analysis tends to produce a significant number of false positives (see [12]). The cost of each warning is relatively high, since a security expert must review the warning, identify the offending RTL code, and develop a fix. Therefore, we propose CWEEP, a static analysis tool with an improved framework that provides an end-to-end flow for security vulnerability detection, supporting bug localization and automatic code repair. Our framework is tailored and optimized to reduce the false positive rate compared to previous work [12]. CWEEP provides the exact location in the RTL where we detected the potential vulnera-bility, which enables the tool to provide automatic code repair (auto-fix) suggestions for the user to review. Our aim in these improvements is to reduce the manual burden on the reviewer. Additionally, to improve the completeness of our tool, we expand the number of supported scanner algorithms. III. P ROPOSED APPROACH 
+
+A. Vulnerability Classification 
+
+To better organize hardware security bugs, MITRE de-scribes Common Weakness Enumerations (CWEs) [10], which broadly describe different classes of vulnerabilities. To clarify terminology, this work is concerned with the detection of bug patterns, which may exemplify a CWE but do not necessarily comprehensively represent that CWE. However, for conve-nience, we refer to our algorithms as searching for CWEs. The authors in [12] provide a classification of which CWEs are statically analyzable. Since then, CWE entries have been updated, and in this work, we offer an alternative classification. Since we are concerned with detecting code patterns, we start by identifying all CWEs with RTL code examples available, since these examples are invaluable for creating our detection heuristics. The code examples consist mainly of bugs from the HACK@EVENT series [1]. As shown in Table I, we categorize the CWEs with code examples as amenable to contextless static analysis or non-amenable. Among these CWEs, we emphasize (in bold ) those that appear in the 2025 Most Important Hardware Weaknesses [16] list.                            
+
+> TABLE I
+> CLASSIFICATION OF CWE S(BASED ON VERSION 4.18)
+> Classification CWEs with RTL Examples # of CWEs
+> Non-amenable to
+> Contextless RTL Static Analysis 325, 440, 1209, 1220, 1221, 1224, 1241, 1255, 1281, 1298, 1299, 1300 ,1311, 1317 14 Amenable to
+> Contextless
+> RTL Static Analysis
+> 226 ,1191 ,1231 ,1232 ,1234 ,
+> 1243 ,1244 ,1245 ,1258,
+> 1260 ,1262 ,1271 ,1276 ,
+> 1280 ,1310 ,1326 ,1329,
+> 1431
+> 18
+
+To give examples of our classifications, consider CWE-1209: Failure to Disable Reserved Bits. Determining which bits in a register are meant to be reserved is typically infeasible with just the RTL. Consequently, we classify this CWE as non-amenable to contextless RTL static analysis. In contrast, consider CWE-1243: Sensitive non-volatile information not protected during debug. The code example for this CWE indicates that sensitive information should have a mechanism to zero out the value during debug mode. We can check for this bug pattern without any additional context on what the design is doing. The issue of identifying keys is remedied by the keyword-based allowlist used in [12], which remains the same for a particular class of designs. Therefore, we classify CWE-1243 as amenable to contextless RTL static analysis. With this in mind, we select fourteen CWEs (shown in italic 
+
+in Table I) to implement search algorithms for in our tool – prioritizing those that appear in the most important weaknesses list, as well as those with relative ease of implementation. 
+
+B. Framework 
+
+We continue our exploration of static analysis by reimple-menting the algorithms from previous work (CWEAT [12]). We chose to implement our tool by extending the open source SystemVerilog linting tool, Verible [39]. The underlying opera-tion is much the same as the previous work [12], but deals with the concrete representation of the RTL, so it is straightforward to provide the code location (i.e., file, line number, column number) of any node in the CST. This easily solves the issue of bug localization. Furthermore, it helps in our implementation of automatic code repair. Fig. 2 outlines our proposed flow. We directly extract two things from the RTL, that being the lexical pattern we are searching for, as well as the asset classification of the signal of concern. The pattern checker will search for specific lexical patterns in the code that may constitute a potential weakness. The asset identification method determines whether or not the signal of concern (in the lexical pattern) is an asset relevant to security. We only keep lexical patterns that also contain a signal we consider to be an asset (the Asset Filtering stage of our flow). Then, by carefully tracking relevant nodes within the CST during pattern checking, we locate the offending code. If possible, we also issue an auto-fix suggestion. We use the original algorithms of Ahmad et al. ’s prior work [12], as well as our own additions and modifications, to 4RTL 
+
+> Source
+> Code
+> Lexer
+> &
+> Parser
+> Concrete
+> Syntax
+> Tree
+> Pattern
+> Checkers
+> Bug
+> Localization
+> Auto-fix
+> Suggestions
+> Asset Identification
+> Asset
+> Filtering
+> Designer
+> Warnings
+> Fig. 2. CWEEP: the proposed framework. We first preprocess the source code into a concrete syntax tree. Then, we perform pattern checking on nodes of this tree. Using asset identification, we filter for more relevant matches. During pattern checking, we track the offending node of the concrete syntax tree, which allows us to easily locate the code position of the potential bug. Then, we issue a warning and any relevant auto-fix suggestions to the user.
+
+perform the role of pattern checking. Then, we use a keyword-based filtering (implemented via regular expression) to identify assets based on their signal name. Asset identification is not the focus of this work, so we keep the method simple. More complex asset identification algorithms such as [40] or [41] require significant computational resources, so we opt to not use them in our case, since the intent is to create an early development tool that does not require compilation. However, if performance is the primary concern, substituting our naive asset identification algorithm with one of the aforementioned sophisticated algorithms may prove useful. We note that pre-vious work has shown that keyword filtering can be useful as a minimal way to perform asset identification [42]. Finally, we take advantage of our identified code patterns to provide automatic bug fix suggestions that a user can interactively handle. We again note that this flow is intended not to replace human review of the code, but to augment this process and minimize the manual effort required. 
+
+C. Re-examining Prior Work 
+
+Incorporating our basic reimplementation of CWEAT [12] into the framework, we examine the HACK@DAC2021 SoC [43] [1] to get an idea of the noise seen by each scanner algorithm. Our results for which are shown in Table II, noting the violation counts before and after asset filtering. Our keyword filtering strategy, as outlined later in Section III-D, uses the settings shown in Table III. As we do not have access to the source code for [12], we will primarily use our reimplementation as a benchmark for comparison. Note, however, that we observed our implemen-tion of the scanner for CWE-1271 has a much higher violation count than reported in Ahmad et al.’s work [12]; the rest of the CWE scanners have a comparable or lower violation count. Since our goal is primarily to minimize false positives, we thus consider our reimplementation to be sufficiently close to the original. In other words, since our reimplementation generally outperforms the original, we conclude that it serves as an acceptable comparison. Now we manually analyze, in further detail, the filtered results shown in Table II to get a sense of how each pattern checker could be improved. The results of our manual analysis can be found in Fig. 7 (the methodology for which is explained later in Section IV). In our analysis, we find several ways the lexical checkers could be optimized to remove some of the false positives (i.e., the CWE rule is not actually violated due to something the checker missed). For CWE-1271, we find that a few of the false positives are raised when the register is connected to a module output. The algorithm does not find a reset and simply raises a violation for that register. However, it does not account for any resets applied to the signal from within the module. Additionally, whenever a register is tied to another signal through an assign 
+
+statement, the tool raises a violation even if the signal to which it is tied has a reset value. The algorithm for CWE-1234 checks for a very specific pattern, resulting in only two warnings (one true positive, one false positive), from which we do not draw any patterns. CWE-1245 sees a comparable violation count, 18 versus the original 17. We find 15 false positives and 3 true positives. The current checker is unable to determine the actual value of each state, which hinders our case completeness check. The state values are defined in a parameter assignment, so it would be beneficial if the algorithm could harvest allowed state values. From our survey of the FSM files we manually analyzed, we find that there are three main ways state information is defined: enumerations, parameter assignments, and define statements. Furthermore, we find that many false positives occur due to unexpected syntax options such as: 1) nested case statements, 2) comma-separated case values, 3) the use of ternary operators in case transition statements, 4) and defining some state transitions inside the case state-ment, but others outside. All but the last item are easily managed, since assignments to the state variable outside the case statement may not give a clear beginning and ending state. For CWE-1262, we see only one violation message, which happens to be a true positive. This matches the one true positive found in CWEAT, but eliminates the 8 other violations (6 false positives and 2 indeterminate). Interestingly, we see zero violations from CWE-1280, com-pared to the 12 false positives in CWEAT. 
+
+Takeaway : Overall, our base reimplementation of CWEAT [12] tends to reduce false positives, allowing us to compare later improvements conservatively (it bounds the original implementation in a beneficial manner). We identify key areas for optimization and improvement in the pattern checkers for CWE-1271 and CWE-1245, which we explore in the following section. We found that the remaining checkers (CWE-1234, CWE-1262, CWE-1280) did not demand optimization. Furthermore, we identified some false positives in this stage, which allowed us to refine our keyword list (which we explain later in Section III-D). For example, we refined our search for locks to block signals such as ’block’ or ’pll lock’. 5
+
+> TABLE II
+
+INITIAL VIOLATION COUNTS             
+
+> CWE Violation Count (Before Filtering) Violation Count (After Filtering)
+> CWE-1234: Hardware Internal or Debug Modes Allow Override of Locks 109 2CWE-1245: Improper Finite State Machines (FSMs) in Hardware Logic 165 18 CWE-1262: Improper Access Control for Register Interface 12 1CWE-1271: Uninitialized Value on Reset for Registers Holding Security Settings 4853 19 CWE-1280: Access Control Check Implemented After Asset is Accessed 394 0
+> TABLE III
+
+ALLOWLIST AND BLOCKLIST SETTINGS FOR EACH ALGORITHM 
+
+(CWE S WITHOUT ARE OMITTED )
+
+CWE Allowlist Blocklist 
+
+1231 lock, lk,reglk block, clock, arlock, awlock, ar lock, aw lock, pll, cycle, count 1232 lock, lk,reglk block, clock, arlock, awlock, ar lock, aw lock, pll, cycle, count 1234 dbg, debug –1243 key –1244 priv –1262 lock, lk, reglk, key, prot, access block, clock, arlock, awlock, ar lock, aw lock, pll, cycle, count 1271 lock, lk, reglk, key, prot, access block, clock, arlock, awlock, ar lock, aw lock, pll, cycle, count 1276 lock, lk, reglk, key, prot, access block, clock, arlock, awlock, ar lock, aw lock, pll, cycle, count 1280 lock, lk, reglk, key, prot, access block, clock, arlock, awlock, ar lock, aw lock, pll, cycle, count 1310 rom.*data –1326 rom –1329 key –
+
+D. Keyword Filtering 
+
+As shown in Table II, the keyword filtering stage is pivotal in narrowing down the number of warnings we need to check. In our simple implementation of the asset identification stage (as shown in Fig. 2), we use an allowlist and a blocklist to filter signals by the keywords in their name. For example, we might use the allowlist keyword lock , but use the blocklist keyword 
+
+clock . This strategy is used in the previous work [12] and also for a similar application, asset identification, in [42]. Table III details the allowlist and blocklist settings of each scanner. We constructed these lists by referencing the common keywords in the keyword frequency analysis of [42] and [12]. It is important to note that some checkers are only concerned with a specific type of asset (rather than any generic asset), such as CWE-1310 which may look for signals related to the ROM. As such, the keywords for each checker may differ. Additionally, select scanners may need to search for clock or reset keywords. We similarly use the keyword list 
+
+clock, clk, reset, rst for this purpose. These are not shown in Table III but are mentioned in Section III-E. 
+
+E. New and Improved Checker Algorithms 
+
+In this section, we discuss our checker algorithms for a selection of CWEs. We provide entirely new algorithms, as well as optimized versions of algorithms from [12]. We developed each algorithm such that it finds the lexical (syntax) pattern provided in the example of the MITRE definition page [10]. Note that for CWE-1234, CWE-1262, and CWE-1280, we repeat them here for convenience, but they are unchanged from the original, given the results we saw in Section III-C. 
+
+CWE-1231 : Improper Prevention of Lock Bit Modification. The CWE-1231 scanner searches for all assignment statements that zero a lock register, which is found via the allowlist. Among these assignments, their parent if statement (if any) must not contain impermissible control signals. At most, one reset is allowed, and any other control signal must have the keyword lock . Otherwise, this assignment is flagged as a violation. 
+
+CWE-1232 : Improper Lock Behaviour After Power State Transition. CWE-1232 covers a wide range of scenarios, but we focus on one bug pattern in particular, where lock bits are not set correctly on reset. The algorithm searches all if statement conditions for reset keywords. If any child assignment statements set a lock bit register (found with the allowlist), then we verify that the assigned value is all ones in binary. 
+
+CWE-1234 : Hardware Internal or Debug Modes Allow Override of Locks. The CWE-1234 checker scans all if state-ment expressions, searching for the presence of the patterns ’|| debug ’ and ’ debug || ’. If either is found, the if statement is flagged as a violation (given that the other operand is an asset). This algorithm is essentially unchanged from [12]. 
+
+CWE-1243 : Sensitive Non-Volatile Information Not Pro-tected During Debug. This scanner checks all assign state-ments for security-sensitive signals matching the allowlist. For each of these statements, it parses for ternary operators. If there is not a ternary operator with one of its values constant, the statement is flagged as a violation. In essence, we are checking for sensitive information tied to a non-constant value, which could indicate a weakness. 
+
+CWE-1244 : Internal Asset Exposed to Unsafe Debug Ac-cess Level or State. Although CWE-1244 is a broad vul-nerability that can manifest in various ways, we provide a scanner to check for a specific RTL bug pattern resulting from debug signal overrides. We check all assignments, where the left-hand side signal matches the allowlist corresponding to privilege signals, for expressions containing ’ || debug ’and ’ debug || ’. Such assignments are flagged as violations. This checker is almost identical to CWE-1234, but checks assignments to privilege signals rather than if conditions. 
+
+CWE-1245 : Improper Finite State Machines (FSMs) in Hardware Logic. The CWE-1245 scanner is reworded some-what differently from [12], but the general steps are similar. The stages of the algorithm can be decomposed into two stages: data collection and rule checking. In the data collection stage, we first check all case state-6s1  s2  s3 
+
+s4 
+
+s5              
+
+> (a) State Graph
+> State Indegree Outdegree s1 11s2 22s3 10s4 01s5 00
+> (b) Indegree and Outdegree Fig. 3. State transition example of an FSM with five states. States s3 and s4 are dead-end and unreachable states, respectively. State s5 is not specified in the case statement and is shown as disconnected from the rest of the graph.
+
+ments with case variables belonging to an enumeration decla-ration or matching the allowlist (keyword state ); any variable names found in an enumeration are added to the allowlist, enabling us to handle state machines with multiple state names, e.g. state and state next . Then, we attempt to extract any state definitions from enumerations, define statements, and parameter declarations. Any state definition we find initializes the vertices of a state transition graph. Finally, we extract each case item and child assignments involving the state variable to build the edges of the state transition graph. Upon completion of the graph, we compute the indegree and outdegree of each vertex. As suggested earlier in Section III-C, we ensure that we are able to parse comma-separated case values and ternary operators; we simply skip nested case statements. In the rule checking stage, we scan the graph for the following issues, flagging the case statement as a violation if any are present: 1) A vertex with indegree 0 is an unreachable state. 2) A vertex with outdegree 0 is a dead-end state (referred to as a deadlock state in [12]). Furthermore, we check the case statement for completeness, similar to [12]. If we extracted any state definitions in the data collection stage, we will detect if they are not implemented in the case statement, since the outdegree will be 0. We also check for missing values in the sequence of case values. We first check whether the states are one-hot encoded. If so, we check for missing powers of two. Otherwise, we check for missing incremental values. Any case statement missing a case for a state value must have a default, or it is flagged as a violation. For example, consider the state graph in Fig. 3(a). The indegree and outdegree of each node are shown in Fig. 3(b). Our scanner will identify states s3, s4, and s5, since they have either an indegree or outdegree of 0. States like s5 are typically initialized as a vertex with no edges when we extract the state from declarations like enumerations. If that is the case, we will also flag the case statement for incompleteness if there is no default case. 
+
+Algorithm Summary : We build a state graph (by parsing the FSM declaration in the code) and check for unreachable states or dead-end states. Then, we check for missing state definitions by examining either state type declarations or the one-hot encoding of the state signal. 
+
+CWE-1260 : Improper Handling of Overlap Between Pro-tected Memory Ranges. The implementations of memories can vary greatly, so we demonstrate a scanner that checks for bug patterns in a specific type of memory region definition. We examine the pattern XBase and XLength, i.e., a common identifier, X, concatenated with one of the two keywords base 
+
+and length .This scanner parses all parameter and enum assignments for matching pairs of signals of the form XBase and XLength. For example, GP IOBase and GP IOLength . Then, it searches for constant assigned values in hexadecimal format. Then, it defines an address region based on those two values for the identifier. Comparing all memory regions, we can then detect overlap if the expression max (base 1, base 2) <=
+
+min (end 1, end 2) evaluates to true, where base 1 and base 2
+
+are the base addresses of the two regions, and end 1 and end 2
+
+are their respective ending addresses. In the case of overlap, we flag both offending assignments as violations. 
+
+CWE-1262 : Improper Access Control for Register Inter-face. First, we find all assignments to security-relevant signals (found via keyword list) with the right-hand side of the assignment containing the keyword wdata . Then, we extract control signal names from parent if statements or ternary operators (clock and reset keywords are ignored). Registers with no control signals are flagged as violations. Additionally, for register arrays, each member of the array must have the same control signals. Otherwise, we flag a violation. 
+
+CWE-1271 : Uninitialized Value on Reset for Registers Holding Security Settings. Similar to the algorithm provided in [12], we scan for all register variables matching the allowlist and check that there is a matching reset statement for that register. In [12], the register is simply flagged as a violation if there is no matching reset statement. However, our implementation provides two optimizations to reduce the number of false positives. The first optimization is to prune all registers that are tied to module outputs, which are naively detected by searching for the suffix o in the port name. This method could be improved, but it was sufficient for our dataset. The idea is that if there is actually a violation on that signal, we will flag it when scanning the file containing the actual module definition. The second optimization is to follow assign statements. For example, if our register signal is tied by assign statement to another signal, we check the rule for CWE-1271 on that intermediate signal instead. 
+
+CWE-1276 : Hardware Child Block Incorrectly Connected to Parent System. This vulnerability can materialize in a plethora of ways. Hence, we focus on one specific case that is, in general, a good idea to fix: floating port connections. This feature is often available in standard linting tools, but we filter the results only to port names matching the security keyword allowlist, in hopes that this will help security-focused analysis. The checker simply searches for all port connections with names matching the allowlist, and raises a violation if the connection is empty (floating). 
+
+CWE-1280 : Access Control Check Implemented After As-set is Accessed. Our checker searches for always blocks and iterates through every child blocking assignment in sequential order. We track the history of all signal accesses, i.e., signals on the right-hand side of the assignment, and ensure that those signals are not assigned afterwards. Otherwise, we flag both 7
+
+assignments as violations. 
+
+CWE-1310 : Missing Ability to Patch ROM Code. We search all assignments to ROM-like variables (filtered via the allowlist). Subsequently, we track all possible values to those ROM-like variables. For each variable, we ensure that it has at least two possible unique values. Otherwise, we flag a violation. 
+
+CWE-1326 : Missing Immutable Root of Trust in Hardware. Our scanner searches all assignments for ROM-like signals using the allowlist. For each assignment, the assigned value must not contain the keyword wdata . Otherwise, we flag a violation. 
+
+CWE-1329 : Reliance on Component That is Not Update-able. This scanner checks all port connections for security-sensitive keywords from the allowlist. Then, if the connected signal is a constant value, we flag a violation. 
+
+F. Bug Localization and Auto-fix 
+
+It can be time-consuming for a designer to debug a warning message, find the offending code, and write the fix. As part of our framework, we support bug localization and auto-fix suggestion generation. Bug localization is performed by marking the node (token) of each asset in the CST. Then, upon finding an offending pattern, we can look up the matching token location and provide the code location. Furthermore, we are able to update this token and its neighbours, allowing us to propose auto-fix suggestions. The tool provides an interactive patching method, but this is by no means a complete solution for automatic code repair, and is meant only as a starting point. We identify three types of auto-fixes: add , replace , and 
+
+remove . Each type of fix involves the corresponding action its name would suggest (e.g., remove auto-fixes involve removing a section of code). Additionally, if we remove a particular symbol, we must also clean up any operators that were applied to that symbol. We perform cleanup by enforcing the following set of rules: 1) Remove NOT operators with no operands, e.g., !() 
+
+2) Remove empty parentheses 3) Remove back-to-back operators e.g., && && . Keep the second operator and remove the first. 4) Remove parentheses adjacent to operators, e.g., (&& 
+
+Table IV shows a summary of the auto-fix feature added to our tool. We identify the auto-fix type and the chosen operation to perform that auto-fix. Our implementation uses regular expressions to identify offending symbols and replace or delete them. IV. E XPERIMENTAL WORK 
+
+A. Measuring Tool Performance 
+
+It is not clear from previous work [12] how to quantify the performance of our static analysis tools. Even though it is a binary classification problem, it is not easy to determine what constitutes a negative case—one would typically consider this a missed weakness, but in our case, we do not have knowledge of all weaknesses in the design. To expand on this, consider the                              
+
+> TABLE IV
+> AUTO -FIX DETAILS FOR SUPPORTED CWE S
+> CWE Auto-fix Sup-port (Y/N) Auto-fix type Operation
+> 1231 YRemove Remove debug signal and cleanup operators 1232 YReplace Replace reset value with ‘1 (all ones) 1234 YRemove Remove debug signal and cleanup operators 1243 YReplace Replace ternary true value with ‘h0 (if ternary exists) 1244 YReplace Replaces || with && 1326 YRemove Remove entire assignment
+
+well reputed benchmark we used earlier, the HACK@DAC21 SoC [1] [43]. Although there exists an informal bug list on the repository, all relevant weaknesses are not entirely captured or localized . Hence, we will assume that we can only access the true positive and false positive cases (which can be obtained through manually analyzing reported warnings from the tool). Therefore, our primary metric will be precision, which is defined as 
+
+P = T P T P + F P (1) where T P is the number of true positives and F P is the number of false positives. In addition, we will separate our binary classification eval-uations for the asset identification component and the pattern matching component. That is, for asset identification, a true positive indicates we have correctly identified an asset; a false positive indicates we have incorrectly flagged a signal as an asset when it was not. In the case of our pattern checkers, a true positive indicates we have correctly identified a syntax pattern that, assuming it affects an asset, would constitute a potential weakness. A false positive indicates that, even assuming the syntax pattern affects an asset, would not constitute a potential weakness. As mentioned earlier, when scanning natural designs (de-signs without manually inserted bugs), the ground truth is typ-ically unclear. Consequently, one might think that a synthetic 
+
+design (a design with intentionally inserted bugs) would fix this issue. There are indeed synthetic datasets, such as those offered in related work [11] [44] [45] [46] [1]. However, we find in our analysis that these datasets may contain weaknesses 
+
+that are not necessarily the intended bug insertion (which we find for [11] in Section IV-E). Furthermore, synthetic datasets like [44] are not compatible with our checker algorithms due to their gate-level netlist format, which removes the RTL patterns our algorithms search for. As such, we set our sights on the HACK@EVENT SoCs [1], since they contain the most relevant bugs and were studied in the previous work on static analysis [12]. However, as we discussed earlier, these datasets do not capture all po-tential weaknesses. Hence, we rely on manual analysis of 8
+
+the HACK@EVENT series SoCs [1] to measure individual algorithmic performance. We note that the code snippets from the CWE defini-tions on the MITRE site [10] often resuse code from the HACK@EVENT SoCs [1], making it non-distinct from our dataset of choice. 
+
+B. Analysis Methodology 
+
+With the discussion from Section IV-A in mind, we provide our initial benchmarking results using the two SoCs from the HACK@EVENT series: HACK@DAC21 [43] [1] and HACK@DAC18 [47] [1]. In order to capture all potential weaknesses faithfully, we rely on manual analysis to label the code flagged by the tool. We identify violations as true positive (T) or false positive (F) (not allowing indeterminate (I) results, as in [12]) for both the asset identification aspect as well as the pattern checker aspect. Our methodology for analysis is as follows: First, verify whether the signal was correctly identified as an asset. We define an asset as any signal that may plausibly relate to the security of the design. Mark this as T or F in the asset identification category. Then, completely separate to the first evaluation (assuming the signal is indeed an asset), verify if the CWE rule is violated, constituting a weakness. Mark this as T or F in the pattern checker category. Then, we can derive the overall classification. If both categories are T, then overall the classification is T. Otherwise, the overall classification is F. For example, consider the code in Fig. 4. Our scanner iden-tifies the module port key i, which we classify as a security-relevant signal. The port value is indeed hard-coded, so it vio-lates the rule for CWE-1329. Hence, we mark both categories as T. In contrast, we also identify the signal key hash bypass i as hard-coded. However, we do not classify this signal as security-relevant. Hence, we mark the asset identification as F but the pattern checker as T.                 
+
+> 1hmac hmac(
+> 2.clk_i(clk_i),
+> 3.rst_ni(rst_ni),
+> 4.init_i(startHash),
+> 5.key_i(256’h24e6fa2254c2ff632a41b3b4
+> 62e5c9b54f247b9a445a1ce488cfa23b384632154),
+> 7.ikey_hash_i(ikey_hash_i),
+> 8.okey_hash_i(okey_hash_i),
+> 9.key_hash_bypass_i(1’h1),
+> 10 .message_i(pass_data),
+> 11 .hash_o(pass_hash),
+> 12 .ready_o(hmac_ready),
+> 13 .hash_valid_o(hashValid)
+> 14 );
+> Fig. 4.
+
+Code snippet from HACK@DAC21 [1] [43] highlighting a violation of CWE-1329 
+
+C. Algorithmic Optimization Results 
+
+Fig. 5 shows our results analyzing the HACK@DAC21 SoC [43] [1] with and without any optimizations in the CWE-1245 and CWE-1271 algorithms. Before optimization, CWE-1245 suffered from a high false positive rate in its pattern checker, which was the bottleneck for the overall precision; after op-timization, we improved the pattern checker, which improved 18 14 9 10 52313 710 15 62 238 7 815 11 24CWE         
+
+> 0510 15 20
+> 1245 1271 1245_opt 1271_opt
+> Asset ID - T Asset ID - F Pattern - T Pattern - F Overall - T Overall - F HACK@DAC21 Optimization Comparison
+> Fig. 5.
+
+Comparison of the CWE-1245 and CWE-1271 algorithms with and without optimizations using the HACK@DAC21 [1] [43] dataset. After optimization, CWE-1245 sees an increase in overall precision from 0.167 to 0.778. For CWE-1271, this increases from 0.421 to 0.667. Compared to the results in [12], the optimized CWE-1245 algorithm sees a 80% decrease in false positives and a 75% increase in true positives; the optimized CWE-1271 algorithm sees a 20% decrease in false positives and 33.3% increase in true positives. 
+
+overall precision. For CWE-1271, our pattern checker opti-mization helped to remove seven overall false positives. Note that our optimizations removed warnings, which changed the total counts. The remaining of the algorithms from CWEAT [12], based on our initial analysis in Section III-C, did not warrant further optimization. Furthermore, due to our earlier work on the keyword list (Section III-C), we find that there are significantly less cases where the asset identification stage is the bottleneck for overall classification. 
+
+D. Benchmarking Results 
+
+We ran our first set of experiments on the HACK@DAC21 [43] [1] and HACK@DAC18 [47] [1] SoCs. For each design, we attempt to scan all Verilog and SystemVerilog files in the code base. When the tool encounters syntax errors while parsing the file, we skip that file and mark it as not scanned. We also ignore files that we manually identify as duplicates during our analysis, marking them as not scanned. All afore-mentioned algorithmic optimizations are enabled in this run. The results are summarized in Table V. The average runtime was 135.1 seconds, run on an Intel Core i5 processor with 16 GB of RAM, scanning an average of 483 files per run. We attribute the difference in runtime mainly to the different implementation of our tools. Table V compares the total violation counts of the algo-rithms in [12] with our implementation of these algorithms. CWEEP takes longer to run, requiring an average of 135.1 seconds compared to the average time of 0.338 seconds in [12]. However, CWEEP gives fewer total warnings, with a total of 43 warnings across both designs compared to the total of 119 in [12]. We note that our total file counts differ, indicating a difference in our file scanning methodologies. We observe that our checkers for CWE-1244 and CWE-1260 raise zero warnings. For both of these CWEs, the code examples are from HACK@DAC19 [1] [48], which we do not 9
+
+CWE T F I
+
+1234 0 0 21245 4 10 31262 1 6 21271 6 5 21280 0 12 0
+
+> (a) HACK@DAC21
+
+CWE T F I
+
+1234 0 0 01245 4 21 11262 0 9 11271 0 1 81280 0 20 0  
+
+> (b) HACK@DAC18 Fig. 6.
+
+Original CWEAT analyzed results from [12] for HACK@DAC21 [1] [43] and HACK@DAC18 [1] [47]. 
+
+examine because it does not provide a bug list. Perhaps the code examples for these CWEs are niche and our resulting heuristics are too selective. To provide a more useful measure of merit, we manually analyze the results, as summarized in Fig. 7 and Fig. 8, using the methodology described in Section IV-B. For HACK@DAC21, CWEEP raises 51 errors. In our opinion, this is manageable for a designer to review. Of these 51 warnings, 31 were overall T and 20 were over-all F. For HACK@DAC18, there were 33 total warnings, of which 17 were overall T and 16 were overall F. The overall precision was 0.608 in HACK@DAC21 and 0.515 in HACK@DAC18. Our asset identification precision was 0.765 for HACK@DAC21 and 0.758 for HACK@DAC18; our pattern precision was 0.843 in HACK@DAC21 and 0.758 for HACK@DAC18. Even though the two component precisions for asset identification and the pattern checkers were decent, they did not align their correctness simultaneously, reducing the overall precision. Although not exactly comparable due to variations in man-ual analysis, we provide the published results of CWEAT from Ahmad et al.’s paper [12] in Fig. 6 for reference. As a general trend, we see that CWEAT tends to produce considerable noise, i.e., warnings that are not T. Based on the analysis from [12], CWEAT correctly raises a warning 17.5% of the time for HACK@DAC21 and 6.2% of the time for HACK@DAC18. It is interesting to note that the overall precision for several of the scanners were mainly limited by incorrectness in asset identification. For example, CWE-1276, CWE-1326, and CWE-1329 were almost completely dominated by incorrect asset identification (but correct pattern identification). 
+
+E. Investigating the BugWhisperer [11] Dataset 
+
+Here, we use CWEEP to explore a synthetic dataset that was generated using a large language model (LLM) [11]. We entertained the idea of using the injected bug database from [44], but the tool generates netlists, which no longer contain the syntax patterns we are looking for. To parse the dataset from [11], we convert each entry into a SystemVerilog file that contains the module definition. We then run CWEEP on each generated file. The results of our scan are shown in Table VI. The total runtime was 189.1 seconds, scanning a total of 3874 modules, 425 of which were ignored due to syntax errors. Given the sheer volume of violations, we opt to skip manual analysis. The authors of [11] identify 13 CWEs for which the LLM targets its bug generation. Of these, we support scanners for 31299 110 2 111 1 4 2 2 1 132113 7110 2 1 1 21 1 2 2 22 1 19 718112 1 1 4 2 4 2 2 1 1                 
+
+> 1231 1232 1234 1243 1245 1262 1271 1276 1280 1310 1326 1329 Overall - F Overall - T Pattern - F Pattern - T Asset ID - F Asset ID - T
+> HACK@DAC21 Analyzed Results
+> Fig. 7.
+
+CWEEP analyzed results for HACK@DAC21 [1] [43]. The horizontal axis shows each CWE for which we have implemented a scanner algorithm. The vertical axis represents the count of violations raised by CWEEP for a given CWE scanner algorithm. CWE scanners that reported no warnings are not shown. 3 15 76 26 37983776 8 2         
+
+> 1232 1243 1245 1271 Overall - F Overall - T Pattern - F Pattern - T Asset ID - F Asset ID - T
+> HACK@DAC18 Analyzed Results
+> Fig. 8.
+
+CWEEP analyzed results for HACK@DAC18 [1] [47]. The horizontal axis shows each CWE for which we have implemented a scanner algorithm. The vertical axis represents the count of violations raised by CWEEP for a given CWE scaner algorithm. CWE scanners that reported no warnings are not shown. 
+
+CWE-1244, CWE-1245, CWE-1260, and CWE-1271. We do find violations within the dataset for CWE-1245, CWE-1260, and CWE-1271 as expected. However, we do not find any violations for CWE-1244, which reinforces the observation in Section IV-D that this algorithm is, perhaps, too selective. Interestingly, we find violations for CWE-1231, CWE-1234, and CWE-1243, which were not part of the 13 intended CWEs injected by the LLM. We selected a small sample of the warnings from these three weaknesses and confirmed that there were indeed some overall true positives. This analysis revealed that the bugs within these categories almost completely reuse the same handful of module templates with little variation. Essentially, there is only one unique bug. 
+
+F. Auto-fix Results 
+
+Using our two manually analyzed HACK@EVENT [1] designs, we apply the auto-fix rules detailed in Section III-F to the applicable warnings. We declare an auto-fix T if there was indeed a security bug and it is fixed by the suggestion; we declare F otherwise. Note that in order for an auto-fix suggestion to be correct, we must have correctly identified 10 
+
+> TABLE V
+
+COMPARISON OF TOTAL VIOLATION COUNTS BETWEEN CWEEP AND CWEAT [12] 
+
+Design HACK@DAC21 (Openpiton) HACK@DAC21 (Openpiton) HACK@DAC18 (Pulpissimo) HACK@DAC18 (Pulpissimo) Tool CWEEP (Ours) CWEAT CWEEP (Ours ) CWEAT 
+
+Files Scanned 480 328 486 409 File not Scanned 6 112 7 116 Time (s) 97.6 0.354 172.6 0.322 CWE-1234 2 2 0 0CWE-1245 8 17 9 26 CWE-1262 1 10 0 10 CWE-1271 12 13 9 9CWE-1280 2 12 0 20 
+
+> TABLE VI
+
+TOTAL VIOLATION COUNTS FOR LLM-GENERATED DATASET 
+
+CWE Violation Count CWE Violation Count 
+
+1231 14 1262 01232 0 1271 97 1234 37 1276 01243 1 1280 01244 0 1310 01245 541 1326 01260 6 1329 0
+
+the syntax pattern as well as the asset. Hence, the auto-fix classification will practically follow the overall classification. However, there is an exception in the case that we identify a syntax pattern that is a subset of a larger offending pattern. The overall classification might be T, since we have indeed identified a weakness, but the auto-fix might fail since it does not fix the overall weakness. For the HACK@EVENT [1] designs, our auto-fix classifi-cation follows the overall classification exactly. For the dataset in [11], we use our manual analysis of the 51 total violations flagged for CWE-1231 and CWE-1234. This time, we find 14 F auto-fixes for CWE-1231. For CWE-1234, we find 21 T and 16 F. For the 16 F cases in CWE-1234, we observed that the aforementioned exception resulted in an incorrect auto-fix despite a correct overall detection. Consider the auto-fix shown in Fig. 9, where CWEEP cor-rectly issues a warning for CWE-1234, but the proposed auto-fix is not completely correct. In the comment accompanying this entry in the dataset, it states that the bug inserted in this module is the ability to access data from debug. Our auto-fix suggestion removes the debug mode signal, but does not remove the debug access signal, which we believe is incorrect. The detections for CWE-1231 were all overall F, which was due to incorrect asset identification. Hence, the modification to that signal in the suggested auto-fix is incorrect since it impacts the functionality of a non-security-relevant signal. We observe that the auto-fix correctness is largely dependent on the overall precision of the detector. Hence, we conclude that this feature should be used to ease the manual burden of the designer, but still requires their judgment and supervision.                                                       
+
+> 1---a/bugwhisperer/3081.sv
+> 2+++ b/bugwhisperer/3081.sv @@ -34,6 +34,6 @@
+> 3always @(posedge clk) begin
+> 4-if (state == READ && (debug_mode || !debug_access)) begin
+> 5+if (state == READ && (!debug_access)) begin
+> 6read_data <= mem[addr]; end
+> 7-if (state == WRITE && (debug_mode || !debug_access)) begin
+> 8+if (state == WRITE && (!debug_access)) begin
+> 9mem[addr] <= write_data;
+> Fig. 9.
+
+Example of an incorrect auto-fix on a true positive (T) warning for CWE-1234 from the BugWhisperer dataset [11] 
+
+V. D ISCUSSION 
+
+In this section, we discuss, in the context of lexical static analyis, RTL code pattern detection methods, the use of keyword lists, the efficacy of manual analysis, and datasets for benchmarking. 
+
+A. Code Pattern Detection 
+
+Similar to [12], we focus on detecting code patterns in the RTL. This approach is naturally difficult to generalize to all design types; we provide implementations for the common patterns seen in SoCs, which could be adapted for other classes of designs. E.g., using a preliminary study (using other verification methods or manual analysis), we could screen for the common patterns present within a given class of design. Additionally, our approach is unable to handle gate-level netlists and is not rigorous enough to replace other techniques. However, this is not our goal; this method should supplement other techniques by weeding out easily detected bugs before they propagate to later stages of verification. 
+
+B. Keyword Lists 
+
+A serious challenge is to identify specific functional struc-tures (assets) within the design. To resolve this issue, we opt to use a keyword filtering strategy, which was used in previous work [12] [42]. The keyword list may not be effective in other circumstances, so we provide support for the integration of emerging asset identification methods (e.g., LAsset [49]). 
+
+C. Manual Analysis for Benchmarking 
+
+We rely on manual analysis to measure the improvements of our algorithmic optimizations, the efficacy of our auto-fix suggestions, and our relative performance compared to 11 
+
+CWEAT [12]. Although we outline our classification method-ology in Section IV-B, there are bound to be errors and variations between different reviewers, creating some level of uncertainty in the analyzed results. Consequently, we avoid directly comparing our results with CWEAT and instead com-pare optimizations against our own baseline reimplementation. Furthermore, we make our full results available with this paper so that future work may reuse our analysis. 
+
+D. Datasets for Static Analysis 
+
+For consistent benchmarking, it would be ideal to have a dataset with all possible weaknesses. However, this is not available—and perhaps may be an infeasible task, given the ambiguity of the definition of a weakness. In hopes of im-proving this, however, we release our complete analysis in the accompanying repository to this paper. This work investigated the use of several datasets [1], [11], [44], [45]. Of these, we were only able to use [1] and, to some extent, [11]. We could not use [44] since the netlist format was incompatible with our methodology, and we could not use [45] since it focuses on hardware Trojans, which are not in the scope of this work. Consequently, we evaluate our performance predominantly using the HACK@EVENT designs [1] and manual analysis. Other works endorse this dataset for evaluating performance [12]–[14], [23], [50]. 
+
+E. Measuring Performance Beyond Precision 
+
+One of the challenges with hardware security weakness detection is that negative cases are not well-defined, making it difficult to measure metrics such as recall. However, we provide a minimal case study in this regard for completeness. We consider the set of non-false-positive results that are avail-able to us from CWEAT and determine the intersection and symmetric difference with CWEEP’s true positives. For the CWE-1271 checker, we find that CWEEP discovers 2 TPs in HACK@DAC21 that were not found in CWEAT. Furthermore, CWEEP does not miss any of the 6 TPs that CWEAT found. For CWE-1245, CWEEP finds 3 TPs that CWEAT missed. CWEEP also finds all of the TPs that CWEAT finds. For CWE-1234, we find both of the same cases CWEAT finds. VI. C ONCLUSION 
+
+We present CWEEP, a static analysis tool for security verification that combines lexical pattern checkers and asset identification to find potential weaknesses in early-stage RTL. CWEEP expands on previous static analysis work, providing algorithmic optimizations and an expanded set of algorithms for more vulnerabilities. Additionally, unlike previous work, our implementation is able to identify the exact location in the RTL where the vulnerability occurred (bug localization) and provides automatic bug fix suggestions when applica-ble. To evaluate the relative performance of CWEEP, we manually analyze a selection of synthetic datasets. We find that, compared to previous work, CWEEP improved overall detection precision from 0.167 to 0.778 in the best case, among other improvements. We also analyze the effects that the two fundamental components, asset identification and pattern checking, have on overall detection performance. APPENDIX AARTEFACTS 
+
+Repository link: https://github.com/bryan-kwan/cweep REFERENCES [1] G. Dessouky, D. Gens, P. Haney, G. Persyn, A. Kanuparthi, H. Khattri, J. M. Fung, A.-R. Sadeghi, and J. Rajendran, “HardFails: Insights into Software-Exploitable Hardware Bugs,” in Usenix Security Symp. , 2019, pp. 213–230. [Online]. Available: https://www.usenix.org/conference/ usenixsecurity19/presentation/dessouky [2] P. Kocher, J. Horn, A. Fogh, D. Genkin, D. Gruss, W. Haas, M. Hamburg, M. Lipp, S. Mangard, T. Prescher, M. Schwarz, and Y. Yarom, “Spectre Attacks: Exploiting Speculative Execution,” in 2019 IEEE Symposium on Security and Privacy (SP) , May 2019, pp. 1–19, iSSN: 2375-1207. [Online]. Available: https: //ieeexplore.ieee.org/document/8835233/ [3] M. Lipp, M. Schwarz, D. Gruss, T. Prescher, W. Haas, S. Mangard, P. Kocher, D. Genkin, Y. Yarom, and M. Hamburg, “Meltdown,” Jan. 2018, arXiv:1801.01207 [cs]. [Online]. Available: http://arxiv.org/abs/ 1801.01207 [4] H. Khattri, N. K. V. Mangipudi, and S. Mandujano, “HSDL: A Security Development Lifecycle for hardware technologies,” in 2012 IEEE International Symposium on Hardware-Oriented Security and Trust , Jun. 2012, pp. 116–121. [Online]. Available: https://ieeexplore.ieee.org/document/6224330/ [5] M. Bushnell and V. Agrawal, Essentials of electronic testing for digital, memory and mixed-signal VLSI circuits . Springer Science & Business Media, 2004, vol. 17. [6] W.-K. Liu, B. Tan, J. M. Fung, R. Karri, and K. Chakrabarty, “Hardware-Supported Patching of Security Bugs in Hardware IP Blocks,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 42, no. 1, pp. 54–67, Jan. 2023. [Online]. Available: https://ieeexplore.ieee.org/document/9759459/ [7] “lowRISC/ariane,” Sep. 2025, original-date: 2018-03-21T14:56:22Z. [Online]. Available: https://github.com/lowRISC/ariane [8] M. M. Bidmeshki, Y. Zhang, M. Zaman, L. Zhou, and Y. Makris, “Hunting Security Bugs in SoC Designs: Lessons Learned,” IEEE Design & Test , vol. 38, no. 1, pp. 22–29, Feb. 2021. [Online]. Available: https://ieeexplore.ieee.org/document/9154739/ [9] “What is Shift-left Testing? | IBM,” Jun. 2023. [Online]. Available: https://www.ibm.com/think/topics/shift-left-testing [10] “CWE - CWE-1194: Hardware Design (4.17).” [Online]. Available: https://cwe.mitre.org/data/definitions/1194.html [11] S. Tarek, D. Saha, S. K. Saha, and F. Farahmandi, “BugWhisperer: Fine-Tuning LLMs for SoC Hardware Vulnerability Detection,” in 2025 IEEE 43rd VLSI Test Symposium (VTS) , Apr. 2025, pp. 1–5, iSSN: 2375-1053. [Online]. Available: https://ieeexplore.ieee.org/document/11022958/ [12] B. Ahmad, W.-K. Liu, L. Collini, H. Pearce, J. M. Fung, J. Valamehr, M. Bidmeshki, P. Sapiecha, S. Brown, K. Chakrabarty, R. Karri, and B. Tan, “Don’t CWEAT It: Toward CWE Analysis Techniques in Early Stages of Hardware Design,” in Proceedings of the 41st IEEE/ACM International Conference on Computer-Aided Design . San Diego California: ACM, Oct. 2022, pp. 1–9. [Online]. Available: https://dl.acm.org/doi/10.1145/3508352.3549369 [13] S. Tarek, D. Saha, S. K. Saha, M. Tehranipoor, and F. Farahmandi, “SoCureLLM: An LLM-Driven Approach for Large-Scale System-on-Chip Security Verification and Policy Generation,” in 2025 IEEE International Symposium on Hardware Oriented Security and Trust (HOST) , May 2025, pp. 335–345, iSSN: 2765-8406. [Online]. Available: https://ieeexplore.ieee.org/document/11050068/ [14] D. Saha, S. Tarek, K. Yahyaei, S. K. Saha, J. Zhou, M. Tehranipoor, and F. Farahmandi, “LLM for SoC Security: A Paradigm Shift,” 
+
+IEEE Access , vol. 12, pp. 155 498–155 521, 2024. [Online]. Available: https://ieeexplore.ieee.org/document/10596266/ [15] M. M. Hossain, A. Vafaei, K. Z. Azar, F. Rahman, F. Farahmandi, and M. Tehranipoor, “SoCFuzzer: SoC Vulnerability Detection using Cost Function enabled Fuzz Testing,” in 2023 Design, Automation & Test in Europe Conference & Exhibition (DATE) ,Apr. 2023, pp. 1–6, iSSN: 1558-1101. [Online]. Available: https: //ieeexplore.ieee.org/document/10137024/ [16] “2025 Most Important Hardware Weaknesses (MIHW),” 2025. 12 
+
+[17] A. Ardeshiricham, W. Hu, J. Marxen, and R. Kastner, “Register transfer level information flow tracking for provably secure hardware design,” in Design, Automation & Test in Europe Conference & Exhibition (DATE), 2017 , Mar. 2017, pp. 1691–1696, iSSN: 1558-1101. [Online]. Available: https://ieeexplore.ieee.org/document/7927266/ [18] Y. Tai, W. Hu, L. Zhang, D. Mu, and R. Kastner, “A multi-flow information flow tracking approach for proving quantitative hardware security properties,” Tsinghua Science and Technology ,vol. 26, no. 1, pp. 62–71, Feb. 2021. [Online]. Available: https: //ieeexplore.ieee.org/document/9121656/ [19] M. A. A. Zapata, A. Shahshahani, and Z. Zilic, “Automated Assertion Checker Generator and Information Flow Tracking for Security Verification,” in 2024 25th International Symposium on Quality Electronic Design (ISQED) , Apr. 2024, pp. 1–6, iSSN: 1948-3295. [Online]. Available: https://ieeexplore.ieee.org/document/10528770/ [20] N. Farzana, F. Rahman, M. Tehranipoor, and F. Farahmandi, “SoC Security Verification using Property Checking,” in 2019 IEEE International Test Conference (ITC) , Nov. 2019, pp. 1–10, iSSN: 2378-2250. [Online]. Available: https://ieeexplore.ieee.org/document/ 9000170/ [21] A. Ayalasomayajula, R. Guo, J. Zhou, S. K. Saha, and F. Farahmandi, “LASP: LLM Assisted Security Property Generation for SoC Verification,” in 2024 ACM/IEEE 6th Symposium on Machine Learning for CAD (MLCAD) , Sep. 2024, pp. 1–7. [Online]. Available: https://ieeexplore.ieee.org/document/10740198/ [22] K. I. Gubbi, M. Tarighat, A. Sudarshan, I. Kaur, P. D. Kota, A. Sasan, and H. Homayoun, “State of Hardware Fuzzing: Current Methods and the Potential of Machine Learning and Large Language Models,” in 2025 26th International Symposium on Quality Electronic Design (ISQED) , Apr. 2025, pp. 1–7, iSSN: 1948-3295. [Online]. Available: https://ieeexplore.ieee.org/document/11014308/ [23] X. Meng, S. Kundu, A. K. Kanuparthi, and K. Basu, “RTL-ConTest: Concolic Testing on RTL for Detecting Security Vulnerabilities,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 41, no. 3, pp. 466–477, Mar. 2022. [Online]. Available: https://ieeexplore.ieee.org/document/9380345/ [24] S. S. Miftah, S. Kundu, A. Mordahl, S. Wei, and K. Basu, “RTL-Spec: RTL Spectrum Analysis for Security Bug Localization,” in 2024 IEEE International Symposium on Hardware Oriented Security and Trust (HOST) , May 2024, pp. 171–181, iSSN: 2765-8406. [Online]. Available: https://ieeexplore.ieee.org/document/10545408/ [25] R. Ma, D. Kuang, Z. Liu, J. Zhang, P. Fan, and G. Luo, “Wit-HW: Bug Localization in Hardware Design Code via Witness Test Case Generation,” Aug. 2025, arXiv:2508.14414 [cs]. [Online]. Available: http://arxiv.org/abs/2508.14414 [26] H. Ahmad, Y. Huang, and W. Weimer, “CirFix: automatically repairing defects in hardware design code,” in Proceedings of the 27th ACM International Conference on Architectural Support for Programming Languages and Operating Systems . Lausanne Switzerland: ACM, Feb. 2022, pp. 990–1003. [Online]. Available: https://dl.acm.org/doi/10.1145/3503222.3507763 [27] K. Laeufer, B. Fajardo, A. Ahuja, V. Iyer, B. Nikoli´ c, and K. Sen, “RTL-Repair: Fast Symbolic Repair of Hardware Design Code,” in 
+
+Proceedings of the 29th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 3. La Jolla CA USA: ACM, Apr. 2024, pp. 867–881. [Online]. Available: https://dl.acm.org/doi/10.1145/3620666.3651346 [28] D. Zhang, Y. Wang, G. E. Suh, and A. C. Myers, “A Hardware Design Language for Timing-Sensitive Information-Flow Security,” in 
+
+Proceedings of the Twentieth International Conference on Architectural Support for Programming Languages and Operating Systems . Istanbul Turkey: ACM, Mar. 2015, pp. 503–516. [Online]. Available: https: //dl.acm.org/doi/10.1145/2694344.2694372 [29] “IEEE Standard for SystemVerilog–Unified Hardware Design, Specification, and Verification Language,” IEEE Std 1800-2023 (Revision of IEEE Std 1800-2017) , pp. 1–1354, Feb. 2024. [Online]. Available: https://ieeexplore.ieee.org/document/10458102/ [30] M. R. H. Iman, G. Di Natale, and K. Morin-Allory, “A Survey on Automatic Assertion Miners,” in 2025 IEEE 28th International Symposium on Design and Diagnostics of Electronic Circuits and Systems (DDECS) , May 2025, pp. 55–60, iSSN: 2473-2117. [Online]. Available: https://ieeexplore.ieee.org/document/11006673/ [31] J. Malburg, T. Flenker, and G. Fey, “Property mining using dynamic dependency graphs,” in 2017 22nd Asia and South Pacific Design Automation Conference (ASP-DAC) , Jan. 2017, pp. 244–250, iSSN: 2153-697X. [Online]. Available: https://ieeexplore.ieee.org/document/ 7858327/ [32] S. Germiniani and G. Pravadelli, “HARM: A Hint-Based Assertion Miner,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 41, no. 11, pp. 4277–4288, Nov. 2022. [Online]. Available: https://ieeexplore.ieee.org/document/9925689/ [33] R. Zhang and C. Sturton, “Transys: Leveraging Common Security Properties Across Hardware Designs,” in 2020 IEEE Symposium on Security and Privacy (SP) . San Francisco, CA, USA: IEEE, May 2020, pp. 1713–1727. [Online]. Available: https://ieeexplore.ieee.org/ document/9152775/ [34] M. Ammann, L. Hirschi, and S. Kremer, “DY Fuzzing: Formal Dolev-Yao Models Meet Cryptographic Protocol Fuzz Testing,” in 2024 IEEE Symposium on Security and Privacy (SP) , May 2024, pp. 1481–1499, iSSN: 2375-1207. [Online]. Available: https: //ieeexplore.ieee.org/document/10646658/ [35] K. Laeufer, J. Koenig, D. Kim, J. Bachrach, and K. Sen, “RFUZZ: Coverage-Directed Fuzz Testing of RTL on FPGAs,” in 2018 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) , Nov. 2018, pp. 1–8, iSSN: 1558-2434. [Online]. Available: https://ieeexplore.ieee.org/document/8587711/ [36] V. Liagkou, E. Filiopoulou, G. Fragiadakis, M. Nikolaidou, and C. Michalakelis, “The cost perspective of adopting Large Language Model-as-a-Service,” in 2024 IEEE International Conference on Joint Cloud Computing (JCC) , Jul. 2024, pp. 80–83. [Online]. Available: https://ieeexplore.ieee.org/document/10685415/ [37] W. Snyder, P. Wasson, D. Galbi, and et al, “Verilator.” [Online]. Available: https://github.com/verilator/verilator [38] B. Ahmad, S. Thakur, B. Tan, R. Karri, and H. Pearce, “On Hardware Security Bug Code Fixes by Prompting Large Language Models,” 
+
+IEEE Transactions on Information Forensics and Security , vol. 19, pp. 4043–4057, 2024. [Online]. Available: https://ieeexplore.ieee.org/ document/10462177/ [39] “Verible,” https://github.com/chipsalliance/verible, 2025. [40] W.-K. Liu, B. Tan, and K. Chakrabarty, “Identifying System-on-Chip Security Assets with Structure-Based Analysis,” in 2025 62nd ACM/IEEE Design Automation Conference (DAC) , Jun. 2025, pp. 1–7. [Online]. Available: https://ieeexplore.ieee.org/document/11133104/ [41] A. Ayalasomayajula, N. Farzana Dipu, M. M. Tehranipoor, and F. Farahmandi, “Automatic Asset Identification for Assertion-Based SoC Security Verification,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 43, no. 10, pp. 3264–3277, Oct. 2024. [Online]. Available: https://ieeexplore.ieee.org/ document/10497111/ [42] S. K. Deb Nath and B. Tan, “Toward Automated Potential Primary Asset Identification in Verilog Designs,” in 2025 26th International Symposium on Quality Electronic Design (ISQED) ,Apr. 2025, pp. 1–7, iSSN: 1948-3295. [Online]. Available: https: //ieeexplore.ieee.org/document/11014404/ [43] “HACK-EVENT/hackatdac21,” apr 2024, original-date: 2023-07-15T20:58:02Z. [Online]. Available: https://github.com/HACK-EVENT/ hackatdac21 [44] M. B¨ olcskei, F. Solt, K. Ceesay-Seitz, and K. Razavi, “Encarsia: Evaluating CPU Fuzzers via Automatic Bug Injection,” 2025, pp. 2577–2593. [Online]. Available: https://www.usenix.org/conference/ usenixsecurity25/presentation/bolcskei [45] “Trust-Hub.org.” [Online]. Available: https://trust-hub.org/#/home [46] M. Cai, A. Cui, and Y. Jin, “SecRiSBen: A RISC-V based SoC Benchmark for Evaluation of Security Verification Tools,” in 2024 Asian Hardware Oriented Security and Trust Symposium (AsianHOST) , Dec. 2024, pp. 1–6. [Online]. Available: https: //ieeexplore.ieee.org/document/10838476/ [47] “HACK-EVENT/hackatdac18,” apr 2025, original-date: 2023-07-15T20:58:02Z. [Online]. Available: https://github.com/HACK-EVENT/ hackatdac18 [48] “HACK-EVENT/hackatdac19,” apr 2025, original-date: 2023-07-15T20:58:02Z. [Online]. Available: https://github.com/HACK-EVENT/ hackatdac19 [49] M. A. Hasan, D. Saha, K. T. Hasan, N. Alam, A. Uddin, S. K. Saha, M. Tehranipoor, and F. Farahmandi, “LAsset: An LLM-assisted Security Asset Identification Framework for System-on-Chip (SoC) Verification,” 2026, version Number: 2. [Online]. Available: https://arxiv.org/abs/2601.02624 [50] M. Rostami, C. Chen, R. Kande, H. Li, J. Rajendran, and A.-R. Sadeghi, “Fuzzerfly Effect: Hardware Fuzzing for Memory Safety,” 
+
+IEEE Security & Privacy , vol. 22, no. 4, pp. 76–86, Jul. 2024. [Online]. Available: https://ieeexplore.ieee.org/document/10462151/
