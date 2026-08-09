@@ -1,0 +1,735 @@
+Title: Forbench: Symbolic Simulation Helps Make Your Testbench More Formal
+
+URL Source: https://arxiv.org/pdf/2608.01045v1
+
+Published Time: Tue, 04 Aug 2026 01:08:40 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# Forbench : Symbolic Simulation Helps Make Your Testbench More Formal 
+
+Ziyi Yang* 1, Wenbin Che* 1, Ziyue Zheng 1, Guangyu Hu 2, Hongce Zhang 1,2,† 1The Hong Kong University of Science and Technology (Guangzhou) 
+
+> 2
+
+The Hong Kong University of Science and Technology {zyang957, wche691, zzheng989}@connect.hkust-gz.edu.cn, ghuae@connect.ust.hk, hongcezh@hkust-gz.edu.cn 
+
+Abstract 
+
+Simulation remains the dominant approach in pre-silicon verifi-cation due to its ease of deployment and intuitive workflow. How-ever, as simulation only explores a limited subset of possible execu-tion traces within feasible time budgets, it often fails to explore rare corner cases, leaving latent bugs undetected. In contrast, formal ver-ification offers mathematically rigorous guarantees of correctness. However, its practical adoption is constrained, not only by the scal-ability challenges over large-scale designs, but also by the change of mindset from stimulus-driven operations to the sequence-centric axiomatic view of design behaviors, introducing extra difficulty of writing precise properties to capture the exact verification intent. This paper aims to lower the barrier of applying formal methods in verification, by making simulation “more formal.” It introduces 
+
+Forbench , a word-level symbolic simulation framework that re-tains the familiar execution semantics of simulation but augments it with solver-backed symbolic signals and state transitions, enabling systematic exploration of RTL behaviors under symbolic inputs and conditions. It offers a Python interface, similar to the existing simulation-based frameworks, for defining constraints, coordinat-ing symbolic (co-)simulations, and performing property checks. In additional to this more accessible interface, experiments also show that Forbench achieves notably speed-up over prior symbolic methods without the loss of coverage. 
+
+Keywords 
+
+Formal verification, symbolic simulation, coroutine-based testbench 
+
+ACM Reference Format: 
+
+Ziyi Yang, Wenbin Che, Ziyue Zheng, Guangyu Hu, and Hongce Zhang. 2026. Forbench : Symbolic Simulation Helps Make Your Testbench More Formal. In IEEE/ACM International Conference on Computer-Aided Design (ICCAD ’26), November 08–12, 2026, San Jose, CA, USA. ACM, New York, NY, USA, 9 pages. https://doi.org/10.1145/3831252.3834108 
+
+1 Introduction 
+
+Functional verification is fundamental to ensuring design cor-rectness. As design scales continue to grow, the engineering effort of verification has also been rising accordingly, demanding longer 
+
+> *These authors contributed equally. †Corresponding author.
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> ICCAD ’26, San Jose, CA, USA
+> © 2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2873-0/2026/11 https://doi.org/10.1145/3831252.3834108
+
+Table 1: Comparison of different verification methodolo-gies. Forbench strikes a balance between formal methods and simulation-based approaches. Simulation 
+
+[3–6] 
+
+FPV ‡
+
+[7–9] 
+
+Forbench (Ours) Expertise Low High Medium Artifact Testbench Assertions Testbench Stimulus setup Concrete Not needed Symbolic Runtime Low ♦ High Tunable 
+
+Execution model Operational Axiomatic Operational Coverage Limited High High   
+
+> ‡FPV: Formal Property Verification.
+> ♦Low runtime for a single concrete run; high time to achieve high coverage.
+
+development cycles and substantial human resources—often rival-ing or even exceeding those devoted to the design process itself [1]. Consequently, verification has become a primary bottleneck in the development flow [2], underscoring the urgent need for method-ologies that reduce manual effort, enhance coverage, and deliver stronger guarantees of correctness under constrained time and resource budgets. Simulation-based verification remains the dominant industrial practice, valued for its intuitive operational execution model and low expertise requirement. Engineers construct executable test-benches that generate concrete stimuli, observe responses, and compare them against expected behaviors. Recent advances, such as coverage-guided and constraint-random testing [4–6], have im-proved coverage by automating and directing stimulus generation, yet these methods fundamentally explore only a fraction of the in-put space. Each test run exercises a single execution trace, offering limited confidence rather than guarantees of correctness. While simulation offers rapid feedback and scalability, its limited coverage leaves subtle corner cases unchecked, which may later manifest as a costly bug escape. By contrast, formal property verification (FPV) seeks exhaustive assurance . It describes verification intent using property specifi-cation languages, such as SystemVerilog Assertions (SVAs), and employs model checking [10–14] to mathematically prove or refute the properties. Unlike simulation, FPV does not require engineers to manually construct stimulus sequences, as the solver implicitly explores all admissible input behaviors, thereby reducing the risk of untested scenarios. Despite these advantages, adopting FPV in practice demands substantial expertise and a shift in verification mindset. Engineers must move from procedural, stimulus-driven thinking to an ax-iomatic, property-centric view of system behavior. This transition entails not only the knowledge of formal methods, but also the arXiv:2608.01045v1 [cs.AR] 2 Aug 2026 ICCAD ’26, November 08–12, 2026, San Jose, CA, USA Yang et al. 
+
+fluency in assertion semantics. Being axiomatic, SVA is generally more difficult to express procedural behaviors, such as the transac-tions needed to interact with the design under verification, and it is difficult to compose complex properties from simpler ones. There-fore, crafting precise SVAs that faithfully capture verification intent remains a nontrivial task (an example is given in Section 2). More-over, when properties remain inconclusive after hours of runtime, it lacks a straightforward mechanism to control the trade-off between computational complexity and design coverage. Altogether, these challenges call for a better interface to integrate formal techniques in functional verification. As an effort to make formal verification more accessible, this paper introduces Forbench , a formal testbench paradigm that of-fers a third path between simulation and FPV as shown by the comparison in Table 1. Forbench has the following key features: 
+
+• It blurs the boundary between the two existing methodolo-gies as it preserves the operational mindset, using testbench structure familiar to simulation engineers, while incorpo-rating symbolic reasoning to achieve deeper and more sys-tematic coverage. This unique feature enables engineers to express verification intent in a more natural and procedural style while still enjoying the benefit of formal reasoning. 
+
+• Furthermore, the degree of symbolic exploration is easily tunable via choices of being concrete or symbolic for each in-dividual value in the stimuli, allowing adjusting verification hardness with minimal effort. 
+
+• To further improve usability, Forbench provides a Python interface and supports two complementary testbench styles (active-stepping and coroutine-based), making it readily adapt-able to different verification tasks and user preferences. By integrating these capabilities, Forbench leverages the strengths of both simulation and formal methods, paving the way toward more scalable and accessible formal reasoning in industrial hard-ware verification. The rest of the paper is organized as follows. Section 2 presents an example that illustrates the hurdle of property specification in the current FPV methodology. Section 3 discusses the limitation of other formal/semi-formal symbolic methods, motivating the need for Forbench . Section 4 introduces the idea of formal testbenches and the core technologies that enable Forbench . Section 5 evaluates the performance of Forbench symbolic simulation against other verification methodologies. Finally, Section 6 concludes the paper. 
+
+2 Challenges of Property Specification: A Motivating Example 
+
+In this section, we use the formal property verification of a mul-tiplier as a motivating example. The interface of the multiplier is illustrated in Fig. 1(a). The design accepts inputs a (multiplicand) and b (multiplier), and produces the output result . A control sig-nal start indicates the initiation of computation: when asserted, the module samples the values of a and b in the same cycle and begins execution. Upon completion, the signal valid is asserted, indicating that result holds the final multiplication outcome. The computation latency ranges from 1 to 8 cycles, and the intended input/output interaction is depicted in Fig. 1(b). aresult valid b Module Mult        
+
+> (a) Multiplier Interface (b) Intended Waveform
+> start clk property p_mul_end_to_end; logic [7:0] a0; logic [2:0] b0; (start, a0 = a, b0 = b)
+> |-> ## [ 1:8] (valid &&" (result ==" (a0 * b0))); endproperty
+> clk start valid abresult
+> Formulation
+> (c) Property Formulation (d) Erroneous Trace Allowed by the Property
+> Because it allows such bad sequences: No!
+> clk start valid result
+> Is this property good for verification?
+
+Figure 1: A motivating example showing how the intuitive SVA formulations may fail to precisely capture the verifica-tion intent. (a) and (b) illustrate the intended interface and the expected correct behavior. (c) shows a natural property formulation for checking this intent. However, as illustrated in (d), this formulation may still accept an erroneous trace. 
+
+To verify the multiplier follows the intended behavior using formal property verification, one may naturally construct a property such as the one shown in Fig. 1(c). This property introduces local variables a0 and b0 to capture the input operands when start is asserted. The expectation is that, once computation is triggered, the signal valid will be asserted together with the correct result within 1 to 8 cycles. This intent is encoded using the implication operator |-> and the bounded delay ##[1:8] .However, this seemingly reasonable property is flawed in prac-tice. In particular, it admits erroneous behaviors such as the trace shown in Fig. 1(d), where valid is asserted one cycle earlier than the correct result is produced. Despite this mismatch, the property still passes: the temporal expression |-> ##[1:8] only requires that there exists at least one cycle within the specified window where both valid and the correct result coincide. As a conse-quence, premature presence of valid is not ruled out, as long as a correct pairing later occurs. This is problematic in realistic when downstream modules consume result immediately upon observ-ing valid , thereby propagating incorrect data. Notably, replacing the conjunction && (marked in red in the figure) with an implica-tion |-> does not resolve this issue, as the underlying temporal permissiveness remains unchanged. The situation could become even more complicated when one needs to incorporate additional protocol constraints. For exam-ple, if we wish to also enforce that start must not be re-asserted while a computation is already in progress when the I/O proto-col of this module does not allow overlapping execution intervals. This typically requires intricate sequence constructions involving overlap control and likely also repetition operators. Thus, the user of SVA must carefully navigate subtle semantic distinctions, such as within vs. throughout , until vs. until_with , as well as the 
+
+three different types of repetition in SVA. These subtleties signif-icantly increase the difficulty level for a verification engineer to write correct and precise property specifications. More broadly, as verification scenarios grow in complexity, SVA provides limited support for hierarchical construction. In contrast to simulation-based verification, where complex operations can be composed from simpler tasks and functions in a modular and Forbench : Symbolic Simulation Helps Make Your Testbench More Formal ICCAD ’26, November 08–12, 2026, San Jose, CA, USA @register_task                
+
+> def run1(sim, dut):
+> dut.a.value = 'a0'
+> dut.b.value = 'b0'
+> dut.start.value = 1
+> sim.wait_cond(dut.valid.value == 1)
+> sim.check_assertion(
+> dut.result.value ==
+> zero_extend(sim.get_var('a0'),3)
+> *zero_extend(sim.get_var('b0'),8)
+> )
+> dut = Dut('mul.btor2')
+> sim = async_simulator(dut)
+> dut.set_init()
+> run1(sim, dut)
+> start_loop(sim, dut, 100)
+> module multiplier(
+> input clk,
+> input [7:0] a,
+> input [2:0] b,
+> input start,
+> output valid,
+> output reg [10:0] result
+> );
+> reg [7:0] rega;
+> reg [2:0] regb;
+> initial regb = 0;
+> assign valid = (regb == 0);
+> always @(posedge clk) begin
+> if(start &= valid) begin
+> rega <= a;
+> regb <= b;
+> result <= 0;
+> end
+> else if (!valid) begin
+> result <= result + rega;
+> regb <= regb - 1;
+> end
+> end
+> endmodule
+
+Forbench                 
+
+> Cycle
+> 1
+> 2
+> 3
+> 4
+> False
+> True
+> Init
+> F
+> F
+> T
+> ❋When we get to a state , check formula ➊𝐸 & 𝛷 and ➋¬𝐸 & 𝛷
+> where 𝐸 is the condition expression, 𝛷 represents the conjunction
+> of all accumulated path constraints.
+> If both formulas are satisfiable, create two branches: (i) a valid= True path that validates the current-cycle result (ii) a valid= False path that steps the system by one cycle and
+> re-waits condition
+> T
+> T
+
+ⓑ Coroutine-based Testbench ⓐ Active-Stepping Testbench        
+
+> module adder(
+> input clk,
+> input [3:0] a,
+> input [3:0] b,
+> output [4:0] out
+> );
+> reg [3:0] rega;
+> reg [4:0] rego;
+> always @(posedge clk)
+> begin
+> rega <= a;
+> rego <= rega + b;
+> end
+> assign out = rego;
+> endmodule
+> # Create a DUT
+> dut = DUT('adder.btor2’)
+> # Establish state variables
+> dut.set_init()
+> # Set symbolic value
+> dut.a.value = "a"
+> # Read symbolic value “a”
+> a = dut.a.value
+> # Simulation one cycle
+> dut.step()
+> dut.b.value = "b"
+> b = dut.b.value
+> dut.step()
+> out = dut.out.value
+> # Assertion check
+> dut.check_assertion(
+> out == zero_extend(a, 1)
+> + zero_extend(b, 1)
+> )
+
+Forbench RTL Code Example 
+
+> In active-stepping testbench, symbolic ‘a’,‘b’ induce a symbolic ‘out’ = a + b. Encode the design and its specification into SMT formulas. Functional correctness
+> is proved for all inputs.
+
+E 
+
+> ❋
+> Wait condition
+> Check assertion
+> Details
+> Canonical model
+> Function run1 :
+> create the coroutine
+
+RTL Code Example 
+
+Figure 2: A demonstration of the Forbench verification methodology and the two testbench styles. Example a ○ on the left uses the active-stepping style, which explicitly invokes “ dut.step() ” to advance to the next clock cycle. Example b ○ on the right is coroutine-based, which allows concurrently interfacing with multiple DUT interfaces via separate coroutines. 
+
+reusable manner, in SVA sequence composition is less intuitive. Mi-nor mistakes when handling sequences with potential overlaps can easily introduce vacuous satisfaction or over-/under-constrained conditions, and in the worse case lead to false passes and bug es-capes. As a result, even for a simple design such as the multiplier in this example, writing correct and robust properties can be challenging. This motivates the need of a different verification interface to lower the barrier of applying formal methods in functional verification. 
+
+3 Related Work: Existing Symbolic Methods 
+
+In response to the property specification and scalability chal-lenges of FPV, several other symbolic techniques have been pro-posed to support formal or semi-formal verification of RTL designs. 
+
+3.1 Symbolic Execution 
+
+Symbolic execution [15, 16] is a program analysis technique that treats inputs as symbolic values and explores program behav-iors across multiple execution paths. While it shares the idea of reasoning over symbolic variables, symbolic execution differs fun-damentally from symbolic simulation : the former forks execution when encountering conditional branches in the design, whereas the latter maintains a unified symbolic expression that encodes all possible outcomes of those conditions. For example, when an if 
+
+statement appears in the program, symbolic execution would create two separate paths to explore the corresponding execution flows, while symbolic simulation represents both possibilities within a single symbolic expression, encoded using, for example, the ITE -operator in Satisfiability Modulo Theories (SMT) [17]. Therefore, symbolic simulation is less prone to the so-called “path explosion” problem [15]. Currently, there is no ready-to-use symbolic execution frame-work that operates directly on RTL. Prior work such as [18] instead translates Verilog RTL into C/C++ models using Verilator [19], and then applies a software symbolic execution engine such as KLEE [20]. This approach has several drawbacks. First, it must bridge the semantic gap between hardware and software execution models, which weakens the correspondence between the original RTL description and the generated software model. Therefore, ad-ditional processing is often required to map RTL testbenches to software code and map software-level counterexamples back to the RTL model. Second, the workflow typically involves multiple tools across both hardware and software and lacks a streamlined verification environment familiar to hardware developers. Third, the path-exploration strategy of symbolic execution can suffer from severe path explosion when applied to complex RTL designs. 
+
+3.2 Symbolic Trajectory Evaluation 
+
+Symbolic trajectory evaluation (STE) [21] can be regarded as a form of symbolic simulation, which has been used in the verification of modern processors [22]. Classical STE performs formal reasoning mainly using Binary Decision Diagrams (BDDs), which could scale poorly for datapath-heavy designs due to variable-ordering sensi-tivity and exponential blow-ups. Moreover, STE requires the user to be fluent in a domain-specific functional programming language (fl ) that could impose a steep learning curve (we argue that today even a notable number of software developers are unfamiliar with functional programming languages, let alone hardware developers), therefore lacking the support for constructing symbolic testbenches in a natural and procedural manner. Apart from the user interface, advanced capabilities such as GSTE [23] are not openly available in VossII (the open-source STE implementation) [24], therefore, further limiting its practical adoption. These limitations motivate an alternative symbolic simulation framework. In this paper, we present Forbench , which adopts an SMT-based symbolic simulation approach to improve scalability, particularly for datapath-heavy designs. Furthermore, Forbench 
+
+provides a high-level Python interface that enables users to con-struct symbolic testbenches in a familiar procedural style, aligning more naturally with existing simulation-based verification prac-tices. We expect Forbench to improve both human productivity in setting up verification tasks and also the solving efficiency during the verification process. ICCAD ’26, November 08–12, 2026, San Jose, CA, USA Yang et al. 
+
+4 The Forbench Methodology 
+
+In this paper, we use Forbench to interchangeably refer to (1) the verification methodology involving a Python symbolic testbench and (2) the underlying framework that supports this methodology when the context is clear. Section 4.1 will introduce the overall symbolic testbench paradigm in Forbench . Sections 4.2, 4.3, and 4.4 then describe the theoretical foundations and internal implementa-tion of Forbench , followed by discussions of its applications and usage scenarios in Section 4.5. 
+
+4.1 The Symbolic Testbench 
+
+Forbench aims to mimic the setup of simulation-based verifi-cation while offering symbolic reasoning capabilities. In concrete RTL simulation, there already exist such two styles: active-stepping testbench and coroutine-based testbench. In the former case, the verification engineer writes a testbench with a single execution flow and the DUT must be explicitly driven by the clock-tick operation in the testbench. This is the case, for example, in the simulation framework Picker [25], which also supports free usage of different programming languages to write the testbench. On the other hand, the coroutine-based simulation framework (such as cocotb [26]) takes a different approach. It mimics the concurrency model of Ver-ilog, which allows concurrent execution of multiple blocks. This is usually more favorable when the user needs to work with multiple DUT interfaces, where the handling of these different interfaces could be coded separately, as if they are put in individual “always” blocks in Verilog. In this case, it relies on the simulator to schedule and interleave the operations in different blocks. As a symbolic simulation framework, Forbench supports both 
+
+styles, as demonstrated by the examples in Fig. 2. On the left, Ex-ample a ○ shows the verification of a fixed-latency registered adder using the active-stepping style. Note that the testbench explicitly in-vokes “ dut.step() ” to advance to the next clock cycle. Here, the usage of symbolic value “a” and “b” enables full-coverage verification of the DUT functionality without exhaustive enumeration of concrete values. Example b ○ on the right showcases a coroutine-based test-bench verifying a multiplier implemented using iterative additions. Note that the latency of this DUT depends on the input value range and the Forbench testbench uses “ wait_cond ” to achieve— in the context of symbolic simulation —the effect of “ @(posedge dut.valid) ”in a concrete Verilog simulation, which waits for the “valid” signal to rise. As symbolic simulation allows all possible input ranges, at a certain cycle, this signal may or may not evaluate to logic true. Therefore, “ wait_cond ” involves forking the current coroutine to account for the situations of different latencies. More detailed explanations of the Python APIs underlying these two testbench styles are provided in what follows. 
+
+4.1.1 Active-stepping testbench . Forbench provides a set of Python API that follows the traditional active-stepping simulation workflows while adding solver-backed symbolic simulation and property checking functionalities, including: 
+
+Initialization. DUT can be initialized either by the reset condition coded in the Verilog (using “ set_init ”) or by a pure symbolic starting state (using “ free_init ”). In the latter case, all state variables in DUT are treated as free symbolic values. This allows the user to parameter  N = 4;                                                                                                                                                                                                                                                                                                                                                                                 
+
+> reg [7:0]vec [0:N-1];
+> // Concrete test stream
+> initial begin
+> vec [0]=8'h 11 ;vec [1]=8'h 22 ;
+> vec [2]=8'h 33 ;vec [3]=8'h 44 ;
+> in_idx =0;in_valid =0;
+> out_idx =0;
+> end
+> // Stream -in driver
+> always @(posedge clk )
+> if (in_idx <N) begin
+> send_byte (vec [in_idx ]) ;
+> in_idx <= in_idx +1;
+> end
+> // Stream -out monitor
+> always @( posedge clk )
+> if (out_valid )begin
+> recv_check (out_idx ,out_data );
+> out_idx <= out_idx +1;
+> end
+> pair_swapper dut (/* ... */) ;// Instantiate DUT
+> always #5clk =~clk ;// Gen clk
+> // -----------------------------
+> // Within testbench
+> task recv_check ;
+> input [31 :0]idx ;
+> input [7:0]d;
+> begin
+> case (idx )
+> // Pair -swap expectation
+> 0:if (d !== vec [1]) $display("mismatch") ;
+> 1:if (d !== vec [0]) $display("mismatch") ;
+> 2:if (d !== vec [3]) $display("mismatch") ;
+> 3:if (d !== vec [2]) $display("mismatch") ;
+> endcase
+> end
+> endtask
+> task send_byte ;
+> ... // omitted
+> endtask
+> ...
+> N=4
+> #Shared queue of expected outputs
+> expect_q =[0]*N
+> @register_task
+> def stream_in (sim ,dut ):
+> for iin range(N) :
+> data =sim .new_var (f'data {i}', 8)
+> #Drive symbolic input stream
+> send_byte (sim ,dut ,data)
+> #Pair -swap expectation
+> if i%2== 0:
+> expect_q [i+ 1]=data
+> else :
+> expect_q [i -1]=data
+> #Wait for the next cycle, yield to
+> #other coroutines before stepping
+> sim .wait_cycle ()
+> #turn off input valid signal
+> dut .in_valid .value =0
+> @register_task
+> def stream_out (sim ,dut ):
+> for iin range(N) :
+> #Output overlaps with input sending
+> sim .wait_cond (\
+> dut .out_valid .value == 1)
+> recv_check (sim ,dut ,expect_q [i])
+> sim .wait_cycle ()
+> dut =Dut(' pair_swapper .btor 2') #Create DUT
+> sim =async_simulator (dut )
+> dut .set_init () #Init DUT
+> stream_in (sim ,dut )#Invoke registered task
+> stream_out (sim ,dut )#Invoke registered task
+> start_loop (sim ,dut ,30 )#Run 30 cycles
+> #-----------------------
+> #Stream helper functions
+> def recv_check (sim ,dut ,exp) :
+> sim .check_assertion (\
+> dut .out_data .value == exp)
+> def send_byte (sim ,dut ,data) :
+> ... #omitted
+> ...
+> < / > Testbench Forbench
+
+Figure 3: An example demonstrating verification of a stream-ing DUT with overlapped input/output sequences using ei-ther a traditional simulation testbench (left) or the symbolic testbench in Forbench (right). The two share a similar struc-ture, with separate driver and monitor components and cor-responding helper routines. In contrast to the significant structural gap between simulation and FPV assertions, Note how Forbench preserves the familiar testbench organization while enabling symbolic inputs (e.g., data0 created using 
+
+sim.new_var ) and assertion-based checking. 
+
+start the verification from an arbitrary intermediate state, which is desirable in modular inductive verification. In either case, the functions “ set_init ” and “ free_init ” also take an optional variable map as the argument to override the default variable assignment. 
+
+Simulation control. The simulation advances in a cycle-accurate manner via the “ step ” function, which provides fine-grained control over the application of stimuli at each cycle, where signal values can be accessed or modified using the form of dut.signal.value .
+
+Property checking. The users are free to take the value of sig-nals in each cycle and construct logic formulas based these sym-bolic values. The “ check_assertion ” function facilitates the verifica-tion of user-specified properties through SMT solving. For asser-tions embedded in the RTL design, “ check_prop ” can be used for a bounded verification of these properties. There is another function “set_constraint ” that allows users to impose assumptions on both input and state variables. These constraints can define fixed values, ranges, or complex symbolic relations, which restrict the state space and focus the analysis on expected behaviors. 
+
+4.1.2 Coroutine-based testbench . Traditional hardware veri-fication often relies on Verilog testbenches, where concurrency is achieved through parallel “ initial ” and “ always ” blocks. How-ever, these testbenches are typically limited to simulating concrete, user-specified stimuli. While modern Python-based frameworks Forbench : Symbolic Simulation Helps Make Your Testbench More Formal ICCAD ’26, November 08–12, 2026, San Jose, CA, USA 
+
+like cocotb [26] introduce coroutines to manage concurrent tasks, they still operate on a single, concrete execution trace at a time. In Forbench , we extend the idea of coroutine-based testbench to symbolic simulation. Our framework supports concurrent execu-tion semantics similar to those in Verilog. As shown by Fig. 2 b ○, a Python function can be registered as a coroutine through the “ @reg-ister_task ” decorator. Within a testbench, there could be multiple coroutines. When the processing for a certain clock cycle has fin-ished, a coroutine could use “ wait_cond ,” “ wait_cycle ,” or “ wait_task ”to yield its execution to other coroutines that are still runnable within the same clock cycle. Specifically, the “ wait_cond ” pauses the execution of current coroutine to wait for a certain condition. In the example of Fig. 2 b ○,the coroutine waits for the condition (“ dut.valid.value == 1 ”) to be met. Forbench formally checks the satisfiability of that condition under the current path constraints. When the condition involves symbolic variables, both cases (the condition being met vs. unmet) could be possible, prompting the simulator to fork the execution into two coroutines, exploring both possibilities. In the given example, this creates a “True” path where the next assertion is checked im-mediately, and a “False” path where the clock steps forward and the condition will be re-evaluated in subsequent cycles. Regarding other functions, “ wait_cycle ” pauses the current coroutine to wait for the simulation to advance by a specified number of cycles. While one is waiting for the next cycle, others can proceed with their operations in the current cycle, ensuring proper interleaving of the testbench code among concurrent tasks. Finally, the “ wait_task ” function is for synchronization, directing one coroutine to pause until another completes, managing dependencies among multiple tasks. The coordination among coroutines makes it very handy to work with overlapped I/O sequences on the DUT interface. Imagine that we are going to verify a DUT with a streaming I/O. As the whole input data stream is still sending in, some early output data may already start to stream out. If engineers use the active-stepping testbench with only a single point of execution, they would need to mix up the send-in and send-out processing code with the DUT stepping function, which results in messy code and is generally hard to maintain. Using coroutine-based testbench, the stream-in driver and the stream-out monitor could reside in separate corou-tines, and with Forbench , the user can still enjoy the benefit of being symbolic, as shown by the code snippet in Fig. 3. This also addresses hurdle of dealing with those complex sequence-overlap problems in SVA composition when using FPV. 
+
+4.2 Symbolic States and Symbolic Simulation 
+
+This subsection presents the formulation and the algorithms of symbolic simulation in Forbench . We model RTL as a state transi-tion system T S = (V 𝑠 , V𝑖 , I, T ) , where V𝑠 and V𝑖 represent the sets of state and input variables, respectively. I specifies the initial conditions, and T defines the state transition relation. At the core of our methodology is a symbolic simulation engine that explores the state space of T S . The engine maintains a set of active symbolic states, Sactive , where each state 𝑆 𝑡 at cycle 𝑡 is repre-sented by a tuple (M 𝑡 𝑠 , Φ𝑡 , X𝑡 ). M𝑠 maps each state variable 𝑣 ∈ V 𝑠 
+
+to its symbolic expression and it gets updated per cycle to reflect sys-tem transitions. Φ is a set of symbolic formulas encoding constraints 
+
+Algorithm 1 : Symbolic Simulation in Forbench 
+
+Input: Transition system T S = (V 𝑠 , V𝑖 , I, T ) , max cycle 𝑡 𝑚𝑎𝑥 
+
+Output: Property verification result: {Safe , Unsafe } 
+
+> 1:
+
+Step1: construct the initial symbolic state  
+
+> 2:
+
+M0 
+
+> 𝑠
+
+← { 𝑣 ↦ → init 𝑣 | ∀ 𝑣 ∈ V 𝑠 } ⊲ initial state variable map  
+
+> 3:
+
+Sactive ← {(M 0 
+
+> 𝑠
+
+, Φ0, X0)} ⊲ initial symbolic state set  
+
+> 4:
+
+Step2: clock stepping  
+
+> 5:
+
+for each 𝑆 𝑡 = (M 𝑡 𝑠 , Φ𝑡 , X𝑡 ) ∈ Sactive do  
+
+> 6:
+
+if 𝑡 > 𝑡 𝑚𝑎𝑥 then break  
+
+> 7:
+
+if CheckAssertion (𝑆 𝑡 ) is Sat then  
+
+> 8:
+
+return Unsafe ⊲ Early stop when assertion violated  
+
+> 9:
+
+end if  
+
+> 10:
+
+Sactive ← Sactive ∪ { CheckBranch (𝑆 𝑡 )} ⊲ in Algorithm 2  
+
+> 11:
+
+M𝑡  
+
+> spec
+
+← GetSpecInput (𝑡 ) ⊲ specified input-value map  
+
+> 12:
+
+𝑈 𝑡 𝑖 ← V 𝑖 \ domain (M 𝑡 
+
+> spec
+
+) ⊲ unspecified inputs  
+
+> 13:
+
+Xnew ← Create (𝑈 𝑡 𝑖 ) ⊲ create X-variables  
+
+> 14:
+
+X𝑡 +1 ← X 𝑡 ∪ X new  
+
+> 15:
+
+M𝑡 𝑖 ← M 𝑡  
+
+> spec
+
+∪ { 𝑣 ↦ → X 𝑣 | 𝑣 ∈ 𝑈 𝑡 𝑖 , X𝑣 ∈ X new } 
+
+> 16:
+
+M𝑡 +1 
+
+> 𝑠
+
+← { 𝑣 ↦ → T (M 𝑡 𝑠 , M𝑡 𝑖 ) | 𝑣 ∈ V 𝑠 } 
+
+> 17:
+
+𝑆 𝑡 +1 ← (M 𝑡 +1 
+
+> 𝑠
+
+, Φ𝑡 +1, X𝑡 +1) ⊲ execute one step  
+
+> 18:
+
+S𝑎𝑐𝑡𝑖𝑣𝑒 ← S𝑎𝑐𝑡𝑖𝑣𝑒 ∪ { 𝑆 𝑡 +1 } 
+
+> 19:
+
+end for  
+
+> 20:
+
+return Safe ⊲ safe uptill the explored cycles on the symbolic state, which include for example, user-specified assumptions and path constraints, where the latter accumulates path conditions associated with branching in the testbench. X is a set of symbolic variables for unspecified input assignment or state variables with unspecified initial values. Forbench precisely pre-serves the relational information among these unspecified values. The handling of these values follows the approach introduced in the WASIM symbolic simulation framework [8]. As an example, for an expression out = a+b , where a is unspecified and b is assigned to be 1, it would be represented as X+1 , rather than a generic unknown value X (here X is created as an element of X). Symbolic simulation begins by constructing an initial symbolic state 𝑆 0 : (M 0 
+
+> 𝑠
+
+, Φ0, X0) based on I which is added to Sactive (Lines 2-3 in Algorithm 1). The engine then iteratively processes each state 
+
+𝑆 𝑡 from the active set (Line 5). Within each iteration, assertions are checked only when they are requested by the testbench in the cur-rent clock cycle (Lines 7-9), and potential forks are considered when a “ wait_condition ” is presented in the testbench (Line 10). Finally, it computes the next symbolic state 𝑆 𝑡 +1 by applying the transition relations T and adds it to the active set for exploration in the next cycle (Lines 11-18). For those input variables without specified as-signments in the testbench, they will be mapped to fresh X-variables to capture all possible stimuli. As long as there are no counterex-ample encountered, this iterative process will continue, until there are no more clock stepping commands (for the active-stepping test-bench) or when all coroutines terminate (for the coroutine-based testbench). A maximum clock cycle count 𝑡 𝑚𝑎𝑥 can be provided to bound the symbolic simulation, ensuring termination. To account for the escalating complexity of symbolic expressions during symbolic simulation, we employ a set of techniques for ex-pression simplification. First, independence and constant analyses identify X-variables that are irrelevant to current transitions and ICCAD ’26, November 08–12, 2026, San Jose, CA, USA Yang et al. 
+
+Algorithm 2 : CheckBranch Subprocedure 
+
+Input: Symbolic state 𝑆 𝑡  
+
+> 1
+
+= (M 𝑡 𝑠 , Φ𝑡 , X𝑡 )
+
+Output: At most two symbolic states, denoted as 𝑆 𝑡  
+
+> 1
+
+and 𝑆 𝑡 
+
+> 2
+
+. 
+
+> 1:
+
+if current task waits on condition 𝐸 then  
+
+> 2:
+
+𝑅 𝑡𝑟𝑢𝑒 = CheckSat( Φ𝑡 ∧ 𝐸 ) 
+
+> 3:
+
+𝑅 𝑓 𝑎𝑙𝑠𝑒 = CheckSat( Φ𝑡 ∧ ¬ 𝐸 ) 
+
+> 4:
+
+if 𝑅 𝑓 𝑎𝑙𝑠𝑒 is Sat, 𝑅 𝑡𝑟𝑢𝑒 is Unsat then  
+
+> 5:
+
+𝑆 𝑡  
+
+> 1
+
+.Φ𝑡 ← Φ𝑡 ∪ {¬ 𝐸 } ⊲ accumulate path condition  
+
+> 6:
+
+return 𝑆 𝑡  
+
+> 1
+> 7:
+
+else if 𝑅 𝑡𝑟𝑢𝑒 is Sat, 𝑅 𝑓 𝑎𝑙𝑠𝑒 is Unsat then  
+
+> 8:
+
+𝑆 𝑡  
+
+> 1
+
+.Φ𝑡 ← Φ𝑡 ∪ { 𝐸 } ⊲ accumulate path condition  
+
+> 9:
+
+return 𝑆 𝑡  
+
+> 1
+> 10:
+
+else if both 𝑅 𝑡𝑟𝑢𝑒 , 𝑅 𝑓 𝑎𝑙𝑠𝑒 are Sat then  
+
+> 11:
+
+𝑆 𝑡  
+
+> 2
+
+← Clone (𝑆 𝑡 
+
+> 1
+
+) ⊲ clone the symbolic state  
+
+> 12:
+
+𝑆 𝑡  
+
+> 1
+
+.Φ𝑡 ← Φ𝑡 ∪ {¬ 𝐸 } ⊲ accumulate condition for 𝑆 𝑡  
+
+> 1
+> 13:
+
+𝑆 𝑡  
+
+> 2
+
+.Φ𝑡 ← Φ𝑡 ∪ { 𝐸 } ⊲ accumulate condition for 𝑆 𝑡  
+
+> 2
+> 14:
+
+return 𝑆 𝑡 
+
+> 1
+
+, 𝑆 𝑡  
+
+> 2
+> 15:
+
+end if ⊲ 𝑅 𝑡𝑟𝑢𝑒 and 𝑅 𝑓 𝑎𝑙𝑠𝑒 cannot be both Unsat  
+
+> 16:
+
+end if  
+
+> 17:
+
+return 𝑆 𝑡 
+
+> 1
+
+substitute them with constant or simplified forms. Assumption-guided evaluation further resolves Boolean and bit-vector expres-sions whose outcomes can be determined under the current path conditions. In addition, unreachable cases in control structures like 
+
+if-then-else (ITE) are also removed. Finally, to curb the growth of semantically equivalent expressions across states, we integrate the word-level sweeping technique [27], which identifies and merges equivalent sub-expressions to reduce the complexity of symbolic expressions. Together, these simplification mechanisms keep sym-bolic expressions compact and tractable, ensuring that the symbolic simulation engine remains efficient as exploration depth increases. 
+
+4.3 Forking Coroutines 
+
+As previously illustrated in Example b ○ of Fig. 2, coroutine fork-ing is essential for exploring both branches of a symbolic condition. However, Python’s native coroutine system lacks the ability to replicate a coroutine’s execution state at runtime. Once a coroutine begins execution, its local variables, program counter, and internal stack evolve in-place and cannot be cloned, making it impossible to fork a running coroutine from an intermediate point. To enable coroutine-based symbolic simulation, we develop a custom coroutine framework that supports fork-able coroutines. This framework leverages Python’s introspection and runtime eval-uation capabilities to intercept, schedule, and manage the execution of coroutine bodies. The Forbench framework then employs these fork-able coroutines to support concurrent explorations of different symbolic conditions. When a coroutine encounters a conditional expression 𝐸 that could decide the execution path of the testbench, such as the one in a “ wait_cond ” statement, the algorithm deter-mines whether to fork the current coroutine based on the outcome of SMT checks, as presented in Algorithm 2. Given a symbolic state 𝑆 𝑡  
+
+> 1
+
+with its current path condition Φ𝑡 , the engine first checks the satisfiability of both the true path ( Φ𝑡 ∧ 𝐸 ) and the false path (Φ𝑡 ∧ ¬ 𝐸 ) using an SMT solver (Lines 2-3). If only one of the two paths is satisfiable, the execution proceeds along that single fea-sible path, and the corresponding condition ( 𝐸 or ¬𝐸 ) is added to the path condition Φ𝑡 (Lines 4-9). This step effectively prunes the impossible branch and prevents the exploration of an unreachable state. Conversely, if both paths are satisfiable, it signifies a genuine symbolic branch point where both outcomes are possible (Line 10). In this case, the framework forks the execution by cloning the current state 𝑆 𝑡  
+
+> 1
+
+to create a new state 𝑆 𝑡  
+
+> 2
+
+(Line 11). The original state is updated to represent one branch by adding ¬𝐸 to its path condition, while the new state represents the other by adding 𝐸 to its path condition (Lines 12-13). Each cloned state inherits the full context of its parent but proceeds with a distinct path condition. This forking mechanism allows the simulator to explore divergent execution paths concurrently, ensuring comprehensive coverage of all feasible design behaviors. Please note that in Forbench , coroutine forking is driven by the conditions specified in the testbench , rather than the branching conditions in the design under verification . This is a key distinction from prior symbolic execution approaches. In practice, the number of conditions in the testbench is typi-cally much fewer than those in the DUT, which results in signifi-cantly fewer coroutines. As will be shown by the experiments in Section 5.4, fewer branchings lead to improved verification per-formance. Moreover, symbolic expressions are maximally reused across coroutines— Forbench retains only a single memory copy of shared sub-expressions in those cloned states, thereby minimizing the overhead associated with forking. 
+
+4.4 State Merging to Cope with Path Explosion 
+
+As discussed above, in general, symbolic simulation is less prone to the path explosion problem compared to symbolic execution. That said, in preparation of the extreme cases, Forbench also offers a mechanism for symbolic state abstraction to merge the corou-tines that are previously forked. Specifically, the simulator offers a function sim.abstract which takes a state predicate P as the argument. For every coroutine that arrives at the same point of this function call, the simulator will check if the state predicate P is an over-approximation of the current symbolic state 𝑆 𝑡 :  M𝑡 𝑠 , Φ𝑡 , X𝑡 .In case P is an over-approximation, we also say that the symbolic state 𝑆 𝑡 satisfies/models P (namely, 𝑆 𝑡 |= P). This checking is achieved by querying the validity of the following formula through SMT solving: ∀X 𝑡 .Φ𝑡 → P | M𝑡 , where P | M𝑡 means substituting the state variables in P according to the map M𝑡 . Those states satisfying P can be over-approximated by a single abstract state 
+
+𝑆 𝑎 :  M𝑎 , P | M𝑎 , X𝑎 
+
+, where M𝑎 maps each state variable to a newly-created X-variable. These X-variables collectively satisfy the constraint P, and are recorded in the set X𝑎 .In this way, a set of symbolic states {𝑆 𝑡 } can all be replaced by a single abstract state 𝑆 𝑎 , and the coroutines associated with those symbolic states will be merged. As P is checked to be an over-approximation during merging, this operation will not lose the soundness of the analysis. Human experience and techniques like assertion/property mining [28] can be applied to construct such state predicates. Note that this functionality is just for the rare cases, and is not needed for the experiments presented in Section 5. 
+
+4.5 Application Notes 
+
+Due to the space limitation, we are not able to present the full range of Forbench use cases in this paper, but still we would like Forbench : Symbolic Simulation Helps Make Your Testbench More Formal ICCAD ’26, November 08–12, 2026, San Jose, CA, USA 
+
+to highlight several representative scenarios that can help better illustrate the flexibility and practical value of Forbench .
+
+Symbolic tandem simulation . A golden reference model is com-monly required to validate the correctness of a DUT. In Forbench ,this reference can be symbolically simulated in parallel with the DUT, effectively enabling symbolic differential testing. Leverag-ing prior work such as SeaHorn [29], even software models writ-ten in C/C++ can be compiled into formal representations (e.g., constrained Horn clauses [30]), thereby enabling cross-language symbolic co-simulation between hardware and software models. 
+
+Modular inductive verification . Symbolic simulation in Forbench 
+
+naturally supports symbolic initial states, allowing the verifier to start from arbitrary (possibly nondeterministic) states rather than being restricted to the reset state. This provides significantly greater flexibility and coverage: DUT behaviors that manifest only after deep execution (e.g., millions of cycles after reset) can be analyzed without requiring prohibitively long simulations. Similar strategies have proven effective in prior work such as [31]. 
+
+Backward symbolic simulation . Although this paper focuses primarily on forward symbolic execution, Forbench also supports 
+
+backward symbolic simulation. Given a symbolic state satisfying certain constraints, the engine can compute the symbolic represen-tation of predecessor states. This capability parallels the backward reasoning techniques equipped in GSTE [23] and enables reasoning about behaviors that span varying numbers of cycles. 
+
+5 Experiment 
+
+This section evaluates Forbench in terms of (i) simulation per-formance, and efficiency in (ii) DUT branch covering and (iii) bug-finding. 
+
+5.1 Experiment Setup 
+
+The Forbench simulation engine is implemented in C++, utiliz-ing SMT-Switch [32] to interface with the Bitwuzla SMT solver [33]. Hardware designs in Verilog are first compiled into the BTOR2 model [34] via Yosys [35] and are then loaded into the simula-tor. Forbench exposes a Python API through Boost.Python that interacts with the symbolic simulator. Experiments are run on a server with Ubuntu 20.04.4 LTS, dual Intel Xeon Platinum 8375C processors and 256GB RAM. 
+
+5.2 Experiment 1: Simulation Performance 
+
+Baselines. We compare Forbench with representative engines from three different verification styles: two concrete RTL simulators, Icarus Verilog (Iverilog) [36] and Verilator [19]; Wasim [8], a word-level symbolic simulator; and VossII [24], a symbolic trajectory evaluation (STE)-based tool. 
+
+Benchmark. For this experiment, we evaluate on a set of five RTL designs with different scales to better reflect runtime scalability. These include complex algorithmic and processor-scale RTL de-signs, including the AES implementation and several open-source processor cores. These designs contain on the order of 10 4–10 5
+
+gates, and therefore stress the scalability of symbolic simulation on realistic hardware blocks rather than on toy examples.                                                    
+
+> Table 2: Simulation time (wall-clock) comparison (in seconds)
+> Designs #Gates Verilog LOC Iverilog Verilator Wasim VossII †Forbench
+> aes [37] 195561 425 0.86 0.06 5.98 >3600 1.60 rocket [38] 26963 11,572 0.02 0.01 187.42 >3600 10.81 piccolo [39] 51878 6,078 0.11 0.02 726.66 N/A 63.54 flute [40] 72980 10,212 0.04 0.01 1048.30 N/A 125.16 ridecore [41] 377324 6,678 0.28 0.37 1127.65 N/A 79.83
+> †: N/A for several designs due to Yosys compatibility issues in VossII 4.0; time out (>3600s) on the remaining designs. Note: iverilog and verilator report measured wall-clock time for exact concrete simu-lation. VossII reports measured wall-clock time for symbolic trajectory evaluation, while
+> Wasim and Forbench report measured wall-clock time for symbolic simulation; all five use a simulation bound of 100 cycles.
+
+Results. The results are reported in Table 2. As expected, iverilog 
+
+and verilator achieve the lowest wall-clock time, since each run executes only a single concrete trace for one concrete input as-signment. Their runtime therefore reflects the cost of simulating one valuation, rather than reasoning about the full input space. 
+
+VossII , as an STE tool, is in principle more powerful than concrete simulation because it symbolically reasons over sets of bounded trajectories. However, this strength comes with substantial BDD-based reasoning overhead, which makes STE much less scalable on datapath-heavy and data-intensive designs. In our experiments, 
+
+VossII could not complete even a single cycle for AES or Rocket within the 1-hour time limit. By contrast, both Wasim and Forbench 
+
+use SMT-based symbolic simulation, so a single run can reason about symbolic inputs and achieve exhaustive coverage under the stated bound. Among these symbolic approaches, Forbench is the most practical one across all five designs: it consistently outper-forms Wasim , owning to the SMT simplification techniques men-tioned near the end of Section 4.2 and also the efficiency of C++ implementation (whereas the core of symbolic simulation in Wasim 
+
+is written in Python). Forbench also runs faster than VossII on all five designs, and still provides full bounded symbolic coverage rather than the result of only one concrete execution. 
+
+5.3 Experiment 2: Branch Covering Efficiency 
+
+Baselines. We further compare Forbench with several state-of-the-art formal [44, 45] and coverage-guided concolic testing [46, 47] tools using branch coverage as a metric. 
+
+Benchmark. To ensure apples-to-apples comparisons with these prior works, especially the more recent ones: STSearch [46] and Hot-FV [47], we take the benchmark designs from these prior works, which can be organized into small and large ones. The small benchmarks originally come from the ITC’99 suite [43], a standardized collection of digital circuits widely used to evaluate test-generation techniques; the instances used in our evaluation include b01 , b06 , b10 , b11 , b12 , and b14 . The large benchmarks are processor-scale RTL designs from OR1200 and Rocket. OR1200 is an open-source 32-bit RISC processor for embedded applica-tions, featuring a configurable architecture, a five-stage pipeline, separate instruction and data caches, and DSP support [42]. In Ta-ble 3, Exception , ICache , and DCache denote the OR1200 modules for exception handling, instruction-cache control, and data-cache control, respectively, while or1200 denotes the complete proces-sor. Rocket is a five-stage in-order scalar core implementing the RV64GC RISC-V instruction set and generated from the Rocket Chip framework [38]. The design is originally written in Chisel ICCAD ’26, November 08–12, 2026, San Jose, CA, USA Yang et al. 
+
+Table 3: Branch coverage and runtime comparison 
+
+Benchmarks ♦ Characteristics Branch Coverage (%) Time (s) Branches Lines Random Pono EBMC STSearch Hot-FV Forbench Random ‡ Pono EBMC STSearch Hot-FV Forbench 
+
+b01 26 159 100.00 100.00 100.00 100.00 100.00 100.00 0.02 1.66 0.74 0.01 1.47 0.23 b06 24 166 95.83 95.83 95.83 95.83 95.83 95.83 0.01 1.65 0.61 0.01 1.48 0.13 b10 41 252 100.00 100.00 100.00 100.00 100.00 100.00 0.11 2.43 4.92 0.01 1.50 0.55 b11 32 203 96.88 96.88 96.88 96.88 96.88 96.88 9.57 2.77 4.96 4.54 2.38 0.57 
+
+b14 193 1141 97.44 98.96 98.96 97.93 98.96 98.96 1.08 7.21 145.95 97.93 4.74 1.22 Exception 47 468 95.74 100.00 100.00 97.87 100.00 100.00 0.85 2.30 19.77 7.17 1.58 0.24 
+
+DCache 46 377 97.83 97.83 97.83 91.30 97.83 97.83 47.76 2.30 2.42 4.38 1.53 0.46 
+
+ICache 26 180 84.62 96.15 96.15 96.15 96.15 96.15 0.16 1.65 2.42 6.90 1.50 0.07 
+
+b12 112 737 32.15 88.39 86.61 34.82 89.29 89.29 91.03 5684.03 4428.85 3068.73 3890.04 1816.30 
+
+or1200 782 14262 58.82 94.63 N/A † 59.85 94.63 94.63 11058.42 144.86 N/A 8983.78 222.99 83.64 
+
+rocketTile_tiny 1522 57028 47.83 85.81 N/A † 61.83 85.81 85.81 16361.94 7818.87 N/A 9100.73 5468.8 4106.56 
+
+rocketTile_small 2198 75496 39.44 79.16 N/A † 48.91 79.16 79.16 10004.28 29408.5 N/A 11451.03 10831.04 9437.96    
+
+> ♦: Benchmarks are selected from open-source processor designs [38, 42] and the ITC’99 benchmark suite [43].
+> ‡: For random-based approaches, we report the time at which the branch coverage first reaches its maximum within the 30,000-second limit.
+> †: EBMC produced exceptions and did not finish this benchmark.
+
+Table 4: Bug-finding capability and efficiency                                                                                                        
+
+> Error Symbolic Execution Forbench Result #Exec. Instr. Time (s) Partial Paths Paths Result Time (s) Branches
+> E0 ✓26,141,972 1,526.39 1,396 141 ✓0.85 2E1 ✓13,947,436 1,563.74 1,477 59 ✓0.87 2E2 ✓12,553,774 1,459.77 1,478 53 ✓0.69 2E3 ✓6,648,904 767.02 1,351 21 ✓1.10 2E4 ✓6,571,348 794.26 1,351 21 ✓0.87 2E5 ✓9,590,444 2,769.18 1,476 42 ✓0.84 2E6 ✓6,187,314 784.28 1,349 21 ✓0.73 2E7 ✓8,660,026 915.09 1,484 36 ✓3.68 3E8 ✓8,732,876 864.43 1,484 36 ✓4.08 3E9 ✓2,492,982 201.08 226 0✓3.66 3Sum 10/10 101,527,076 11,645.24 13,072 430 10/10 17.37 23 Median –8,696,451 889.76 1,436 36 –0.87 2
+
+and can produce RTLs of different sizes through configuration. We therefore include two RocketTile configurations, rocketTile_tiny 
+
+and rocketTile_small , to evaluate how the proposed approach behaves as processor complexity increases. 
+
+Results. Table 3 reports the runtime and coverage of all meth-ods. Forbench achieves branch coverage comparable to the best results from existing tools, while offering significantly better run-time performance. Compared to random testing, Forbench is far more targeted: it reaches higher coverage on benchmarks such as b14 , Exception , and ICache , and triggers deep or corner-case branches in substantially less time (e.g., b11 and DCache ). Relative to other formal and concolic approaches, Forbench matches their coverage and is generally more efficient on the nontrivial cases. For the larger-scale or1200 and rocketTile benchmarks, Forbench 
+
+further shortens the runtime while maintaining the same coverage level, which is closely tied to our strategy for controlling branch explosion during symbolic exploration. 
+
+5.4 Experiment 3: Bug-Finding Efficiency 
+
+Baseline. Bug finding provides a complementary perspective be-yond branch coverage metric alone. Bruns et al. [18] showed that symbolic execution can effectively uncover both injected and real bugs in a RISC-V processor, demonstrating strong bug-hunting capability. In this experiment, we compare Forbench with this sym-bolic execution approach in both the bug-finding capability and efficiency. 
+
+Benchmark. The experiment setup follows the public available code repository associated with the work [18]. The design under verification is the micro-riscv processor [48] supporting the RV32I instruction set. It is originally designed in SpinalHDL, and then compiled into Verilog for verification. As the public code repository does not contain the RTL code with injected errors, to reproduce the bug-finding results of the prior work, we follow the descriptions in its text to re-create the same ten injected bugs (E0–E9), covering representative classes of processor design errors. Specifically, E0 introduces an incorrect SLLI decode; E1–E2 model don’t-care errors in SRLI decoding; E3 and E4 inject stuck-at faults into the ADDI and 
+
+SUB datapaths, respectively; E5 corrupts the PC update logic for 
+
+JAL ; E6 makes BNE behave as BEQ ; and E7–E9 target load semantics, including an endianness error in LBU , missing sign extension in 
+
+LB , and a faulty LW implementation that loads only 16 bits. For symbolic execution, we set the instruction limit to 1, which is the most efficient configuration as presented in the paper [18]. We then also applied Forbench to designs with the same injected bugs to compare for the bug-finding capability/efficiency. 
+
+Results. Table 4 reports detailed quantitative results for all 10 injected bugs. Both approaches successfully detect all injected bugs. Compared with the existing symbolic execution method, Forbench 
+
+substantially reduces the time for bug detection in this micro-riscv processor. This is because it only needs to explore much fewer branches in the testbench compared to the branches in the DUT, supporting our claim—although Forbench forks coroutines upon dual-outcome symbolic branching conditions encountered in the testbench, it is still more efficient compared to traditional symbolic execution, which branches according to conditions in DUT. 
+
+6 Conclusion 
+
+This paper presents Forbench , a novel formal testbench par-adigm that preserves the familiar testbench styles while adding symbolic reasoning capabilities for easier use and better verifi-cation performance. The supporting framework is available at https://github.com/hkustgz-zhang-lab/Forbench. 
+
+Acknowledgments 
+
+This work is supported by the National Natural Science Founda-tion of China (grant no. 62304194) Forbench : Symbolic Simulation Helps Make Your Testbench More Formal ICCAD ’26, November 08–12, 2026, San Jose, CA, USA 
+
+References 
+
+[1] Harry Foster. Part 4: The 2020 wilson research group functional verifi-cation study. Verification Horizons (Siemens EDA Blog), December 2020. URL https://blogs.sw.siemens.com/verificationhorizons/2020/12/02/part-4-the-2020-wilson-research-group-functional-verification-study/. Accessed: 2025-09-25. [2] Harry Foster. Part 8: The 2022 wilson research group functional verifi-cation study. Verification Horizons (Siemens EDA Blog), December 2022. URL https://blogs.sw.siemens.com/verificationhorizons/2022/12/12/part-8-the-2022-wilson-research-group-functional-verification-study/. Accessed: 2025-09-25. [3] Zizheng Guo, Yanqing Zhang, Runsheng Wang, Yibo Lin, and Haoxing Ren. Gem: Gpu-accelerated emulator-inspired rtl simulation. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) , pages 1–7. IEEE, 2025. [4] Jaewon Hur, Suhwan Song, Dongup Kwon, Eunjin Baek, Jangwoo Kim, and Byoungyoung Lee. Difuzzrtl: Differential fuzz testing to find cpu bugs. In 2021 IEEE Symposium on Security and Privacy (SP) , pages 1286–1303. IEEE, 2021. [5] Kevin Laeufer, Jack Koenig, Donggyu Kim, Jonathan Bachrach, and Koushik Sen. Rfuzz: Coverage-directed fuzz testing of rtl on fpgas. In 2018 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) , pages 1–8. IEEE, 2018. [6] Timothy Trippel, Kang G Shin, Alex Chernyakhovsky, Garret Kelly, Dominic Rizzo, and Matthew Hicks. Fuzzing hardware like software. In 31st USENIX Security Symposium (USENIX Security 22) , pages 3237–3254, 2022. [7] Shengping Xiao, Chengyu Zhang, Jianwen Li, and Geguang Pu. Fuzzbtor2: A random generator of word-level model checking problems in btor2 format. In 
+
+International Conference on Tools and Algorithms for the Construction and Analysis of Systems , pages 36–43. Springer, 2023. [8] Wenji Fang and Hongce Zhang. Wasim: A word-level abstract symbolic simula-tion framework for hardware formal verification. In International Conference on Tools and Algorithms for the Construction and Analysis of Systems , pages 11–18. Springer, 2023. [9] Yuheng Su, Qiusong Yang, Yiwei Ci, Yingcheng Li, Tianjun Bu, and Ziyu Huang. Deeply optimizing the sat solver for the ic3 algorithm. In International Conference on Computer Aided Verification , pages 237–257. Springer, 2025. [10] Armin Biere, Alessandro Cimatti, Edmund Clarke, and Yunshan Zhu. Symbolic model checking without bdds. In International conference on tools and algorithms for the construction and analysis of systems , pages 193–207. Springer, 1999. [11] Niklas Eén, Alan Mishchenko, and Robert Brayton. Efficient implementation of property directed reachability. In 2011 Formal Methods in Computer-Aided Design (FMCAD) , pages 125–134. IEEE, 2011. [12] Edmund M Clarke, E Allen Emerson, and A Prasad Sistla. Automatic verification of finite-state concurrent systems using temporal logic specifications. ACM Transactions on Programming Languages and Systems (TOPLAS) , 8(2):244–263, 1986. [13] Edmund M Clarke. Model checking. In International conference on foundations of software technology and theoretical computer science , pages 54–56. Springer, 1997. [14] Edmund M Clarke, Thomas A Henzinger, Helmut Veith, Roderick Bloem, et al. 
+
+Handbook of model checking , volume 10. Springer, 2018. [15] Roberto Baldoni, Emilio Coppa, Daniele Cono D’elia, Camil Demetrescu, and Irene Finocchi. A survey of symbolic execution techniques. ACM Computing Surveys (CSUR) , 51(3):1–39, 2018. [16] Thanassis Avgerinos, Alexandre Rebert, Sang Kil Cha, and David Brumley. En-hancing symbolic execution with veritesting. In Proceedings of the 36th interna-tional conference on software engineering , pages 1083–1094, 2014. [17] Clark Barrett and Cesare Tinelli. Satisfiability modulo theories. In Handbook of model checking , pages 305–343. Springer, 2018. [18] Niklas Bruns, Vladimir Herdt, and Rolf Drechsler. Processor verification using symbolic execution: A risc-v case-study. In 2023 Design, Automation & Test in Europe Conference & Exhibition (DATE) , pages 1–6. IEEE, 2023. [19] Wilson Snyder. Verilator and systemperl. In North American SystemC Users’ Group, Design Automation Conference , volume 79, pages 122–148, 2004. [20] Cristian Cadar, Daniel Dunbar, Dawson R Engler, et al. Klee: unassisted and automatic generation of high-coverage tests for complex systems programs. In 
+
+OSDI , volume 8, pages 209–224, 2008. [21] Scott Hazelhurst and Carl-Johan H Seger. Symbolic trajectory evaluation. In 
+
+Formal hardware verification: Methods and systems in comparison , pages 3–78. Springer, 2005. [22] Roope Kaivola, Rajnish Ghughal, Naren Narasimhan, Amber Telfer, Jesse Whitte-more, Sudhindra Pandav, Anna Slobodova, Christopher Taylor, Vladimir Frolov, Erik Reeber, and Armaghan Naik. Replacing testing with formal verification in intel coretm i7 processor execution engine validation. pages 414–429, 06 2009. ISBN 978-3-642-02657-7. doi: 10.1007/978-3-642-02658-4_32. [23] Jin Yang and C.-J.H. Seger. Introduction to generalized symbolic trajectory evaluation. IEEE Transactions on Very Large Scale Integration (VLSI) Systems , 11 (3):345–353, 2003. doi: 10.1109/TVLSI.2003.812320. [24] C. J. Seger. The VossII hardware verification suite. https://github.com/TeamVoss/ VossII, 2020. [25] XS-MLVP Team. Picker: A multilingual verification tool for hardware design and validation. https://github.com/XS-MLVP/picker, 2025. [26] Benjamin John Rosser. Cocotb: a python-based digital logic verification frame-work. In Micro-electronics Section seminar. CERN, Geneva, Switzerland , 2018. [27] Ziyi Yang, Guangyu Hu, Mingkai Miao, Changyuan Yu, and Hongce Zhang. Smt-sweep: Word-level representation unification for hardware verification, 2025. URL https://arxiv.org/abs/2507.02008. [28] Shobha Vasudevan, David Sheridan, Sanjay Patel, David Tcheng, Bill Tuohy, and Daniel Johnson. Goldmine: Automatic assertion generation using data mining and static analysis. In 2010 Design, Automation & Test in Europe Conference & Exhibition (DATE 2010) , pages 626–629. IEEE, 2010. [29] Arie Gurfinkel, Temesghen Kahsai, Anvesh Komuravelli, and Jorge A Navas. The seahorn verification framework. In International Conference on Computer Aided Verification , pages 343–361. Springer, 2015. [30] Arie Gurfinkel. Program verification with constrained horn clauses. In Interna-tional Conference on Computer Aided Verification , pages 19–29. Springer, 2022. [31] Mohammad Rahmani Fadiheh, Joakim Urdahl, Srinivas Shashank Nuthakki, Sub-hasish Mitra, Clark Barrett, Dominik Stoffel, and Wolfgang Kunz. Symbolic quick error detection using symbolic initial state for pre-silicon verification. In 2018 Design, Automation & Test in Europe Conference & Exhibition (DATE) , pages 55–60. IEEE, 2018. [32] Makai Mann, Amalee Wilson, Yoni Zohar, Lindsey Stuntz, Ahmed Irfan, Kristo-pher Brown, Caleb Donovick, Allison Guman, Cesare Tinelli, and Clark Barrett. Smt-switch: a solver-agnostic c++ api for smt solving. In International Conference on Theory and Applications of Satisfiability Testing , pages 377–386. Springer, 2021. [33] Aina Niemetz and Mathias Preiner. Bitwuzla. In International Conference on Computer Aided Verification , pages 3–17. Springer, 2023. [34] Aina Niemetz, Mathias Preiner, Clifford Wolf, and Armin Biere. Btor2, btormc and boolector 3.0. In International Conference on Computer Aided Verification ,pages 587–595. Springer, 2018. [35] Clifford Wolf and Johann Glaser. Yosys-a free Verilog synthesis suite. In Proceed-ings of the 21st Austrian Workshop on Microelectronics (Austrochip) , volume 97, 2013. [36] Stephen Williams and Michael Baxter. Icarus verilog: open-source verilog more than a year later. Linux Journal , 2002(99):3, 2002. [37] Vamshi Pasala Narayan. Hardware-implementation-of-aes-verilog. https://github. com/pnvamshi/Hardware-Implementation-of-AES-Verilog. [Online; accessed 2025-10-21]. [38] K. Asanovic et al. The rocket chip generator. Technical Report UCB/EECS-2016-17, Dept. EECS, Univ. California, Berkeley, CA, USA, 2016. [39] Bluespec, Inc. Piccolo: Risc-v cpu, simple 3-stage pipeline, for low-end applica-tions. [Online], 2018. Available: https://github.com/bluespec/Piccolo. [40] Bluespec, Inc. Flute: Risc-v cpu, simple 5-stage in-order pipeline. [Online], 2018. Available: https://github.com/bluespec/Flute. [41] Kise Lab. Ridecore: Risc-v dynamic execution core, an out-of-order risc-v proces-sor written in verilog hdl. [Online], 2016. Available: https://github.com/ridecore/ ridecore. [42] OpenRISC. OR1200 source code, 2020. [Online]. Available: https://github.com/ openrisc/or1200. [43] Scott Davidson. Characteristics of the itc’99 benchmark circuits. In IEEE Interna-tional Test Synthesis Workshop (ITSW) , volume 87, 1999. [44] Makai Mann, Ahmed Irfan, Florian Lonsing, Yahan Yang, Hongce Zhang, Kristo-pher Brown, Aarti Gupta, and Clark Barrett. Pono: a flexible and extensible smt-based model checker. In International Conference on Computer Aided Verifi-cation , pages 461–474. Springer, 2021. [45] D. Kroening and M. Purandare. EBMC: The enhanced bounded model checker. [Online], 2022. Available: http://www.cprover.org/ebmc, accessed: 2022. [46] Ziyue Zheng and Yangdi Lyu. Stsearch: State tracing-based search heuristics for rtl validation. In 2023 Design, Automation & Test in Europe Conference & Exhibition (DATE) , pages 1–6. IEEE, 2023. [47] Ziyue Zheng, Zhiyuan Yan, Xiangchen Meng, Guangyu Hu, Hongce Zhang, and Yangdi Lyu. Hot-fv: A semi-formal test generation framework for rtl functional coverage using warm starting states. In Proceedings of the IEEE International Conference on Computer Design (ICCD) , 2025. [48] Sallar Ahmadi-Pour and Rolf Drechsler. MicroRV32. URL https://github.com/agra-uni-bremen/microrv32/.

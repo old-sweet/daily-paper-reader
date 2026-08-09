@@ -1,0 +1,398 @@
+Title: LACE: Large Language Model Aided Multi-Agent Framework for Agile RISC-V Instruction Extension
+
+URL Source: https://arxiv.org/pdf/2608.02915v1
+
+Published Time: Wed, 05 Aug 2026 00:16:09 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# LACE: Large Language Model Aided Multi-Agent Framework for Agile RISC-V Instruction Extension 
+
+Pingqing Zheng 1, Jiayin Qin 1, Fuqi Zhang 1, Zishen Wan 2, Shang Wu 3,Yu (Kevin) Cao 1, Caiwen Ding 1, Yang (Katie) Zhao 1 
+
+> 1
+
+University of Minnesota, Twin Cities, Minneapolis, Minnesota, USA  
+
+> 2
+
+Columbia University, New York City, New York, USA  
+
+> 3
+
+Northwestern University, Evanston, Illinois, USA 
+
+Abstract —Domain-specific Instruction Set Architecture eXten-sions (ISAX) are widely adopted in the RISC-V ecosystem to accelerate emerging workloads, but implementing and validating ISAXes across different cores remains slow and fragmented. Existing frameworks still require per-core interface adaptation, and differential testing often breaks once either the microar-chitecture or the ISAX changes. We present LACE, an LLM-aided multi-agent workflow that translates natural-language ISAX intents into a compact two-level IR (operation-level and HDL task-level), performs retrieval-guided localized RTL edits over large repositories, and closes the loop with a compiler-agnostic riscv-formal checking flow (assuming RVFI availability or instrumentation). Across four embedded RISC-V cores, LACE raises pass@1 generation accuracy from near-zero to 72.8% within our evaluation setup, while improving code localization and reducing integration rework. The code of LACE is available at https://github.com/UMN-ZhaoLab/LACE. 
+
+Index Terms —RISC-V, instruction set extension, large lan-guage model, multi-agent system 
+
+I. I NTRODUCTION 
+
+As emerging workloads push beyond the capabilities of conventional embedded and IoT cores, application-specific instruction-set processors (ASIPs) have become a practical solution. By extending base ISAs with domain-specific in-structions and lightweight architectural modifications, ASIPs can improve workload efficiency while retaining toolchain compatibility and software fallback [1]–[3]. RISC-V’s open and modular ISA further makes it a natural foundation for ASIP development, but also encourages vendor- and project-specific extensions that can fragment software portability and ecosystem support. Although the RISC-V community is addressing this through standardized profiles (e.g., RV32A, RV32B), evaluating candidate instructions across diverse core implementations remains manual and time-consuming. Existing automatic ISAX frameworks, such as SCAIE-V [4] and Longnail [5], represent important progress toward scalable ISAX support (see Figure 1(b)). However, adapting them to emerging workloads and unseen cores remains labor-intensive for two main reasons: (1) Cross-disciplinary gaps in workload knowledge : these frameworks rely on architecture descriptions authored by hardware designers, which can hinder reuse across domains; and (2) Manual adaptation for unseen cores : porting extensions across cores still demands substantial effort and often ties designers to specific tool chains or core families. Integration Diversity Supported Cores Human Labor Hardware Overhead Verification Easiness 
+
+(b)
+
+> LACE
+> Longnail Custom interface Manual
+
+(a)  
+
+> Interface RTL Custom ISAX 5-stage Pipeline Arithmetic RTL Host Core
+> module custom_ISAX(...);
+> ...
+> endmodule
+> Add Modify
+> Human Expert
+
+(a) 
+
+> Add the custom_ISAX to the 5-stage pipeline core.
+> Interface RTL
+> NL Specification
+> Manual Custom Interface
+> Arithmetic RTL
+> Interface RTL
+> NL Specification Arithmetic RTL
+> Longnail
+> Interface RTL CoreDSL Arithmetic RTL Backend
+> LACE
+> Interface RTL
+> NL Specification Arithmetic RTL Two-level IR
+
+Fig. 1: (a) An illustration of the conventional manual process for ISAX. (b) Comparison of our proposed LACE with baseline works: one using a custom interface for updating RTL code [4] and another using a customized architecture description language (CoreDSL) for template-based RTL updates [5]. 
+
+Recent advances in Large Language Models (LLMs) have demonstrated the ability to generate Hardware Description Language (HDL) code from high-level natural language de-scriptions, reducing the barrier for domain experts to con-tribute high-level knowledge in natural language. LLMs also have the potential to lower the effort of HDL generation, even for previously unseen hardware repositories. However, directly integrating LLMs into the ISAX de-sign workflow remains challenging for three main reasons: 
+
+(1) High abstraction gap between ISA and HDL : ISA specifications describe high-level intent, while HDL requires detailed low-level modifications; (2) Localization difficulty :ISA extensions require precise edits in large hierarchical HDL repositories; and (3) Limited verification coverage : compiler-based customization restricts portability, while targeted tests cover only a narrow subset of ISA behaviors. To bridge these gaps, we introduce LACE , an LLM-aided unified framework for ISAX design and verification. LACE uses multiple LLM agents for specification understanding and HDL code modification, together with HDL-related toolkits arXiv:2608.02915v1 [cs.AR] 3 Aug 2026 and the ReAct technique [6] to structure tool use. We present our contributions as follows:  
+
+> •
+
+We introduce LACE, an LLM-aided framework that supports adapting RISC-V instruction set extensions across multiple microarchitectures, addressing the cross-core compatibility challenge that fragments the RISC-V ecosystem, unlike general RTL generators targeting isolated modules without architectural context.  
+
+> •
+
+We design a two-level IR consisting of operation-level and HDL task-level representations that helps separate ISA semantics from microarchitecture-specific implemen-tation details, enabling specification reuse across hetero-geneous processor implementations.  
+
+> •
+
+We develop an agentic RAG system for huge HDL code repository, improving the localization and modification of relevant code segments in large RISC-V CPU cores;  
+
+> •
+
+We integrate riscv-formal checking to enable compiler-agnostic verification for newly generated instructions within our setup, strengthening the loop between ISAX design and functional validation;  
+
+> •
+
+We demonstrate a working integration and verification flow and evaluate the practical benefits of our approach by extending five ISAXes into four open-source RISC-V cores and synthesizing the ISAX using TSMC 28nm technology. II. B ACKGROUND 
+
+A. RISC-V ISAX interface automation 
+
+We identify three common ISAX integration styles: ① in-pipeline ISAX, ② custom coprocessor, and ③ dedicated accel-erator. They trade off core coupling and communication over-head: in-pipeline ISAXes are suitable for lightweight latency-sensitive operations, while coprocessors and accelerators better serve heavier workloads through request-response or MMIO interfaces. Existing commercial and open-source flows, including Co-dAL [7], Andes ACE [8], EAI [9], CORE-V XIF [10], RoCC [11], PULPissimo [12], and SCAIE-V [4], cover dif-ferent points in this design space. However, adapting these interfaces to a new microarchitecture still requires substantial manual effort to understand core-specific decode, control, datapath, and timing details. LACE targets this remaining per-core adaptation bottleneck by using LLM agents to infer and edit repository-specific integration patterns. 
+
+B. LLM-aided hardware generation 
+
+Recent studies [13]–[17] have explored using LLMs to generate RTL code from natural language descriptions. Chip-Chat [13] and Chip-GPT [14] employ LLMs with interactive human feedback, while RTLLM [15] adopts a self-planning approach that outlines a high-level design plan before gen-eration. Thakur et al. [16] fine-tune large LLMs for HDL generation, and BetterV [17] improves dataset quality through data augmentation. However, none can yet generate repository-scale RTL systems such as RISC-V processors with high suc-cess rates. Three key gaps still hinder practical HDL-level pro-cessor design using LLMs: Gap 1: From natural language to HDL under strict semantic–implementation constraints. 
+
+HDL data represents only about 1/800 of all programming languages [18], and its abstractions differ fundamentally from software code [19]. As a result, LLMs struggle to align high-level semantics with detailed HDL behavior, especially in ISAX-related modifications. Gap 2: Between limited long-context reasoning and large hierarchical processors. LLM accuracy declines near context-window limits [20]. Even mod-els with 128k-token windows (e.g., Qwen3-32B [21]) cannot fully capture large designs such as cv32e40p [22], which exceeds 243k tokens. Complex inter-module dependencies further challenge current LLMs’ hierarchical understanding. 
+
+Gap 3: Between high generation error rates and reli-able verification requirements. LLMs produce substantially more HDL errors than software code [17]. RTLFixer [23] reduces syntax issues through retrieval-augmented generation and ReAct prompting, but ensuring functional correctness and coverage in large systems remains an open problem. 
+
+C. LLM-aided cross-hardware code optimization 
+
+Recent work shows that LLMs can support cross-platform code optimization and migration, including semantic-preserving transformation [25], meta-prompting and auto-tuning for GEMM kernels on RISC-V/CUDA [26], OpenMP-to-CUDA translation with verification feedback [27], and hardware-aware DSL generation for tensor accelerators [28]. LACE extends this direction from software/kernel translation to cross-microarchitecture RTL adaptation, where agents must modify processor-specific decode, control, datapath, interface timing, and verification logic for automated ISAX integration. III. LACE W ORKFLOW 
+
+A. Overview 
+
+Figure 2 depicts a comprehensive workflow of LACE. Inspired by the collaborative division of labor in manual ISAX process, LACE adopts a multi-agent architecture in which several LLM agents cooperate to automate ISAX integration. Specifically, Agent ① Operator Translator first converts natural-language ISAX specifications into high-level architec-tural operations (Ops), which represent fundamental behav-iors such as register accesses, pipeline control actions, and arithmetic primitives. These operations provide an abstraction layer that bridges instruction semantics and hardware imple-mentation. Agent ② Task Translator then maps these abstract operations into concrete HDL modification tasks according to the characteristics of the target processor microarchitecture. Meanwhile, Agent ③ Document Generator automatically generates and maintains architectural documentation of the target CPU, helping LLM agents better understand module organization and design constraints during the code generation process. To support architecture-aware code generation, Agent 
+
+④ RAG Supervisor retrieves relevant RTL code segments from the CPU repository, providing contextual information for accurate modifications. Based on this retrieved context, Agent 
+
+⑤ Verilog Writer performs precise file-level edits to insert or Op. 
+
+Tasks 
+
+HDL 
+
+Tasks Input 
+
+Agent  ④: RAG 
+
+Supervisor 
+
+Agent  ⑤:
+
+Verilog Writer 
+
+Linter 
+
+User 
+
+Choose 
+
+Define 
+
+CPU 
+
+prototype 
+
+Encoded 
+
+Instruction  Agent  ①: Op. 
+
+translator 
+
+Neo4j 
+
+Database 
+
+Agent  ②: Task 
+
+Translator 
+
+LACE Workflow  Agent  ⑥:
+
+Feedback Agent 
+
+Original 
+
+ISA check 
+
+ISAX 
+
+check 
+
+New 
+
+CPU Design 
+
+Doc 
+
+Retriever 
+
+Document Agent  ③: Doc 
+
+generator 
+
+Code 
+
+Retrievers 
+
+RAG subsystem 
+
+Spec Translation  HDL modification && verification Fig. 2: The overall LACE workflow with specification translation, agentic RAG system and riscv-formal [24] based verification. 
+
+TABLE I: Predefined Interface Operators of ISAX Tasks. 
+
+Operations Descriptions 
+
+RdInstr() Read the instruction RdRS1/2 Read register value based on rs1/2 CreateCustReg(num) Create custom register file with ‘num‘ entries Rd/WrCustReg Read or write value from custom register Rd/WrPC Read or write current program counter value Rd/WrMem Read from or write to memory WrRD Write to register specified by rd field 
+
+update RTL logic within the existing processor design. Each HDL modification is first validated using Verilator [29]. Syntax errors and simulation results are then analyzed by Agent ⑥
+
+Feedback Agent , which provides diagnostic feedback to the writer agent for correction. During the verification process, LACE first checks the original ISA behavior and then verifies the functionality of the newly introduced ISAX. This iterative loop of generation and verification enables fast and reliable integration of ISAX. LACE uses LangChain [30] to leverage its mature orchestration and tool integration. Figure 3 illustrates an example of this workflow using a bit-rotation instruction, among which the first two agents address Your task is to decompose       
+
+> the bitwise rotation
+> instruction extension into a
+> set of predefined operations
+> Encoding
+> - opcode [6:0] = 0110011
+> - rd [11:7]
+> - funct3 [14:12] = 001
+> .........
+> Function description
+> rol: This instruction performs
+> a rotate left of rs1 register
+> .......
+> insn = RdInstr ()
+> ......
+> rd_addr = SLICE (......)
+> rs1 = RdRS1 (rs1_addr)
+> rs2 = RdRS2 (rs2_addr)
+> rotate_amount = SLICE (...)
+> rotated = OR (SLL (.........))
+> WrRD (rotated, rd_addr)
+
+(a)  (b)  (c)  
+
+> Modify the CPU for the operation
+> according to the guidance below:
+> insn = RdInstr ()
+> 1. add decode logic to support this
+> new instruction
+> *Note: You should not compare the
+> register fields (rs1, rs2, rd) of the
+> instruction encoding. Instead, only
+> compare the fixed part of the
+> encoding*
+> ........
+> ------- SEARCH
+> instr_add<= is_alu_reg_reg &&
+> mem_rdata_q[14:12] == 3'b000 &&
+> mem_rdata_q[31:25] == 7'b0000000;
+> =======
+> instr_add<= is_alu_reg_reg &&
+> mem_rdata_q[14:12] == 3'b000 &&
+> mem_rdata_q[31:25] == 7'b0000000;
+> instr_rol <= is_alu_reg_reg &&
+> mem_rdata_q[14:12] == 3'b001 &&
+> mem_rdata_q[31:25] == 7'b0110000;
+> +++++++ REPLACE
+> Verification feedback Error
+> assign instr_trap = (CATCH_ILLINSN ||
+> WITH_PCPI) && !{instr_lui, instr_auipc,
+> instr_jal, instr_jalr,
+> .........
+> instr_blt, instr_bge, instr_bltu, instr_bgeu,
+> instr_waitirq, instr_timer };
+> insn_rol did not pass
+> illegal instruction is caught
+> You are right, the new instruction
+> should be add to the immune list
+> of the illegal instruction capture
+> logic:
+> assign instr_trap = (CATCH_ILLINSN ||
+> WITH_PCPI) && !{instr_lui, instr_auipc,
+> instr_jal, instr_jalr,
+> .........
+> instr_bltu, instr_bgeu,
+> instr_waitirq, instr_timer,
+> instr_rol};
+
+Fig. 3: Prompt Examples of LACE. From left to right are examples of operation generation, HDL modification, and debugging. 
+
+the abstraction gap between ISA specifications and HDL implementations. Agent ① translates natural-language ISAX specifications into architectural operations, while Agent ②
+
+further maps these operations into architecture-aware HDL modification tasks. By lifting the input specification to the natural-language level, this design enables workload experts to directly participate in the ISAX development process. Sec-tions III-B and III-C further detail the specification translation and HDL adaptation workflows. 
+
+B. Agent ①: Specification to Operator Translation 
+
+Existing ISAX automation frameworks, such as SCAIE-V [4] and Longnail [5], rely on DSL-style specifications that still require hardware expertise. To allow ISAX design to start from natural-language intent, LACE introduces Agent ①
+
+Operator Translator , which maps ISA descriptions to a compact operation-level IR extending prior operator-based representations [4], [19]. Instead of generating RTL directly, the IR decomposes an instruction into human-readable and tool-actionable operators, as shown in Figure 3(a–c) for the bit-rotation example. The operators are divided into interface-related and arithmetic-related categories. Interface operators describe in-teractions with architectural state and pipeline control, such as reading registers, accessing the program counter, or writ-ing back to rd (Table I); these operators guide localized RTL edits such as adding decode paths, register ports, or handshake signals. Arithmetic operators capture functional semantics using composable arithmetic, bitwise, shift, and conditional primitives, while complex functions such as sincos 
+
+can be supported through custom hardware interfaces. This separation lets Agent ① preserve instruction semantics while leaving core-specific integration details to the downstream task translator. 
+
+C. Agent ②: Operator to Task Translation 
+
+Although LACE maps natural language ISAX specifications into predefined operations, large language models still struggle to perform accurate HDL edits. To guide them, LACE intro-duces rigorously defined meta-prompts that encapsulate com-mon implementation patterns across microarchitectures (e.g., state-machine and pipelined cores). Each meta-prompt con-tains an architecture-agnostic description, architecture-specific hints, and an instantiation procedure. 
+
+Architecture-agnostic description. This component pro-vides general ISAX integration strategies of ISAX integration strategies with expert-designed templates that reduce reasoning complexity and improve LLM accuracy. 
+
+Architecture-specific hints. Hints refine the general strate-gies for specific cores by describing properties such as pipeline depth and control paths. For instance, updating the program counter in a single-cycle or state-machine CPU only requires reading the next instruction, whereas a pipelined CPU must also flush subsequent stages. LACE maintains a modular hint repository of such hints that can be flexibly combined to form context-aware prompts. For decoupled or long-latency ISAXes, the task translator emits additional control tasks such as request/response hand-shakes, stalls, flushes, and writeback synchronization accord-ing to the core-specific hints. IV. A GENT -GUIDED HDL RAG Since ISAX integration requires repeated edits to complex CPU code while guidance is expressed in natural language, accurate localization is essential. LACE reuses previously published graph-based HDL RAG framework [31] as the code-navigation backend and adapts it to the multi-agent ISAX workflow. Figure 4 shows the resulting architecture. 
+
+A. Agent ③: Database construction and tool design 
+
+We briefly summarize the components used in LACE. Agent 
+
+③ extracts essential pipeline information from the CPU pro-totype into a document for further architecture-aware guided HDL modification. Meanwhile, following [31], we represent the codebase as a graph-structured repository that provides structural context beyond plain text. Concretely, modules and always-blocks are indexed as nodes, connected by hierarchy and dataflow edges, and retrieved through embedding-based matching with guided traversal. Within LACE, this back-end exposes three tool categories: First-step localization: 
+
+embedding-based retrieval maps a natural-language query to a small set of candidate graph nodes. Guided graph traversal: 
+
+controlled hierarchy and dataflow traversal expands these can-didates into a focused structural view. Free code exploration: 
+
+when the predefined interfaces are insufficient, agents can issue Cypher queries or textual exploration. The tool interface returns (a) a compact structural summary and (b) provenance pointers such as file paths and line ranges, allowing the writer agent to request the corresponding source slice. 
+
+B. Agent ④ for Codebase Exploration 
+
+Recent studies demonstrate that supervisor-structured multi-agent systems achieve strong performance in complex rea-soning and exploration tasks [32], [33]. LACE adopts asimilar architecture for HDL code navigation, as illustrated in Figure 4. The supervisor coordinates specialized search agents to decompose, parallelize, and refine localization tasks. Query                
+
+> Hierarchy Searcher
+> DFG Searcher
+> General Searcher
+> File Manager Response Search Supervisor Neo4j CLI Tools DFG Hierarchy GetBlock GetSignal GetCode GetFile Call
+> RAG Pipeline Sub-Agent Systems
+> GetModule
+> Fig. 4: Overview of the agentic HDL RAG system.
+> TABLE II: ISAX benchmark used in the evaluation.
+> ISAX Description Category
+> rol Bitwise rotation left Simple combinational operation ijmp Read next PC from main memory Custom control-flow sbox Lookup from AES S-Box Custom and long-latency load mul Load multiple Main memory access sincos decoupled sine and cosine computation Decoupled complex arithmetic
+
+Search supervisor. The supervisor manages query de-composition, task scheduling, and final synthesis. It decides whether a query primarily requires hierarchy navigation, dataflow traversal, or direct textual inspection, and then dis-patches subtasks accordingly. 
+
+Search sub-agents. Each sub-agent operates with a limited tool set and a bounded context window, then returns a concise summary with confidence and provenance information. If evidence is insufficient, the sub-agent reports failure in a structured form so the supervisor can re-plan. This keeps the retrieval process lightweight while still preserving traceability for downstream HDL modification. V. V ERIFICATION STRATEGY 
+
+A. Tool selection 
+
+Recent RISC-V verification efforts primarily rely on dif-ferential testing [34], [35], which compares the CPU state against a golden model cycle by cycle. Although effective for detecting discrepancies, applying this approach to LLM aided ISAX verification faces several challenges. 
+
+Golden Model Correctness. Differential testing assumes the golden model is bug-free, an unrealistic guarantee when LLMs modify or extend the architecture. LLM-generated mod-els may contain subtle errors, requiring separate verification of the golden model itself and still leaving residual risk. 
+
+Compiler Adaptation. Differential testing depends on com-piler support to generate test programs or issue random in-structions. Adapting compilers via LLMs is nontrivial [25], while manually embedding targeted instructions directly in test programs limits coverage, creating verification gaps. To address these limitations, LACE employs riscv-formal [24], which verifies instruction behavior via RVFI-based assertions using Yosys sby . This eliminates reliance on golden-model correctness and avoids requiring a customized compiler fron-tend for each new instruction. Nonetheless, riscv-formal has its own constraints: ① Scal-ability. Formal verification is computationally expensive and may not scale to high-performance processors. ② RVFI Inte-gration. Most existing cores lack native RVFI support, and inserting RVFI hooks automatically across diverse designs remains challenging. In this work, we assume RVFI is either already available or can be added with engineering effort; fully automatic RVFI insertion is outside the current scope. 
+
+B. Agent ⑥ Stepwise Verification 
+
+Because verifying ISAX extensions before completing inter-face integration is risky, where each modification may disrupt core functionality, LACE adopts a stepwise approach. We first run riscv-formal on the unmodified baseline core to establish a regression-safe reference. We then integrate the ISAX and re-run riscv-formal with the extended decode and semantics, so each iteration checks both (i) preservation of baseline ISA behavior and (ii) the new instruction property set. This staged verification helps preserve correctness while reducing regression risks during iterative generation. VI. E VALUATION 
+
+A. Experiment Setup 
+
+Instruction benchmark. As no standard ISAX benchmark exists, we define a custom set (Table II) covering three categories: (1) Main memory access (indirect jump , load multiple ), (2) Simple combinational (bitwise rotation ), and (3) Custom long-latency (sbox , sincos ) instructions. This set exercises memory interaction, lightweight datapath extension, and multi-cycle execution to evaluate LACE comprehensively. 
+
+Baseline cores. We evaluate a representative set of open-source embedded cores, PicoRV32 [36], e203 hbirdv2 [37], ibex [38], and cv32e40x [22], that collectively capture the architectural diversity of the RISC-V ecosystem. Among them, cv32e40x, ibex and e203 hbirdv2 implement the four-stage pipeline, three-stage pipeline and two-stage pipeline respec-tively, while PicoRV32 is a non-pipelined core that relies on an FSM for instruction sequencing. The baseline core area and performance are reported in Table IV. 
+
+Configurations. LACE uses GPT-4o (temperature 0.8) with iterative syntax and functional checks via Verilator [29] and 
+
+riscv-formal . Unless otherwise stated, each (core, ISAX) pass@1 entry is computed over nine independent runs with the same 2-shot examples. A run is counted as successful only if it (i) compiles cleanly with Verilator and (ii) passes the riscv-formal checks for the baseline core plus the added instruction. For each (core, ISAX), pass@1 is the fraction of nine independent complete LACE runs whose final RTL both compiles with Verilator and passes riscv-formal. Designs are synthesized in TSMC 28 nm using Design Compiler to compare baseline and ISAX-extended cores. 1.0 0.8 0.6 0.4 0.2 BM25   
+
+> Search
+> Agentic RAG 0.4786 0.7714 MRR  Similarity-based RAG 0.3418
+> Fig. 5: Search Ability analysis with agentic RAG.
+
+B. ISAX Generation with LACE 
+
+Accuracy improvement. We compare the pass@1 accu-racy of ISAX generation between LACE and direct (non-agentic) LLM generation using identical target files, ISAX descriptions, 2-shot examples, and model settings. As shown in Table III, LACE achieves an average pass rate of 72.8%, while direct generation succeeds only for the simple bitwise rotation instruction. This demonstrates that customized IRs, localized HDL edits, and verification feedback significantly improve reliability. Although success rates decline for more complex cores, all remain above 40%, confirming that LACE can autonomously generate most ISAXes without manual intervention. 
+
+Performance and area overhead. Table IV summarizes ASIC synthesis results. All frequencies are post-synthesis estimates under our stated constraints, rather than post-place-and-route results, and should therefore be interpreted only as relative comparisons within this setup. ISAX integration increases area by about 10% and reduces frequency by less than 10% in most cases, showing acceptable cost for added flexibility. Larger cores exhibit lower relative overhead, while complex multi-cycle instructions ( sbox , load mul ) introduce higher area and timing penalties. 
+
+PPA overhead comparison with SCAIE-V [4]. In order to compare the performance results with human expert’s ISAX, we compare LACE with SCAIE-V [4] on a common core PicoRV32. Table V demonstrates that with LLM’s flexibility, LACE can achieve a comparable performance with extension framework made by human expert. 
+
+C. Search Ability with Agentic RAG 
+
+The agentic RAG system in LACE is capable of accurately locating and modifying complex HDL code in repository-level. To comprehensively evaluate its improvement in search capability on such codes, we construct a benchmark of 50 tests by collecting the given meta-prompts and their corresponding code segments to be modified. We adopt the widely used mean reciprocal rank (MRR = 1
+
+> N
+
+PNi=1 1 
+
+> rank i
+
+) in RAG as the primary evaluation metric, which measures whether the framework can return correct results among the top-ranked outputs. We compare LACE against two commonly used similarity-based RAG methods, BM25 [39] and CodeT5+ embeddings [40]. As shown in Figure 5, LACE outperforms the baselines in block-level search, achieving an average MRR improvement of 29.28% across all queries, demonstrating its potential for precise HDL search in complex repository-level codes. TABLE III: Generation accuracy comparison with non-agentic generation with GPT-4o.                                                   
+
+> PicoRV32 e203 hbird ibex cv32e40x Non-agentic LACE Non-agentic LACE Non-agentic LACE Non-agentic LACE rol 22.2% 100% 0100% 11.1% 100% 11.1% 100% ijmp 088.9% 055.6% 0100% 066.7% sbox 088.9% 077.8% 088.8% 055.6% load mul 066.7% 044.4% 066.7% 055.6% sincos 055.6% 055.6% 044.4% 044.4%
+
+TABLE IV: ASIC results for area and frequency overheads of ISAX when integrated into base cores.                                                           
+
+> PicoRV32 e203 hbird ibex cv32e40x Area Freq. Area Freq. Area Freq. Area Freq. Base core 5,662 μm² 3.70 GHz 4,695 μm² 1.54 GHz 6,591 μm² 1.75 GHz 12,200 μm² 1.61 GHz rol +2% -2% +2% -0% +1% -2% +0% -1% ijmp +2% -3% +5% -4% +4% -1% +9% -0% sbox +7% -7% +10% -8% +6% -3% +8% -1% load mul +22% -6% +11% -5% +13% -8% +10% -7% sincos +69% -4% +46% -3% +22% -3% +14% -3%
+
+TABLE V: Comparison of ASIC results for area and frequency over-heads of ISAX with SCAIE-V [4] when integrated into PicoRV32.                             
+
+> LACE SCAIE-V Area Freq. Area Freq. Base core 5,662 μm² 3.70 GHz 5,662 μm² 3.70 GHz rol +2% -2% +2% -2% ijmp +2% -3% +7% -1% sbox +7% -7% +6% -2% load mul +22% -6% +20% -4% sincos +69% -4% +70% -4%
+
+D. Convergence Efficiency with Multi-hop Verification 
+
+We assess how the multi-hop verification loop affects ISAX integration on the e203 hbirdv2 core by comparing runs with and without incremental checking. As shown in Fig. 6(a), although multi-hop verification adds minor overhead in simple designs, it greatly reduces total iterations for complex ones by preventing early errors from propagating. Figure 6(b) further shows that for the load multiple instruction, this approach consistently lowers verification hops across all evaluated cores. Overall, LACE is more reliable for localized combinational extensions than for memory-coupled and long-latency ISAXes. Stepwise verification helps contain error propagation and reduce repair iterations. The remaining gap suggests that multi-cycle control and cross-module coordination require more specialized integration guidance. VII. C ONCLUSION AND FUTURE WORK 
+
+In this work, we presented LACE, an LLM-aided multi-agent framework for agile RISC-V ISAX design and integra-tion. LACE combines a reusable two-level IR, architecture-aware repository exploration, localized RTL editing, and formal-verification feedback to bridge natural-language ISAX specifications and processor-specific implementations. Across four RISC-V cores and five instruction extensions, LACE achieves an average pass@1 of 72.8%, substantially outperforming direct non-agentic generation. It also improves HDL localization and reduces verification iterations for com-plex extensions, while producing area and frequency overheads Single step Verification Capability (load_mul) Hops Count Agentic        
+
+> 10 86420PicoRV32 ibex e203_hbird cv32e40x
+> (a) (b)
+> Single step Verification Capability Hops Count Agentic
+> 10 86420rol ldm ijmp sbox sincos
+
+Fig. 6: Convergence efficiency with multi-hop verification with (a) 5 ISAXs on e203 hbird and (b) load mul on 4 host cores. 
+
+comparable to an expert-designed ISAX integration frame-work. Together, these results validate LACE as a reliable and efficient approach to cross-core ISAX integration. Future work will extend LACE to processors with more diverse and complex microarchitectures, including deeper pipelines, out-of-order execution, and more heterogeneous extension interfaces. We also plan to automate the processor-side RVFI instrumentation process, further reducing the man-ual effort required to enable formal verification. Additional directions include PPA-aware RTL optimization, automated compiler customization, and workload-level evaluation of can-didate instruction extensions. These capabilities would allow LACE to evolve from an ISAX implementation framework into a more comprehensive platform for automated instruction-set exploration, integration, and evaluation. ACKNOWLEDGMENT 
+
+This work was partially supported by an Amazon Research Award (PIs: Profs. Yang (Katie) Zhao and Caiwen Ding). REFERENCES [1] E. Hussein, B. Waschneck, and C. Mayr, “Automating application-driven customization of asips: A survey,” Journal of Systems Architecture , vol. 148, p. 103080, 2024. [2] J. Van Praet, G. Goossens, D. Lanneer, and H. De Man, “Instruction set definition and instruction selection for asips,” in Proceedings of 7th International Symposium on High-Level Synthesis , 1994, pp. 11–16. [3] K. Hepola, J. Multanen, and P. J¨ a¨ askel¨ ainen, “Openasip 2.0: Co-design toolset for risc-v application-specific instruction-set processors,” in 2022 IEEE 33rd International Conference on Application-specific Systems, Architectures and Processors (ASAP) . IEEE, 2022, pp. 161–165. [4] M. Damian, J. Oppermann, C. Spang, and A. Koch, “Scaie-v: an open-source scalable interface for isa extensions for risc-v processors,” in 
+
+Proceedings of the 59th ACM/IEEE Design Automation Conference ,2022, pp. 169–174. [5] J. Oppermann, B. M. Damian-Kosterhon, F. Meisel, T. M¨ urmann, E. Jentzsch, and A. Koch, “Longnail: High-level synthesis of portable custom instruction set extensions for risc-v processors from descriptions in the open-source coredsl language,” in Proceedings of the 29th ACM International Conference on Architectural Support for Programming Languages and Operating Systems, Volume 3 , 2024, pp. 591–606. [6] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao, “React: Synergizing reasoning and acting in language models,” in 
+
+International Conference on Learning Representations (ICLR) , 2023. [7] Codasip Ltd., “Codal: Codasip architectural language,” https://codasip. com/glossary/codal/, 2023. [8] Andes Technology Corporation, “Andes Custom Extension™ (ACE) Enables Customers to Add Application-Specific Instructions to AndesCore™ Processors,” https://www.andestech. com/wp-content/uploads/Andes-Custom-Extension%E2%84% A2-ACE-Enables-Customers-to-Add-Application-Specific-Instructions-to-AndesCore% E2%84%A2-Processors.pdf, Andes Technology Corporation, White Paper, 2015. [9] RIOS Laboratory, ICT, CAS, “E203 risc-v processor: External accel-erator interface (eai) specification,” https://github.com/riscv-mcu/e203 hbirdv2, RIOS Lab, ICT, CAS, Technical Report, 2018. [10] OpenHW Group, “Core-V eXtension Interface (XIF),” https://github. com/openhwgroup/core-v-xif, 2023. [11] C. Yarp, “An introduction to the rocket custom coprocessor interface,” http://www-inst.eecs.berkeley.edu/ ∼cs250/sp16/disc/Disc02.pdf, 2019. [12] P. D. Schiavone, D. Rossi, A. Pullini, A. Di Mauro, F. Conti, and L. Benini, “Quentin: an ultra-low-power pulpissimo soc in 22nm fdx,” in 
+
+2018 IEEE SOI-3D-Subthreshold Microelectronics Technology Unified Conference (S3S) . IEEE, 2018, pp. 1–3. [13] J. Blocklove, S. Garg, R. Karri, and H. Pearce, “Chip-chat: Chal-lenges and opportunities in conversational hardware design,” in 2023 ACM/IEEE 5th Workshop on Machine Learning for CAD (MLCAD) .IEEE, 2023, pp. 1–6. [14] K. Chang, Y. Wang, H. Ren, M. Wang, S. Liang, Y. Han, H. Li, and X. Li, “Chipgpt: How far are we from natural language hardware design,” arXiv preprint arXiv:2305.14019 , 2023. [15] Y. Lu, S. Liu, Q. Zhang, and Z. Xie, “Rtllm: An open-source benchmark for design rtl generation with large language model,” in 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 2024, pp. 722–727. [16] S. Thakur, J. Blocklove, H. Pearce, B. Tan, S. Garg, and R. Karri, “Au-tochip: Automating hdl generation using llm feedback,” arXiv preprint arXiv:2311.04887 , 2023. [17] Z. Pei, H.-L. Zhen, M. Yuan, Y. Huang, and B. Yu, “Betterv: Con-trolled verilog generation with discriminative guidance,” arXiv preprint arXiv:2402.03375 , 2024. [18] R. Li, L. B. Allal, Y. Zi, N. Muennighoff, D. Kocetkov, C. Mou, M. Marone, C. Akiki, J. Li, J. Chim et al. , “Starcoder: may the source be with you!” arXiv preprint arXiv:2305.06161 , 2023. [19] C. Li, D. Huang, P. Jin, T. Ma, H. Han, S. Cheng, Y. Hao, Y. Zhao, G. Xu, Z. Du et al. , “Agon: Automated design framework for customiz-ing processors from isa documents,” arXiv preprint arXiv:2412.20954 ,2024. [20] N. F. Liu, K. Lin, J. Hewitt, A. Paranjape, M. Bevilacqua, F. Petroni, and P. Liang, “Lost in the middle: How language models use long contexts,” 2023. [Online]. Available: https://arxiv.org/abs/2307.03172 [21] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao, C. Huang, C. Lv et al. , “Qwen3 technical report,” arXiv preprint arXiv:2505.09388 , 2025. [22] M. Gautschi, P. D. Schiavone, A. Traber, I. Loi, A. Pullini, D. Rossi, E. Flamand, F. K. G¨ urkaynak, and L. Benini, “Near-threshold risc-v core with dsp extensions for scalable iot endpoint devices,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 25, no. 10, pp. 2700–2713, 2017. [23] Y. Tsai, M. Liu, and H. Ren, “Rtlfixer: Automatically fixing rtl syntax errors with large language model,” in Proceedings of the 61st ACM/IEEE Design Automation Conference , 2024, pp. 1–6. [24] YosysHQ, “riscv-formal,” 2016. [Online]. Available: https://github.com/ YosysHQ/riscv-formal [25] C. Cummins, V. Seeker, D. Grubisic, B. Roziere, J. Gehring, G. Syn-naeve, and H. Leather, “Llm compiler: Foundation language models for compiler optimization,” in Proceedings of the 34th ACM SIGPLAN International Conference on Compiler Construction , 2025, pp. 141–153. [26] Q. Zhou, Y. Wen, R. Chen, K. Gao, W. Xiong, L. Li, Q. Guo, Y. Wu, and Y. Chen, “Qimeng-gemm: Automatically generating high-performance matrix multiplication code by exploiting large language models,” in 
+
+Proceedings of the AAAI Conference on Artificial Intelligence , vol. 39, no. 21, 2025, pp. 22 982–22 990. [27] M. Palkowski, “Llm-driven cross-platform code generation for polyhe-dral optimized npdp codes,” in Parallel Processing and Applied Mathe-matics , R. Wyrzykowski, J. Dongarra, E. Deelman, and K. Karczewski, Eds. Cham: Springer Nature Switzerland, 2025, pp. 162–175. [28] C. Hong, S. Bhatia, A. Haan, S. K. Dong, D. Nikiforov, A. Cheung, and Y. S. Shao, “Llm-aided compilation for tensor accelerators,” 2024. [Online]. Available: https://arxiv.org/abs/2408.03408 [29] W. Snyder, P. Wasson, D. Galbi et al. , “Verilator,” https://github.com/ verilator/verilator, accessed: 2026-03-16. [30] H. Chase, “LangChain,” Oct. 2022. [Online]. Available: https: //github.com/langchain-ai/langchain [31] M. Zheng et al. , “Hdlxgraph: Bridging large language models and graph-based hdl representation,” arXiv preprint , 2025. [32] A. ¨ Orwall, “Moatless Tools,” https://github.com/aorwall/moatless-tools, Jun. 2024. [33] X. Wang, B. Li, Y. Song, F. F. Xu, X. Tang, M. Zhuge, J. Pan, Y. Song, B. Li, J. Singh, H. H. Tran, F. Li, R. Ma, M. Zheng, B. Qian, Y. Shao, N. Muennighoff, Y. Zhang, B. Hui, J. Lin, R. Brennan, H. Peng, H. Ji, and G. Neubig, “Openhands: An open platform for AI software developers as generalist agents,” in The Thirteenth International Conference on Learning Representations , 2025. [Online]. Available: https://openreview.net/forum?id=OJd3ayDDoF [34] Y. Xu, Z. Yu, D. Tang, G. Chen, L. Chen, L. Gou, Y. Jin, Q. Li, X. Li, Z. Li, J. Lin, T. Liu, Z. Liu, J. Tan, H. Wang, H. Wang, K. Wang, C. Zhang, F. Zhang, L. Zhang, Z. Zhang, Y. Zhao, Y. Zhou, Y. Zhou, J. Zou, Y. Cai, D. Huan, Z. Li, J. Zhao, Z. Chen, W. He, Q. Quan, X. Liu, S. Wang, K. Shi, N. Sun, and Y. Bao, “Towards Developing High Performance RISC-V Processors Using Agile Methodology,” in 
+
+2022 55th IEEE/ACM International Symposium on Microarchitecture (MICRO) , 2022, pp. 1178–1199. [35] K. Shi, S. Xu, Y. Diao, D. Boland, and Y. Bao, “Encore: Efficient architecture verification framework with fpga acceleration,” in Proceedings of the 2023 ACM/SIGDA International Symposium on Field Programmable Gate Arrays , ser. FPGA ’23. New York, NY, USA: Association for Computing Machinery, 2023, p. 209–219. [Online]. Available: https://doi.org/10.1145/3543622.3573187 [36] C. Wolf, “Picorv32 – a size-optimized risc-v cpu core,” https://github. com/YosysHQ/picorv32, 2024. [37] Nuclei System Technology, “Hummingbirdv2 e203 core and soc,” https: //doc.nucleisys.com/hbirdv2, 2024, online. [38] lowRISC CIC, “Ibex: An embedded 32-bit RISC-V CPU core,” https: //github.com/lowrisc/ibex, 2025, open-source hardware project. [39] S. Robertson, H. Zaragoza et al. , “The probabilistic relevance frame-work: Bm25 and beyond,” Foundations and Trends® in Information Retrieval , vol. 3, no. 4, pp. 333–389, 2009. [40] Y. Wang, H. Le, A. Gotmare, N. Bui, J. Li, and S. Hoi, “CodeT5+: Open code large language models for code understanding and generation,” in 
+
+Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , H. Bouamor, J. Pino, and K. Bali, Eds., Dec. 2023.

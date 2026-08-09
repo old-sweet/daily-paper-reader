@@ -1,0 +1,715 @@
+Title: A Symbolic Execution Framework for Symbolic Timing Analysis of Digital Integrated Circuits
+
+URL Source: https://arxiv.org/pdf/2608.04036v1
+
+Published Time: Thu, 06 Aug 2026 00:01:03 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+> 1
+
+# A Symbolic Execution Framework for Symbolic Timing Analysis of Digital Integrated Circuits 
+
+Dennis Eigner ∗, Arman Ferdowsi †, Ulrich Schmid ∗∗Embedded Computing Systems Group, TU Wien, Vienna, Austria †Faculty of Computer Science, University of Vienna, Vienna, Austria e11808235@student.tuwien.ac.at, arman.ferdowsi@univie.ac.at, s@ecs.tuwien.ac.at 
+
+Abstract —Simulation-based dynamic timing analysis of digital integrated circuits (DDTA) offers a faster alternative to tradi-tional analog SPICE simulations. To achieve timing predictions that are reasonably competitive in terms of accuracy, however, DDTA mandates gate delay models that go beyond the standard pure or inertial delay models used in state-of-the-art tools. Recent advances in analytic gate delay models, which now also capture effects like drafting and multi-input switching, unlock new possibilities for timing analysis, which go way beyond simulation-based approaches towards an exhaustive exploration. In this paper, we present the cornerstones of a novel symbolic execution framework, which utilizes such analytic delay models for automatically computing symbolic delay expressions for all paths in a digital circuit, for some given ordering of the input transitions. To reduce combinatorial explosion, we introduce sym-bolic pruning methods that also enable path-sensitive, goal-driven reasoning about timing properties and analytic optimization of specific circuit paths. 
+
+Keywords —Digital circuit verification, digital dynamic timing analysis, symbolic timing analysis, symbolic execution 
+
+I. INTRODUCTION 
+
+Our modern digital society primarily relies on billions of 
+
+very-large-scale integrated (VLSI) circuits, which control the operation of essentially every device today, ranging from medical pacemakers to household appliances to cars to data centers to large-scale distributed computer networks. Since modern VLSI circuits consist of millions, if not billions, of transistors that need to operate in a well-synchronized fashion, the importance of design methods that can guarantee correct circuit behavior cannot be overstated. At the same time, eco-nomic pressure demands reasonably short development cycles. The key for accomplishing these conflicting goals is digital abstraction : whereas the transistors that primarily form aVLSI circuit are inherently analog electronic devices, which process information encoded in continuous-time, continuous-valued signals, they are essentially viewed as ideal switches that process and generate binary, event-based signals. Consider the schematic of a CMOS NOR gate shown in Fig. 1b, for example, which consists of 4 transistors and one capacitor (representing the load caused by the successor gate(s)). Its inputs are represented by the time-dependent voltage values 
+
+VA and VB , and its output is Vout .
+
+This work was funded in whole by the Austrian Science Fund (FWF) 10.55776/ESP1705325 (STAAC Project). 
+
+AB Out 
+
+(a) Gate Schematic VDD 
+
+VA
+
+VB
+
+VA C Vout VB  
+
+> T1
+> T2
+> T3T4
+
+(b) Transistor level Fig. 1. Transistor schematic of a CMOS NOR gate. 
+
+To obtain a digital abstraction for this NOR gate, one interprets an analog signal as HIGH if its voltage is above a certain threshold voltage, typically half the supply voltage, and LOW otherwise; an example can be found in Fig. 5a and Fig. 5b. As a consequence, the NOR gate can be described by a simple truth table. However, due to the finite signal propagation speed and, usually dominantly, the finite rise and fall times of analog signals, every gate causes a non-zero input-to-output delay. The core components of such a digital abstraction are hence gate delay models , which ideally allow faithful modeling of the analog circuit behavior. Most state-of-the-art tools rely on static delay models like pure or inertial delays [1], which are typically parametrized using elaborate timing models like CCSM and ECSM [2], [3]. Despite considering corner cases only, static delay models facilitate static timing analysis (STA) approaches, which are primarily used nowadays for validating the timing correctness of a digital circuit. 
+
+Static timing analysis 
+
+Consider a stage of the very common synchronous circuit structure depicted in Fig. 2. It consists of two flip-flops, driven by a common clock signal, with some combinatorial logic in between them. The purpose of the second flip-flop is to latch the current state of the output of the combinatorial logic when, say, a rising clock transition occurs and to hold it until the next clock transition. This way, the inputs of the combinatorial logic are kept stable for one clock period by the first flip-flop. To ensure correct circuit behavior, however, certain timing constraints must be enforced. In particular, the setup and arXiv:2608.04036v1 [cs.AR] 3 Aug 2026 D Q Combinational Logic D Q    
+
+> clk
+> Fig. 2. Two stages of a synchronous circuit: flip-flops with combi-natorial logic in between.
+> Worst-case
+> Fig. 3. Possible worst-case data path of a combinatorial logic (caused by an inverter that is slow compared to the NOR gates).
+
+hold times of the flip-flops must be obeyed; see Fig. 4 for details: The output of the combinatorial logic must be stable already some time before a clock transition occurs and must remain stable for some time after it as well. Static timing analysis approaches are sufficient for validating this, as it suffices to determine the delay of the worst-case path(s) in the combinatorial logic (see Fig. 3) and compare it to the clock period. And indeed, modern simulation-based statistical static timing analysis approaches can validate even very large circuit designs in reasonable time nowadays. However, traditional static timing analysis approaches also have some deficiencies: (i) they might provide false positives of errors, due to focusing on worst-case delays only, and (ii) they lack the ability to identify the root causes of a timing violation. Both limit the utility of static timing analysis from a design-optimization viewpoint.       
+
+> Fig. 4. Example timing diagram for a setup-hold time violation in a synchronous circuit as depicted in Fig. 2. Q1represents the output of the first flip-flop, D2(resp. Q2) the data input (resp. the output) of the second flip-flop.
+
+Dynamic timing analysis 
+
+To explore both (i) and (ii) systematically, one usually has to resort to full analog simulations, applied to a small core part of the circuit that causes the problem. Analog simulation tools such as SPICE [4] simulate the system of differential equations representing the transistors in the circuit (recall Fig. 1b), which are provided by the manufacturer of the circuit implementation technology. An example of the result of such a simulation is shown in Fig. 5a. The major disadvantage of this approach, however, is that it is extremely slow. In reality, it is impossible to even simulate even a short signal trace of a just moderately large circuit, say, a few ten microseconds of a circuit consisting of a few hundred gates.   
+
+> (a) Analog simulation trace (b) Corresponding digital trace Fig. 5. Example of an analog simulation trace and a digital one.
+
+A much faster alternative are dynamic digital timing analysis 
+
+(DDTA) approaches, see e.g. [5] for a short overview, which use discrete-event simulation based on gate delay models. The results of such a simulation run are shown in Fig. 5b. However, state-of-the-art DDTA tools like Questa, which are based on static pure or inertial gate delay models, offer modest timing prediction accuracy only. This can be improved by using history-aware delay models as introduced in [6], [7], [8], where the delay for some given input transition also depends on previous transitions. The recent family of history-aware hybrid gate delay models for multi-input gates introduced in [9], [5], [10] even provide analytic closed-form gate delay formulas, i.e., deterministic functions, which accurately cover both multi-input switching 
+
+(delay variations due to close transitions at different inputs) and even drafting effects (delay variations due to succeeding transitions), as revealed in [10]. Moreover, these models can even model PVT effects, as e.g. delay dependencies cause by supply voltage variations are easy to incorporate. Employing such advanced gate delay models in DDTA substantially outperforms state-of-the-art DDTA tools in terms of accuracy. 
+
+Unlocking symbolic timing analysis 
+
+Besides boosting the accuracy of simulation-based DDTA approaches, the analytic gate delay formulas provided in [10] also unlock a fundamentally different approach for timing analysis: since these formulas (i) are deterministic functions 
+
+that only involve symbolic gate parameters and (ii) can be composed to accurately compute the delay of a path made up by several interconnected gates, they are amenable to symbolic manipulation as well as mathematical sensitivity analysis. Consequently, they provide a promising basis for symbolic 
+
+timing analysis of digital circuits, which is the objective of this paper. In sharp contrast to any simulation-based approach, 2be it SPICE or DDTA, our approach provides an exhaustive 
+
+characterization of all possible traces generated by a circuit. The obvious downside is the resulting huge computational complexity, which is, however, relativized by (i) the availability of effecive complexity reduction techniques and (ii) the fact that one usually exhaustively explores only a small core part of a circuit anyway. 
+
+Main contributions: We introduce the cornerstones of a novel symbolic execution framework facilitating symbolic timing analysis of digital integrated circuits: given a circuit, its initial state, and an ordered sequence of symbolic input transition times, it uses the gate delay models of the involved gates to compute symbolic occurrence-time expressions for the tran-sitions reached along every explored path, together with the corresponding path constraints. The framework consists of two main components: (1) A novel symbolic execution engine, which is used for building a structured, delay-model-agnostic representation of the symbolic state-space tree of the circuit. We stress already here that, compared to software programs, the state-space of a circuit is very simple, as it only comprises the vector of the outputs of every gate (plus the queue of transitions of the external inputs). This is a consequence of the fact that gates are combinatorial logic elements and thus do not have an internal state caused by variables etc. Nevertheless, gates do have a delay-induced internal state , which is not considered in standard symbolic execution: it is caused by the non-instantaneous reaction of a gate output on relevant gate input changes. Consequently, for a given order of external input transitions, our custom symbolic execution engine has to compute a path for every possible transition order that might occur in an exe-cution and allows for compact representation of simple loops. Whereas complex loops must be unrolled in our approach, we also introduce the concept of a meta-transition , which can be viewed as a symbolic transition that represents all loop iterations. (2) A mechanism for annotating the tree nodes with explicit symbolic timestamps (that only involve the symbolic input transition times and the gate parameters), which are computed from the analytic delay formulas provided by the gate delay models by a computer algebra system [11]. Note that we avoid constructing non-differentiable timing formulas involving min / max operators, but rather stitch to-gether the analytic formulas describing the gate delays along a given path. Moreover, we augment nodes with symbolic constraints that are accrued to path constraints via constraint propagation, which enables very effective pruning. Note that our approach does not need a restricted constraint language, since we allow any constraint that can be specified via a mathematical formula involving symbolic timestamps. Our framework also supports the selection of the actual paths of interest via goal functions . A suitably defined goal function allows to restrict the exploration to those paths that contain contain specific hazards (i.e., bad transition orderings), and thus allows to find conditions for avoiding those, or to determine the minimal and/or maximal delay between certain transitions. Both are relevant for analyzing the root cause of setup/hold time violations, for example. We also provide a glimpse of the performance achieved by a (non-engineered) research prototype implementation of our approach for the benchmarking circuit c17 slack from the ISCAS85 benchmarking library [12]. Whereas our results are, of course, by no means representative, they show that our symbolic pruning method is already very effective. 
+
+Paper organization: Section II provides an overview of the (few) related papers on symbolic timing analysis of integrated circuits in the literature. Section III introduces the underlying circuit model and some terms used throughout the paper. Section IV explains how to construct the basic state space tree, including loop handling, and provides a coarse analysis of the worst-case complexity of our method. Section V explains our tree augmentation with symbolic timestamps and constraints and the way constraint propagation is used for pruning to mitigate combinatorial explosion. Section VI provides a brief description of the core algorithms of our complete symbolic timing analysis framework, as well as the results of our preliminary benchmark experiments. Section VII concludes our paper. A glimpse of our current work on additional partial order reduction techniques is outlined in Appendix A. II. RELATED WORK 
+
+For an overview of the rich state of the art of traditional static and dynamic simulation-based digital timing analysis, the reader is referred to [5]. A remarkable recent simulation-based digital timing analysis approach, which also supports design optimization to some extent, is NVIDIA’s INSTA framework [13]. In essence, it replaces the min and max functions traditionally used for describing gate timing behavior by soft-
+
+min and soft-max , and leverages gradient-descent methods from machine learning to optimize critical delay values. Whereas there is a rich literature on general symbolic execution (see [14] for a survey), to the best of our knowl-edge, only very few early papers have tried to employ those techniques for symbolic timing analysis of integrated circuits. More specifically, we are only aware of the following truly related work: Ishiura et al. [15] introduced a technique termed Time-Symbolic Simulation for accurate timing verification of com-binatorial logic circuits. It treats gates either as pure delay gates or as purely functional gates. An iterative approach is used to construct a tree of possible events given an input sequence. Downsides of their approach are the inability to handle feedback loops and the restriction to pure gate delay models. Like any symbolic execution-based technique, evalu-ating larger circuits becomes computationally expensive; the authors could handle circuits with up to 100 gates, however. Ishiura et al. [16] followed up to remedy some of these issues in their follow-up work called Coded Time-Symbolic Simulation. Here, the authors went on to use a shared binary decision diagram to represent the possible events of the circuit. This substantially reduced the computational costs but did not resolve the other deficiencies. Maler et al. [17] showed how to convert combinatorial circuits into timed automata, on which 3reasoning is much easier. The authors noted, however, that this conversion is not trivial for general circuits and hence part of ongoing research. Building on a timed automata-based approach, Claris´ o et al. [18] used convex polyhedra to find a set of constraints on delay parameters to guarantee correct system behavior. Operations on these polyhedra are, again, computationally expensive and not feasible for circuits with more than 15 gates. III. MODEL AND ASSUMPTIONS 
+
+We will rely on the thresholded hybrid model of digital cir-cuits and their executions, which we introduced in [9, Sec. 4]: We assume that circuits process and generate binary signals, represented by finite or infinite sequences of transitions (vi, t i)
+
+with vi ∈ { 0, 1}, strictly increasing occurrence times ti ∈ R
+
+for ordinary transitions, and alternating values. A transition 
+
+(0 , t ) denotes a falling transition at time t, and (1 , t ) denotes a rising transition . Note that [9] assumes that the initial state of a circuit is determined by initial transitions (0 , −∞ ) or 
+
+(1 , −∞ ), happening at time −∞ , and that the actual execution of a circuit starts at time t = 0 .A gate is internally modeled by a thresholded hybrid au-tomaton . It is described by a system of first-order differential equations (with non-constant coefficients), where the mode switches are governed by the digital inputs, and the digital output is generated by digitizing the analog output signal using a threshold voltage comparator. Its behavior is described by a detailed digital gate delay model , the formulas of which involve a number of gate parameters that can be used to parametrize the model for a given real gate. 
+
+Circuits are obtained by interconnecting a set of input ports and a set of output ports. The ports form the external interface of a circuit and a finite set of gates like NOR, NAND, etc., where a gate delay model like the ones in [5] is available. We do not restrict how gates are interconnected in a circuit, except that we disallow connections between the output ports of two different gates and/or of the circuit. Formally, a circuit 
+
+is described by a directed graph where: C1) A vertex Γ can be either a circuit input port, a circuit output port, or a digitized hybrid gate. C2) An edge (Γ , I, Γ′) represents a zero-delay connection from the output of Γ to the fixed input I of Γ′.C3) Circuit input ports have no incoming edges. C4) Circuit output ports have exactly one incoming edge and no outgoing one. C5) A c-ary gate G has a single output and c inputs 
+
+I1, . . . , I c, in a fixed order, fed by incoming edges from exactly one gate output or one input port. [9] also formally defines executions of a circuit. An execu-tion starts from a given sequence of transitions at every circuit input port, collectively termed as circuit input transitions .Under the assumption that all gates in a circuit are strictly causal (see [9, Def. 2]), in the sense that their input-to-output delays are strictly positive, one can prove that executions are unique (albeit the do of course depend on the choice of the gate parameters). Note carefully that this uniqueness of executions is instrumental for the feasibility of our approach, which aims at precisely characterizing the symbolic timing behavior of all possible executions of a circuit. 
+
+Theorem 1 (Unique execution [9, Thm. 4.1]) . Every circuit 
+
+C made up of finitely many strictly causal thresholded hybrid gates has a unique execution, which either consists of finitely many transitions only or else requires [0 , ∞) as its time domain. 
+
+Rather than dealing with the point-to-point edges defined in C2), we will subsequently focus on wires to describe the interconnect of a circuit. A wire just subsumes the set of edges that start either in a single circuit input port or in a single gate output. Consequently, a single wire compactly describes the common situation of a fan-out of an output that drives multiple input ports. The set of all wires will be denoted by 
+
+W = WI ∪ WG, where WI and WG denote the wires that start in a circuit input port and a gate output port, respectively. Note that the number of wires |W | in a circuit is equal to the number of gates |WG| plus the number of circuit input ports 
+
+|WI |.IV. SYMBOLIC EXECUTION FOR TIMING ANALYSIS 
+
+The core idea of our symbolic timing analysis approach is to use formulas, not time values, for expressing circuit timing behavior in terms of an ordered sequence of symbolic input transition times and symbolic gate parameters. The latter are supplied via the analytic delay formulas provided by gate delay models such as [5], [10], which can be used to compute symbolic delay expressions via a computer algebra system such as SageMath or MATLAB; see [11] for some details. For example, the following expression is a representative piecewise delay formula for a two-input NOR gate and a fixed local history. 
+
+∆∗(T ) = (α1 + α2)( δ0(T ) − δ∞(T )) 
+
+α1
+
+,η(T ) = −2RC 3 log 
+
+ 12 − exp 
+
+
+
+− T +δmin 
+
+> C′
+> 1RnB
+
+ + δmin .δ↑(∆ , T ) ≈
+
+
+
+δ0(T ) − α1
+
+α1 + α2
+
+∆ + δmin , R1,δ∞(T ) + δmin , R2,η(T ), R3,
+
+where 
+
+R1 : T + δmin ≥ 0, 0 ≤ ∆ < ∆∗(T ),
+
+R2 : T + δmin ≥ 0, ∆ ≥ ∆∗(T ),
+
+R3 : T + δmin < 0.
+
+Here ∆ = tB − tA ≥ 0. The symbols tA and tB = t denote the last falling input transition time of input A and input B,respectively, before or at t (or −∞ if none). α1, α 2 and R
+
+are resistance parameters of the serial pMOS transistors in the 
+
+NOR gate. The symbol dmin denotes a pure delay, C3 is the effective load capacitance, C′ 
+
+> 1
+
+and RnB are, respectively, the capacitance and nMOS -resistance parameters appearing in the 4exponential branch. In [5], we showed that the fitted transistor-resistance parameters can be computed analytically from six characteristic gate delay values (three for rising and falling transitions each, for ∆ = 0 , ∆ = ∞ and ∆ = −∞ ). Note carefully that our symbolic timing analysis approach rests on the fact that gate delays are deterministic functions of the gate parameters, possible including PVT-related ones like the supply voltage, i.e., do not involve any statistical or non-deterministic uncertainties. We consider this as an advantage of our approach, as it avoids the inevitable blow-up of the uncertainties when composing gates in a path. At the core of our approach is a symbolic execution engine. It constructs a state-space tree that enumerates all possible states a circuit may take during any possible execution that starts out from a fixed order of the sequence of symbolic input transition times. Informally, every node in the tree encodes a particular state of the circuit, which is just an assignment of binary values to all wires of the circuit. Later, every node will also be annotated with a set of timing conditions ( constraints )that must hold in an execution to reach the given state. The successors of a node are determined by single tran-sitions that may occur in the corresponding state, forming the edges in the tree. An edge corresponds either to (i) a single input transition or (ii) to a single output transition of an 
+
+inconsistent gate . The latter is characterized by the property that the value of the gate output does not match the one corresponding to the gate inputs in the current state; such a state is called an inconsistent state . For example, consider a circuit state where a NOR gate has 0 applied to both inputs and therefore outputs a 1. If one of the inputs experiences a rising transition, the inputs are now 1 and 0, which would demand the output to be 0. Since the gate’s output remains 1 some time after that single transition, however, it is inconsistent. Our construction guarantees that a path in the state-space tree corresponds to a specific order of the (symbolic) transitions occurring in the circuit. Note that we deliberately restrict our attention to executions for a given order of the input transitions here, as this is the most common situation in dynamic timing analysis. This restriction also dramatically reduces the number of executions of a circuit. It should be noted, though, that it is of course also possible to extend our approach to arbitrary sets of different orderings. 
+
+A. Basic state-space tree construction 
+
+Formally, our state-space tree is a directed tree T = ( S, E )
+
+(which will be turned into a tree-like directed acyclic graphs by meta-transitions introduced below), where 
+
+• A state , s ∈ S, is a node in the tree representing the state of the entire circuit at some point in an execution. It is given as an assignment of binary values to all wires w ∈
+
+W and also encompasses the (remaining) input queue 
+
+Q, containing all symbolic input transitions that have not been processed yet. Note that we will augment the circuit state with a symbolic timestamp and additional delay constraints later on; see Section V. 
+
+• A transition , e ∈ E, is an edge between two states (si, s j ), representing a transition of a single wire w ∈ W .We denote a rising (resp. falling) transition of w as 
+
+w+ (resp. w−). Note that our model does not consider concurrent transitions but rather requires an explicit ordering of any two transitions that happen at the same time. The tree construction algorithm for a circuit C will start out from a single root node , which represents the initial state 
+
+s0 of the circuit. 1 Its evolution is determined by a given sequence of symbolic input transitions (starting at or after 
+
+t = 0 ) given in the initial input queue Q of finite size |Q|.Note that input transitions are read and removed from left to right (in the timing order) from Q during tree construction. We write Q =  (w1, t 1), . . . , (wm, t m) and assume that it is a valid input sequence: the symbolic occurrence times satisfy 
+
+0 ≤ t1 ≤ t2 ≤ · · · ≤ tm, and wi ∈ { w−, w +} for some input wire w. Moreover, for each input wire w, successive input transitions must have strictly increasing occurrence times and alternate in value. Note that these input-order constraints will be part of the root path constraints added in Section V. Algorithm 1 tracks the current state SC of the circuit during tree construction and uses two subroutines: Algorithm 2 for building a new node in the tree and Algorithm 3 for determin-ing the successors of a node. First, it constructs the root node (variable rootN ode ) corresponding to the initial state SC = s0
+
+of the circuit and the initial input queue Q. Starting from 
+
+rootN ode , it then uses a local node queue (variable queue )to organize a standard breadth-first construction of the tree. 
+
+Algorithm 1 Construct full tree                      
+
+> Require: Circuit C, initial state s0, initial input queue Q
+> Ensure: Full tree constructed
+> rootN ode ←constructNode( s0,Q)
+> queue ← ∅
+> queue. append( rootN ode )
+> while queue. length >0do
+> nextItem ←queue. popleft() createChildren( nextItem.SC ,nextItem.Q ,nextItem )
+> for all child in nextItem.children do
+> queue .append( child )
+> end for end while
+
+Tree nodes are constructed using Algorithm 2. The procedure takes as input the current circuit state SC 
+
+and the current input queue Q. It uses the subroutine calculateInconsistencies( SC ) for computing the newly gener-ated node N ’s inconsistency queue N.IQ , which contains a list of output transitions of the inconsistent gates in the circuit state SC (if any). Note carefully that the latter is calculated from the circuit state parameter SC and not just passed down from N ’s parent. Once a node is constructed, all its entries except its children are immutable. The core of the tree construction algorithm is formed by the procedure createChildren given in Algorithm 3, which adds the set of child nodes to a previously constructed node N ; it gets 
+
+N ’s circuit state SC , its queue Q, and N itself as parameters. If Q̸ = ∅, it first constructs a child node corresponding    
+
+> 1In [9], the initial state of a circuit is actually determined by initial input transitions happening at time t=−∞ ; recall Section III. For simplicity, we will assume here that the initial state is explicitly given, however.
+
+5Algorithm 2 Procedure constructNode                
+
+> Require: Circuit state SC , input queue Q
+> Ensure: A valid tree node NN←newNode()
+> N.SC ←SC N.Q ←QN.IQ ←calculateInconsistencies( SC )
+> N.children ← ∅
+> return N
+
+to the first input transition (variable inputT ransition ) in the input queue Q; the child node inherits Q after pop-ping inputT ransition , as well as the circuit state resulting from applying inputT ransition to SC . Subsequently, the procedure iterates over all inconsistency transitions (vari-able inconsistencyT ransition ) in N ’s inconsistency queue 
+
+N.IQ , where it creates and adds a corresponding child for each of those. Note that the resulting child nodes inherit the input queue Q unchanged, and the circuit state resulting from applying inconsistencyT ransition to SC . (Recall that each transition, regardless of whether it comes from the input queue or from the inconsistency queue, can only change the state of a single wire.) 
+
+Algorithm 3 Procedure createChildren                       
+
+> Require: Circuit state SC , input queue Q, tree node N
+> Ensure: All valid children added to N
+> if Q. length >0then
+> newQueue ←Q. copy()
+> inputT ransition ←newQueue. popleft()
+> newCircuitstate ←SC. copy()
+> newCircuitstate. applyTransition( inputT ransition )
+> N. addChild(constructNode( newCircuitstate, newQueue ))
+> end if for all inconsistencyT ransition in N.IQ do
+> newCircuitstate ←SC. copy()
+> newCircuitstate. applyTransition( inconsistencyT ransition )
+> N. addChild(constructNode( newCircuitstate, Q ))
+> end for
+
+B. Examples 
+
+Consider the circuit depicted in Fig. 6a, which consists of two NOR gates and four wires, A, B, C, and D. Herein, 
+
+WI = {A, B } are circuit inputs, and WG = {C, D } are gate outputs. Assuming an initial state of (A, B, C, D ) =(1 , 0, 0, 1) , Fig. 7 shows the complete state-space tree for the input queue Q = ( A−, B +). Each node in the tree represents a state, and each edge between two nodes represents a transition between two states. Nodes are split into three parts: the first part, highlighted in bold red, describes the state of the circuit as a tuple (A, B, C, D ). The second part, prepended with ’Q’, is the input queue. The third part, prepended with ’IQ’, is the inconsistency queue. Unfortunately, circuits containing feedback loops may lead to infinite state-space trees, i.e., prevent the termination of our construction algorithm. The circuit with a feedback loop depicted in Fig. 6b serves as an example here: starting from the initial state of (1 , 0) and an input queue Q = ( A−, A +),an (infinite) tree sketched in Fig. 8a would be constructed. To mitigate this issue, we will introduce a compact representation of such loops. ABCD
+
+(a) A simple example circuit without loops  
+
+> AB
+
+(b) A simple circuit with a feedback loop Fig. 6. Two simple example circuits, without and with a feedback loop.                             
+
+> 1001
+> Q: A−,B+
+> IQ: ∅
+> 0001
+> Q: B+
+> IQ: C+
+> 0101
+> Q: ∅
+> IQ: D−
+> 0100
+> Q: ∅
+> IQ: ∅
+> D−
+> B+
+> 0011
+> Q: B+
+> IQ: D−
+> 0111
+> Q: ∅
+> IQ: C−,D−
+> 0101
+> Q: ∅
+> IQ: D−
+> 0100
+> Q: ∅
+> IQ: ∅
+> D−
+> C−
+> 0110
+> Q: ∅
+> IQ: C−
+> 0100
+> Q: ∅
+> IQ: ∅
+> C−
+> D−
+> B+
+> 0010
+> Q: B+
+> IQ: ∅
+> 0110
+> Q: ∅
+> IQ: C−
+> 0100
+> Q: ∅
+> IQ: ∅
+> C−
+> B+
+> D−
+> C+
+> A−
+
+Fig. 7. Example of a basic state-space tree without loops. 
+
+C. Loop detection 
+
+To prevent the infinite unrolling of the state-space tree in the case of feedback loops, we generalize our construction to also allow cycles that will be compactly represented by meta-transitions (see Section V-C). For that purpose, we first identify duplicate states, which are characterized by the following properties: two circuit states are identical if and only if (i) their wire states are identical, (ii) their remaining input queues are identical, (iii) the transition that led into those states is identical. Note that this condition ensures that the first of two paths that successively lead to that state is a prefix of the second, albeit they are obviously not identical. Finding duplicate states during the tree construction is com-putationally quite cheap, since only direct ancestor nodes need to be considered. The algorithm for detecting and reporting duplicates is shown in Algorithm 4. Obviously, Algorithm 1 needs to be adapted for using it for terminating looping behavior; see Section VI for details. Reconsidering the feedback circuit from Fig. 6b, the tree construction starting from the initial state (A, B ) = (1 , 0) and the input queue Q = ( A−, A +) leads to the generalized state-space tree shown in Fig. 8b. Thanks to our duplicate state conditions (i)–(iii) above, the immutability of already constructed nodes of our tree 610                          
+
+> Q: A−, A +
+> IQ: ∅
+> 00
+> Q: A+
+> IQ: B+
+> . . .
+> A+
+> 01
+> Q: A+
+> IQ: B−
+> . . .
+> A+
+> 00
+> Q: A+
+> IQ: B+
+> . . .
+> A+
+> . . .
+> B+
+> B−
+> B+
+> A−
+> (a)
+> 10
+> Q: A−, A +
+> IQ: ∅
+> 00
+> Q: A+
+> IQ: B+
+> 10
+> Q: ∅
+> IQ: ∅
+> A+
+> 01
+> Q: A+
+> IQ: B−
+> 11
+> Q: ∅
+> IQ: B−
+> 10
+> Q: ∅
+> IQ: ∅
+> B−
+> A+
+> 00
+> Q: A+
+> IQ: B+
+> 10
+> Q: ∅
+> IQ: ∅
+> A+
+> B−
+> B+
+> A−
+> B+
+> (b) Fig. 8.
+
+Result of the generalized state-space tree construction for Fig. 6b, using the duplicate detection Algorithm 4. (a) Simplified symbolic execution with a feedback loop and infinite unrolling. (b) A symbolic execution with a feedback loop and loop detection. 
+
+Algorithm 4 Procedure detectCycles                
+
+> Require: Node N
+> Ensure: Detection of a cycle in the tree construction
+> ancestor ←N.parent
+> while ancestor ̸=null do if sameState (N, ancestor )then return cycle detected
+> end if
+> ancestor ←ancestor.parent
+> end while return no cycle
+
+is preserved even in the presence of a loop. After all, the mere existence of a back-edge does not create the need to change the already created nodes representing the loop body. Unfortunately, this will not be the case in the annotated version of our tree described in Section V, however, since the different paths leading to the loop starting node imply different symbolic timestamps. 
+
+D. Complexity of the basic state-space tree construction 
+
+Like every symbolic execution approach, our basic tree construction algorithm has a bad worst-case space and time complexity. 
+
+1) Width of the tree: The width of the state-space tree, i.e., the out-degree of the nodes, is determined by the number of transitions that can occur in the circuit state s corresponding to a node. Since a state transition in our model is defined by a transition on a single wire, the set of possible next states reachable from s is at most |WG| + 1 , as all gates could be inconsistent in the state s. Only a single circuit input transition is taken from the input queue Q in Algorithm 3. 
+
+2) Depth of the tree: The major challenge in symbolic execution is managing the combinatorial explosion caused by concurrent transitions. In our setting, concurrent transitions result mainly from inconsistent transitions in the inconsistency queue N.IC of a node N , as generated by Algorithm 3. The main reason for the high time and space complexity is that the order in which the k = |N.IC | ≤ | WG| transitions can be scheduled is arbitrary, unless information about circuit delays is incorporated (see Section V): For the basic state-space tree construction, each of the k! permutations must be considered. Our tree construction hence needs to build the entire subtree rooted in N , which contains paths representing all possible sequential orderings of the k transitions, together with newly generated concurrent transitions resulting from successor nodes. The size of this subtree is hence huge: even in the case of an empty input queue N.Q = ∅, its worst-case size is Pki=0 k!(k−i)! = k! Pki=0 1/i ! < ek !. In the case of |N.Q | = m > 0, assuming some worst-case 
+
+kmax for the number of inconsistency transitions generated for any node, our tree construction generates a subtree with 
+
+m layers rooted in N , with up to (kmax + 1) i nodes in layer 
+
+1 ≤ i ≤ m. Each of the (kmax +1) m nodes at the final layer m
+
+generates additional ek ! nodes. Summing this up gives a worst-case size of O (kmax + 1) m · kmax ! for the entire subtree. Whereas this is clearly a very conservative bound, in particular, because further transitions can invalidate previously generated transitions in some paths, it makes efficient pruning methods mandatory. V. AUGMENTATIONS OF THE STATE -S PACE TREE 
+
+The state-space tree constructed according to Section IV fully captures all possible transition orderings that can take place in an execution of a circuit when starting from agiven initial state and a given circuit input queue. However, so far, it does not consider any delay information. In this section, we will augment our basic tree construction by adding symbolic timestamps and related constraints to the nodes, which effectively keep track of the timing of the path leading to a node. Needless to say, our augmentation crucially relies on closed-form analytic delay models such as [9], [5], [10]. The deterministic delay formulas provided by such models can be rewritten to “absolute” occurrence time formulas of the form τG : P × H → R for a given gate G, which provide the time of the next output transition based on the following symbolic variables: 
+
+• Gate parameters P , representing physical properties affecting the gate delay, like load capacitances and resistances. 
+
+• Transition history H, representing previous input and output transitions of the gate, expressed via symbolic timestamps. Indeed, thanks to H, it is easy to compute the absolute next output transition time from the relative delay formula provided by the delay model. Such history-dependent occurrence time formulas are ide-ally suited for our approach, since the transition history H
+
+is explicitly maintained in the path in the state-space tree that leads to a node reached via some output transition of 
+
+G. As a consequence, as described in [11], we can use a 7computer algebra system to accumulate the individual relative gate delays occurring throughout a path without resorting to the non-differentiable min / max operators used in traditional static and dynamic timing analysis approaches. Essentially, this is the reason why we claimed that the delay models [9], [5], [10] effectively unlocked our novel symbolic timing analysis approach. 
+
+A. Tree node symbolic timestamp annotations 
+
+All that needs to be done to annotate a tree node N created in Algorithm 3 with a symbolic timestamp N.T S is the following: (a) If N is reached from its parent node N ′ via an inconsis-tency transition inconsistencyT ransition ∈ N ′.IQ ,i.e., a transition caused by the output of some gate G,we store the symbolic expression τG(P, H ) in N.T S ,where H is the transition history of G available imme-diately before the transition to N , as extracted from the path leading to N ′.(b) If N is reached via an input transition 
+
+inputT ransition ∈ N ′.Q , then N.T S is the symbolic occurrence time of that input transition. The root node does not correspond to a transition and is therefore annotated with the starting time N.T S = 0 .
+
+B. Constraint propagation 
+
+The main utility of the tree node annotation described above is that it enables a very effective pruning method. Recall that our basic state-space tree represents all the different transition orders. When a node branches into multiple successors, each of those represents a different execution, in which one specific transition has occurred before the other alternative ones. For example, consider the case where N.IQ contains two alter-native inconsistency transitions, say, A+ and B+. Then, N
+
+will have two children, NA+ and NB+ . In any path containing 
+
+NA+ , transition A+ occurs before B+, whereas in any path containing NB+ , transition B+ occurs before A+.We can leverage this property for a powerful pruning tech-nique that we call constraint propagation . Consider the subtree depicted in Fig. 9, where we added a straightforward tree node naming scheme (marked in red above the individual nodes) for reference purposes. Assume that node 1 starts off with a timestamp 1.T S = t1. If the execution takes the branch A+
+
+(corresponding to an input transition occurring at time tA 
+
+> 1
+
+), the timestamp of the corresponding node 1.1 is 1.1.T S = tA 
+
+> 1
+
+. If the execution takes branch B+ (corresponding to an inconsis-tency transition), the timestamp of the corresponding node 1.2 is 1.2.T S = τB+ (P, H ), where τB+ denotes the occurrence time of the transition of the gate causing B+ (which will of course depend on its transition history H, which is available in the path leading to node 1). Assume first that 1.1.T S ̸ = 1 .2.T S . Since the branch A+ is only taken if 1.1.T S < 1.2.T S , we can add this constraint as an additional annotation to node 1.1. Moreover, this constraint can be passed on to all children of node 1.1, since the transition that led to this state can only occur if that constraint is actually           
+
+> 00
+> Q: A+
+> IQ: B+
+> TS: 0
+> 1
+> 10
+> Q: ∅
+> IQ: ∅
+> TS: tA
+> 1
+> 1.1
+> . . . . . .
+> A+
+> 01
+> Q: A+
+> IQ: ∅
+> TS: τB+
+> 1.2
+> . . . . . .
+> B+
+> Fig. 9. Example of a timestamp-annotated state-space tree.
+
+satisfied. Analogously, the strict constraint 1.2.T S < 1.1.T S 
+
+can be added to node 1.2 and propagated to its children. Each branch in the tree hence adds branch-ordering constraints and passes them on to its children. Obviously, this continuously restricts the feasible region of the symbolic input times and gate parameters along a given path. One issue that could invalidate mutual exclusion of prop-agated constraints arises when two different child nodes N1
+
+and N2 are annotated with symbolic timestamps that (also) admit a parameter assignment that results in N1.T S = N2.T S .In that case, assuming strict conditions N1.T S < N2.T S 
+
+for N1 (resp. N2.T S < N 1.T S for N2) would not cover all possible paths, whereas assuming non-strict constraints 
+
+N1.T S ≤ N2.T S (resp. N2.T S ≤ N1.T S ) would not be mutually exclusive. A straightforward solution is to augment symbolic timestamps with deterministic child indices and com-pare pairs (Ni.T S, i ) lexicographically. The input-transition child has index 0, and the inconsistency transitions in N.IQ 
+
+are ordered by some fixed gate order. Thus, child i is selected before sibling j iff Ni.T S < N j .T S , or Ni.T S = Nj .T S 
+
+and i < j . Equivalently, the constraint for child i against sibling j is Ni.T S ≤ Nj .T S if i < j , and Ni.T S < N j .T S 
+
+if i > j . In the example above, the effective constraint for 
+
+N1 is therefore N1.T S ≤ N2.T S , whereas the one for N2 is 
+
+N2.T S < N 1.T S .Overall, the propagation of constraints ensures two powerful properties: 1) Each node is annotated with symbolic constraints that characterize the exact parameter space that leads to that specific execution path, which facilitates a precise analysis of, say, the root causes of timing violations using powerful mathematical tools. 2) When accruing multiple constraints along a path, con-flicts between those can occur at some node N , leading to conditions such as t1+2 δ < t 1+δ. Since the resulting parameter space is empty, it is physically impossible for the path leading to N to occur, which allows to prune the complete subtree starting from N .Implementing the pruning in 2) requires a feasibility checker for the accrued constraints. Since the latter consist of inequal-ities of path-dependent compositions of the analytic delay for-mulas provided by the gate delay models, which in turn involve 8both symbolic input transition times and gate parameters, an SMT solver over the reals or a nonlinear numerical solver is required here. Note that this corresponds to the usage of SAT solvers for path pruning in classic symbolic execution, see [14]. 
+
+C. Efficient loop handling via meta-transitions 
+
+Whereas the approach described so far works just fine for circuits that do not contain feedback loops, it falls apart when encountering a loop: Since loop detection adds a back edge in the generalized state-space tree, multiple paths lead to the same node. Since these different paths cause different transition his-tories for the gates involved, the symbolic timestamp originally assigned in Section V-A is not applicable for paths involving loop iterations. Moreover, additional constraints originating in the loop body must be added to the node reached by the back-edge and propagated to its children. Since both effects violate our principle of immutability of tree nodes, the entire subtree below the starting node becomes invalid and must be suitably reconstructed. To tackle this issue, we introduce the concept of meta-transitions , which represent multiple transitions as a single transition. Reconsider the NOR gate example with feedback shown in Fig. 8b, and assume a constant relative gate delay 
+
+c > 0 for simplicity. Let the input transition A− occur at time t1. The state reached immediately after A− has times-tamp t1, and every full loop iteration adds two gate delays. Hence a meta-transition that represents k ∈ N0 full loop iterations before the next B+ transition reaches node 1.1.1 at 1.1.1.T S = t1 + (2 k + 1) c, and the following B− transition occurs at t1 + (2 k + 2) c.To incorporate meta-transitions, we only need to augment a successful cycle detection (Algorithm 4): When a back-edge to some loop starting node N is found, (i) the entire subtree of N
+
+in its parent node N ′ is deleted, and (ii) a new child node N ,reached by a suitable meta-transition, is added to N ′.children 
+
+and to the node queue of the BFS tree construction algorithm. The latter will then reconstruct the subtree for N , assigning the appropriate symbolic timestamps and constraints. When revisited, cycle detection adds an untraversable meta-backedge 
+
+for efficient loop unrolling, preserving the tree structure. Unfortunately, however, this construction only works for 
+
+simple loops , where the loop body is restricted to a chain 
+
+of nodes reached via a sequence of inconsistency transitions; any additional transition happening in the state corresponding to such a node must exit the loop. Interestingly, simple loops may also be partially overlapping, in the sense that a transition exiting a loop may also start a new loop. Note that the latter may even have a back edge to a node within the loop body of the first loop, provided this node is not the starting node of the first loop. Circuits encountered in practice may also contain complex loops , however: 1) A loop that is properly nested within another one. 2) A loop that has branches in the loop body, which lead to multiple back edges ending in its starting node. It is well-known from classic symbolic execution that dealing with such complex loops is challenging; see, e.g., [19]. This is, of course, also the case in our specific context, where we                                            
+
+> 10
+> Q: A−, A +
+> IQ: ∅
+> TS: 0
+> 1
+> 00
+> Q: A+
+> IQ: B+
+> TS: t1
+> 1.1
+> 10
+> Q: ∅
+> IQ: ∅
+> TS: t2
+> 1.1.1
+> A+
+> 01
+> Q: A+
+> IQ: B−
+> TS: 1.1.T S +k2c=t1+ (2 k+ 1) c
+> 1.1.2
+> 11
+> Q: ∅
+> IQ: B−
+> TS: t2
+> 1.1.2.1
+> 10
+> Q: ∅
+> IQ: ∅
+> TS: 1.1.2.1.T S +c=t2+c
+> 1.1.2.1.1
+> B−
+> A+
+> 00
+> Q: A+
+> IQ: B+
+> TS: 1.1.1.T S +c=t1+ (2 k+ 2) c
+> 1.1.2.2
+> 00
+> Q: ∅
+> IQ: ∅
+> TS: t2
+> 1.1.2.2.1
+> A+
+> B−
+> B+
+> A−
+> B+
+> Fig. 10.
+
+A meta-transition representing the loop in Fig. 8b. 
+
+face the additional problem that classic solutions such as loop summarization would require us to also incorporate classic symbolic execution for determining the required semantic in-formation. We must, hence, leave a proper handling of complex loops to future research and solely rely on the unrolling of complex loops by iteratively refining the corresponding meta-transitions in our current implementation. 
+
+D. Goal functions 
+
+Among the attractive additional features of our symbolic timing analysis approach is the ability to define analysis goals . For example, a goal in circuits containing flip-flops could be analyzing the cause of a setup time violation; recall Figs. 2 and 4. To accomplish this for a given (say, the k-th) rising transition of the clock wire c+ 
+
+> k
+
+, one needs the symbolic timestamp of two nodes in all paths in the state-space tree: the node Nc+
+
+> k
+
+reached by c+ 
+
+> k
+
+and the symbolic timestamp of the node Nd±
+
+> ℓ
+
+reached by the last preceding transition d+ 
+
+> ℓ
+
+or 
+
+d− 
+
+> ℓ
+
+. Then, one must analyze the time difference expression 
+
+∆ = Nc+
+
+> k
+
+.T S − Nd±
+
+> ℓ
+
+.T S . For the gate parameterization causing a setup violation, one would observe that ∆ is smaller than the allowed setup time. One could then look at the gradient of ∆ w.r.t. the gate parameters to find an alternative gate parameterization that avoids this violation. Evidently, for the above example of an analysis goal, it would suffice to generate a state-space tree that only contains 
+
+k rising clock transitions in any of its paths. Our framework, 9therefore, provides goal functions , which serve a double pur-pose: 1) Terminating the state-space tree construction when all relevant transitions for some analysis goal have happened, in any path, and 2) Guiding the process of fulfilling the analysis goal after tree construction, ideally (but not necessarily so) in an automated fashion. For any wire w ∈ W = WG ∪ WI , s ∈ { +, −} , integer 
+
+k ≥ 1, and any path π in the state-space tree of a circuit, let wsk,π denote the k-th transition of type ws in π, and 
+
+T S (wsk,π ) = Nwsk,π .T S be its symbolic timestamp. Let T
+
+be the set of all such transitions (which also comprise the circuit input transitions, of course), and T S (T ) = {T S (wsk,π ) |
+
+wsk,π ∈ T } be the set of all symbolic timestamps. A goal function g : 2 T → Rn, for some finite integer n > 0, is an arbitrary function of the symbolic timestamps of a finite number of transitions. Note that, for any S ⊆ T , g(S) only involves symbolic input transition times and gate parameters of gates determined by S.Given g(S) and S, the state-space tree construction can be terminated if all transitions in S have occurred in any path. Subsequently, the analysis goal can be approached by studying 
+
+g(S) in the constructed tree. VI. INTEGRATED SYMBOLIC TIMING ANALYSIS 
+
+FRAMEWORK 
+
+In this section, we will briefly describe how the basic state-space tree construction algorithm of Section IV-A is extended to the augmentations described in Section V, i.e., symbolic timestamp assignment, meta-transitions, constraint propaga-tion, and goal functions. This primarily affects Algorithm 1 and Algorithm 3; the original node construction Algorithm 2 only needs to be augmented by the new components stored in a node, as shown in Algorithm 5. 
+
+Algorithm 5 Procedure constructNode with augmentations                                
+
+> Require: Circuit state SC , input queue Q, parent node N′(∅for initial node)
+> Ensure: A valid tree node NN←newNode()
+> N.SC ←SC N.Q ←QN.IQ ←calculateInconsistencies( SC )
+> N.children ← ∅
+> N.parent ←N′
+> if N′=∅then
+> N.T S ←0
+> else
+> N.T S ← ∅
+> end if
+> N.constraints ← ∅
+> return N
+
+The tree construction main Algorithm 1 must be extended to identify and handle loops via meta-transitions and to pre-maturely terminate the further construction of a subtree once the necessary information for the goal function is already available in the current path. Algorithm 6 gives the augmented algorithm. It relies on a procedure detectSimpleCycle( child ), which detects whether the node child is the last node of the loop body of a simple loop. This would cause a back edge to some previous node in the current path that has not been reached by a meta-transition in the tree construction earlier. Our procedure just needs to parse the path leading to child upwards and compare the corresponding states to the state of child . If a new cycle is found, the entire subtree of the starting node of 
+
+cycle is deleted. To also reflect this deletion in the tree con-struction node queue , procedure deleteOrphanedNodes( queue )is called to delete all now orphaned nodes, and the neighbor construction FOR loop is terminated prematurely. Before ter-mination, a new starting node is generated by the procedure createMetaTransition( cycle ); it is now reached from its parent by a meta-transition and added to the tree construction node 
+
+queue . Finally, the procedure pathIncomplete( child, S ) is used for checking whether the transitions in S needed for the goal function g(S) are already present in the path leading to child ,by parsing it upwards and collecting the transitions involved. 
+
+Algorithm 6 Construct tree with augmentations                                            
+
+> Require: Circuit C, initial state s0, initial input queue Q,Sfor goal function g(S)
+> Ensure: Desired tree constructed
+> rootN ode ←constructN ode (s0, Q, ∅)
+> rootN ode.constraints. addAll( inputOrderConstraints( Q))
+> queue ← ∅
+> queue. append( rootN ode )
+> while queue. length >0do
+> nextItem ←queue. popleft() createChildren( nextItem.SC ,nextItem.Q ,nextItem )
+> for all child in nextItem.children do
+> cycle ←detectSimpleCycle( child )
+> if cycle ̸=∅then
+> loopStart ←cycle.startN ode
+> if loopStart is createdByM etaT ransition then
+> createMetaBackedge( cycle.endN ode ,cycle.startN ode )
+> else
+> loopStartP arent ←loopStart.parent loopStartP arent. delete( loopStart )deleteOrphanedNodes( queue )
+> child ←createMetaTransition( cycle )
+> queue .append( child )break FOR loop
+> end if else if pathIncomplete( child, S )then
+> queue .append( child )
+> end if end if end for end while
+
+The creation of all augmented child states is also just an extension of the original algorithm Algorithm 3, where node timestamps and constraints are added. Algorithm 7 uses the procedure computeTimestamp( child, inconsistencyT ransition ) to compute the symbolic timestamp for node child according to Section V-A.(a), where the gate G (resp. the transition history 
+
+H) is extracted from inconsistencyT ransition (resp. from the path leading to child ). In addition, every child inherits the parent’s constraint set N.constraints , which is augmented by the additional sibling-ordering inequalities; the latter express the fact that the transition leading to child precedes every transition leading to its siblings. A child node with accrued constraints that are found to be unsatisfiable is deleted. 10 Algorithm 7 Procedure createChildren with augmentations                                             
+
+> Require: Circuit state SC , input queue Q, tree node N
+> Ensure: All valid children added to N
+> if Q. length >0then
+> newQueue ←Q. copy()
+> inputT ransition ←newQueue. popleft()
+> newCircuitstate ←SC. copy()
+> newCircuitstate. applyTransition( inputT ransition )
+> child ←constructNode(
+> newCircuitstate, newQueue, N )
+> child.T S ←inputT ransition.time N. addChild( child )
+> end if for all inconsistencyT ransition in N.IQ do
+> newCircuitstate ←SC. copy()
+> newCircuitstate. applyTransition(
+> inconsistencyT ransition )
+> child ←constructNode(
+> newCircuitstate, Q, N )
+> child.T S ←computeTimestamp(
+> N, inconsistencyT ransition )
+> N. addChild( child )
+> end for for all child in N.children do
+> child.constraints.addAll (N.constraints )
+> Cs←computeSiblingConstraints( child, N.children )
+> child.constraints.addAll (Cs)
+> end for for all child in N.children do if unsatisfiable( child.constraints )then
+> N.children.remove (child )
+> end if end for
+
+A. Timing analysis based on the augmented state-space tree 
+
+Once the augmented state-space tree is fully constructed, it can be used for various timing analysis purposes. After all, unlike traditional static and dynamic timing analysis ap-proaches, which generate only corner-case results or numerical results of a single simulated execution, our tree stores every possible transition ordering, for any choice of input transition times and gate parameters. Since the purpose of this paper is to describe the cornerstones of the symbolic execution framework underlying our approach, we will mention just two possibilities. An important problem in circuit validation is detecting hazards, like two or more transitions happening in an unwanted order. Note that avoiding this is particularly important for asynchronous circuit designs based on relative timing con-straints [20], [21]. A particularly important question here is under which circuit input timing conditions such a hazard could happen. This question can be answered by identifying paths containing such hazards and solving the accrued path constraints. In addition, for the particular hazard of a setup time viola-tion, one could use the goal function sketched in Section V-D for finding a gate parametrization P that maximizes the setup time, be it in the worst-case path, in some specific paths, or in all paths with a fixed sequence of circuit input transition times. Since each fixed path yields analytic expressions on its feasible constraint region, this can be approached by constrained local optimization methods, such as gradient-based methods applied separately to the relevant path regions. 
+
+TABLE I. PROTOTYPE RESULTS ON THE C 17 SLACK CIRCUIT .
+
+|Q| IS THE INPUT QUEUE SIZE , Et (s) IS THE EXECUTION TIME IN SECONDS , AND #C IS THE NUMBER OF PATHS EXPLORED .                                       
+
+> No constraint prop. With constraint prop. Difference (ratio)
+> |Q|Et (s) #C Et (s) #C Et (s) #C 10.095 10.141 11.48 1
+> 20.093 30.11 31.18 1
+> 40.16 112 0.218 15 1.36 0.13
+> 8185.93 234708 2.801 153 0.015 0.00065
+> 16 ––27.283 1991 ––
+
+B. Experimental results 
+
+To assess the principal viability of our approach, we devel-oped a research prototype implementation in Python, which will be made publicly available in the future. The prototype was executed on a workstation with an AMD Ryzen 5 3600 6-Core Processor and 8 GB of RAM. For our experiments, we chose the circuit c17 slack from the ISCAS85 benchmarking library [12], utilizing a simple constant delay model with variable-length circuit input queues. For comparison purposes, we ran our experiments with and without constraint propaga-tion enabled and recorded both the execution time in seconds and the number of candidate paths found. Our results, which are summarized in Table I, show a significant reduction in the number of candidate paths explored when using constraint propagation, especially when the length of the input queue increases. We are convinced that additional complexity reduction techniques, like partial order reduction (see Section A), in addition to engineering improvements such as a C/C++ implementation and utilizing multi-threading, will allow us to significantly improve the performance and scalability even further. VII. CONCLUSIONS 
+
+In this paper, we introduced a novel symbolic execution framework for symbolic timing analysis of digital integrated circuits, which has been unlocked by our recent advances in accurate gate delay models. Its purpose is to provide an alternative to traditional simulation-based dynamic timing analysis approaches, which do not allow for the complete exploration, e.g., of the root causes of static timing analysis violations. REFERENCES [1] S. H. Unger, “Asynchronous sequential switching circuits with un-restricted input changes,” IEEE Transactions on Computers , vol. 20, no. 12, pp. 1437–1444, 1971. [2] CCS Timing Library Characterization Guidelines , Synopsys, Inc., Oc-tober 2016, version 3.4. [3] Effective Current Source Model (ECSM) Timing and Power Specifica-tion , Cadence Design Systems, January 2015, version 2.1.2. [4] L. W. Nagel and D. Pederson, “SPICE (Simulation Program with Inte-grated Circuit Emphasis),” EECS Department, University of California, Berkeley, Tech. Rep. UCB/ERL M382, 1973. [5] A. Ferdowsi, M. F¨ ugger, J. Salzmann, and U. Schmid, “Accurate closed-form delay formulas for interconnected CMOS gates based on first-order thresholded hybrid systems,” Integration , vol. 109, p. 102701, July 2026. 
+
+11 [6] M. J. Bellido-D´ ıaz, J. Juan-Chico, and M. Valencia, Logic-Timing Simulation and the Degradation Delay Model . London: Imperial College Press, 2006. [7] M. F¨ ugger, T. Nowak, and U. Schmid, “Unfaithful glitch propagation in existing binary circuit models,” IEEE Transactions on Computers ,vol. 65, no. 3, pp. 964–978, 2016. [8] M. F¨ ugger, R. Najvirt, T. Nowak, and U. Schmid, “A faithful binary circuit model,” IEEE Transactions on Computer-Aided Design of Inte-grated Circuits and Systems , vol. 39, no. 10, pp. 2784–2797, 2020. [9] A. Ferdowsi, M. F¨ ugger, T. Nowak, U. Schmid, and M. Drmota, “Faithful dynamic timing analysis of digital circuits using continuous thresholded mode-switched odes,” Nonlinear Analysis: Hybrid Systems ,vol. 56, p. 101572, 2025. [Online]. Available: https://www.sciencedirect. com/science/article/pii/S1751570X24001092 [10] A. Ferdowsi, U. Schmid, and J. Salzmann, “Drafting and multi-input switching in digital dynamic timing simulation for multi-input gates,” 
+
+arXiv preprint arXiv:2512.01309 , 2025, (This is an extended version of the paper accepted in DATE’26). [11] E. Thaqi, D. Eigner, A. Ferdowsi, and U. Schmid, “Symbolic timing analysis of digital circuits using analytic delay functions,” 2025, (presented at the FMCAD’25 student forum). [Online]. Available: https://arxiv.org/abs/2510.15907 [12] M. Hansen, H. Yalcin, and J. Hayes, “Unveiling the iscas-85 benchmarks: a case study in reverse engineering,” IEEE Design & Test of Computers , vol. 16, no. 3, pp. 72–80, 1999. [Online]. Available: http://doi.org/10.1109/54.785838 [13] Y.-C. Lu, Z. Guo, K. Kunal, R. Liang, and H. Ren, “INSTA: An ultra-fast, differentiable, statistical static timing analysis engine for industrial physical design applications,” in 2025 62nd ACM/IEEE Design Automa-tion Conference (DAC) , 2025, pp. 1–7. [14] R. Baldoni, E. Coppa, D. C. D’elia, C. Demetrescu, and I. Finocchi, “A survey of symbolic execution techniques,” ACM Comput. Surv. , vol. 51, no. 3, May 2018. [Online]. Available: https://doi.org/10.1145/3182657 [15] N. Ishiura, M. Takahashi, and S. Yajima, “Time-symbolic simulation for accurate timing verification of asynchronous behavior of logic circuits,” in Proceedings of the 26th ACM/IEEE Design Automation Conference ,1989, pp. 497–502. [16] N. Ishiura, Y. Deguchi, and S. Yajima, “Coded time-symbolic simulation using shared binary decision diagram,” in Proceedings of the 27th ACM/IEEE Design Automation Conference , 1991, pp. 130–135. [17] O. Maler and A. Pnueli, “Timing analysis of asynchronous circuits using timed automata,” in Advanced research working conference on correct hardware design and verification methods . Springer, 1995, pp. 189– 205. [18] R. Claris´ o and J. Cortadella, “Verification of timed circuits with symbolic delays,” in ASP-DAC 2004: Asia and South Pacific Design Automation Conference 2004 (IEEE Cat. No. 04EX753) . IEEE, 2004, pp. 628–633. [19] X. Xie, B. Chen, Y. Liu, W. Le, and X. Li, “Proteus: computing disjunctive loop summary via path dependency analysis,” in 
+
+Proceedings of the 2016 24th ACM SIGSOFT International Symposium on Foundations of Software Engineering , ser. FSE 2016. New York, NY, USA: Association for Computing Machinery, 2016, pp. 61–72. [Online]. Available: https://doi.org/10.1145/2950290.2950340 [20] K. Stevens, R. Ginosar, and S. Rotem, “Relative timing [asynchronous design],” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 11, no. 1, pp. 129–140, 2003. [21] K. Stevens, S. Rotem, and R. Ginosar, “Relative timing,” in Proceed-ings of the 5th International Symposium on Advanced Research in Asynchronous Circuits and Systems , ser. ASYNC ’99. USA: IEEE Computer Society, 1999, p. 208. 
+
+12 APPENDIX 
+
+This appendix sketches our ongoing work on partial order reduction (POR), which shall help us to reduce the complexity of our symbolic timing analysis approach even further. 
+
+A. Partial Order Reduction 
+
+Since the main body of our paper is devoted to the core elements of our symbolic timing analysis framework, namely, basic tree construction and its augmentation, we only presented constraint propagation as a (albeit effective) way for pruning paths and thus fight the bad worst-case complexity inherent in any symbolic execution approach. Incorporating additional complexity reduction techniques is an important goal of our current work, however, and partial order reduction (POR) is among the most promising candi-dates. In fact, the dominant source of the worst-case bound in Section IV-D is not the (admittedly usually quite large) number of reachable circuit states, but rather the explicit total ordering of transitions that are enabled at the same node: If r enabled transitions are mutually independent, the current construction may generate up to r! paths that differ only in their order. This situation is frequently encountered in modern circuits, which typically consist of many loosely-coupled subcomponents that can operate almost independently of each other. In a nutshell, POR represents such situations by means of 
+
+equivalence classes of finite path segments: each segment is obtained by interleaving transition sequences from different components arbitrarily, while preserving the internal order of every such sequence. This is sound only when transitions belonging to different components commute, i.e., when their relative order does not affect the resulting Boolean state, the remaining input queue, or the symbolic timing information needed later. The cornerstones of the POR extension of our tree construc-tion that we are about to implement are the following: (1) We distinguish two types of tree nodes, the already introduced ordinary nodes and component nodes , which belong to some component of a POR region . Note that both node types have the same internal structure. (2) A POR region is created by k ≥ 2 children of some ordinary node N , which is the starting node of the POR region; note that N itself is not considered part of its POR region. The k transitions T1, . . . , T k leading to the children N1, . . . , N k must be pairwise independent, in the (conservative) sense that executing them in different orders neither disables nor modifies each other and preserves the symbolic timing information relevant to subsequent delay computations. (If this independence cannot be established, the ordinary full subtree con-struction must be resorted to instead). The component node Ni is the starting node of the component Ci of the POR region of N .(3) Every component Ci of a POR region of N consists of a subtree of component nodes, constructed analogously to an ordinary subtree but in a restricted mode: A transition is added to Ci only if its enabling and symbolic timestamp can be computed from the common prefix up to N and from transitions already present in 
+
+Ci, and if, in accordance with (2), adding it does affect any transition in another component Cj .(4) If, in the course of the construction of some com-ponent’s Ci’s subtree, some leaf node would (also) be extended by a transition that violates (3), then the POR region of N needs to be refined: All involved components ( Ci and at least one Cj ) are deleted from the POR region of N , whereas the other components are not touched. Moreover, the starting nodes of the deleted components ( Ni and at least one Nj ) are re-instantiated as ordinary children of N , and the ordinary tree construction is used to build the full subtrees below them. (5) POR regions may also be recursive, in the sense that the component node subtree of a component Ci of the POR region of N may contain another POR region started by some of its nodes. It is apparent that POR regions are a way to defer the full construction of the subtree of some node (i.e., a component 
+
+Ci’s starting node Ni) until the construction process has figured out that some ordering of the transition sequences in 
+
+Ci and in some Cj is inevitable. Before that, these transition sequences can be interleaved arbitrarily. Note carefully that, as soon as the construction process has constructed all paths in the tree up to the worst-case path length (recall Fig. 3) in the circuit, all POR regions are usually gone (unless the circuit has a tree-like structure). Before reaching that path length, however, POR regions may substantially reduce the size of the tree. It is hence particularly interesting in conjunction with goal formulas, as they usually allow for avoiding constructing the whole tree. We conclude this section by highlighting that POR is com-plementary to constraint propagation: Constraint propagation allows for pruning paths in the tree as soon as the accrued timing constraints are physically infeasible. POR just defers the construction of some subtrees until it is inevitable. 13
