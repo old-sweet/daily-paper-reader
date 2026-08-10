@@ -1,0 +1,601 @@
+Title: Implicit Computation of Filtered Prime Implicants
+
+URL Source: https://arxiv.org/pdf/2608.05943v1
+
+Published Time: Fri, 07 Aug 2026 00:54:15 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Implicit Computation of Filtered Prime Implicants 
+
+Edward Liem and Clemens Dubslaff 
+
+Eindhoven University of Technology, The Netherlands 
+
+{e.liem,c.dubslaff }@tue.nl 
+
+Abstract. Prime implicants (PIs) are central in computer science, with applications in logic minimization, diagnosis, explainable formal methods and AI. Algorithms for the computation of PIs were first-and-foremost considered on the full input space, not considering the case where the input space might be constrained by context or structural dependencies. To filter out those PIs that do not fulfill the constraints, existing methods rely on an explicit post-processing step after computing all PIs, which leads to scalability issues due to the number of PIs being exponential. We propose end-to-end symbolic algorithms that implicitly represent the set of PIs under side constraints. For this, we extend the prominent Coud-ert–Madre method based on decision diagrams and implement a modular tool chain that separates decision-diagram construction, PI computation, and filtering. 
+
+## 1 Introduction 
+
+A prime implicant (PI) of a Boolean function is a minimal term as conjunction of literals implying the function. Prime implicants play an important role in many areas of computer science: in circuit design, we may ask which terms suf-fice to realize an output; during fault diagnosis, the maximal set of components allowed to fail are important; a user may want to know which features determine a prediction or yield an effect of a system to emerge. All three questions boil down to computing sets of prime implicants. Minimal sum-of-products for cir-cuits via PIs have been prominently considered by Quine and McCluskey [22,19], followed by further applications to limit the search space in two-level logic min-imization [1,5]. In model-based diagnosis, PIs coincide with minimal conflicts and minimal supports [14,15]. In the emerging field of formal explainable formal methods and artificial intelligence (AI) they are the mathematical definition of an abductive explanation [24,13] or feature cause [9,10]: a minimal set of feature values that entail an effect, independently of all remaining features. What unites these applications is also what makes them hard. A Boolean function may possess exponentially many PIs. Deciding whether a shorter im-plicant exists given a PI candidate is Σp 
+
+> 2
+
+-complete [25] and the naive approach enumerating all implicants and then testing each for minimality is only feasible for small examples or for very specific subclasses of Boolean functions. Practical arXiv:2608.05943v1 [cs.LO] 6 Aug 2026 ë C ∪ 1 ê 1
+
+# ë  Filtered PIs (meta-product BDD) Implicit PIs (meta-product BDD)  
+
+> C
+> Care Set (BDD)
+> 1
+> ON-set (BDD) Implicit PI Algorithm
+> Fig. 1. Schema of the pipeline implicitly filtering prime implicants.
+
+algorithms therefore rely on symbolic methods to represent the entire, possi-bly exponential, set of PIs implicitly as a decision diagram [6,20]. Search-based 
+
+methods avoid the construction of the whole set of PIs and compute individual primes only on demand, shrinking candidates through a sequence of calls to a satisfiability oracle [18,7,21]. Standard approaches target the computation of PIs for an unconstrained 
+
+Boolean function, ranging over the full set of possible variable assignments as inputs while potentially allowing for don’t cares . However, many applications such as covering problems rely on solving constrained sub problems. For ex-ample, offset-based methods for two-level logic minimization iteratively com-pute PIs that cover a minterm, constraining the PIs that only partly cover the minterm [17]. Also within PI-based explanations, constraints naturally arise when the set of inputs are restricted to valid ones, ruling out all PIs that only cover invalid inputs [24,4,9]. For these applications, existing computation ap-proaches explicitly range over the set of all PIs, filtering those that do not fulfill the constraints. Therefore, implementations scaled only to small-scale instances of constrained PI-computations [9,10,11]. In this paper, we tackle this problem by establishing an end-to-end sym-bolic algorithm to compute filtered PIs, realized through symbolic filters on the implicit representation of all PIs. For this, we rely on the prominent decision-diagram algorithm to compute PIs by Coudert and Madre [6] and extend it by carefully operating on the implicit PI-set representation. We present three vari-ants of filters to solve constrained PI problems: an existential filter that only includes PIs that touch a valid input, useful for computing feature causes [10], a universal filter that requires the PI only covering valid inputs, which has nat-ural applications for constrained abductive explanations [4] and a stronger form of feature causes, and a subset filter that is useful to compute offset PIs and most general feature causes [17,9]. We implement our approach in a modular tool chain as depicted in Figure 1, separating decision-diagram construction, PI-computation, and our novel filtering methods. 2 Preliminaries 
+
+2.1 Assignments 
+
+Let X = {x1, . . . , x n} be a finite set of n variables. A (partial) assignment of X
+
+is a partial mapping p : X ⇀ B where B = {0, 1} is a Boolean domain. We write 
+
+p(x) = ∗ if p is not defined for x ∈ X. The support of p, notated supp (p), is the set of elements x ∈ X where p(x)̸ = ∗. An assignment total if supp (p) = X.The set of all partial and total assignments over X is defined as ∆X and ΘX ,respectively. We write p[v/x ] to denote the setting of variable x to v ∈ B ∪ {∗} in assignment p, i.e. p[v/x ]( x) = v and p[v/x ]( y) = p(y) for x, y ∈ X and x̸ = y.Given an assignment p ∈ ∆X , we define its cover to be JpK = {u ∈ ΘX |∀x ∈ supp (p). p(x) = u(x)}. For a set of partial assignments P ⊆ ∆X , we define its cover to be JP K = S 
+
+> p∈P
+
+JpK.
+
+2.2 Boolean Functions 
+
+A Boolean function f : ΘX → B maps total assignments to 0 or 1. The cover 
+
+of a function is defined as Jf K = {u ∈ ΘX | f (u) = 1 }. We define two special Boolean functions true and false such that for all u ∈ ΘX we have true (u) = 1 and false (u) = 0, respectively. Boolean function f is considered constant if 
+
+f = true or f = false . We write g = x if g(u[1 /x ]) = 1 for all u ∈ ΘX , f ∧ g for conjunction, f ∨g for disjunction, and f for negation. The restriction of a variable 
+
+x ∈ X to b ∈ B in f is defined as f [b/x ]( u) = f (u[b/x ]) for all u ∈ ΘX . The 
+
+negative and positive cofactors of f w.r.t. x, notated as fx and fx respectively, is defined as fx = f [0 /x ] and fx = f [1 /x ]. The Shannon decomposition of f w.r.t. 
+
+x is the following identity [23]: 
+
+f = ( x ∧ fx) ∨ (x ∧ fx)The characteristic function of S ⊆ ΘX is a unique Boolean function fS such that fS (u) = 1 iff u ∈ S, for all u ∈ ΘX . A partial assignment p ∈ ∆X is an 
+
+implicant of formula f iff for all u ∈ JpK, f (u) = 1. An implicant p ∈ ∆X of f
+
+is prime iff for all implicants q of f , JpK̸ ⊂ JqK.
+
+2.3 Meta-products 
+
+A Boolean function over variables X is unable to represent sets of partial assign-ments over X. Coudert and Madre define the notion of a meta-product (MP) to encode a set of partial assignments as Boolean functions [6]. Observe that for an assignment p ∈ ∆X , an element x ∈ X may be p(x) = 1, p(x) = 0, or p(x) = ∗. As the set of assignments ∆X has 3 n elements, Boolean variables suffice to represent any product in ∆X . Coudert and Madre has opted to encode assignment sets with 2 n additional variables to maintain direct links between assignment sets and its representation. Given a variable set X = {x1, . . . , x n}, define 2 n additional variables for 
+
+occurrence O = {o1, . . . , o n} and sign S = {s1, . . . , s n} such that X, O, and Sare all mutually exclusive. Since variables oi and si are linked to xi, we abuse notation and say o(xi) = o(oi) and s(xi) = s(si) for o ∈ ΘO , s ∈ ΘS . Let 
+
+σ : ΘO × ΘS → ∆X be a mapping from pairs of occurrence and sign variables to products such that σ(o, s) = p iff for all x ∈ X,(p(x) = ∗ ⇐⇒ o(x) = 0) ∧
+
+(p(x) = 0 ⇐⇒ (o(x) = 1 ∧ s(x) = 0)) ∧
+
+(p(x) = 1 ⇐⇒ (o(x) = 1 ∧ s(x) = 1)) In other words, we have that whenever p(x) = ∗, it must be that x does not occur, i.e. o(x) = 0. If p(x) = b for b ∈ B, it has to be that x does occur ( o(x) = 1) and its setting must be b, i.e. s(x) = b. The Boolean function P : ( ΘO × ΘS ) → B is the meta-product of P ⊆ ∆X iff it is the characteristic function of 
+
+[
+
+> p∈P
+
+σ−1(p)
+
+!
+
+Meta-products are a canonical functional representation for the set of assign-ments P ⊆ ∆X [16]. 
+
+2.4 Binary Decision Diagrams 
+
+Binary decision diagrams (BDDs) offer a representation for Boolean functions. A BDDs is an acyclic, directed graph G = ( T, N, λ, δ, ρ ) such that 
+
+– ∅ ⊂ T ⊆ { 0, 1} is a set of terminals ,
+
+– V is a finite set of vertices , where V ∩ T̸ = ∅,
+
+– λ : V → X is a labeling function ,
+
+– δ : ( V × B) → (V ∪ T ) is a decision function , and 
+
+– a root ρ ∈ (V ∪ T ). The semantics JuK of some u ∈ (V ∪ T ) of BDD G = ( T, N, λ, δ, ρ ) is recursively defined as follows: 
+
+J0K = false 
+
+J1K = true 
+
+JvK = ( λ(v) ∧ Jδ(v, 0) K) ∨ (λ(v) ∧ Jδ(v, 1) K) for v ∈ V
+
+A BDD G is ordered if for any node v ∈ V such that λ(v) = xi and vertex 
+
+u ∈ { δ(v, 0) , δ (v, 1) } such that λ(u) = xj , we must have that i < j . Moreover, an ordered BDD G is reduced if there does not exist two distinct isomorphic subgraphs of G. Henceforth, we assume all BDDs are reduced and ordered. By fixing a variable ordering, BDDs offer a canonical representation of Boolean functions [2]. Thus, we assume a fixed ordering over variables, and for every Boolean function f we have a BDD G = ( T, N, λ, δ, ρ ) such that JρK = f . We therefore may write f to also denote its uniquely defined BDD. Additionally, for non-constant Boolean functions f , where λ(ρ) = x it follows by Shannon decomposition that fx = Jδ(ρ, 0) K and fx = Jδ(ρ, 1) K.BDDs for meta-products. As BDD sizes are sensitive to the ordering of vari-ables [2], we fix the following ordering of meta-product variables to minimize BDD representation sizes and the computational cost of BDD operators over meta-products. 
+
+o1 < s 1 < x 1 < · · · < o n < s n < x n
+
+We associate every set P ⊆ ∆X to a unique meta-product BDD P and write 
+
+P ≡ P whenever P is the meta-product BDD of P .
+
+2.5 Implicit Prime Implicants 
+
+Coudert and Madre presented implicit techniques to manipulate primes and derived the following theorem about meta-products: 
+
+Theorem 1 ([6]). The meta-product Prime (f ) of the set of prime implicants of the function f = ( x ∧ fx) ∨ (x ∧ fx) is 
+
+(ox ∧ Prime (fx ∧ fx)) ∨
+
+(ox ∧ sx ∧ Prime (fx) ∧ Prime (fx ∧ fx)) ∨
+
+(ox ∧ sx ∧ Prime (fx) ∧ Prime (fx ∧ fx)) Using Theorem 1, an algorithm may naturally be derived. Given a BDD f ,Algorithm 1 outputs the meta-product BDD P such that P ≡ P for P ⊆ ∆X
+
+and for all p ∈ P , p is a prime implicant of f . This algorithm recursively computes prime implicants for f by recursively considering the primes of the positive cofactor ( fx), negative cofactor ( fx), and the case where x does not affect the output of f (fx ∧ fx). 
+
+Algorithm 1 Prime (f )
+
+Input: BDD f
+
+Output: meta-product BDD P
+
+1: if f = true then return o1 ∧ · · · ∧ on
+
+2: else if f = false then return false 
+
+3: else 
+
+4: x ← root (f )5: 6: P∗ ← Prime (fx ∧ fx)7: P0 ← Prime (fx)8: P1 ← Prime (fx)9: 10: return (ox ∧ P ∗[0 /o x]) ∨
+
+(ox ∧ sx ∧ P 0 ∧ P ∗[0 /o x]) ∨
+
+(ox ∧ sx ∧ P 1 ∧ P ∗[0 /o x]) Jf K     
+
+> ∃
+> (a)
+> JfK
+> ∀
+> (b)
+> JfK
+> ⊇
+> (c) Fig. 2. Illustration of our filtering operations in an assignment space. The covers of the function fare depicted in purple, example partial assignments that are and are not satisfying the filter in green and red, respectively.
+
+## 3 Filtering Assignment Sets 
+
+In this section, we present algorithms that operate on the structure of meta-products to filter and remove partial assignments not meeting certain criteria. Given a meta-product BDD P representing a set of assignments P ⊆ ∆X and a BDD f , we remove assignments in P and return an meta-product BDD Q ≡ Q
+
+such that Q ⊆ P and for all q ∈ Q, the predicate Φ(q, f ) holds. In particular, we define three filtering predicates Φ = {∃ , ∀, ⊇} :
+
+∃(q, f ) = ∃u ∈ Jf K. u ∈ JqK
+
+∀(q, f ) = ∀u ∈ Jf K. u ∈ JqK
+
+⊇(q, f ) = ∀u ∈ JqK. u ∈ Jf K
+
+Figure 2 illustrates the idea behind each filtering predicate. The cover of f is shown in purple, and the cover of valid assignments in green. For the ∃ predicate, we keep assignments for which there is at least one instance in f that is covered (Figure 2a). In the case of our ∀ predicate, we eliminate assignments that do not completely cover f (Figure 2b). In contrast, filtering with predicate ⊇ keeps assignments that are completely subsumed by the cover of f (Figure 2c). We first present Algorithm 2 to filter a set of assignments based on the ∃
+
+predicate. Given a meta-product BDD P such that P ≡ P for some P ⊆ ∆X , and a BDD f , we traverse P and trim branches not satisfying the ∃ criteria. Along a path starting from the root meta-product BDD to a 1 terminal, we update 
+
+f accordingly. In particular, at a given node in P associated with variable xi,whenever xi does not occur in the assignment, i.e. oi is false , the cover of the assignment may intersect with either the positive or negative cofactors of f ,and thus we recurse on both sides and union both resulting sets. Otherwise, if our assignment contains xi we consider the negative cofactor of f , and if our assignment contains xi we recurse on the postive cofactor of f .
+
+Theorem 2. Let P be the meta-product of a set of assignments P ⊆ ∆X and 
+
+f a Boolean function s.t. Jf K ⊆ ΘX . Filter ∃(P, f ) is the meta-product of the largest set of assignments Q ⊆ P where for all q ∈ Q, there exists a u ∈ Jf K
+
+such that u ∈ JqK.Algorithm 2 Filter ∃(P, f )
+
+Input: meta-product BDD P, BDD f
+
+Output: meta-product BDD Q
+
+1: if P = false ∨ f = false then return false 
+
+2: else if f = true then return P
+
+3: else if P = true then 
+
+4: xj ← root (f )5: return (oj ∧ Filter ∃(P, f xj )) ∨ (oj ∧ Filter ∃(P, f xj )) ∨
+
+(oj ∧ sj ∧ Filter ∃(P, f xj )) ∨
+
+(oj ∧ sj ∧ Filter ∃(P, f xj )) 6: else 
+
+7: oi ← root (P)8: xj ← root (f )9: if i = j then 
+
+10: return (oi ∧ Filter ∃(Poi , f xj )) ∨ (oi ∧ Filter ∃(Poi , f xj )) ∨
+
+(oi ∧ si ∧ Filter ∃(Poisi , f xj )) ∨
+
+(oi ∧ si ∧ Filter ∃(Poisi , f xj )) 11: else if i < j then 
+
+12: return (oi ∧ si ∧ Filter ∃(Poisi , f )) ∨
+
+(oi ∧ si ∧ Filter ∃(Poisi , f )) ∨
+
+(oi ∧ Filter ∃(Poi , f )) 13: else if i > j then 
+
+14: return (oj ∧ Filter ∃(P, f xj )) ∨ (oj ∧ Filter ∃(P, f xj )) ∨
+
+(oj ∧ sj ∧ Filter ∃(P, f xj )) ∨
+
+(oj ∧ sj ∧ Filter ∃(P, f xj )) Proof. Given a meta-product P encoding P ⊆ ∆X and Boolean function f , we show that Filter ∃(P, f ) ≡ Q where: (∀q ∈ Q. ∃u ∈ Jf K. u ∈ JqK) ∧ (1) (∀r ∈ P \ Q. ∀w ∈ Jf K. w̸ ∈ JrK) (2) We prove by structural induction on P. If P is false , it represents the empty set of assignments, and thus we return the empty set representation ( false ), and our claim holds. If P is true (lines 3–5), we perform induction on f :
+
+Base Case ( f is constant): If f = false , we return the empty set representa-tion, and our claim holds. If f = true , we return the largest set satisfying our claim, and thus we return P = true .
+
+Step Case ( f is not constant): Let f be rooted by variable xj . Assume the induction hypothesis that our claim holds for Filter ∃(true , f xj ) and 
+
+Filter ∃(true , f xj ), and let Qxj and Qxj be the resulting sets, respectively. We derive the following: 
+
+∀q ∈ Qxj . ∃u ∈ Jfxj K. u ∈ JqK
+
+⇐⇒ ∀q ∈ Qxj . ∃u[0 /x j ] ∈ Jf K. u[0 /x j ] ∈ JqK
+
+=⇒∀q ∈ { q′ | q′[0 /x j ] ∈ Qxj } ∪ { q′ | q′[∗/x j ] ∈ Qxj }. ∃u ∈ Jf K. u ∈ JqK
+
+∀q ∈ Qxj . ∃u ∈ Jfxj K. u ∈ JqK
+
+⇐⇒ ∀q ∈ Qxj . ∃u[1 /x j ] ∈ Jf K. u[1 /x j ] ∈ JqK
+
+=⇒∀q ∈ { q′ | q′[1 /x j ] ∈ Qxj } ∪ { q′ | q′[∗/x j ] ∈ Qxj }. ∃u ∈ Jf K. u ∈ JqK
+
+In line 5, we return the set Q defined as follows: 
+
+{q | q[∗/x j ] ∈ Qxj } ∪ { q | q[∗/x j ] ∈ Qxj } ∪ {q | q[0 /x j ] ∈ Qxj } ∪ { q | q[1 /x j ] ∈ Qxj }
+
+By our IH, we have that Q satisfies Equation (1). Moreover, by our IH, we have that Q satisfies Equation (2). (∀r ∈ Qxj . ∀w ∈ Jfxj K. w̸ ∈ JrK) ∧ (∀r ∈ Qxj . ∀w ∈ Jfxj K. w̸ ∈ JrK)
+
+⇐⇒ 
+
+(∀r ∈ Qxj . ∀w[0 /x j ] ∈ Jf K. w[0 /x j ]̸ ∈ JrK) ∧
+
+(∀r ∈ Qxj . ∀w[1 /x j ] ∈ Jf K. w[1 /x j ]̸ ∈ JrK)
+
+⇐⇒ { Property w[0 /x ] /∈ Jr[1 /x ]K ∧ w[1 /x ] /∈ Jr[0 /x ]K}
+
+(∀r ∈ { s | s[∗/x j ] ∈ Qxj ∨ s[0 /x j ] ∈ Qxj }. ∀w[0 /x j ] ∈ Jf K. w[0 /x j ]̸ ∈ JrK) ∧(∀r ∈ { s | s[∗/x j ] ∈ Qxj ∨ s[1 /x j ] ∈ Qxj }. ∀w[1 /x j ] ∈ Jf K. w[1 /x j ]̸ ∈ JrK)
+
+⇐⇒ ∀r ∈ Q. ∀w ∈ Jf K. w̸ ∈ JrK
+
+Let P be rooted by variable oi. Assume the induction hypothesis that our claim holds for Filter ∃(Poi , f ), Filter ∃(Poisi , f ), and Filter ∃(Poisi , f ). If 
+
+f = false , we return the empty set representation, and our claim holds. If 
+
+f = true , we return the largest set satisfying our claim, P. Otherwise, let f be rooted by variable xj . We now perform a case distinction: 
+
+Case: ( i = j) Let us define the following: 
+
+Q∗0 ≡ Filter ∃(Poi , f xj ) Q0 ≡ Filter ∃(Poisi , f xj )
+
+Q∗1 ≡ Filter ∃(Poi , f xj ) Q1 ≡ Filter ∃(Poisi , f xj )
+
+P∗ = {p | p[∗/x i] ∈ P } P0 = {p | p[0 /x i] ∈ P }
+
+P1 = {p | p[1 /x i] ∈ P }
+
+Moreover, let Q be defined as 
+
+{q | q[∗/x i] ∈ Q∗0} ∪ { q | q[∗/x i] ∈ Q∗1} ∪ {q | q[0 /x i] ∈ Q0} ∪ { q | q[1 /x i] ∈ Q1}
+
+By the induction hypothesis, we have the following: (∀q ∈ Q∗0. ∃u ∈ Jfxi K. u ∈ JqK) ∧ (∀q ∈ Q∗1. ∃u ∈ Jfxi K. u ∈ JqK) ∧
+
+(∀q ∈ Q0. ∃u ∈ Jfxi K. u ∈ JqK) ∧ (∀q ∈ Q1. ∃u ∈ Jfxi K. u ∈ JqK)
+
+⇐⇒ 
+
+(∀q ∈ Q∗0. ∃u[0 /x i] ∈ Jf K. u[0 /x i] ∈ JqK) ∧
+
+(∀q ∈ Q∗1. ∃u[1 /x i] ∈ Jf K. u[1 /x i] ∈ JqK) ∧
+
+(∀q ∈ Q0. ∃u[0 /x i] ∈ Jf K. u[0 /x i] ∈ JqK) ∧
+
+(∀q ∈ Q1. ∃u[1 /x i] ∈ Jf K. u[1 /x i] ∈ JqK)=⇒
+
+(∀q ∈ { q′|q′[0 /x i] ∈ Q∗0}. ∃u[0 /x i] ∈ Jf K. u[0 /x i] ∈ JqK) ∧
+
+(∀q ∈ { q′|q′[1 /x i] ∈ Q∗1}. ∃u[1 /x i] ∈ Jf K. u[1 /x i] ∈ JqK) ∧
+
+(∀q ∈ { q′|q′[0 /x i] ∈ Q0}. ∃u[0 /x i] ∈ Jf K. u[0 /x i] ∈ JqK) ∧
+
+(∀q ∈ { q′|q′[1 /x i] ∈ Q1}. ∃u[1 /x i] ∈ Jf K. u[1 /x i] ∈ JqK)
+
+⇐⇒ 
+
+(∀q ∈ { q′|q′[0 /x i] ∈ Q∗0}. ∃u ∈ Jf K. u ∈ JqK) ∧
+
+(∀q ∈ { q′|q′[1 /x i] ∈ Q∗1}. ∃u ∈ Jf K. u ∈ JqK) ∧
+
+(∀q ∈ { q′|q′[0 /x i] ∈ Q0}. ∃u ∈ Jf K. u ∈ JqK) ∧
+
+(∀q ∈ { q′|q′[1 /x i] ∈ Q1}. ∃u ∈ Jf K. u ∈ JqK)It follows that Q satisfies Equation (2). To prove that Q satisfies Equa-tion (2), we reason as follows: (∀r ∈ P∗ \ Q∗0. ∀w ∈ Jfxi K. w̸ ∈ JrK) ∧
+
+(∀r ∈ P∗ \ Q∗1. ∀w ∈ Jfxi K. w̸ ∈ JrK) ∧
+
+(∀r ∈ P0 \ Q0. ∀w ∈ Jfxi K. w̸ ∈ JrK) ∧
+
+(∀r ∈ P1 \ Q1. ∀w ∈ Jfxi K. w̸ ∈ JrK)
+
+⇐⇒ 
+
+(∀r ∈ P∗ \ Q∗0. ∀w[0 /x i] ∈ Jf K. w[0 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P∗ \ Q∗1. ∀w[1 /x i] ∈ Jf K. w[1 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P0 \ Q0. ∀w[0 /x i] ∈ Jf K. w[0 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P1 \ Q1. ∀w[1 /x i] ∈ Jf K. w[1 /x i]̸ ∈ JrK)
+
+⇐⇒ { Property w[0 /x ] /∈ Jr[1 /x ]K ∧ w[1 /x ] /∈ Jr[0 /x ]K}
+
+(∀r ∈ P∗ \ { s | s[∗/x i] ∈ Q∗0 ∨ s[0 /x i] ∈ Q∗0}. ∀w[0 /x i] ∈ Jf K. w[0 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P∗ \ { s | s[∗/x i] ∈ Q∗1 ∨ s[1 /x i] ∈ Q∗1}. ∀w[1 /x i] ∈ Jf K. w[1 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P0 \ { s | s[∗/x i] ∈ Q0 ∨ s[0 /x i] ∈ Q0}. ∀w[0 /x i] ∈ Jf K. w[0 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P1 \ { s | s[∗/x i] ∈ Q1 ∨ s[1 /x i] ∈ Q1}. ∀w[1 /x i] ∈ Jf K. w[1 /x i]̸ ∈ JrK)
+
+⇐⇒ { Definition of P∗, P 0, P 1}
+
+(∀r ∈ P∗ \ { s | s[∗/x i] ∈ Q∗0}. ∀w[0 /x i] ∈ Jf K. w[0 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P∗ \ { s | s[∗/x i] ∈ Q∗1}. ∀w[1 /x i] ∈ Jf K. w[1 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P0 \ { s | s[0 /x i] ∈ Q0}. ∀w[0 /x i] ∈ Jf K. w[0 /x i]̸ ∈ JrK) ∧
+
+(∀r ∈ P1 \ { s | s[1 /x i] ∈ Q1}. ∀w[1 /x i] ∈ Jf K. w[1 /x i]̸ ∈ JrK)
+
+⇐⇒ { Definition of P and Q}∀r ∈ P \ Q. ∀w ∈ Jf K. w̸ ∈ JrK
+
+Cases ( i > j ) and ( i < j ): These cases follows a similar argumentation. ⊓⊔
+
+In Algorithm 3, we universally filter the meta-product BDD P ≡ P w.r.t. BDD f . The algorithm operates in a similar vein to Algorithm 2. If f is false ,we vacuously satisfy the predicate ∀ for all p ∈ P , and thus we simply return 
+
+P. Otherwise, at a given node of P with variable associated with xi, whenever 
+
+oi is false , the assignment we consider will not have variable xi. Since we must cover f completely, the assignment must be present in the sub-calls in both cofactors of f . Otherwise, we recurse on the cofactors of f depending on the setting of xi in our assignment. However, we must not recurse on a cofactor of 
+
+f if it immediately leads to false (lines 13–16), as the base case f = false 
+
+implies that P immediately covers the empty set; thus, to trim irrelevant branch we must perform a check before further recursions. 
+
+Theorem 3. Let P be the meta-product of a set of assignments P ⊆ ∆X and 
+
+f a Boolean function s.t. Jf K ⊆ ΘX . Filter ∀(P, f ) is the meta-product of the largest set of assignments Q ⊆ P where for all q ∈ Q and for all u ∈ Jf K, we have that u ∈ JqK.Algorithm 3 Filter ∀(P, f )
+
+Input: meta-product BDD P, BDD f
+
+Output: meta-product BDD Q
+
+1: if P = false ∨ f = false then return P
+
+2: else if P = true ∧ f = true then return true 
+
+3: else if P = true then 
+
+4: xj ← root (f )5: return (oj ∧ Filter ∀(P, f xj ) ∧ Filter ∀(P, f xj )) 6: else if f = true then 
+
+7: oi ← root (P)8: return (oi ∧ Filter ∀(Poi , f )) 9: else 
+
+10: oi ← root (P)11: xj ← root (f )12: if i = j then 
+
+13: if (fxi = false ) then 
+
+14: return (oi ∧ si ∧ Filter ∀(Poisi , f xi )) ∨
+
+(oi ∧ Filter ∀(Poi , f xj ) ∧ Filter ∀(Poi , f xj )) 15: else if (fxi = false ) then 
+
+16: return (oi ∧ si ∧ Filter ∀(Poisi , f xi )) ∨
+
+(oi ∧ Filter ∀(Poi , f xj ) ∧ Filter ∀(Poi , f xj )) 17: else return (oi ∧ Filter ∀(Poi , f xj ) ∧ Filter ∀(Poi , f xj )) 18: else if i < j then 
+
+19: return (oi ∧ Filter ∀(Poi , f )) 20: else if i > j then 
+
+21: return (oj ∧ Filter ∀(P, f xj ) ∧ Filter ∀(P, f xj )) Proof (Sketch). The proof follows from structural induction on P and f . For brevity, we offer a proof sketch. If P ≡ ∅ or Jf K = ∅, we correctly return false ≡∅. Only if P ≡ ∆X and Jf K = ∆X we return ∆X as this is the largest set satisfying our claim. Otherwise, we recurse on the BDD substructures. Observe that whenever f is true , we must only consider assignments for which we do not restrict the covered space further, otherwise we no longer sub-sume f (lines 6–8). Moreover, if P ≡ ∆X and f is not constant, we also only consider assignments that do not restrict the covered space, and thus only con-sider assignments where oj is false , where xj is the root of f .Now consider the case where P̸ ≡ ∅ and Jf K̸ = ∅. Let oi be the variable rooted at P and xj the variable rooted at f . If the variable xi occurs before xj ,i.e. i < j (lines 18–19), we must only consider the assignments in P where xi
+
+does not occur. This is because xi does not impact the evaluation of f and by having assignments restricting xi, we will no longer fully cover f . If i > j , we again consider non-occurrence of xj since assignments that contain xj will no longer subsume both fxj and fxj .Finally, we consider the case where i = j. Since in the base cases we have that whenever f is false we return P, we must perform a check before recursion. If the positive cofactor of f is false , the space that f covers must only have xj
+
+set to 0. Thus, we must consider the assignments that set xj to 0 and the case where xj does not occur. The same argument holds for whenever the negative cofactor of f is false . Otherwise, we cannot choose assignments that restrict the cover, otherwise we no longer fully cover f . ⊓⊔
+
+Finally, we present Algorithm 4 for filtering P ≡ P according to ⊇ w.r.t. BDD f . If f is false , no assignment satisfies our predicate filter, and thus we return the empty set representation false (line 1). Moreover, if f is true , any assignment in P satisfies the filtering predicate, and we return P (line 2). Because our assignment’s cover must be completely contained within f , whenever oi is 
+
+false , i.e. xi is not in our assignment, we must check that our assignment is completely covered that both cofactors of f . Otherwise, we recurse on the cofactors of f based on the setting of xi in our assignment. 
+
+Theorem 4. Let P be the meta-product of a set of assignments P ⊆ ∆X and 
+
+f a Boolean function s.t. Jf K ⊆ ΘX . Filter ⊇(P, f ) is the meta-product of the largest set of assignments Q ⊆ P where for all q ∈ Q and for all u ∈ JqK, we have that u ∈ Jf K.Proof (Sketch). In the base case, whenever P ≡ ∅ or Jf K = ∅, we must return 
+
+false ≡ ∅ . In line 2, since Jf K = ΘX , the largest set satisfying our claim is 
+
+P itself. Otherwise, Jf K̸ = ΘX and P ≡ ∆X . Let xj be the variable rooted at 
+
+f . Whenever xj occurs in an assignment, we check whether it is fully covered by fxj , and vice versa for xj . If xj does not occur, it must be covered by both 
+
+fxi and fxj . We now consider cases where P̸ ≡ ∅ and Jf K̸ = ∅. Let oi be the variable rooted at P and xj the variable rooted at f . When i > j (lines 12–13), we perform the same operations as when P ≡ ∆X and Jf K̸ = ΘX . If i < j (lines 10–11), we need not consider both cofactors of f when xi does not occur in the Algorithm 4 Filter ⊇(P, f )
+
+Input: meta-product BDD P, BDD f
+
+Output: meta-product BDD Q
+
+1: if P = false ∨ f = false then return false 
+
+2: else if f = true then return P
+
+3: else if P = true then 
+
+4: return (oi ∧ si ∧ Filter ⊇(P, f xj )) ∨ (oi ∧ si ∧ Filter ⊇(P, f xj )) ∨
+
+(oi ∧ Filter ⊇(P, f xj ) ∧ Filter ⊇(P, f xj )) 5: else 
+
+6: oi ← root (P)7: xj ← root (f )8: if i = j then 
+
+9: return (oi ∧ si ∧ Filter ⊇(Poisi , f xj )) ∨ (oi ∧ si ∧ Filter ⊇(Poisi , f xj )) ∨
+
+(oi ∧ Filter ⊇(Poi , f xj ) ∧ Filter ⊇(Poi , f xj )) 10: else if i < j then 
+
+11: return (oi ∧ si ∧ Filter ⊇(Poisi , f )) ∨ (oi ∧ si ∧ Filter ⊇(Poisi , f )) ∨
+
+(oi ∧ Filter ⊇(Poi , f )) 12: else if i > j then 
+
+13: return (oi ∧ si ∧ Filter ⊇(P, f xj )) ∨ (oi ∧ si ∧ Filter ⊇(P, f xj )) ∨
+
+(oi ∧ Filter ⊇(P, f xj ) ∧ Filter ⊇(P, f xj )) 
+
+assignment as xi does not impact whether the assignment is covered by f or not. Whenever i = j, we again consider the positive and negative cofactors of f when having xi and xi in the assignment, respectively. Again, we must consider both cofactors of f when dealing with non-occurrence of xi in an assignment. ⊓⊔
+
+Assuming memoization, our algorithms run in O(min {|P| , |f |} 2) time, where 
+
+|P| and |f | are the number of nodes in P and f , respectively. 
+
+## 4 Feature Causality 
+
+One application for filtering assignment sets is in the context of explaining con-figurable systems. Given a set of features and a set of total assignments over these features representing some effect, feature causality identifies the features that are the reasons for exhibiting the effect [9]. The classical approach for com-puting these causes is through existentially filtering prime implicants. We here demonstrate the use of our implicit filtering algorithms to compute a generalized notion of feature causes [10]. 
+
+Definition 1 ([10]). A feature cause for effect configurations Effect ⊆ ΘX
+
+w.r.t. non-effect configurations NEffect ⊆ ΘX where Effect ∩ NEffect = ∅ is a partial assignment p ∈ ∆X such that 
+
+(FPC1) JpK ∩ Effect ̸ = ∅, JpK ∩ NEffect = ∅, and 
+
+(FPC2) Jp[∗/x ]K ∩ NEffect ̸ = ∅ for all x ∈ supp (p).Effect NEffect 
+
+> JpK
+> u
+> JrKJqK
+
+ΘX 
+
+> Fig. 3. Configuration space for feature causes.
+
+Figure 3 illustrates the configuration space for feature causes. Condition (FPC1) 
+
+is satisfied only by assignment p as there exist a total assignment u in Effect 
+
+in the cover of p and no total assignments p covers is in NEffect . Assignment 
+
+q satisfies JqK ∩ NEffect = ∅, but does not contain an instance in Effect , and 
+
+JrK ∩ NEffect ̸ = ∅. Assignment p would be a feature cause if removing any variable x ∈ supp (p) from p would result in covering an instance in NEffect .Using our techniques, Algorithm 5 computes these causes. 
+
+Algorithm 5 PCause (fEffect , f NEffect )                         
+
+> Input: BDDs fEffect ,fNEffect s.t. JfEffect K∩JfNEffect K=∅
+> Output: meta-product BDD Q ≡ Qs.t. qis a precause for fEffect w.r.t. fNEffect for all
+> q∈Q.1: P ← Prime (fNEffect )2: return Filter ∃(P, f Effect )
+
+Moreover, we may compute the set of most general covers using the implicit techniques we introduced in the last section. Most-general causes filter those causes that are covered by another cause and thus would serve as shorter ex-planation for the effect. For computing such covers, we present a generalization based on ∀-filtering in Algorithm 6, which removes primes covered by other primes. This is done by taking a candidate assignment and extracting a more general assignment w.r.t. space f . The resulting output is an equivalence class of causes that are cannot be further generalized. To obtain all general causes, we run Algorithm 7. The idea is to pick a candidate prime (line 2), generalize them to obtain the most general equivalence class covering this candidate prime, and add these general causes to the set Q (line 3). Afterward, we remove the remaining products that cover the same space in f as our computed equivalence class cover and repeat the procedure until we have no more candidates. 
+
+## 5 Toolkit 
+
+We have implemented our tools in C++ using the BuDDy BDD library [3]. The repository may be found using the following link: 
+
+https://gitlab.tue.nl/201810931/filtered-primes Algorithm 6 GeneralCover (P, p, f )                                 
+
+> Input: meta-product BDD P ≡ P, BDD p∈P, and BDD f.
+> Output: meta-product BDD Q.1: Q ← P ;q←p
+> 2: do
+> 3: Q ← Q ∧ ¬ q
+> 4: Q ← Filter ∀(Q,(JqK∧f)) 5: while q ←OneSAT (Q)6: return Filter ∀(Q,(JqK∧f))
+
+Algorithm 7 AllGeneralCovers (P, f )                          
+
+> Input: meta-product BDD Pand BDD f
+> Output: meta-product BDD Q
+> 1: Q ← false ,P′← P
+> 2: while p ←OneSAT (P′)do
+> 3: Q ← Q ∨ GeneralCover (P′,p, f )4: P′← P ′∧ ¬ Filter ⊇(Q,(¬f∨JpK)) 5: return Q
+
+In this section, we provide a short overview of our tools. Program Description Compile propositional logic formulas into BDDs. Applies BDD operations to provided BDD file(s). Coudert and Madre’s implicit prime implicants. Filters a meta-product BDD. Implicit to explicit assignments. All-in-one tool to compute filtered prime implicants for feature (pre)causes. Combines implicit prime computation and filtering. Finds the most general set of causes. Given the most general set of causes, finds a candidate that sufficiently covers relevant instances. 
+
+formula2bdd bddOp primes pfilter i2e fcause generalize mgCandidate 
+
+Example Use Case. Using our tools, we provide an example of computing the feature causes from the email example found in [10], also provided within the source code repository of our tools. 
+
+Example 1. Assume we are given the following files: File Name Description A list of feature names, each on their own line. A DNF formula representing the ON-set as On we witness, where each disjunct/product is on its own line. A DNF formula representing the configuration space as the care set Valid .
+
+email.fs on.dnf valid.dnf 
+
+From these files we can obtain the set of effects Effect = Valid ∩ On and non-effect NEffect = Valid \ Effect . First, we obtain the BDDs from the formula files. Running the following command gives the file on.bdd and valid.bdd .      
+
+> bddOp ./ email . fs ./ on . dnf ./ on . bdd bddOp ./ email . fs ./ valid . dnf ./ valid . bdd
+
+Since we are computing feature causes, we must first obtain the relevant BDDs for prime computation. In particular, given Valid and On , we must find the primes of Valid ∪ On . We then find candidate causes using the primes algorithm.           
+
+> bddOp -- not ./ valid . bdd ./ nValid . bdd bddOp -- or ./ nValid . bdd ./ on . bdd ./ nV_or_e . bdd primes ./ email . fs ./ nV_or_e . bdd ./ candidateCauses . bdd
+
+To obtain the feature causes, we use our Filter ∃ algorithm on the candidate causes over the Effect = Valid ∩ On configuration space.         
+
+> bddOp -- and ./ valid . bdd ./ on . bdd ./ effect . bdd pfilter -- exists ./ candidateCauses . bdd ./ effect . bdd ./ fCauses . bdd
+
+As the meta-product BDD implicitly represents the causes, we may obtain a list of causes using the i2e tool:   
+
+> i2e ./ email . fs ./ fCauses . bdd
+
+We obtain the following output after the procedure, comprising all the fea-ture causes and explicitly listing them as partial assignments: 
+
+rsa encrypt ~caesar aes 
+
+Going further, one may compute the set of the most general cover:        
+
+> generalize ./ email . fs ./ valid . bdd ./ on . bdd ./ fCauses . bdd ./ genCauses . bdd i2e ./ email . fs ./ genCauses . bdd
+
+This yields the following output: 
+
+encrypt ~caesar 
+
+Feature Causality Convenience. Alternatively, for directly computing fea-ture causes without manually executing the above pipeline, one may use the dedicated fcause tool to obtain the feature causes:       
+
+> fcause ./ email . fs ./ valid . bdd ./ on . bdd ./ fCauses . bdd i2e ./ email . fs ./ fCauses . bdd
+
+These commands yield the same output as the pipeline illustrated above. 6 Conclusion 
+
+In this paper, we have presented algorithms over the structure of meta-product BDDs to filter sets of assignments implicitly based on various criteria, exempli-fied by existential, universal, and suset-filtering. Using the use case of feature causality, we show how our techniques enable a completely symbolic computation pipeline for deriving feature precauses and the set of most general causes. We offer a software toolkit of our methods, allowing for BDD construction, implicit computation of prime implicants, and filtering symbolic assignment sets. Future work includes an empirical evaluation of our algorithms by compar-ing our fully symbolic pipeline with the partially symbolic approach for feature causes [10] and integrate performant BDD-based techniques to compile care sets and ON-sets, e.g. required for symbolic feature model and effect set representa-tions [12,8]. 
+
+Acknowledgements. This work was partially supported by the DFG (TRR 248, see https://perspicuous-computing.science , project ID 389792660) and the NWO through Veni grant VI.Veni.222.431. 
+
+## References 
+
+1. Brayton, R.K., Hachtel, G.D., McMullen, C.T., Sangiovanni-Vincentelli, A.L.: Logic Minimization Algorithms for VLSI Synthesis, The Kluwer Inter-national Series in Engineering and Computer Science, vol. 2. Springer (1984). https://doi.org/10.1007/978-1-4613-2821-6 , https://doi.org/10. 1007/978-1-4613-2821-6 
+
+2. Bryant: Graph-based algorithms for boolean function manipulation. IEEE Trans-actions on Computers C-35 (8), 677–691 (1986). https://doi.org/10.1109/TC. 1986.1676819 
+
+3. Cohen, H., W.J.W.J.G.N.: Buddy: A bdd package, http://sourceforge.net/p/ buddy/ 
+
+4. Cooper, M., Amgoud, L.: Abductive explanations of classifiers under constraints: Complexity and properties. In: ECAI 2023 – 26th European Conference on Arti-ficial Intelligence, including 12th Conference on Prestigious Applications of Intel-ligent Systems (PAIS 2023). Frontiers in Artificial Intelligence and Applications, vol. 372, pp. 469–476 (2023). https://doi.org/10.3233/FAIA230305 
+
+5. Coudert, O.: Two-level logic minimization: an overview. Integr. 17 (2), 97– 140 (1994). https://doi.org/10.1016/0167-9260(94)00007-7 , https://doi. org/10.1016/0167-9260(94)00007-7 
+
+6. Coudert, O., Madre, J.: Implicit and incremental computation of primes and es-sential primes of boolean functions. pp. 36–39 (Jan 1992). https://doi.org/10. 1109/DAC.1992.227866 
+
+7. D´ eharbe, D., Fontaine, P., Le Berre, D., Mazure, B.: Computing prime implicants. In: 2013 Formal Methods in Computer-Aided Design. pp. 46–52 (2013). https: //doi.org/10.1109/FMCAD.2013.6679390 
+
+8. Dubslaff, C., Husung, N., K¨ afer, N.: Tailoring binary decision diagram compilation for feature models. Journal of Systems and Software 231 ,112566 (2026). https://doi.org/10.1016/j.jss.2025.112566 , https://www. sciencedirect.com/science/article/pii/S0164121225002353 9. Dubslaff, C., Weis, K., Baier, C., Apel, S.: Causality in configurable software systems. In: 44th IEEE/ACM 44th International Conference on Software En-gineering, ICSE 2022, Pittsburgh, PA, USA, May 25-27, 2022. pp. 325–337. ACM (2022). https://doi.org/10.1145/3510003.3510200 , https://doi.org/ 10.1145/3510003.3510200 
+
+10. Dubslaff, C., Weis, K., Baier, C., Apel, S.: Feature causality. Journal of Sys-tems and Software 209 , 111915 (2024). https://doi.org/https://doi.org/10. 1016/j.jss.2023.111915 , https://www.sciencedirect.com/science/article/ pii/S0164121223003102 
+
+11. Hasel Mehri, G., Dubslaff, C., Willemse, T.A., Zannone, N.: A causal framework for explainable access control. In: Proceedings of the 31st ACM Symposium on Access Control Models and Technologies. pp. 149–155 (2026) 12. Husung, N., Dubslaff, C., Hermanns, H., K¨ ohl, M.A.: Oxidd - A safe, concur-rent, modular, and performant decision diagram framework in rust. In: Finkbeiner, B., Kov´ acs, L. (eds.) Tools and Algorithms for the Construction and Analy-sis of Systems - 30th International Conference, TACAS 2024, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2024, Luxembourg City, Luxembourg, April 6-11, 2024, Proceedings, Part III. Lecture Notes in Computer Science, vol. 14572, pp. 255–275. Springer (2024). 
+
+https://doi.org/10.1007/978-3-031-57256-2_13 , https://doi.org/10.1007/ 978-3-031-57256-2_13 
+
+13. Ignatiev, A., Narodytska, N., Marques-Silva, J.: Abduction-based explanations for machine learning models. In: The Thirty-Third AAAI Conference on Artificial In-telligence, AAAI 2019, The Thirty-First Innovative Applications of Artificial Intel-ligence Conference, IAAI 2019, The Ninth AAAI Symposium on Educational Ad-vances in Artificial Intelligence, EAAI 2019, Honolulu, Hawaii, USA, January 27 -February 1, 2019. pp. 1511–1519. AAAI Press (2019). https://doi.org/10.1609/ AAAI.V33I01.33011511 , https://doi.org/10.1609/aaai.v33i01.33011511 
+
+14. de Kleer, J., Reiter, R.: Foundations for assumption-based truth maintenance sys-tems: Preliminary report. In: Proc. American Assoc. for Artificial Intelligence Nat. Conf. pp. 183–188 (1987) 15. de Kleer, J., Williams, B.C.: Diagnosing multiple faults. Artif. Intell. 32 (1), 97– 130 (1987). https://doi.org/10.1016/0004-3702(87)90063-4 , https://doi. org/10.1016/0004-3702(87)90063-4 
+
+16. Madre, J., Coudert, O.: A new method to compute prime and essential prime implicants of boolean functions. Advanced Research in VLSI and Parallel Systems (Jan 1992) 17. Malik, A.A., Brayton, R.K., Newton, A.R., Sangiovanni-Vincentelli, A.L.: Reduced offsets for two-level multi-valued logic minimization. In: Proceedings of the 27th ACM/IEEE Design Automation Conference. pp. 290–296. DAC ’90, Association for Computing Machinery, New York, NY, USA (1991). https://doi.org/10.1145/ 123186.123279 , https://doi.org/10.1145/123186.123279 
+
+18. Manquinho, V.M., Flores, P.F., Silva, J.P.M., Oliveira, A.L.: Prime implicant computation using satisfiability algorithms. In: Proceedings Ninth IEEE Inter-national Conference on Tools with Artificial Intelligence. pp. 232–239 (1997). 
+
+https://doi.org/10.1109/TAI.1997.632261 
+
+19. McCluskey, E.J.: Minimization of boolean functions. The Bell System Technical Journal 35 (6), 1417–1444 (1956). https://doi.org/10.1002/j.1538-7305.1956. tb03835.x 20. Minato, S.: Zero-suppressed bdds for set manipulation in combinatorial problems. In: Dunlop, A.E. (ed.) Proceedings of the 30th Design Automation Conference. Dallas, Texas, USA, June 14-18, 1993. pp. 272–277. ACM Press (1993). https: //doi.org/10.1145/157485.164890 , https://doi.org/10.1145/157485.164890 
+
+21. Previti, A., Ignatiev, A., Morgado, A.n., Marques-Silva, J.: Prime compilation of non-clausal formulae. In: Yang, Q., Wooldridge, M.J. (eds.) Proceedings of the Twenty-Fourth International Joint Conference on Artificial Intelligence, IJ-CAI 2015, Buenos Aires, Argentina, July 25-31, 2015. pp. 1980–1988. AAAI Press (2015), http://ijcai.org/Abstract/15/281 
+
+22. Quine, W.V.: The problem of simplifying truth functions. The American Mathe-matical Monthly 59 (8), 521–531 (1952), http://www.jstor.org/stable/2308219 
+
+23. Shannon, C.E.: The synthesis of two-terminal switching circuits. The Bell System Technical Journal 28 (1), 59–98 (1949) 24. Shih, A., Choi, A., Darwiche, A.: A symbolic approach to explaining bayesian network classifiers. In: Lang, J. (ed.) Proceedings of the Twenty-Seventh Interna-tional Joint Conference on Artificial Intelligence, IJCAI 2018, July 13-19, 2018, Stockholm, Sweden. pp. 5103–5111. ijcai.org (2018). https://doi.org/10.24963/ IJCAI.2018/708 , https://doi.org/10.24963/ijcai.2018/708 
+
+25. Umans, C.: The minimum equivalent DNF problem and shortest implicants. J. Comput. Syst. Sci. 63 (4), 597–611 (2001). https://doi.org/10.1006/JCSS.2001. 1775 , https://doi.org/10.1006/jcss.2001.1775
