@@ -1,0 +1,1034 @@
+Title: A Pragmatic Guide to Building Conservative Discrete Abstractions of Cyber-Physical Systems
+
+URL Source: https://arxiv.org/pdf/2608.10254v1
+
+Published Time: Wed, 12 Aug 2026 00:17:42 GMT
+
+Number of Pages: 29
+
+Markdown Content:
+# A Pragmatic Guide to Building Conservative Discrete Abstractions of Cyber-Physical Systems 
+
+Jordan Peper, Krish Kapadia, James Gast, Ethan Howes, and Ivan Ruchkin 
+
+University of Florida, Gainesville FL 32611, USA 
+
+Abstract. Symbolic model checking is an effective approach for verify-ing semantically rich temporal-logic properties of cyber-physical systems, but it hinges on discretizing continuous-state dynamics into a finite-state abstraction. To transfer verification guarantees from the abstract model to the concrete CPS, the abstraction must conservatively approxi-mate the concrete state space and behaviors. Hence, model-builders must maintain this soundness while balancing pessimism with tractability. However, they face several common pitfalls such as under-approximating the state space, under-approximating transitions, unsound pruning of “degenerate” behaviors, and improper specification lifting. This tutorial presents a pragmatic, conservative-by-construction workflow for build-ing discrete abstractions of closed-loop dynamical systems. The work-flow consists of four modular steps with interchangeable subroutines: (i) state-space partition and abstraction-function design, (ii) conservative transition construction via axis-aligned bounding boxes, polytopes, or sampling with PAC coverage certificates, (iii) mitigation of spurious tran-sitions and self-loops using certified erasure and counterexample-guided abstraction refinement, and (iv) sound lifting of LTL specifications using may-must semantics. We demonstrate the end-to-end pipeline on three case studies and report how these design choices affect abstraction struc-ture, runtime, and verification outcomes. 
+
+Keywords: dynamical systems, discrete abstraction, model checking 
+
+Code: github.com/Trustworthy-Engineered-Autonomy-Lab 
+
+# 1 Introduction 
+
+Cyber-physical systems (CPS) operate in environments where failures threaten life, property, and the environment. Accordingly, there is sustained demand for rigorous correctness assurance for realistic CPS. Stemming from a long history of verification in hardware and software, symbolic model checking remains particu-larly effective for verifying CPS when requirements are expressed as semantically rich temporal-logic specifications [4,15]. Model checking performs an exhaustive, specification-driven exploration of a model’s state space to determine whether a given safety property holds [4, 6]. To be computationally tractable, model checking requires a finite-state model, whereas real-world CPS evolve over continuous state spaces. Hence, engineers arXiv:2608.10254v1 [eess.SY] 10 Aug 2026 2 J. Peper et al. 
+
+cast the CPS as a finite state model (called an abstraction of the CPS) by ag-gregating the states into a finite set of abstract states, and then build transition relations over them. However, for guarantees to transfer from this abstraction to the concrete CPS, the abstraction must conservatively approximate the state space and behaviors of the concrete CPS. In practice, creating a useful conservative abstraction requires carefully main-taining soundness and balancing pessimism against computational cost. Inexperi-enced model-builders tend to make four typical errors: (i) under-covering the con-crete state space with the one, (ii) under-approximating the abstract transition relation (thereby omitting feasible behaviors), (iii) pruning degenerate behaviors without a certificate that preserves soundness, and (iv) lifting the specification without preserving the implication from abstract to concrete satisfaction. This tutorial presents a single, sound model-building workflow with stan-dard techniques to avoid the aforementioned pitfalls. The workflow consists of four steps (Section 5–8) with interchangeable subroutines, resulting in a conservative-by-construction, sound abstraction. First, we explain how to con-struct an abstract state space using a rectilinear partition. Second, we present three approaches for building a conservative transition relation: (a) an axis-aligned bounding box over-approximation, (b) a less conservative polytope tech-nique, and (c) a sampling-based construction equipped with a PAC-style certifi-cate. Third, we describe common degenerate behaviors in conservative abstrac-tions (including spurious transitions and self-loops) and mitigation strategies: certified self-loop erasure (with both a deterministic and probabilistic guaran-tee) and counterexample-guided abstraction refinement (CEGAR). Fourth and finally, we address the specification-lifting step by translating the concrete LTL formula to an abstract formula over the abstract state space to ensure that its satisfaction on the abstraction is sufficient to satisfaction on the concrete CPS. The rest of this paper is organized as follows. Sec 2 revisits verification and abstraction literature for cyber-physical systems. Section 3 introduces relevant preliminaries used throughout the tutorial, including conservative abstraction, LTL lifting, and model checking. Section 4 provides an in-depth look at the four abstraction steps discussed in detail in Section 5– 8. Finally, Section 9 demon-strates the full abstraction pipeline on three case studies, and then concludes with Section 10. 
+
+# 2 Literature Landscape 
+
+Verification of dynamical systems. Verification of complex dynamical sys-tems, including hybrid systems [26], is commonly organized into three method-ological families: (i) deductive methods, (ii) explicit-state reachability analysis, and (iii) symbolic abstraction-based techniques [1, 19, 25]. Deductive methods exploit analytical system properties (e.g., invariants, Lyapunov arguments, or proof rules) to certify stability or safety [19]. Explicit-state reachability analysis propagates an initial set forward through the dynamics to compute an over-approximation of the reachable state tube, enabling detection of safety viola-Building Conservative Abstractions of CPS 3
+
+tions [10]. Finally, symbolic abstraction-based techniques construct a simpler finite-state model that soundly over-approximates the behaviors of the concrete system, thereby enabling the use of symbolic model checking [19]. This tutorial concentrates solely on abstraction-based techniques. 
+
+Abstraction of dynamical systems. Casting a dynamical system as a sym-bolic abstraction requires reducing the state and action spaces to a finite-state over-approximation that preserves ground-truth behaviors. Typical abstraction schemes include phase-based [22, 23, 33], where rectangular or linear flow con-straints are placed on the system states and dynamics, and predicate-based [2, 3, 29], where continuous state spaces are abstracted as a collection of predicate-defined subspaces. For abstracting the dynamics of a system, state-of-the-art tools include SCOTS [32], which over-approximates reachable sets via a growth bound, and Flow ∗ [11], which leverages Taylor models to over-approximate reach-able sets. When dynamics are not known, [16, 17, 30] sample trajectories from the system and synthesize probabilistic guarantees on model correctness. 
+
+Counterexample-guided abstraction refinement (CEGAR). Methodolo-gies for mitigating the state explosion problem in symbolic model checking are rooted in early software verification, where automated refinement loops were developed to iteratively rewrite abstraction predicates until spurious abstract transitions are eliminated [27]. A canonical representative is counterexample-guided abstraction refinement [14]. Although these methods were initially de-veloped for purely discrete-state systems, they were later extended to timed automata [18, 33] and hybrid systems [2, 12, 13, 21]. Subsequent work applied CEGAR to probabilistic abstractions, including Markov models [8, 9, 28]. This tutorial revisits CEGAR in the context of refining discrete abstractions. 
+
+# 3 Background 
+
+3.1 Systems 
+
+We describe the preliminaries to conservative discrete-state abstraction, linear temporal logic (LTL) specification, and model checking. First, we assume that a discrete-time dynamical system is an infinite-state transition system. 
+
+Definition 1 (Infinite-state transition system). An infinite-state transition system is a tuple s = ( X, X 0, f ), where: 
+
+– X ⊂ Rn is an n-dimensional state space 
+
+– X0 ⊆ X is a subset of initial states 
+
+– f : X → X is the dynamical transition function 
+
+An infinite state trajectory of this system is the sequence τs(x0) = ( x0, x 1, x 2, . . . ),where xk+1 = f (xk), and x0 is any initial state in X0. We aim to cast this dy-namical system as a finite-state transition system :4 J. Peper et al. 
+
+Definition 2 (Finite-state transition system). A finite-state transition sys-tem is a tuple ˆs = ( ˆX, ˆX0, Σ, L, ˆf ), where: 
+
+– ˆX ⊂ Nn is an n-dimensional abstract state set 
+
+– ˆX0 ⊆ ˆX is a subset of initial abstract states 
+
+– Σ is a set of action labels 
+
+– L : ˆX → 2Σ is the labeling function specifying the admissible actions at ˆx
+
+– ˆf : ˆX × Σ → ˆX is the transition function 
+
+This finite-state transition system is nondeterministic : each state ˆx may admit multiple valid successors. These successors are indexed by the admissible labels 
+
+σ ∈ L(ˆ x) and are collected in the set Post ˆs(ˆ x) = { ˆf (ˆ x, σ ) | σ ∈ L(ˆ x)}. A path of this system ˆτ initialized at ˆx0 is an infinite sequence of states whose successive elements are valid successors. We denote the set of all paths from ˆx0 by: 
+
+Paths ˆs(ˆ x0) = {(ˆ x0, ˆx1, . . . ) | ∀ k ≥ 0, ˆxk+1 ∈ Post ˆs(ˆ xk)}.
+
+3.2 Abstraction 
+
+Abstract modeling is a process whereby an infinite-state transition (concrete) system is modeled as a finite-state transition (abstract) system whose states represent subsets of the concrete state space and transitions reflect those of the concrete dynamics. State abstraction is performed by a state quantization 
+
+function ψ : X → ˆX. For any ˆx ∈ ˆX, define the quantization cell (preimage) as 
+
+Ψ (ˆ x) = {x ∈ X | ψ(x) = ˆ x}.After the state space is abstracted into a finite collection of abstract states, the abstract dynamics are built over the abstract states. If the resulting finite-state transition system contains all concrete states, initial states, and one-step transitions under this quantization, we call it a conservative abstract model [13]. 
+
+Definition 3 (Conservative abstract model). Let s be an infinite-state tran-sition system (Definition 1) and let ˆs be a finite-state transition system (Defini-tion 2) related to s through the a state quantization function Ψ . The system ˆs is a conservative abstraction of s if the following conditions hold: 1. X ⊆ S  
+
+> ˆx∈ˆX
+
+Ψ (ˆ x) and X0 ⊆ S  
+
+> ˆx0∈ˆX0
+
+Ψ (ˆ x0)
+
+2. ∀ˆx ∈ ˆX, f (Ψ (ˆ x)) ⊆ S 
+
+> ˆx′∈Post ˆs(ˆ x)
+
+Ψ (ˆ x′)
+
+Condition 1 that every concrete state and initial state have one abstract rep-resentative. Condition 3 ensures that every one-step transition of the concrete system is represented by a transition in the abstract model. 
+
+3.3 Conservative LTL lifting 
+
+We assume that we are given a safety specification φ of the concrete system s,expressed in linear temporal logic (LTL): Building Conservative Abstractions of CPS 5
+
+Definition 4 (Linear temporal logic specification). A linear temporal logic specification is logical formula built from the syntax: 
+
+φ ::= □ϕ | ♢ϕ | U ϕ | ⃝ ϕ | ϕ1 ∧ ϕ2 | ϕ1 ∨ ϕ2 | ¬ ϕ | p(x) | ⊤ | ⊥ 
+
+– □, ♢, U, and ⃝ denote the globally, eventually, until, and next operators 
+
+– ∧ and ∨ denote the logical AND and OR operators 
+
+– ¬ denotes logical negation 
+
+– p : X → {⊤ , ⊥} is an atomic predicate on the state x ∈ X (e.g., |x| ≥ 3)
+
+– ⊤ and ⊥ denote the logical TRUE and FALSE constants 
+
+The satisfaction of an LTL specification on a trajectory of the concrete system is denoted τs(x0) ⊨ φ. Similarly, if τs(x0) ⊨ φ for all x0 ∈ X0, then the system satisfies the specification, denoted simply as s ⊨ φ.This property is expressed through atomic propositions on the domain X.However, we aim to verify that this property holds on the conservative abstrac-tion ˆs, which possesses the coarser abstract state space ˆX. Hence, we must build a lifted specification ˆφ from φ. The lifted specification ˆφ holds on the trajecto-ries of ˆs stemming from ˆx0 (Paths ˆs(ˆ x0)) if and only if the specification holds on every trajectory in Paths ˆs(ˆ x0), that is: 
+
+Paths ˆs(ˆ x0) ⊨ ˆφ ⇐⇒ ∀ ˆτ ∈ Paths ˆs(ˆ x0), ˆτ ⊨ ˆφ. (1) To ensure that the verification guarantees on ˆs transfer to the concrete system 
+
+s, we must ensure that ˆφ is a conservative LTL translation of φ:
+
+Definition 5 (Lifted LTL specification). Given a system s, an LTL safety property φ, and a conservative abstraction ˆs induced by ψ, the LTL specification 
+
+ˆφ is conservatively lifted to ˆs if, for any ˆx0 ∈ ˆX0:
+
+∀x0 ∈ Ψ (ˆ x0) :  Paths s(ˆ x0) ⊨ ˆφ =⇒ τs(x0) ⊨ φ. (2) 
+
+Equivalently, ˆs ⊨ ˆφ =⇒ s ⊨ φ.
+
+This tutorial covers conservative lifting of φ to the system abstraction ˆs.
+
+3.4 Conservative Model Checking 
+
+Model checking performs an exhaustive, specification-driven exploration of a model’s state space to determine whether that specification holds [4,6]. To model check the conservative system abstraction ˆs from an initial abstract state ˆx0, an algorithm explores all abstract trajectories ˆτ ∈ Paths s(ˆ x0) that originate from 
+
+ˆx0 under the nondeterminism of the abstraction. Equation 1 establishes an important conservatism property: the lifted safety specification ˆφ is satisfied from ˆx0 if and only if ˆτ ⊨ ˆφ for all ˆτ ∈ Paths s(ˆ x0).If there exists any trajectory in Paths s(ˆ x0) that violates ˆφ, then the abstrac-tion is not verified from ˆx0; that is, Paths s(ˆ x0) ⊭ ˆφ.However, if we find that 
+
+Paths s(ˆ x0) ⊨ ˆφ, then for all x ∈ Ψ (ˆ x0), τs(x) ⊨ φ. Consequently, it is impossible for the abstraction to verify the property while the concrete system violates it. 6 J. Peper et al.  
+
+> Fig. 1. Overview of the four-step abstraction workflow.
+
+# 4 Overview of Conservative System Abstraction 
+
+We start with a brief overview of the conservative system abstraction pipeline (illustrated in Figure 1), followed by a running example that we use to exemplify each stage. The abstraction pipeline takes two inputs: (i) a concrete dynamical model (Definition 1) and (ii) an LTL safety specification (Definition 4). From these inputs, conservative abstraction proceeds through four steps: (1) abstract the state space, (2) build a conservative transition relation, (3) diagnose and remove spurious behaviors via refinement, and (4) lift the LTL specification to the abstract model. The output is a conservative abstraction of the system in the form of a finite state machine (Definition 2) and a lifted specification used in symbolic model checking. In Step 1 (Section 5), we define a quantization function ψ from user-selected hyperparameters (e.g., the coarseness along each dimension), then construct the abstract state set ˆX and abstract initial set ˆX0 and ensure that Conditions (1) and (2) of Definition 3 are met. In Step 2 (Section 6), we build the abstract transition relation ˆf over ˆX so that Condition (3) of Definition 3 holds, and we compare several approaches suited to different classes of dynamics f (affine, nonlinear, black-box). In Step 3 (Section 8), we identify spurious behaviors (self-loops in ˆf and spurious counterexamples) and refine both the state space ˆX and transition relation ˆf to eliminate these behaviors without sacrificing soundness. Finally, in Step 4 (Section 7), we lift the LTL specification from X to the refined abstract state space ˆX, ensuring the condition in Definition 5 holds. 
+
+Running example. We will use a unicycle model as a running example through-out this tutorial. The unicycle state is given by x = ( y1, y 2, θ ) ∈ [0 .0, 50 .0] ×
+
+[0 .0, 40 .0] × [−π, π ], where y1 and y2 represent the two positional coordinates, Building Conservative Abstractions of CPS 7
+
+and θ denotes the system’s heading angle. The objective of this system is to reach within 8.0 units of the goal located at (ygoal  
+
+> 1
+
+, y goal  
+
+> 2
+
+) = (40 .0, 20 .0) while remaining in bounds and at least 5.0 from an obstacle centered at (yobs  
+
+> 1
+
+, y obs  
+
+> 2
+
+) = (25 .0, 25 .0) .This specification expressed in LTL: 
+
+φ := [(0 < y 1 < 50) ∧ (0 < y 2 < 40) ∧ d1(y1, y 2) > 5] U (d2(y1, y 2) ≤ 8); (3) 
+
+d1(y1, y 2) := p(y1 − 25) 2 + ( y2 − 25) 2; d2(y1, y 2) := p(y1 − 40) 2 + ( y2 − 20) 2
+
+The system dynamics are given by the Dubins model [20]: 
+
+f (x) = 
+
+
+
+y1[k + 1] 
+
+y2[k + 1] 
+
+θ[k + 1] 
+
+ =
+
+
+
+y1[k]
+
+y2[k]
+
+θ[k]
+
+ +
+
+
+
+v cos( θ[k]) 
+
+v sin( θ[k]) 
+
+u[k]
+
+ ∆t, (4) where ∆t = 0 .5 is a fixed sampling time, v = 5 .0 is the constant unicycle speed, and u is the control action (heading rate of change) selected from a deterministic state controller designed for goal-attraction and obstacle-repulsion (see the Appendix). 
+
+# 5 Step 1: Abstract the State-Space 
+
+State-space quanitzation. A finite-state transition system (Definition 2) re-quires a finite collection of states to evolve over. However, the concrete model does not fit this template due to the continuous domain X. One solution is to formulate a state-space abstraction by imposing a uniform rectilinear grid over X whose induced subsets compose the abstract states ˆX. Suppose X is a rectangular domain [x(1) , x (1) ] × · · · × [x(n), x (n)], where x(j) and x(j) denote the boundaries of the domain along dimension j ∈ 1, . . . , n . Let c(j) be a user-defined count of desired abstract states per dimension j. Then we specify the set of uniformly-spaced breakpoints along each dimension B = {B(1) , . . . , B (n)},where: 
+
+B(j) =
+
+
+
+x(j) < b (j)2 < · · · < b (j) 
+
+> c(j)
+
+< x (j)
+
+, b(j)2 − x(j) = · · · = x(j) − b(j) 
+
+> c(j)
+
+,
+
+is the tuple of uniformly spaced breakpoints along the jth dimension, includ-ing the boundaries. Let i = ( i1, . . . , i n) ∈ I be a vector of indices where I =
+
+{1, . . . , c (1) } × · · · × { 1, . . . , c (n)} is the valid index set. The induced abstract state set is the collection of abstract states ˆx[i] for all possible indices i, that is, 
+
+ˆX = {ˆx[i] | i ∈ I} = {ψ(x) | x ∈ X}. The initial abstract state set is also given by ˆX0 = {ψ(x0) | x0 ∈ X0}, where the abstraction function ψ is defined as 
+
+x ∈
+
+> n
+
+Y
+
+> j=1
+
+h
+
+b(j) 
+
+> ij
+
+, b (j) 
+
+> ij+1
+
+i
+
+=⇒ ψ(x) = ˆ x[i], (5) and its inverse is defined as 
+
+Ψ (ˆ x[i]) = {x ∈ Rn : b(j) 
+
+> ij
+
+≤ x(j) < b (j) 
+
+> ij+1
+
+, j = 1 , . . . , n }. (6) Both ˆX and ˆX0 satisfy conditions (1)–(2) of Definition 3. 8 J. Peper et al. 
+
+Running example. Recall the state space of the unicycle system X = [0 .0, 50 .0] ×
+
+[0 .0, 40 .0] × [−π, π ]. To match the above notation, we represent the state vector as x = ( y1, y 2, θ ) = ( x(1) , x (2) , x (3) ). Suppose we choose c(1) = c(2) = c(3) = 10 
+
+to be the desired number of abstract state cells along each dimension ( 10 3 total abstract states). The set of breakpoints is B = {B(1) , B (2) , B (3) }, where: 
+
+B(1) = {0, 4, . . . , 40 }, B(2) = {0, 5, . . . , 50 }, B(3) =
+
+
+
+−π, − 4π
+
+5 , . . . , π 
+
+
+
+In this example, the index i of any abstract state is given by i = ( i1, i 2, i 3) where 
+
+i1, i 2, i 3, ∈ 1, . . . , 10 . Suppose we want to concretize the abstract state ˆx[3 , 2, 1] .Following Equation 6, we get the subspace: 
+
+Ψ (ˆ x[3 , 2, 1]) = {x ∈ Rn : b(1) 3 < x (1) < b (1) 4 , b (2) 2 < x (2) < b (2) 3 , b (3) 1 < x (3) < b (3) 2 }
+
+= {x ∈ Rn : 8 < x (1) < 12 , 5 < x (2) < 10 , −π < x (3) < 4π/ 5} ⊂ X
+
+# 6 Step 2: Build the Conservative Transitions 
+
+With the abstract state space ˆX in hand, the next step is to construct the transition relation ˆf and the labeling function L. This construction follows a simple deterministic loop over ˆX described in Algorithm 1: 
+
+(L, ˆf ) = BuildTransitions (ψ, ˆX, f )
+
+The only nontrivial component of this routine is the procedure GetSuccessors ,which computes, for each ˆx ∈ ˆX, a set of successor abstract states Post ˆs(ˆ x).This section presents two interchangeable implementations of GetSuccessors :(1) a conservative axis-aligned bounding-box (AABB) method (Algorithm 2) and (2) a tighter polytope-based method (Algorithm 3). Then, we present a sample-based replacement of BuildTransitions , which yields a statistical, not exhaustive, guarantee on the validity of the induced transitions (Algorithm 4). 
+
+Algorithm 1 BuildTransitions : build the conservative transition relation ˆf
+
+Require: abstraction function ψ : X → ˆX; abstract state space ˆX; dynamics f
+
+Ensure: labeling function L ⊆ ˆX × 2Σ ; transition relation ˆf ⊆ ˆX × Σ × ˆX
+
+1: L, ˆf ← ∅ , Σ ← { σ11 , σ 12 , . . . , σ ij , . . . }
+
+2: for all ˆxi ∈ ˆX do 
+
+3: Post ˆs(ˆ x) ← GetSuccessors (ˆ xi, ψ, ˆX, f )
+
+4: for all ˆxj ∈ Post ˆs do 
+
+5: L ← L ∪ { (ˆ xi, σ ij )} ▷ σ ij is unique to the ordered pair (ˆ xi, ˆxj )
+
+6: ˆf ← ˆf ∪ { (ˆ xi, σ ij , ˆxj )}
+
+7: end for 
+
+8: end for 
+
+9: return L, ˆfBuilding Conservative Abstractions of CPS 9
+
+AABB propagation. We first present a conservative, AABB-based technique for computing the successor set Post ˆs(ˆ x) ⊂ ˆX for any ˆx ∈ ˆX according to ψ
+
+and f . Let R ⊂ X be a region in the n-dimensional state space. An axis-aligned bounding box of R is a rectilinear subset of X that inscribes R:
+
+AABB( R) := 
+
+> n
+
+Y
+
+> j=1
+
+[l(j), u (j)], lj = min  
+
+> x∈R
+
+x(j), uj = max  
+
+> x∈R
+
+x(j), (7) where l(j) and u(j) are the states in R containing the min/max jth component. To conservatively approximate the successors of ˆx, we compute the AABB of its concrete image, and then determine the set of states that this image over-approximation intersects with. Let f (Ψ (ˆ x)) be the concrete image of ˆx under 
+
+f . Then, its AABB over-approximation is denoted AABB( f (Ψ (ˆ x))) . To build the successor set, Algorithm 2 iterates over all candidate successors ˆx ∈ ˆX and determines whether their concretization intersects with this bounding box. If so, this is allocated as a transition relation in ˆf . This technique, paired with Algo-rithm 1, yields a transition relation that satisfies condition (3) of Definition 3. 
+
+Algorithm 2 GetSuccessorsAABB : compute successors of ˆx according to the AABB image over-approximation                                                 
+
+> Require: abstract state ˆx; abstraction function ψ:X→ˆX; abstract state space ˆX;dynamics f
+> Ensure: successor set Post ˆs⊆ˆX
+> 1: Post ˆs← ∅ ,R←Ψ(ˆ x)
+> 2: R′←AABB( f(R)) ▷Over-approximate image of Rvia AABB (Eqn. 7) 3: for all ˆx′∈ˆXdo ▷Iterate over candidate successors 4: if Ψ(ˆ x′)∩R′then
+> 5: Post ˆs←Post ˆs∩ { ˆx′}
+> 6: end if
+> 7: end for
+> 8: return Post ˆs
+
+When the concrete system dynamics f are linear in X, the minimizing and maximizing arguments in Equation 7 of AABB( f (R)) are simply the minimizing and maximizing arguments of the propagated set of corners {f (l(1) ), f (u(1) )} × · · · × { f (l(n)), f (u(n))}. When f is nonlinear but at least differentiable in X, the literature presents several techniques to determine an AABB over-approximation of f (R). In the popular abstraction SCOTS [32], the centroid of R is propagated forward and a conservative growth bound based on the Lipschitz constant of f
+
+is used to build an AABB over-approximation of f (R). Another technique used in the popular reachability analysis tool FLOW ∗ [11] builds a first-order Taylor approximation F ≈ f , propagates the corners of R through ˆf , and then inflates the min and max vertices in this set by the first-order Taylor remainder. 10 J. Peper et al. 
+
+Polytope propagation. AABBs over-approximate the image of the concretized abstract state relatively tightly when f is linear. However, in the nonlinear set-ting, the mapping from a concretized abstract state to its image through f may involve shear, stretching, and even folding. Hence, an AABB may be too con-servative and lead to spurious edges in ˆf . A less conservative technique is to over-approximate the image with a polytope PT :
+
+PT( R) := 
+
+( 2n
+
+X
+
+> k=1
+
+λk | x ∈ R, λ k ≥ 0,
+
+> 2n
+
+X
+
+> k=1
+
+λk = 1 
+
+)
+
+, (8) where λk are convex-combination coefficients used to form the convex hull over R.We denote the polytope-based image over-approximation of ˆx as PT( f (Ψ (ˆ x))) .To build the successor set using the polytope over-approximation of f (Ψ (ˆ x)) ,Alg. 3 first rules out obvious non-intersecting subsets Ψ (ˆ x) using the bounding box over-approximation AABB( f (Ψ (ˆ x))) (which inscribes the polytope), and then iterates over the remaining states to build the successor set. This greatly improves the performance of the algorithm since AABB intersection tests are faster than the polytope tests. Like the AABB method, this technique yields a transition relation that satisfies condition (3) of Definition 3. 
+
+Algorithm 3 GetSuccessorsPT : compute successors of ˆx using polytope over-approximation with AABB culling 
+
+Require: abstract state ˆx; abstraction function ψ : X → ˆX; abstract state space ˆX;dynamics f ;
+
+Ensure: successor set Post ˆs ⊆ ˆX
+
+1: Post ˆs ← ∅ , R ← Ψ (ˆ x)
+
+2: R′ 
+
+> AABB
+
+← AABB( f (R)) ▷ Over-approximate image of R via AABB (Eqn. 7) 3: R′ 
+
+> PT
+
+← PT( f (R)) ▷ Over-approximate image of R via PT (Eqn. 8) 4: C ← ∅ ▷ Define set of filtered candidates 5: for all ˆx′ ∈ ˆX do 
+
+6: if Ψ (ˆ x′) ∩ R′ 
+
+> AABB
+
+then 
+
+7: C ← C ∪ { ˆx′} ▷ Allocate as a potential candidate 8: end if 
+
+9: end for 
+
+10: for all ˆx′ ∈ C do 
+
+11: if Ψ (ˆ x′) ∩ R′ 
+
+> PT
+
+then 
+
+12: Post ˆs ← Post ˆs ∪ { ˆx′}
+
+13: end if 
+
+14: end for 
+
+15: return Post ˆs
+
+Sampling-based successors. When the dynamics f are strongly nonlinear, black-box, or the rectilinear partition is coarse, sampling can yield the least conservative approximation of the successor set Post ˆs(ˆ x). The trade-off is that, unlike the above propagation methods, sampling may fail to observe a genuine Building Conservative Abstractions of CPS 11 
+
+transition, feasible in the concrete system. Consequently, the transition relation 
+
+ˆf produced by sampling does not deterministically satisfy Definition 3. Instead, one can make a probabilistic guarantee of the following form: after 
+
+N samples, ˆf contains all ground-truth transitions with confidence at least 1−α.To make this precise, we first describe a “ground-truth” guarantee expressed in terms of the true transition relation (which we denote ˆf ∗) and then use it as a template for the data-driven setting where ˆf ∗ is unknown and only sampled observations of f are available. Algorithm 4 describes this data-driven method for building and certifying ˆf , replacing Algorithm 1. 
+
+Algorithm 4 SampleTransitions : build ˆf by sampling from Unif( X) until the certificate condition (Equation 11) is met 
+
+Require: abstraction function ψ : X → ˆX; abstract state space ˆX; state space X;dynamics f ; confidence level δ; significance level β
+
+Ensure: labeling function L ⊆ ˆX × 2Σ ; transition relation ˆf ⊆ ˆX × Σ × ˆX
+
+1: L ← ∅ , ˆf ← ∅ , Σ ← { σ11 , σ 12 , . . . , σ ij , . . . }
+
+2: M N ← 1.0, N ← 0, c1 ← 0
+
+3: C[·] ← ∅ ▷ Map: triple 7 → transition allocation count 4: while M N ≥ β do 
+
+5: x ← Unif( X), ˆxi ← ψ(x), ˆxj ← ψ(f (x)) 
+
+6: t ← (ˆ xi, σ ij , ˆxj ) ▷ σ ij unique to ordered pair (ˆ xi, ˆxj )
+
+7: if t / ∈ dom( C) then 
+
+8: C[t] ← 1, c1 ← c1 + 1 
+
+9: L ← L ∪ { (ˆ xi, σ ij )}
+
+10: ˆf ← ˆf ∪ { t}
+
+11: else if C[t] = 1 then 
+
+12: C[t] ← 2, c1 ← c1 − 1
+
+13: else 
+
+14: C[t] ← C[t] + 1 
+
+15: end if 
+
+16: N ← N + 1 
+
+17: M N ← c1 
+
+> N
+
++ (2 √2 + √3) 
+
+q ln(3 /δ ) 
+
+> N
+
+▷ (Equation 10) 18: end while 
+
+19: return ˆf , N , M N
+
+Ground-truth guarantee. Consider a uniform distribution over the state space X,denoted Unif( X). This induces a categorical distribution Cat( ˆf ∗) over transition relations (ψ(x), σ, ψ (f (x))) in ˆf ∗ with categories ℓ = {1, . . . , K }, where K = | ˆf ∗|
+
+is the number of ground-truth transitions in ˆf ∗. Each triple (ψ(x), σ, ψ (f (x))) 
+
+with index ℓ has a probability mass qℓ in this Cat( ˆf ∗). Intuitively, qℓ is the chance that after a single draw x ∼ Unif( X), the algorithm allocates the relation 
+
+(ψ(x), σ, ψ (f (x))) to ˆf . The exact formula for qℓ can be found in the Appendix. We are ultimately interested in the probability that N i.i.d. draws suffice to recover all true transitions in ˆf ∗ (precisely, ˆf = ˆf ∗). By the inclusion-exclusion 12 J. Peper et al. 
+
+principle, this probability is given by: 
+
+Pr( ˆf ∗ = ˆf ) = X
+
+> L⊆{ 1,...,K }
+
+(−1) |L| 1 − X
+
+> ℓ∈L
+
+qℓ
+
+!N
+
+= 1 − α, (9) where L is a subset of the category labels. Finally, observing all transitions im-plies that every concrete one-step behavior is represented in the abstract relation, so ˆf ∗ = ˆf coincides with satisfaction of Condition (3) in Definition 3. Hence, Condition (3) is satisfied with confidence 1 − α.
+
+Probably-approximately correct (PAC) guarantee. In practice, we do not have access to the parameters of the induced categorical distribution Cat( ˆf ∗) (qℓ
+
+and even the support size K are unknown). Nevertheless, we can still sample transition relations (ψ(x), σ, ψ (f (x))) from this categorical distribution Cat( ˆf ∗)
+
+by sampling from Unif( X).Let ˆfN ⊆ ˆf ∗ denote the set of relations discovered after drawing N samples from Cat( ˆf ∗). In this distribution-agnostic setting, it is impossible to compute 
+
+Pr( ˆfN = ˆf ∗), since the absence of a relation in ˆfN that exists in ˆf ∗ does not distinguish “impossible” from “possible but rare.” Indeed, if some pℓ is extremely small, then Pr( ˆfN = ˆf ∗) is negligible for feasible N .Therefore, to obtain a practical guarantee, one can adopt a PAC relaxation: consider only the transitions in ˆf ∗ with probabilities above a user-chosen signif-icance level, say β ∈ (0 , 1) . We call a transition β-significant if pℓ ≥ β. Rather than certifying that every transition has been observed, we certify that the un-observed probability mass is small. This is captured by the missing mass MN ,defined as the total probability of relations not allocated to ˆfN , i.e., MN =Pr( ˆf ∗ \ ˆfN ). The missing mass is a classical object in distribution learning [5]; operationally, it upper-bounds the probability that the next draw yields a pre-viously unseen label. One estimator of MN is the Good–Turing estimate [24]: 
+
+MN ≈ c1 
+
+> N
+
+, where c1 is the number of labels in ˆfN that appear exactly once. Since this estimator is not necessarily conservative, McAllester and Schapire provided an upper bound on the missing mass [31]. With probability at least 
+
+1 − δ,
+
+MN ≤ c1
+
+N + (2 √2 + √3) 
+
+r ln(3 /δ )
+
+N = M N . (10) Thus, if M N < β , then MN < β holds with confidence at least 1 − δ, i.e., 
+
+Pr( MN < β ) ≥ Pr( MN ≤ M N ) ≥ 1 − δ, M N < β. (11) This certificate has a direct interpretation for abstraction soundness under sampling. If MN < β , then the total probability mass of unobserved transitions is below β, which implies that every β-significant transition (every region with 
+
+pℓ ≥ β) must have been observed and therefore added to ˆfN . Equivalently, with probability at least 1−δ, the sampled relation ˆfN contains all abstract transitions that occur with probability at least β under uniform sampling Unif( X).Building Conservative Abstractions of CPS 13 
+
+The parameter β therefore controls the approximation level. Choosing a smaller β tightens the guarantee (at the cost of requiring larger N ), and the ground-truth guarantee can even be recovered if β falls below the minimum cat-egorical probability. Without access to ˆf ∗, however, the strongest data-driven guarantee we can certify in general is coverage of all β-significant transitions. 
+
+Running example. We illustrate the sampling-based construction of the tran-sition relation and its PAC-style coverage certificate on the running unicycle example. Recall the state space X = [0 .0, 50 .0] × [0 .0, 40 .0] × [−π, π ]. We draw 
+
+N = 10000 samples x ∼ Unif( X) and, for each sample, record the induced abstract transition (ψ(x), ψ (f (x))) . For example, two sampled states might be 
+
+x1 = (19 .5, 23 .8, −0.1) and x2 = (12 .1, 9.6, −0.73) , which abstract to ψ(x1) = ˆx[5 , 5, 5] and ψ(x2) = ˆ x[4 , 2, 3] . Then, determine the successor abstract states: 
+
+ψ(x′
+
+> 1
+
+) = ˆ x[6 , 6, 5] , x′ 
+
+> 1
+
+= f (x1) ≈ (21 .5, 23 .6, −0.09) 
+
+ψ(x′
+
+> 2
+
+) = ˆ x[4 , 2, 3] , x′ 
+
+> 2
+
+= f (x2) ≈ (13 .6, 8.3, −0.65) 
+
+These two samples thus contribute the transitions (ˆ x[5 , 5, 5] , σ, ˆx[6 , 6, 5]) and 
+
+(ˆ x[4 , 2, 3] , σ, ˆx[4 , 2, 3]) to the sampled relation ˆfN . Repeat this procedure over all 
+
+10000 samples. To certify coverage, fix a significance threshold β = 0 .1 and confidence param-eter δ = 0 .05 . Let c1 denote the number of transition labels that appear exactly once among the N observations; suppose c1 = 12 . The McAllester–Schapire upper bound on the missing mass is then 
+
+M N = c1
+
+N + (2 √2 + √3) 
+
+r ln(3 /δ )
+
+N
+
+= 12 10000 + (2 √2 + √3) 
+
+r ln(3 /0.05) 10000 ≈ 0.0935 < β, 
+
+which enables the PAC guarantee Pr( MN < 0.1) ≥ 0.95 . In words, after N =10000 samples we can assert (with at least 95% confidence) that the total prob-ability mass of unobserved transitions is below 0.1, and hence that ˆfN contains every transition that occurs with probability at least 10% under uniform sam-pling from X.
+
+# 7 Step 3: Purge Degenerate Behaviors 
+
+Types of degenerate behaviors. Assured approximation of the ground-truth model (either through over-approximation or sampling) paired with conservative model checking ensures that guarantees made on the abstraction transfer to the ground-truth system (Definition. 3), i.e., s ⊨ φ ⇐= ˆs ⊨ ˆφ. However, conserva-tive abstraction often produces degenerate behaviors that can yield pessimistic outcomes in which the abstraction violates the lifted specification even though the concrete system satisfies it (i.e., ˆs ⊭ ˆφ but s ⊨ φ). In this section, we identify two common classes of degenerate behaviors found in conservative abstractions 14 J. Peper et al. 
+
+– spurious transitions and self-loop transitions – then discuss assured self-loop erasure and CEGAR to purge them from the abstraction. 
+
+Spurious transitions. A spurious transition is a relation between two abstract states in ˆf that cannot occur in the ground-truth system. Formally, it is a relation 
+
+(ˆ x, σ, ˆx′) such that there is no mapping from Ψ (ˆ x) to Ψ (ˆ x′) through f , i.e., the image f (Ψ (ˆ x)) is disjoint from Ψ (ˆ x′).Spurious transitions arise from conservative methods for building the tran-sition relation ˆf . These transitions appear when the set over-approximation of the image f (Ψ (ˆ x)) (AABB( ·) or Poly( ·)) intersects with Ψ (ˆ x′), while the ground-truth image does not. These transitions are harmful in conservative model check-ing because they can compound into spurious counterexample trajectories —trajectories of the abstract system that do not satisfy ˆφ and are impossible to traverse in the concrete system. 
+
+Self-loop transitions. A self loop is a transition in ˆf that maps an abstract state ˆx
+
+to itself, formally, (ˆ x, σ, ˆx) ∈ ˆf . Self-loop transitions may be spurious transitions 
+
+that are artifacts of conservative successor procedures (AABB- or polytope-based methods), but they may also be an authentic representation of the ground-truth dynamics in Ψ (ˆ x). The underlying issue is that the induced finite-state model is memoryless: it does not distinguish concrete states that are “about to exit” the cell from those that will remain inside for at least one more step. As a result, the abstraction admits the possibility of remaining in ˆx for infinitely many steps, since a scheduler may repeatedly select the self-loop. This is particularly harmful when reasoning about liveness specifications. Since model checking considers worst-case scheduling, it will return the infinite self-loop trace (ˆ x, ˆx, . . . ) as a counterexample of a liveness specification, unless the trace trivially satisfies the specification (e.g., the state already lies in a goal set that must eventually be reached). For many applications, it is best to remove such self-loops by certifying that the concrete system can escape the cell in finite time. Spurious self-loop transitions can be removed through CEGAR , while both spurious and non-spurious ones can be removed through direct certification .
+
+Counterexample-guided abstraction refinement. Compounding spurious transitions (spurious trajectories) are an artifact of successor over-approximation and may lead to spurious counterexamples . Counterexample-guided abstraction refinement (CEGAR) is an iterative procedure with in-the-loop verification that purges spurious transitions in ˆf along the counterexample trajectory by prov-ing that such a transition cannot occur within the ground-truth system. The algorithm locally refines state cells ˆx ∈ ˆX by splitting cells until the counterex-ample is refuted, or a stopping condition has been met (allowable refinements). Below, we explain the main operations in CEGAR (counterexample validation and refinement), and direct the readers to the original application of CEGAR to dynamical systems [13] for further details. A counterexample trajectory ˆτ = (ˆ x0, . . . , ˆxM ) from Paths ˆs(ˆ x0) is an M -length trajectory output by the model checker when ˆτ ⊭ ˆφ. A critical step is determining whether this trajectory is spurious; that it, if for all x0 ∈ Ψ (ˆ x0),Building Conservative Abstractions of CPS 15 
+
+τs(x0) ⊨ φ; i.e., all ground-truth trajectories originating from the subspace Ψ (ˆ x0)
+
+do satisfy the LTL specification φ.Let Rk = Ψ (ˆ xk) be the concretized region of ˆxk for k ∈ { 1, . . . , M }. The reachable part of Rk from Rk−1 is given by: 
+
+Rreach  
+
+> 0
+
+= R0 = Ψ (ˆ x0), Rreach k = Rk ∩ f (Rreach k−1 ), k = 1 , . . . , M (12) If Rreach k = ∅ for some k, then the abstract prefix cannot be realized concretely, and the counterexample trajectory is spurious. Intuitively, this recursion along ˆτ
+
+searches for the first instance (from the initial state) where the concrete reachable set diverges from the counterexample trajectory (see Figure 2).               
+
+> Fig. 2. Acounterexample trajectory admits the sequence of concrete regions
+> (R0, R 1, . . . ). Counterexample validation iteratively determines the residual intersect-ing area between the concretized trajectory and its abstract counterpart. In this ex-ample, this area is 0by k= 6 , validating that the counterexample trajectory is indeed spurious.
+
+When ˆτ is found to be spurious, CEGAR refines the partition to block the refuted behaviors and preserve abstraction conservatism [13]. Let k be the first index such that Rk = ∅ in the validation recursion. Refinement then targets the transition (ˆ xk−1, ˆxk) by splitting ˆxk into a reachable subset and its complement (equivalently, splitting ψ(·) so these subsets become distinct abstract states) until the counterexample is refuted or the stopping condition has been met. 
+
+Assured self-loop erasure. Successor-approximation procedures may intro-duce self-loop transitions of the form (ˆ x, σ, ˆx) into ˆf . Regardless of whether these transitions are spurious or authentic, they often lead to poor verification out-comes when we attempt to verify liveness specifications through conservative model checking. It is therefore reasonable to purge a self-loop from ˆf if we can certify a finite-time escape property for the associated concretization. In other words, if we can show that every concrete trajectory originating in Ψ (ˆ x) exits 
+
+Ψ (ˆ x) within K steps, then we may purge the self loop. We discuss two techniques for certifying self-loop erasure: (1) an iterative bounding-box approximation of the propagated reachable set and (2) a sampling-based strategy with an associ-ated PAC guarantee. 
+
+Reachable-set propagation. Let R0 = Ψ (ˆ x) be the initial concretized region of 
+
+ˆx. Let f (Rk) denote the image of Rk under f . The propagation of Rk over 16 J. Peper et al. 
+
+k = 1 , . . . , K is given by: 
+
+Rk+1 = Rk ∩ AABB (f (Rk)) . (13) Intuitively, Rk+1 is exactly the set of states in Rk whose next-step image can also lie in Rk. Repeated intersection therefore filters out states that must escape, so if we find some k ∈ { 1, . . . , K } such that Rk = ∅, then no concrete trajectory can remain in Ψ (ˆ x) for k ≤ K steps. 
+
+Sampling-based with PAC guarantee. Suppose we impose a uniform distribution 
+
+x0 ∼ Unif( Ψ (ˆ x)) . This induces a distribution over ground truth trajectories 
+
+τ ∼ Pr( τs(x0)) . Denote the K-length trajectory drawn from this distribution as 
+
+τ = ( x0, . . . , x K ). Define the event E = {∃ k ∈ { 1, . . . , K } : xk /∈ Ψ (ˆ x)} to mean that the K-length trajectory τ has escaped Ψ (ˆ x). We denote the (unknown) probability of this event as qτ = Pr( E).Suppose we draw N of these K-length trajectories τ ∼ Pr( τs(x0)) . If we observe that E occurs N times, then we assert the Binomial PAC guarantee: 
+
+Pr 
+
+
+
+qτ ≥ γ1/N 
+
+≥ 1 − γ (14) In words: with 1−γ confidence, the chance that any K-length trajectory escapes 
+
+Ψ (ˆ x) is at least γ1/N . In this distribution-agnostic setting (analogous to the sample-based successor guarantee), the best we can guarantee is the coverage of successful trajectories. If we observe any ¬E after N trials, then we have disproven absolute coverage, and cannot remove the self loop. 
+
+Running example. We exemplify the sample-based self-loop erasure certificate on the running unicycle example. Suppose the constructed relation ˆf contains a self-loop (ˆ x[5 , 5, 5] , σ, ˆx[5 , 5, 5]) . Per Equation 7, the corresponding concretization is 
+
+Ψ (ˆ x[5 , 5, 5]) = [16 , 20] × [20 , 25] × [−π/ 10 , 0] .
+
+Fix K = 10 and a target confidence parameter γ = 0 .1. We draw N = 100 initial conditions uniformly from Ψ (ˆ x[5 , 5, 5]) and simulate each trajectory for at most 
+
+K steps, declaring the certificate successful if every rollout exits the cell within 
+
+K steps. For instance, one draw yields x0 = (18 .5, 22 .8, −0.1) , and propagating through the unicycle dynamics (Equation 4) gives 
+
+x1 = f (x0) = 
+
+
+
+18 .522 .8
+
+−0.1
+
+ +
+
+
+
+2 cos( −0.1) 2 sin( −0.1) 0.01 
+
+ ≈
+
+
+
+20 .522 .6
+
+−0.09 
+
+ . (15) which lies outside Ψ (ˆ x[5 , 5, 5]) after just one step. Observing the same behavior for all N = 100 rollouts, we conclude the PAC-style guarantee 
+
+Pr 
+
+
+
+pτ ≥ 0.11/10 
+
+≥ 1 − 0.1 ≡ Pr( pτ ≥ 0.79) ≥ 0.9.
+
+That is, given that all 100 sampled trajectories exit within 10 steps, we certify with 90% confidence that at least 79% of trajectories starting in Ψ (ˆ x[5 , 5, 5]) also escape within K steps. Building Conservative Abstractions of CPS 17 
+
+# 8 Step 4: Lift the LTL Specification to the Abstraction 
+
+With a refined conservative abstraction ˆs in place, the remaining task is to lift the concrete LTL specification φ to an abstract specification ˆφ over ˆX so that conservative model checking is sound, i.e., ˆs ⊨ ˆφ =⇒ s ⊨ φ (and by contraposition, ˆs ⊭ ˆφ ⇐= s ⊭ φ). This section introduces the additional temporal-logic machinery needed for lifting, defines a homomorphic translation 
+
+ρ that maps φ to ˆφ, and then illustrates this lifting on the unicycle example. 
+
+May and must predicates. Let AP denote the set of atomic propositions p
+
+appearing in φ, where p : X → {⊤ , ⊥} . The truth set of an atom is JpK := {x ∈
+
+X | p(x) = ⊤} . Given an abstract state ˆx ∈ ˆX and its concretization Ψ (ˆ x), we define may and must satisfaction of p on ˆx by 
+
+May p(ˆ x) ⇐⇒ Ψ (ˆ x) ∩ JpK̸ = ∅, Must p(ˆ x) ⇐⇒ Ψ (ˆ x) ⊆ JpK. (16) Intuitively, p may hold on ˆx iff at least one concrete state in Ψ (ˆ x) satisfies p,whereas p must hold on ˆx iff every concrete state in Ψ (ˆ x) satisfies p. We lift these to atomic predicates to the abstract state space such that: 
+
+ˆx ⊨ pMay ⇐⇒ May p(ˆ x), ˆx ⊨ pMust ⇐⇒ Must p(ˆ x). (17) 
+
+Homomorphic translation. Assume φ is in negation normal form. We define a homomorphic translation operator ρ(·) where ˆφ = ρ(φ). We explicitly define the operations of this function, reusing the syntax from Definition 4: 
+
+ρ(p) := pMust , ρ(¬p) := ¬pMay , (18) 
+
+ρ(ϕ1 ∧ ϕ2) := ρ(ϕ1) ∧ ρ(ϕ2), ρ(ϕ1 ∨ ϕ2) := ρ(ϕ1) ∨ ρ(ϕ2), (19) 
+
+ρ(□ϕ) := □ρ(ϕ), ρ(♢ϕ) := ♢ρ(ϕ), (20) 
+
+ρ(ϕ1 U ϕ2) := ρ(ϕ1) U ρ(ϕ2), ρ(⃝ϕ) := ⃝ρ(ϕ). (21) The temporal operators are preserved structurally, while atomic propositions are strengthened or weakened via must/may to account for state aggregation. Iter-ating these rules over the syntax of φ yields a lifted specification ˆφ in ˆX which, by construction, is sound for conservative model checking, i.e., ˆs ⊨ ˆφ =⇒ s ⊨ φ.
+
+Running example. Recall the concrete LTL specification from Eqn. 3: 
+
+φ := (0 < y 1 < 50) ∧ (0 < y 2 < 40) ∧ d1(y1, y 2) > 5 U  d2(y1, y 2) ≤ 8
+
+For compactness, define p1 := (0 < y 1 < 50) , p2 := (0 < y 2 < 40) , p3 := (d1(y1, y 2) > 5) , and p4 := ( d2(y1, y 2) ≤ 8) . We lift the concrete specification by applying the above translation rules: 
+
+ˆφ = ρ(φ) = ρ([ p1 ∧ p2 ∧ p3] U [p4]) ,
+
+= ρ(p1 ∧ p2 ∧ p3) U ρ(p4) (via Equation 21) ,
+
+= ρ(p1) ∧ ρ(p2) ∧ ρ(p3) U ρ(p4) (via Equation 19) ,
+
+= pMust 1 ∧ pMust 2 ∧ pMust 3
+
+ U pMust 4 (via Equation 18) 18 J. Peper et al. 
+
+Here pMust  
+
+> k
+
+is the must lift of the atomic predicate pk to ˆX, defined by 
+
+ˆx ⊨ pMust  
+
+> k
+
+⇐⇒ Must pk (ˆ x) ⇐⇒ Ψ (ˆ x) ⊆ JpkK.
+
+As a concrete illustration, consider p1 with truth set Jp1K := {(y1, y 2, θ ) ∈ X |
+
+0 < y 1 < 50 }. The abstract states on which p1 holds in the must sense are 
+
+ˆXpMust 1 := {ˆx ∈ ˆX | Ψ (ˆ x) ⊆ Jp1K}.
+
+Intuitively, ˆXpMust 1 consists of abstract states whose concretizations that do not include the boundary states. Thus, whenever ˆx ∈ ˆXpMust 1 we have ˆx ⊨ pMust 1 , and therefore p1 holds for every concrete state in Ψ (ˆ x).
+
+# 9 Illustrative Case Studies 
+
+The purpose of our experimental evaluation is threefold: (i) demonstrate the four-step abstraction pipeline, (ii) reveal the tradeoff between transition-building subroutine runtime and verification performance, and (iii) illustrate the improved performance after removing degenerate behaviors. For each case study and each technique, we abstract the state space, conservatively construct the transition relation via Algorithm 1, purge degenrate behaviors from the abstraction, lift the LTL specification from the concrete system to the system abstraction, and then model check the resulting abstractions against their respective LTL specifications using pyModelChecking [7]. 
+
+9.1 System Descriptions Synthetic System. We utilize a synthetic, linear time-invariant, discrete-time, and globally exponentially stable (GES) system with two dimensions: 
+
+x[k + 1] = x∗ + A(x[k] − x∗), A =
+
+0.8 −0.30.3 0.8
+
+
+
+, x∗ =
+
+5.05.0
+
+
+
+The state space of this synthetic dynamical system is given by x = ( x1, x 2) ∈
+
+X = ( −10 , 10) × (−10 , 10) . The control objective is to converge to within 2.0
+
+units of the equilibrium point x∗ within a finite number of steps while always remaining inside of X. The specification is translated into LTL as: 
+
+φ := [( −10 < x 1 < 10) ∧ (−10 < x 2 < 10)] U [∥x − x∗∥ ≤ 2.0] (22) 
+
+Mountain Car. We utilize the Gymnasium [34] MountainCar-v0 benchmark — a widely adopted testbed for reinforcement learning — in our evaluation. This environment models a two-dimensional control problem with state variables 
+
+x = ( y, v ) ∈ [−1.2, 0.6] × [−0.07 , 0.07] , where y is the horizontal position of the vehicle and v is its velocity. At each timestep, the agent selects from actions Building Conservative Abstractions of CPS 19 
+
+u ∈ { 0, 1, 2}, corresponding respectively to the application of a negative force (throttle leftward), no force, or a positive force (throttle rightward). The control objective of the Mountain Car is to reach the top of a steep incline ( y ≥ 0.5). For our experiments, we trained a lightweight deep Q-network (DQN) policy over 5000 episodes with ϵ0 = 1 .0 and a decay rate of 0.9983 .During closed-loop execution with non-linear dynamics, the policy is guided by ground-truth position estimates drawn from the environment at runtime. This specification can be translated into LTL as φ := ♢(y > 0.5) .
+
+Autonomous Unicycle. Section 4 contains details on the unicycle case study. 
+
+9.2 Evaluation Metrics Abstraction metrics. Prior to model checking, we evaluate several descriptive metrics of the conservative abstraction ˆs = ( ˆX, ˆX0, Σ, L, ˆf ). These metrics quan-tify degenerate behaviors in the abstract transition system (spurious transitions and self-loop), which are often correlated with pessimistic verification outcomes. First, we report the self-loop proportion :
+
+SLP := | ˆfself |/| ˆX|, where ˆfself := {(ˆ x, σ, ˆx′) ∈ ˆf | ˆx = ˆ x′}
+
+Next, we report several successor statistics: the mean successor count :
+
+mSu := 1
+
+| ˆX|
+
+X 
+
+> ˆx∈ˆX
+
+| Post(ˆ x)|,
+
+the minimum and maximum successor counts :
+
+Su := min  
+
+> ˆx∈ˆX
+
+| Post(ˆ x)| and Su := max  
+
+> ˆx∈ˆX
+
+| Post(ˆ x)|
+
+and finally, the standard deviation of successor counts :
+
+Su σ := 
+
+vuut 1
+
+| ˆX|
+
+X 
+
+> ˆx∈ˆX
+
+(| Post(ˆ x)| − mSu) 2.
+
+Verification metrics. In each experiment, we treat the entire abstract state space as the set of initial states (i.e., ˆX0 = ˆX) and then check the satisfaction of the LTL specification on every set of trajectories Paths ˆs(ˆ x0) stemming from each ˆx0 ∈ ˆX0. This yields the satisfying subset of initial states: 
+
+ˆXsat = {ˆx0 ∈ ˆX0 | Paths ˆs(ˆ x0) ⊨ ˆφ}.
+
+We obtain the “ground truth” satisfaction of φ from the concrete system through a dense reachability analysis. Here, partition the state space X with a uniform grid, inducing an abstract state space ˜X. We denote the concretization of ˜x ∈ ˜X
+
+as ˜Ψ (˜ x) = {x | ˜ψ(x) = ˜ x}. This reachability returns the ground-truth satisfaction 20 J. Peper et al. 
+
+set ˜Xsafe ⊆ X that likely satisfy the LTL specification. This enables evaluation of the true positive rate (TPR), which measures the proportion of truly safe states in ˆX that were verified: 
+
+TPR := 
+
+P  
+
+> ˆx∈ˆXsat
+
+I
+
+h
+
+Ψ (ˆ x) ⊂ S 
+
+> ˜x∈˜Xsafe
+
+˜Ψ (˜ x)
+
+iP  
+
+> ˆx∈ˆX
+
+I
+
+h
+
+Ψ (ˆ x) ⊂ S 
+
+> ˜x∈˜Xsafe
+
+˜Ψ (˜ x)
+
+i (23) Finally, we report abstraction build time , which is the runtime of all abstraction steps, and verification time , which is the total time of model checking the final abstraction. 
+
+9.3 Experimental Results Effects of model size. We performed a small ablation on all combinations of case studies and transition-building subroutines to analyze the effect of abstrac-tion granularity on model checking performance. In particular, we vary the size of the abstract state space along each dimensions, and report the verification results in TPR. For instance, a size of 100 abstract states along each of the n
+
+state space dimensions yields | ˆX| = 100 n.For each case study and transition-building subroutine, we report TPR over a small window of these dimension sizes. Figure 3 reveals that granular abstrac-tions do indeed yield higher TPR. Furthermore, we observe the sample-based transition-building subroutine outperform its more conservative constituents.            
+
+> Fig. 3. TPR reported against model dimension size across all case studies and transition-building subroutines.
+
+Transition-building subroutines. We analyzed the effects of each transition-building subroutine (AABB-, polytope-, and sample-based) across the case stud-ies, reporting the model building and verification runtimes, abstraction metrics ,and verification metrics . Abstractions were devised under fixed dimension sizes: Building Conservative Abstractions of CPS 21 
+
+for the synthetic case study, | ˆX| = 100 2; for mountain car, | ˆX| = 100 2; and for unicycle, | ˆX| = 60 3. We report these results under Table 1. For the sample-based methods, we instantiate the desired certificate with confidence level δ = 0 .01 and significance threshold β = 0 .01 . Batches of 1000 samples were drawn uniformly from Unif( X) until the missing mass upper bound 
+
+M N (Equation 10 dropped below β, enabling us to assert the PAC guarantee in Equation 11). For the synthetic case study, we needed 1439 batches. For mountain car, we required 1449 batches. Finally, for unicycle, we drew 19342 batches until the significance threshold was met. Therefore, the PAC guarantee asserted for each case study is Pr( MN < 0.01) ≥ 0.99 .Our findings reveal that less conservative transition-construction methods produce sparser transition relations (fewer self-loops and fewer total transitions). We also observe a marked reduction in the successor-count variability (Su σ ) un-der sampling, especially for the nonlinear systems (mountain car and unicycle). A likely explanation is that strong nonlinearities distort cell images away from rectangular shapes, causing AABB and polytope over-approximations to “wrap” over non-successor cells. This is not an issue in the sample-based construction because it does not admit any spurious transitions. All together, these effects compound downstream into better verification out-comes for less conservative transition-building subroutines. We observe an in-crease in TPR when comparing the AABB- and polytope-based technique, and sample-based over polytope-based technique.                                                                                     
+
+> Table 1. Comparison of transition-building subroutines for each case study. Case study Method Time (s) Abstraction metrics Verification Build Verify SLP mSu Su Su Su σTPR Synthetic AABB 0.138 0.235 0.003 4.07 191.44 0.931 PT 1.028 0.157 0.002 3.64 151.12 0.941 Sample 0.782 0.216 0.002 3.27 141.06 0.942 Mountain AABB 0.179 0.158 0.037 4.64 180 3.60 0.836 PT 2.514 0.261 0.033 4.37 151 2.82 0.891 Sample 2.199 0.144 0.022 3.77 110 0.83 0.900 Unicycle AABB 9.130 7.388 0.011 9.62 154 6.26 0.217 PT 161.906 7.892 0.005 8.72 146 4.44 0.220 Sample 43.430 8.238 0.001 6.68 122 1.66 0.271
+
+Self-loop erasure. We examined the effects of assured self-loop erasure on the abstractions formed above (under the same dimension sizes). In particular, we report side-by-side the SLP, TPR, and SR before and after self-loop erasure. The 22 J. Peper et al. 
+
+results of reachable-set-based erasure are reported in Table 2, and the results for sample-based erasure are reported in Table 3. For the sample-based technique, we set the desired confidence to γ = 0 .01 and maximum trajectory length to K = 50 . Sampling at least N = 469 trajectories yield the guarantee Pr( qτ ≥ 0.99) ≥ 0.99 . In words, with at least 99% confidence, at least 99% of K-length trajectories escape the cell. When observed that all N
+
+trajectories escape, this guarantee asserts high confidence that erasing a self loop from that particular state is acceptable. Our findings reveal an obvious reduction in SLP post-erasure across all case studies and transition-building subroutines. For the conservative AABB-based erasure, Table 2 shows a nearly complete deletion of self loops in the synthetic and unicycle case study, and a significant reduction in SLP in the mountain care case study. In the sample-based regime, we observe in Table 3 complete deletion of self loops in the mountain car case study. The residual SLP in the synthetic case study is likely due to the equilibrium point in the concrete system (rending it impossible to certify self-loop erasure on the state that spans this equilibrium).                                                                   
+
+> Table 2. Verification statistics before and after reachable-set self-loop erasure. Case study Method Time (s) Before After Build Verify SLP TPR SLP TPR Synthetic AABB 0.162 0.404 0.003 0.931 0.000 0.931 PT 1.075 0.324 0.003 0.941 0.000 0.941 Sample 0.802 0.379 0.003 0.942 0.000 0.942 Mountain AABB 0.256 0.320 0.037 0.836 0.004 0.895 PT 2.534 0.420 0.033 0.891 0.004 0.898 Sample 2.216 0.298 0.022 0.900 0.001 0.933 Unicycle AABB 42.466 40.134 0.011 0.192 0.000 0.196 PT 825.700 42.429 0.005 0.195 0.000 0.401 Sample 243.865 46.440 0.001 0.240 0.000 0.630
+
+These results transfer directly to downstream verification outcomes. In the mountain car case, we see marginal improvement in TPR post-erasure. In the unicycle case, we observe susbtantial imrpovement in the TPR. Finally, for the synthetic case, we do not observe any change likely because most (if not all) self loops lie near the equilibrium where concrete step sizes are small. 
+
+CEGAR. Finally, we assess the impact of CEGAR on verification outcomes across the case studies. Initial abstractions use a grid resolution of 100 per dimen-sion for the synthetic system ( | ˆX| = 100 2) and 20 per dimension for mountain car ( | ˆX| = 20 2) and unicycle ( | ˆX| = 20 3). We report out findings in Table 4. CEGAR increases model size and construction time substantially: the refined abstractions contain roughly 11500 states (synthetic), 6500 states (mountain Building Conservative Abstractions of CPS 23 
+
+Table 3. Verification statistics before and after sample-based self-loop erasure. Confi-dence level is set to γ = 0.01; sample count is set to N = 469; this asserts the guarantee 
+
+Pr( pτ ≥ 0.99) ≥ 0.99 for each successfully certified erasure. Case study Method Time (s) Before After Build Verify SLP TPR SLP TPR Synthetic AABB 0.162 0.404 0.003 0.931 0.000 0.931 PT 1.075 0.324 0.003 0.941 0.000 0.941 Sample 0.802 0.379 0.003 0.942 0.000 0.942 Mountain AABB 0.225 0.364 0.037 0.836 0.000 0.895 PT 2.536 0.467 0.033 0.891 0.000 0.898 Sample 2.221 0.346 0.022 0.900 0.000 0.933 Unicycle AABB 41.905 41.142 0.011 0.192 0.000 0.196 PT 825.047 41.432 0.005 0.195 0.000 0.401 Sample 242.999 47.437 0.001 0.240 0.000 0.630 
+
+car), and 15000 states (unicycle). Nonetheless, CEGAR consistently reduces SLP, while leaving mSu largely unchanged (with only minor fluctuations). In terms of verification performance, CEGAR yields a modest TPR improve-ment on the synthetic system and a pronounced improvement on mountain car (likely due to indirectly removing self-loop-driven counterexamples during refine-ment). In contrast, TPR is essentially unchanged for unicycle, which we attribute to its high SLP: the abstraction admits many trivial self-loop counterexamples that are difficult for CEGAR to eliminate without more targeted erasure. 
+
+Table 4. Verification runtime statistics before and after CEGAR. Build time is re-ported in minutes, while verification time is reported in seconds. Case study Method Time (m, s) Before After Build Verify SLP mSu TPR SLP mSu TPR Synthetic AABB 113.32 3.64 0.003 4.07 0.931 0.003 4.54 0.945 PT 110.86 3.66 0.003 3.64 0.941 0.003 3.95 0.958 Mountain AABB 76.90 1.66 0.657 4.26 0.081 0.197 5.25 0.430 PT 148.55 1.75 0.643 4.15 0.081 0.173 4.62 0.422 Unicycle AABB 33.86 0.33 0.280 8.90 0.094 0.155 10.10 0.045 PT 89.26 0.27 0.278 8.35 0.094 0.148 6.23 0.093 24 J. Peper et al. 
+
+# 10 Conclusion 
+
+Symbolic model checking is an effective approach to verify rich temporal prop-erties of CPS, but its guarantees only transfer to the concrete system if its ab-straction is conservative. In this tutorial we explored a rigorous workflow to build such abstractions while addressing common pitfalls encountered in model build-ing. Specifically, the discussed workflow involved covering the state space with a state abstraction, synthesizing a transition relation that conservatively approxi-mates the concrete dynamics, purging degenerate transitions, and soundly lifting the LTL specification from the concrete to the abstract space. We validated this workflow on three case studies, illustrating the effects of each transition-building method and refinement method on downstream verification performance. Look-ing forward, we will explore broader CPS case studies to stress-test this workflow and extensions of these techniques to stochastic CPS. 
+
+# References 
+
+1. Alur, R.: Formal verification of hybrid systems. In: Proceedings of the ninth ACM international conference on Embedded software. pp. 273–278. ACM, Taipei Taiwan (Oct 2011). https://doi.org/10.1145/2038642.2038685 , https://dl.acm.org/ doi/10.1145/2038642.2038685 
+
+2. Alur, R., Dang, T., Ivančić, F.: Counterexample-guided predicate ab-straction of hybrid systems. Theoretical Computer Science 354 (2), 250– 271 (Mar 2006). https://doi.org/10.1016/j.tcs.2005.11.026 , https://www. sciencedirect.com/science/article/pii/S0304397505008662 
+
+3. Alur, R., Dang, T., Ivančić, F.: Predicate abstraction for reachability analy-sis of hybrid systems. ACM Trans. Embed. Comput. Syst. 5(1), 152–199 (Feb 2006). https://doi.org/10.1145/1132357.1132363 , https://dl.acm.org/doi/ 10.1145/1132357.1132363 
+
+4. Baier, C., Katoen, J.P.: Principles of Model Checking. MIT Press, Cambridge, MA, USA (Apr 2008) 5. Berend, D., Kontorovich, A.: The missing mass problem. Statistics &Probability Letters 82 (6), 1102–1110 (Jun 2012). https://doi.org/10. 1016/j.spl.2012.02.014 , https://www.sciencedirect.com/science/article/ pii/S0167715212000612 
+
+6. Burch, J.R., Clarke, E.M., McMillan, K.L., Dill, D.L., Hwang, L.J.: Symbolic model checking: 10 20 states and beyond. Information and Computation 98 (2), 142–170 (1992) 7. Casagrande, A.: albertocasagrande/pyModelChecking (Dec 2025), https: //github.com/albertocasagrande/pyModelChecking , original-date: 2015-03-10T09:22:24Z 8. Chadha, R., Viswanathan, M.: A counterexample-guided abstraction-refinement framework for markov decision processes. ACM Trans. Comput. Logic 12 (1), 1:1– 1:49 (Nov 2010). https://doi.org/10.1145/1838552.1838553 , https://dl.acm. org/doi/10.1145/1838552.1838553 
+
+9. Chatterjee, K., Chmelík, M., Daca, P.: CEGAR for Qualitative Analysis of Proba-bilistic Systems. In: Biere, A., Bloem, R. (eds.) Computer Aided Verification. pp. 473–490. Springer International Publishing, Cham (2014). https://doi.org/10. 1007/978-3-319-08867-9_31 Building Conservative Abstractions of CPS 25 10. Chen, X., Sankaranarayanan, S.: Reachability Analysis for Cyber-Physical Sys-tems: Are We There Yet? In: Deshmukh, J.V., Havelund, K., Perez, I. (eds.) NASA Formal Methods. pp. 109–130. Springer International Publishing, Cham (2022). 
+
+https://doi.org/10.1007/978-3-031-06773-0_6 
+
+11. Chen, X., Ábrahám, E., Sankaranarayanan, S.: Flow*: An Analyzer for Non-linear Hybrid Systems. In: Hutchison, D., Kanade, T., Kittler, J., Klein-berg, J.M., Mattern, F., Mitchell, J.C., Naor, M., Nierstrasz, O., Pandu Ran-gan, C., Steffen, B., Sudan, M., Terzopoulos, D., Tygar, D., Vardi, M.Y., Weikum, G., Sharygina, N., Veith, H. (eds.) Computer Aided Verifica-tion, vol. 8044, pp. 258–263. Springer Berlin Heidelberg, Berlin, Heidel-berg (2013). https://doi.org/10.1007/978-3-642-39799-8_18 , http://link. springer.com/10.1007/978-3-642-39799-8_18 , series Title: Lecture Notes in Computer Science 12. Clarke, E., Fehnker, A., Han, Z., Krogh, B., Ouaknine, J., Stursberg, O., Theobald, M.: Abstraction and Counterexample-Guided Refinement in Model Checking of Hybrid Systems. International Journal of Foundations of Computer Science 
+
+14 (04), 583–604 (Aug 2003). https://doi.org/10.1142/S012905410300190X ,
+
+https://www.worldscientific.com/doi/abs/10.1142/S012905410300190X , pub-lisher: World Scientific Publishing Co. 13. Clarke, E., Fehnker, A., Han, Z., Krogh, B., Stursberg, O., Theobald, M.: Ver-ification of Hybrid Systems Based on Counterexample-Guided Abstraction Re-finement. In: Goos, G., Hartmanis, J., Van Leeuwen, J., Garavel, H., Hatcliff, J. (eds.) Tools and Algorithms for the Construction and Analysis of Systems, vol. 2619, pp. 192–207. Springer Berlin Heidelberg, Berlin, Heidelberg (2003). 
+
+https://doi.org/10.1007/3-540-36577-X_14 , http://link.springer.com/10. 1007/3-540-36577-X_14 , series Title: Lecture Notes in Computer Science 14. Clarke, E., Grumberg, O., Jha, S., Lu, Y., Veith, H.: Counterexample-Guided Ab-straction Refinement. In: Emerson, E.A., Sistla, A.P. (eds.) Computer Aided Ver-ification. pp. 154–169. Springer, Berlin, Heidelberg (2000). https://doi.org/10. 1007/10722167_15 
+
+15. Clarke, E.M., Emerson, E.A., Sistla, A.P.: Automatic verification of finite-state concurrent systems using temporal logic specifications. ACM Transactions on Pro-gramming Languages and Systems 8(2), 244–263 (1986). https://doi.org/10. 1145/5397.5399 
+
+16. Coppola, R., Peruffo, A., Mazo, M.: Data-driven Abstractions for Verification of Deterministic Systems (Mar 2023). https://doi.org/10.48550/arXiv.2211. 01793 , http://arxiv.org/abs/2211.01793 , arXiv:2211.01793 [eess.SY] 17. Devonport, A., Saoud, A., Arcak, M.: Symbolic Abstractions From Data: APAC Learning Approach. In: 2021 60th IEEE Conference on Decision and Con-trol (CDC). pp. 599–604. IEEE Press, Austin, TX, USA (Dec 2021). https: //doi.org/10.1109/CDC45484.2021.9683316 
+
+18. Dierks, H., Kupferschmid, S., Larsen, K.G.: Automatic Abstraction Refinement for Timed Automata. In: Raskin, J.F., Thiagarajan, P.S. (eds.) Formal Modeling and Analysis of Timed Systems. pp. 114–129. Springer, Berlin, Heidelberg (2007). 
+
+https://doi.org/10.1007/978-3-540-75454-1_10 
+
+19. Doyen, L., Frehse, G., Pappas, G.J., Platzer, A.: Verification of Hybrid Sys-tems. In: Clarke, E.M., Henzinger, T.A., Veith, H., Bloem, R. (eds.) Hand-book of Model Checking, pp. 1047–1110. Springer International Publishing, Cham (2018). https://doi.org/10.1007/978-3-319-10575-8_30 , http://link. springer.com/10.1007/978-3-319-10575-8_30 26 J. Peper et al. 20. Dubins, L.E.: On Curves of Minimal Length with a Constraint on Average Cur-vature, and with Prescribed Initial and Terminal Positions and Tangents. Ameri-can Journal of Mathematics 79 (3), 497–516 (1957). https://doi.org/10.2307/ 2372560 , https://www.jstor.org/stable/2372560 , publisher: The Johns Hop-kins University Press 21. Fehnker, A., Clarke, E., Jha, S.K., Krogh, B.: Refining Abstractions of Hybrid Systems Using Counterexample Fragments. In: Morari, M., Thiele, L. (eds.) Hy-brid Systems: Computation and Control. pp. 242–257. Springer, Berlin, Heidelberg (2005). https://doi.org/10.1007/978-3-540-31954-2_16 
+
+22. Frehse, G.: PHAVer: algorithmic verification of hybrid systems past HyTech. Inter-national Journal on Software Tools for Technology Transfer 10 (3), 263–279 (Jun 2008). https://doi.org/10.1007/s10009-007-0062-x , http://link.springer. com/10.1007/s10009-007-0062-x 
+
+23. Frehse, G., Le Guernic, C., Donzé, A., Cotton, S., Ray, R., Lebeltel, O., Ri-pado, R., Girard, A., Dang, T., Maler, O.: SpaceEx: Scalable Verification of Hy-brid Systems. In: Gopalakrishnan, G., Qadeer, S. (eds.) Computer Aided Veri-fication. pp. 379–395. Springer, Berlin, Heidelberg (2011). https://doi.org/10. 1007/978-3-642-22110-1_30 
+
+24. Good, I.: Turing’s anticipation of empirical bayes in connection with the crypt-analysis of the naval enigma *. Journal of Statistical Computation and Simula-tion 66 (2), 101–111 (May 2000). https://doi.org/10.1080/00949650008812016 ,
+
+https://doi.org/10.1080/00949650008812016 , publisher: Taylor & Francis _eprint: https://doi.org/10.1080/00949650008812016 25. Guéguen, H., Lefebvre, M.A., Zaytoon, J., Nasri, O.: Safety verification and reachability analysis for hybrid systems. Annual Reviews in Control 33 (1), 25– 36 (Apr 2009). https://doi.org/10.1016/j.arcontrol.2009.03.002 , https:// www.sciencedirect.com/science/article/pii/S1367578809000078 
+
+26. Henzinger, T.: The theory of hybrid automata. In: Proceedings 11th Annual IEEE Symposium on Logic in Computer Science. pp. 278–292 (Jul 1996). 
+
+https://doi.org/10.1109/LICS.1996.561342 , https://ieeexplore.ieee.org/ document/561342 , iSSN: 1043-6871 27. Henzinger, T.A., Jhala, R., Majumdar, R., Sutre, G.: Lazy abstraction. In: Pro-ceedings of the 29th ACM SIGPLAN-SIGACT symposium on Principles of pro-gramming languages. pp. 58–70. POPL ’02, Association for Computing Machin-ery, New York, NY, USA (Jan 2002). https://doi.org/10.1145/503272.503279 ,
+
+https://dl.acm.org/doi/10.1145/503272.503279 
+
+28. Hermanns, H., Wachter, B., Zhang, L.: Probabilistic CEGAR. In: Gupta, A., Malik, S. (eds.) Computer Aided Verification. pp. 162–175. Springer, Berlin, Heidelberg (2008). https://doi.org/10.1007/978-3-540-70545-1_16 
+
+29. Kloetzer, M., Belta, C.: A Fully Automated Framework for Control of Linear Systems from Temporal Logic Specifications. IEEE Transactions on Automatic Control 53 (1), 287–297 (Feb 2008). https://doi.org/10.1109/TAC.2007.914952 ,
+
+http://ieeexplore.ieee.org/document/4459804/ 
+
+30. Lavaei, A., Frazzoli, E.: Data-Driven Synthesis of Symbolic Abstractions with Guaranteed Confidence (Jun 2022). https://doi.org/10.48550/arXiv.2206. 09397 
+
+31. McAllester, D.A., Schapire, R.E.: On the Convergence Rate of Good-Turing Esti-mators. In: Proceedings of the Thirteenth Annual Conference on Computational Learning Theory. pp. 1–6. COLT ’00, Morgan Kaufmann Publishers Inc., San Fran-cisco, CA, USA (Jun 2000) Building Conservative Abstractions of CPS 27 32. Rungger, M., Zamani, M.: SCOTS: A Tool for the Synthesis of Symbolic Con-trollers. In: Proceedings of the 19th International Conference on Hybrid Systems: Computation and Control. pp. 99–104. HSCC ’16, Association for Computing Ma-chinery, New York, NY, USA (Apr 2016). https://doi.org/10.1145/2883817. 2883834 
+
+33. Sloth, C., Wisniewski, R.: Algorithmic Approach to Abstracting Linear Sys-tems by Timed Automata*. IFAC Proceedings Volumes 44 (1), 4546–4551 (Jan 2011). https://doi.org/10.3182/20110828-6-IT-1002.02568 , https:// linkinghub.elsevier.com/retrieve/pii/S1474667016443247 
+
+34. Towers, M., Kwiatkowski, A., Terry, J., Balis, J.U., Cola, G.D., Deleu, T., Goulão, M., Kallinteris, A., Krimmel, M., KG, A., Perez-Vicente, R., Pierré, A., Schulhoff, S., Tai, J.J., Tan, H., Younis, O.G.: Gymnasium: A Standard Inter-face for Reinforcement Learning Environments (Nov 2025). https://doi.org/10. 48550/arXiv.2407.17032 , http://arxiv.org/abs/2407.17032 , arXiv:2407.17032 [cs.LG] 28 J. Peper et al. 
+
+# Appendix 
+
+Unicycle state controller. The unicycle controller used in our experiments is a smooth, deterministic state-feedback law that selects the angular velocity u by steering the system toward a desired heading θd(x) computed from the current state. Recall the goal region centered at ygoal = ( ygoal 1 , y goal 2 ) with radius rgoal ,and the obstacle centered at yobs = ( yobs 1 , y obs 2 ) with radius robs .At a high level, the controller forms a planar guidance vector by combining an attractive component that points toward the goal with a repulsive component that pushes the system away from the obstacle. The resulting vector determines the desired heading. Let y = ( y1, y 2) denote the positional component of the state x, and define the displacement from the obstacle center by 
+
+dobs (x) = y − yobs .
+
+Its Euclidean norm ∥dobs (x)∥ is the distance from the system to the obstacle center. We then define the obstacle clearance as the distance to the obstacle boundary, 
+
+c(x) = ∥dobs (x)∥ − robs ,
+
+and map this clearance through an exponential weighting, 
+
+˜c(x) = e−αc (x),
+
+where α ∈ R>0 controls the rate of decay. Thus, when the system lies on the obstacle boundary ( c(x) = 0 ), we have ˜c(x) = 1 , and this quantity decays toward 
+
+0 as the system moves farther from the obstacle. Using this weight, the repulsive guidance vector is defined as 
+
+vrep (x) = 
+
+ ˜c(x)
+
+∥dobs (x)∥3 + ϵ
+
+
+
+dobs (x),
+
+where ϵ ∈ R>0 is a small constant included to avoid singular behavior near the obstacle center. The attractive component is simply 
+
+vatt (x) = ygoal − y. 
+
+These two terms are combined as 
+
+v(x) = krep vrep (x) + katt vatt (x),
+
+where krep and katt are tunable repulsion and attraction gains, respectively. Intu-itively, when the system is far from the obstacle, vrep (x) is small and the heading is dominated by attraction toward the goal; near the obstacle, the repulsive term grows in influence and steers the system away from collision. Finally, the desired heading is extracted from the planar vector v(x) via 
+
+θd(x) = arctan( v1(x), v 2(x)) , v = ( v1, v 2)Building Conservative Abstractions of CPS 29 
+
+and the control input is chosen as 
+
+u(x) = umax tanh  kθ (θd(x) − θ),
+
+where umax sets the allowable turn rate (so that u ∈ [−umax , u max ]) and kθ is a tunable gain on the heading error. 
+
+Concrete categorical probabilities. Fix an abstract state ˆx ∈ ˆX and con-sider its concretization Ψ (ˆ x) ⊆ X. Define the one-step pre-image of this con-cretization under f as Pre( Ψ (ˆ x)) = {x ∈ X : ψ(f (x)) = ˆ x}. Intuitively, Pre( Ψ (ˆ x)) 
+
+collects exactly those concrete states that land in Ψ (ˆ x) after one time step. We next partition the state space into regions that correspond to specific abstract transitions. Concretely, for each pair (ˆ x, ˆx′) ∈ ˆX × ˆX, define the region of states that start in Ψ (ˆ x) and map in one step into Ψ (ˆ x′):
+
+R = {Pre( Ψ (ˆ x′)) ∩ Ψ (ˆ x) | ∀ ˆx′, ˆx ∈ ˆX}. (24) Denote an element of this collection by Rℓ ∈ R , where ℓ ∈ { 1, . . . , |R|} . By con-struction, any sample x ∈ Rℓ maps to the subset Ψ (ˆ x′), and therefore witnesses the abstract transition from ˆx to ˆx′. That is, ψ(f (x)) = ˆ x′ for any x ∈ Rℓ, which forms the edge (ˆ x, σ, ˆx′) in the sample-built transition relation ˆf ∗.Assume that samples are drawn uniformly over X, i.e., x ∼ Unif( X). This in-duces a categorical distribution Cat( ˆf ∗) over transition relations (ψ(x), σ, ψ (f (x))) 
+
+in ˆf ∗ with categories ℓ = {1, . . . , | ˆf ∗|} . Each triple (ψ(x), σ, ψ (f (x))) with index ℓ
+
+has a probability mass qℓ in this Cat( ˆf ∗). Intuitively, qℓ is the chance that after a single draw x ∼ Unif( X), the algorithm allocates the relation (ψ(x), σ, ψ (f (x))) 
+
+to ˆf .Concretely, the probability qℓ mass of category ℓ is precisely: 
+
+qℓ = λ(Rℓ)
+
+λ(X) , (25) where λ(·) denotes Lebesgue measure (hypervolume).

@@ -1,0 +1,563 @@
+Title: Spec-Driven Hardware Evolution via Executable Contract Refinement and Proof-Guided RTL Update
+
+URL Source: https://arxiv.org/pdf/2608.12684v1
+
+Published Time: Fri, 14 Aug 2026 00:36:13 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Spec-Driven Hardware Evolution via Executable Contract Refinement and Proof-Guided RTL Update 
+
+## Shibo Zhao 
+
+Southeast University Nanjing, China 
+
+## Yang Zhang 
+
+Southeast University Nanjing, China 
+
+## Mengxia Tao 
+
+National Center of Technology Innovation for EDA Nanjign, China 
+
+## Baoqi Zhang 
+
+National Center of Technology Innovation for EDA Nanjign, China 
+
+## Kezhi Li 
+
+The Chinese University of Hong Kong Hong Kong, China 
+
+## Qiang Xu 
+
+The Chinese University of Hong Kong Hong Kong, China 
+
+## Binwu Zhu 
+
+Southeast University Nanjing, China 
+
+## Hao Yan 
+
+Southeast University Nanjing, China 
+
+## Min Li 
+
+Southeast University Nanjing, China 
+
+Abstract 
+
+Hardware development is inherently evolutionary: major revisions typically begin by changing intended behavior and then updating a previously validated implementation, rather than regenerating RTL from scratch. Yet most recent LLM-based hardware research still frames the task primarily as prompt-to-RTL generation, offering limited support for semantic version evolution of trusted legacy designs. We present spec-driven hardware evolution , a contract-centered formulation for RTL version iteration. Instead of treating a new feature request as a direct prompt for RTL generation, we re-fine it into a reviewed executable contract for the next version. This contract specifies what must hold at the externally visible trans-actional level through a behavior-level reference together with explicit observation and checking semantics, while leaving how 
+
+the change is realized in RTL to the evolution process. Based on this formulation, we organize hardware evolution into four stages: 
+
+Specify , Plan , Implement , and Validate . After contract approval, the remaining stages proceed automatically: Plan derives cross-version semantic deltas and localizes affected RTL regions, aided by mutation-based semantic probing ; Implement and Validate then perform legacy-aware RTL update under proof-guided checking and iterative repair. We evaluate the framework on a controlled version-evolution case study of a representative TPU datapath block under data-format changes. The results support the feasibility of contract-driven hardware evolution and demonstrate that the pro-posed backend workflow can effectively drive validated legacy RTL toward next-version functional convergence under a reviewed ex-ecutable contract. An anonymous artifact for reproducibility is available at https://anonymous.4open.science/r/SDHE-3A6C. 
+
+1 Introduction 
+
+Recent progress in LLM-based coding agents and hardware-oriented language models substantially advances RTL generation, code com-pletion, and hardware-design assistance [8, 9, 20, 27, 32, 42, 44]. Public benchmarks further improve the evaluation of hardware-code generation and reasoning systems [13, 18, 21], while emerging agent frameworks begin to explore richer specifications, repository-scale contexts, and tool-assisted workflows for hardware design [2, 11, 17, 30, 36, 43]. Despite this progress, most existing formulations still center on prompt-to-RTL generation, standalone RTL comple-tion, or direct RTL editing from informal task descriptions. These abstractions are valuable for studying code generation, but they only partially capture practical hardware maintenance, where engi-neers more often evolve a validated legacy design across versions than regenerate a new implementation from scratch. This distinction matters because version evolution is a central mode of real hardware development. Across releases, engineers revise functionality, interface behavior, corner-case handling, and selected timing expectations while attempting to preserve as much validated logic as possible. For nontrivial updates, the first arti-fact that must be stabilized is often not the RTL itself, but the intended next-version behavior: what should change, under what interface conditions, and with what observation rules. This mo-tivates a hardware analogue of spec-driven development [28], but under a stricter trust boundary: in hardware, a natural-language re-quest alone is rarely sufficient, because correctness must ultimately be established through simulation and formal verification [5]. The semantic target for evolution must therefore be reviewable , exe-cutable , and verification-consumable [3, 7]. In this paper, we capture that target as an executable contract . An executable contract consists of a behavior-level reference together with explicit observation and checking semantics for externally visible transactions. It defines what the next version must satisfy, without prescribing how the change should be realized in RTL. Un-der this formulation, the reference serves as a semantic target for evolution rather than an implementation recipe. The setting there-fore differs fundamentally from both informal prompt-based RTL editing and behavioral-design flows such as high-level synthesis (HLS), which treat high-level code as a source for implementation generation [15]. Based on this view, we formulate spec-driven hardware evolution 
+
+as a four-stage workflow: Specify , Plan , Implement , and Validate .In Specify , a new feature request is refined into a candidate exe-cutable contract for version-𝑁 +1 and explicitly reviewed before arXiv:2608.12684v1 [cs.AR] 13 Aug 2026 downstream evolution proceeds. Once approved, Plan derives se-mantic deltas and localizes the RTL regions most relevant to the intended change, Implement incrementally updates the validated legacy RTL under this guidance, and Validate checks the candidate RTL against the executable contract using proof-oriented checking and/or co-simulation, with failures fed back into iterative repair. To-gether, these stages turn hardware evolution into a contract-driven, proof-guided process over a legacy-anchored design space. Realizing this workflow raises several technical challenges be-yond the workflow formulation itself. First, the next-version con-tract must be made precise enough for downstream checking: the intended behavior, interface conditions, observation rules, and tim-ing semantics must be rendered into a reviewed executable artifact rather than left implicit in natural language. Second, once the con-tract changes, the system must determine how the revised behavior relates to the validated legacy RTL: which behaviors should be pre-served, where the semantic delta lies, and which RTL regions are most likely to require modification. Third, localized RTL edits must be driven to functional closure under a verification signal strong enough to distinguish true semantic progress from superficial code changes. To address these difficulties, we instantiate the frame-work with three corresponding mechanisms: executable-contract refinement in the front end, mutation-based semantic probing for semantic alignment and change localization in Plan , and a proof-guided RTL update loop that uses formal-checking outcomes as structured feedback for localized repair and contract satisfaction. Our current focus is functional evolution rather than PPA op-timization. Accordingly, the RTL produced by the proposed flow is intended to provide a functionally converged starting point for downstream PPA-oriented refinement [26]. This scope aligns well with practical maintenance scenarios, whereas existing academic benchmarks [13, 18, 21] for LLM-based Verilog generation or RTL editing mainly target prompt-to-code generation, standalone RTL completion, or repository-level editing rather than contract-driven version evolution over trusted legacy artifacts. We therefore evalu-ate the proposed flow on controlled version evolution of a repre-sentative TPU datapath block [14] under data-format changes [33]. The contributions of this paper are as follows: 
+
+• We formulate spec-driven hardware evolution as a contract-centered setting for semantic RTL version evolution, orga-nized into four stages— Specify , Plan , Implement , and Val-idate —that combine reviewed next-version intent, legacy-aware change planning, incremental RTL update, and proof-guided validation. 
+
+• We develop a hardware-specific front-end flow for executable contract refinement and semantic change analysis, which turns feature requests into reviewed next-version contracts and derives cross-version behavioral deltas against validated legacy designs. 
+
+• We introduce mutation-based semantic probing and a proof-guided RTL update loop for automated hardware evolution: the former establishes grounded contract-to-RTL correspon-dences and localizes change-relevant regions in the legacy design, while the latter performs localized legacy-aware im-plementation updates under formal-feedback-driven repair until the revised contract is satisfied. 
+
+2 Related Work 2.1 Software Engineering Agents and Executable Specifications 
+
+Recent advances in software engineering agents shift the focus from isolated code generation to long-horizon, repository-level work-flows. Agents such as CodeAgent [41] and SWE-agent [39], together with benchmarks such as SWE-bench [12] and SWE-EVO [31], emphasize iterative problem solving over existing codebases. Sys-tems such as InterCode [40], ChatRepair [37], and RepairAgent [6] further demonstrate the value of closed-loop execution with tool interaction and environment feedback. At the same time, recent work elevates specifications from in-formal descriptions to executable artifacts. Frameworks such as SysSpec [19] and SpecGen [23] refine specifications into seman-tically clearer and more checkable forms. However, in software settings these artifacts typically improve prompting, testing, or repair, rather than serve as binding contracts that define the target behavior of a version-evolution process. These trends are conceptually relevant to our work, but hardware imposes a stricter correctness regime. In RTL evolution, correct-ness cannot rely only on empirical execution outcomes, because cycle-level behavior, interface timing, and sequential dependencies often require formal reasoning. This motivates our use of reviewed executable contracts not as auxiliary prompts, but as the semantic target that governs hardware evolution. 
+
+2.2 LLM-Based RTL Generation and RTL Evolution 
+
+A growing body of work studies LLMs for RTL generation, code completion, and hardware-design assistance. Benchmarks such as VerilogEval [18] and RTLLM [22] establish early public evaluation settings for prompt-to-RTL generation, while more recent efforts such as RealBench [13] move toward more realistic IP-level tasks with structured specifications and stronger verification. Most of this literature adopts a de novo generation viewpoint: given a natural-language description, the model produces a func-tionally correct RTL module from scratch. Fine-tuned models such as RTLCoder [20] and OriGen [8], as well as multi-agent systems such as MAGE [43] and VerilogCoder [11], steadily improve gener-ation quality within this setting. However, their starting point is still typically an empty or incomplete design, and the specification remains primarily an informal task description. As a result, these methods do not directly address the setting in which a revised exe-cutable contract drives the semantic evolution of a trusted legacy RTL implementation. A separate line of work considers the evolution of existing RTL designs. EvoVerilog [10] and VeriOpt [30] focus on PPA-oriented improvement, while CktEvo [29] studies repository-level RTL refac-toring under functional-equivalence constraints. These works move closer to realistic maintenance scenarios, but their objective re-mains different from ours: they optimize or refactor existing RTL, rather than evolve it under a reviewed next-version contract that explicitly redefines intended behavior. Our setting is therefore nei-ther prompt-to-code generation nor function-preserving structural                  
+
+> 2Automated Evolution (End -to End)
+> Evolution N →N+1
+> Input Artifacts
+> (Version N) & Request
+> Legacy Contract
+> CN(MN,ΦN)
+> Legacy RTL
+> RN
+> New Feature Request
+> qN→N+1
+> Specify
+> Define intended
+> functionality
+> (Produces reviewed
+> contract CN+1 )
+> Evolved Artifacts
+> (Version N+1 )
+> Final Contract
+> CN+1
+> Evolved RTL
+> RN+1
+> Plan
+> Formulate update
+> delta △N→N+1
+> (Automated
+> localization)
+> Implement
+> Update legacy RTL
+> (Legacy -aware
+> incremental patching)
+> Validate
+> Establish functional
+> convergence
+> (Automated checking
+> RN+1 ╞CN+1 )
+> Human review
+> Retrun to human ONLY to revise Contract CN+1
+> Automated iteration on validation failure
+> Downstream Works
+> PPA optimization
+> (e.g., CktEvo -style repo -
+> level refinement)
+
+Figure 1: Spec-driven hardware evolution workflow. Human review is required only for contract construction and revision. Once the next-version contract is approved, planning, RTL update, and validation proceed automatically in a legacy-aware iterative loop. 
+
+refactoring, but contract-driven functional version evolution over legacy hardware artifacts. 
+
+2.3 Verification Feedback in LLM-Based Hardware Design 
+
+Recent LLM-based methods incorporate verification feedback with different levels of strength. AutoChip [4] uses simulation-based feedback, VeriReason [35] exploits testbench outcomes through reinforcement learning, and AssertLLM [38] generates verifica-tion assertions from natural-language specifications. More recent systems further integrate formal reasoning into the loop: Formal-RTL [16] uses equivalence checking against reference models with counterexample-guided debugging, HDLFORGE [1] converts BMC traces into reusable micro-tests, and Wit-HW [24] uses mutation-based witness generation for fault localization. Despite these advances, verification in prior work primarily serves to validate or repair candidate implementations in de novo synthesis or code-generation settings. In contrast, our framework uses formal feedback as an organizing mechanism for version evo-lution : it helps characterize how legacy functionality is realized, localize the impact of a semantic delta, and drive contract-guided RTL update toward next-version convergence. In this sense, verifi-cation is not merely a post hoc filter or repair trigger, but a central component of legacy-aware hardware evolution. 
+
+3 Problem Formulation and Workflow 
+
+We formulate spec-driven hardware evolution as the problem of evolving a validated legacy RTL design from version 𝑁 to version 
+
+𝑁 +1 under a reviewed executable contract for the next version. Let 
+
+C𝑣 = (M 𝑣 , Φ𝑣 ) (1) denote the executable contract of version 𝑣 , where M𝑣 is a behavior-level executable reference and Φ𝑣 specifies the contract semantics, including interface conventions, observation rules, timing align-ment, and checking conditions. Let 𝑅 𝑣 denote the RTL implementa-tion of version 𝑣 . In our current instantiation, M𝑣 is realized as an executable software reference model. Given a new feature request 𝑞 𝑁 →𝑁 +1, the goal is to construct an updated contract C𝑁 +1 together with an evolved RTL imple-mentation 𝑅 𝑁 +1 such that the new implementation satisfies the externally visible behavior required by C𝑁 +1. The contract is not an implementation recipe; rather, it defines what the next version must satisfy, while leaving how the change is realized in RTL to the evolution process. Each contract C𝑣 induces a set of legal transactions T 𝑣 . For a transaction 𝜏 ∈ T 𝑣 , let 𝑌 C (𝜏 ) and 𝑌 𝑅 (𝜏 ) denote the observable out-comes produced by the contract and the RTL, respectively, under the same contract-defined interaction. We say that 𝑅 𝑣 is transactionally equivalent to C𝑣 if and only if 
+
+∀𝜏 ∈ T 𝑣 , 𝑌 𝑅 (𝜏 ) = 𝑌 C (𝜏 ). (2) Here, the observable outcome includes only contract-defined ex-ternally visible behavior and may span multiple RTL cycles ac-cording to the timing semantics in Φ𝑣 . In our setting, Eq. (2) can be established through formal verification and, when appropriate, co-simulation between the executable reference and RTL. Accordingly, the correctness objective of hardware evolution is 
+
+𝑅 𝑁 +1 |= C𝑁 +1, (3) where |= denotes contract satisfaction under the transactional se-mantics of Eq. (2). Unlike one-shot RTL generation, our setting explicitly exploits validated legacy artifacts. Let 
+
+Δ𝑁 →𝑁 +1 = Diff (C 𝑁 , C𝑁 +1) (4) denote the semantic delta between the legacy and next-version contracts. This delta identifies the intended behavioral change in-troduced by the new version and serves as the basis for subsequent planning, localized RTL update, and validation. The evolved design is therefore obtained by incrementally modifying the trusted legacy implementation 𝑅 𝑁 under the guidance of Δ𝑁 →𝑁 +1, rather than by regenerating RTL from scratch. A key aspect of the formulation is the division between hu-man review and automation. In Specify , the request 𝑞 𝑁 →𝑁 +1 is refined into a candidate contract C𝑁 +1, which must be reviewed and approved by a human designer because it defines the seman-tic target of version 𝑁 +1. Once approved, the remaining stages proceed automatically. Specifically, Plan derives the cross-version semantic delta and localizes the RTL regions most relevant to the intended change; Implement updates the validated legacy RTL in a legacy-aware manner; and Validate checks whether the candidate implementation satisfies Eq. (3) through proof-oriented checking and/or co-simulation. If validation fails, the system iterates auto-matically over update and repair, and returns to human review only when the contract itself must be revised. Therefore, as shown in Fig. 1, spec-driven hardware evolution is a hybrid workflow with a human-reviewed contract-construction front end and an automated hardware-evolution back end. The target is not a standalone RTL artifact, but a contract-satisfying next-version implementation obtained through legacy-aware, proof-guided evolution. 
+
+4 Spec-Driven Hardware Evolution 4.1 Overview 
+
+This section describes how the proposed framework realizes spec-driven hardware evolution in practice. Given a legacy design pair 
+
+(C 𝑁 , 𝑅 𝑁 ) and a feature request 𝑞 𝑁 →𝑁 +1, the goal is to construct an evolved implementation 𝑅 𝑁 +1 that satisfies the reviewed next-version contract C𝑁 +1. As shown in Fig. 2, the framework follows 
+
+> 3
+
+CONTEXT: LIMITATIONS 
+
+& NEW PROBLEM 
+
+Our Work:  Design Evolution 
+
+Our 
+
+Framework 
+
+> Legacy
+> Spec/RTL
+> New version
+> request
+> Evolves validated implementation
+> under reviewed contract
+
+Existing Work:  One -Shot Design   
+
+> Synthesizes from scratch, repeats debugging,
+> and ignores verified legacy artifacts
+> LLM
+> Agent
+> New
+> RTL
+> Text task
+> description
+> Validate
+> End
+> TRUST BOUNDARY
+
+Back -End:  Automated 
+
+Proof -Guided RTL Update                 
+
+> Contract Diff
+> e.g. C Diff:
+> --- old_version/c_mult .h
+> +++ new_version/c_mult .h
+> @@ -2, +22 @@
+> …
+> if (mode == 2)
+> *result =result _fp8 ;
+> …
+> --- old_version/c_ harness.c
+> +++ new_version/c_ harness.c
+> @@ -1, +1@@
+> …
+> assume(mode == 1 || mode == 2) ;
+> …
+> Evolved Verified RTL
+> e.g. Verilog:
+> module mult( …);
+> …
+> result =mode[1] ?result _fp8
+> :result _int8 ;
+> …
+> Legacy Verified RTL
+> e.g. Verilog:
+> module mult( …);
+> …
+> result =result _int8 ;
+> …
+> Counterexample
+> Feedback
+> Validate
+> Incremental
+> RTL Update
+> Implement
+> Agent
+> Mutation -Based Semantic Probing
+> Exposes Fine -Grained Correspondence
+> Perturbs Verified
+> Legacy RTL
+> Interprets
+> Formal Feedback
+> Change
+> Localization
+
+Plan  
+
+> Plan
+> Agent Hierarchy -aware
+> & Diff -driven
+> Impact Analysis
+
+Implement 
+
+&Validate 
+
+Front -End:  Human -Reviewed 
+
+Executable Contract Refinement                
+
+> Contract
+> Update
+> Contract
+> Plan
+> Review
+> e.g. Evo_Request.md:
+> 1. Operation Mode Extension
+> - New mode: `fp8`
+> - `mode` encoding is `2'b10`
+> 2. New Operation Semantics
+> -NaN Propagation :…
+> …
+> New version request
+> Legacy Executable Contract
+> e.g. C Function():
+> void c_mult( …){
+> …
+> if (mode == 1)
+> *result =result _int8 ;
+> …
+> e.g. C Harness():
+> …
+> assume(mode == 1);
+> assert( c_ mul t.result == r_mult.result );
+> …
+> e.g. C Function():
+> void c_mult( …){
+> …
+> if (mode == 1)
+> *result =result _int8 ;
+> …
+> if (mode == 2)
+> *result =result _fp8 ;
+> …
+> e.g. C Harness():
+> …
+> assume(mode == 1 || mode == 2);
+> assert( c_ mul t.result == r_mult.result );
+> …
+> Accepted Executable Contract
+
+Specify   
+
+> Cases Test Cases including
+> regression
+> &new -feature
+> Approve before
+> backend evolution
+
+Figure 2: Overall workflow of the proposed spec-driven hardware evolution framework. 
+
+the four stages introduced earlier: Specify , Plan , Implement , and 
+
+Validate .In Specify , the legacy contract and the evolution request are re-fined into C𝑁 +1 = (M 𝑁 +1, Φ𝑁 +1), where M𝑁 +1 is written in C/C++ to define the required behavior and Φ𝑁 +1 captures the interface, observation, and timing semantics used in downstream checking. In Plan , the framework analyzes the semantic delta Δ𝑁 →𝑁 +1 and lo-calizes the RTL regions most relevant to the intended change, aided by mutation-based semantic probing. In Implement , it performs legacy-aware RTL update on top of 𝑅 𝑁 to construct candidate ver-sions of 𝑅 𝑁 +1. In Validate , each candidate is checked against C𝑁 +1
+
+using hw-cbmc [25], where harness functions encode the functional and timing requirements in Φ𝑁 +1. Counterexamples are then used to guide repair and re-validation until contract satisfaction is estab-lished or the contract itself must be revised. The following subsections detail these stages and the supporting mechanisms that improve the stability and efficiency of the overall workflow. 
+
+4.2 Specify: Executable Contract Refinement 
+
+To realize the Specify stage, we introduce an executable contract refinement process that evolves the contract from version-N to version-N+1. The process takes as input the legacy executable ref-erence M𝑁 together with the evolution request 𝑞 𝑁 →𝑁 +1, and pro-duces an approved next-version contract C𝑁 +1 = (M 𝑁 +1, Φ𝑁 +1).In our implementation, M𝑁 +1 is written in C/C++ to define the required behavior at the executable-reference level, rather than to prescribe an implementation for synthesis. The accompanying con-tract semantics Φ𝑁 +1 are realized through harness functions used by 
+
+hw-cbmc . Concretely, these harness functions encode three aspects of the contract: assume clauses constrain the admissible input space and environment conditions, next_timeframe() specifies the in-tended temporal alignment between the executable reference and the RTL, and assert clauses define the required relations between contract-level and RTL-level observable outputs. Together, M𝑁 +1
+
+and Φ𝑁 +1 specify what the next version must satisfy, while leaving the RTL realization to later stages. This stage is necessary because the evolution request alone is typically incomplete and cannot serve as a sufficiently precise se-mantic target for automated RTL update. A fully manual alternative, in which an engineer directly edits both the executable reference and the harness-level checking semantics, is possible but costly, and it makes completeness and consistency harder to maintain. More importantly, without an explicit and reviewable contract, down-stream stages cannot cleanly distinguish ambiguity in intended next-version behavior from errors in RTL realization. We therefore place contract refinement before automated RTL evolution and keep it human-reviewed: automation improves efficiency and con-sistency, while human judgment remains responsible for resolving residual ambiguity and approving the final contract. Within the front-end Specify stage, contract refinement is carried out in an isolated workspace through four subprocesses: Contract Planning , Contract Update , Contract Testing , and Human Review .These subprocesses are specific to contract construction and should be distinguished from the RTL-side Plan –Implement –Validate loop described below. Contract Planning analyzes the legacy executable reference M𝑁 together with the request 𝑞 𝑁 →𝑁 +1 and produces a structured update plan covering interface changes, intended feature updates, and affected behavioral regions. Contract Update then incrementally revises a copy of the legacy executable reference and its associated harness functions, rather than rebuilding the contract from scratch, so that unchanged behavior remains stable while the semantic delta becomes explicit in C𝑁 +1.The candidate contract is then checked in Contract Testing . At this stage, the updated executable reference and harness functions are exercised under broad-coverage tests, including both regres-sion cases for preserved version-𝑁 behavior and new-feature cases for the modified version-𝑁 +1 behavior. In addition, the harness is validated for contract soundness: assume clauses are examined to ensure that the intended input domain is neither under-constrained 
+
+4annotated in RTL 
+
+Computation 
+
+> shift-dir error sign inversion constant bias
+
+Control-flow 
+
+> branch negate mux flip
+
+Timing 
+
+> reg→comb enable invert pipeline err
+
+Mutation Type Annotation in RTL       
+
+> [BUG_1] comp
+> a_adj + b_adj a_adj - b_adj ✗
+> dim: computation
+> [BUG_2] ctrl
+> op_mode == 8 op_mode != 8 ✗
+> dim: control-flow
+> [BUG_3] timing
+> @(posedge clk) @(*) ✗
+> dim: timing
+
+Repair Loop       
+
+> repair_idx ≤ max_repair
+> Analyze CE
+> violated assert C val vs RTL val
+> Extract Evidence
+> trace COI path State → timeframe
+> Restore + Re-check
+> revert [BUG_x] hw-cbmc again
+> PASS → verified:true
+> FAIL
+> ↺
+> "module": "u0_mul" "covered_ports": ["z0_e", "z1_e", "z_m"] "blind_spots": ["mul_z1_internal"]
+> 🐀 interface
+> "c_param": "*z1_e" "rtl_port": "z1_e" "rtl_width": "[8:0]" "source": "static"
+> 🐀 computation
+> "c_expr": "a_e + b_e - 2*bias + 1" "rtl_signal": "tf32_e_sum" "verified_by": "BUG_1 triggered assert z1_e"
+> 🐀 cone_of_influence
+> "cone": "op_mode_1r → tf32_e_sum → z1_e" "depth": 2 "verified": true
+> 🐀 signal_mapping
+> "rtl_signal": "z1_e" "c_variable": "ref_z1_e" "timeframe": 1 "critical_path": "op_mode_1r → tf32_e_sum → z1_e" "source": "dynamic" "status": "verified"
+> 🐀 probe_summary
+> "signal": "z1_e" "bugs_injected": 3 "bug_dims": ["computation","control_flow","timing"] "repair_iters": 2 "final_status": "REPAIRED"
+
+Figure 3: Mutation-based semantic probing procedure and 
+
+contract_rtl_map output. 
+
+nor spuriously restrictive, next_timeframe() calls are checked to ensure that the temporal semantics are aligned with the intended hardware behavior, and assert clauses are checked to ensure that the observable relation between the executable reference and RTL is stated completely and unambiguously. When tests fail, the system performs localized repair and re-validation; when ambiguity re-mains unresolved within the iteration budget, the issue is escalated to the engineer for clarification or contract refinement. Finally, in Human Review , the resulting contract C𝑁 +1 is re-viewed before release with emphasis on functional completeness, contract verifiability, and backward compatibility. In particular, the review checks whether the executable reference captures the in-tended next-version behavior, whether the harness functions faith-fully encode the corresponding input, timing, and output semantics, and whether the resulting contract is suitable for downstream proof-oriented checking with hw-cbmc . Only after this approval does the workflow proceed to the automated hardware-evolution back end. 
+
+4.3 Plan: Mutation-Based Semantic Probing and Change Localization 
+
+To realize the Plan stage, we formulate planning as a problem of 
+
+semantic alignment and change localization . Given the legacy con-tract C𝑁 = (M 𝑁 , Φ𝑁 ), the approved next-version contract C𝑁 +1,and the legacy RTL 𝑅 𝑁 , this stage first derives the cross-version semantic delta Δ𝑁 →𝑁 +1 = Diff (C 𝑁 , C𝑁 +1), and then produces a structured contract_rtl_map recording verified correspondences between the behavior defined by M𝑁 and the RTL regions in 𝑅 𝑁 
+
+that realize it. Together with Δ𝑁 →𝑁 +1, this mapping provides the localization basis for the subsequent Implement stage. To build contract_rtl_map , we introduce mutation-based se-mantic probing , which injects controlled perturbations into 𝑅 𝑁 and interprets the resulting verification feedback under Φ𝑁 as evidence for how the behavior specified by M𝑁 is realized in the legacy RTL. Fig. 3 illustrates the procedure with a concrete example from 
+
+u0_mul .Static analysis alone can only provide candidate correspondences: it cannot determine which RTL regions are exercised under Φ𝑁 ,nor confirm that an inferred correspondence is valid under proof-oriented checking. Mutation-based semantic probing addresses this by treating the verifier as a semantic oracle and extracting alignment evidence from controlled perturbation and verification response. 
+
+Static Analysis. The procedure begins with a static read of M𝑁 
+
+and 𝑅 𝑁 to establish an initial correspondence structure across five dimensions: interface mapping, computation mapping, control-flow mapping, timing mapping, and cone-of-influence mapping. Cone-of-influence mapping plays a central role in later fault localization, as it identifies the signals and logic regions contributing to each observed outcome in M𝑁 . All entries are initially marked verified:false ,indicating structural hypotheses pending dynamic confirmation. 
+
+Mutation and Probing. For each observed target derived from 
+
+Φ𝑁 , we generate mutant RTL variants by injecting controlled datapath-level faults across multiple mapping dimensions. Each mutant per-turbs computation, control-flow, and timing aspects simultaneously to elicit richer proof feedback than single-dimension perturba-tions, without over-constraining any one dimension. Supported fault types include shift-direction errors, arithmetic sign inversions, and conditional branch negations, among others. Each mutant is checked by hw-cbmc against M𝑁 under Φ𝑁 . Signals that are suc-cessfully exercised and validated are recorded in covered_ports ;those that remain insensitive to repeated perturbations are classi-fied as blind spots .
+
+Restorative Repair. When verification fails on a mutated vari-ant, the hw-cbmc counterexample is analyzed to validate or reject the current correspondence hypothesis. Unlike the repair in the Val-idate stage, the purpose here is not to repair RTL for release, but to determine whether the hypothesized correspondence between M𝑁 
+
+and 𝑅 𝑁 is supported by proof feedback. This step extracts dynamic alignment evidence unavailable from static analysis, including time-frame sensitivity and critical propagation paths. Minimal restorative edits are applied along the cone-of-influence path to remove the injected perturbation and re-check the correspondence under Φ𝑁 .Confirmed entries are promoted to verified:true ; insensitive sig-nals are added to blind_spots . Blind spots are propagated to the localization guidance as low-confidence regions, where the planner conservatively preserves existing logic and flags them for additional scrutiny during the Validate stage. Upon completion, the planner derives localization guidance from 
+
+contract_rtl_map and Δ𝑁 →𝑁 +1, identifying where legacy logic should be preserved and where modification effort should be con-centrated. The resulting contract_rtl_map also records verified correspondences between M𝑁 and 𝑅 𝑁 , together with critical paths, 
+
+covered_ports , and blind-spot annotations, serving as the seman-tic grounding for the subsequent Implement stage. 
+
+4.4 Implement and Validate: Proof-Guided RTL Update Loop 
+
+Given the reviewed contract C𝑁 +1, the validated legacy RTL 𝑅 𝑁 , the cross-version semantic delta Δ𝑁 →𝑁 +1, and the contract_rtl_map 
+
+> 5
+
+Algorithm 1 Mutation-Based Semantic Probing                                                                          
+
+> Require: legacy contract 𝐶 𝑁 =( M 𝑁 ,Φ𝑁 ), approved contract 𝐶 𝑁 +1,legacy RTL 𝑅 𝑁
+> Ensure: contract_rtl_map ,blind_spots , localization guidance 1: Δ𝑁 →𝑁 +1←Diff ( C 𝑁 ,C𝑁 +1)
+> 2: contract_rtl_map ←StaticAnalysis ( M 𝑁 , 𝑅 𝑁 )
+> 3: for each observed target 𝑠 derived from Φ𝑁 do
+> 4: 𝜇 ←InjectFaults (𝑅 𝑁 , 𝑠 )
+> 5: if hw-cbmc (𝜇, M𝑁 ,Φ𝑁 )=Fail then
+> 6: 𝑒 ←AnalyzeCounterexample (𝜇 )
+> 7: contract_rtl_map ←RestorativeRepair (𝜇, 𝑒, contract_rtl_map )
+> 8: else
+> 9: blind_spots ←blind_spots ∪ { 𝑠 }
+> 10: end if
+> 11: end for
+> 12: guidance ←Derive (contract_rtl_map ,Δ𝑁 →𝑁 +1)
+> 13: return contract_rtl_map ,blind_spots ,guidance
+
+produced in the Plan stage, hardware evolution proceeds to the 
+
+Implement and Validate stage. The objective is not to obtain the final RTL in a single pass, but to iteratively construct and refine a candidate 𝑅 𝑁 +1 until it satisfies C𝑁 +1. In this sense, the core of the automated back end is proof-guided closure : candidate RTL is updated under localized guidance, checked against the reviewed contract, and repaired using verification feedback until convergence, budget exhaustion, or escalation to contract revision. 
+
+Implement. The system applies the structured modification guidance from Plan to a working copy of 𝑅 𝑁 in order to construct a candidate 𝑅 𝑁 +1. Rather than regenerating hardware description from scratch, this stage performs localized, legacy-aware patching on top of the trusted implementation substrate. Previously validated logic is preserved whenever possible, and edits are constrained to the modules, signals, and code regions implicated by Δ𝑁 →𝑁 +1 and 
+
+contract_rtl_map . As a result, implementation remains localized in both functional scope and structural impact. 
+
+Validate. The candidate 𝑅 𝑁 +1 is checked against C𝑁 +1 using 
+
+hw-cbmc . In our implementation, the executable reference M𝑁 +1
+
+and the candidate 𝑅 𝑁 +1 are linked through harness functions that encode the contract-defined functional and timing requirements in Φ𝑁 +1. Verification success is treated as functional convergence under the next-version contract. If contract satisfaction is not es-tablished, the verifier returns structured outcomes, including coun-terexamples and related diagnostic evidence, which are passed to the repair step to localize the source of divergence and guide tar-geted correction. 
+
+Repair and Closure. When verification fails, the system reuses the counterexample-analysis backend together with the semantic correspondences established during Plan , but now with a different objective: not to refine alignment between M𝑁 and 𝑅 𝑁 , but to re-pair the candidate 𝑅 𝑁 +1 itself. Counterexamples are used to localize faulty modules, signals, and control/data paths in the candidate 
+
+𝑅 𝑁 +1, after which the system applies targeted fixes and re-enters validation. This implement–validate–repair loop continues until one of three stopping conditions is reached: verification succeeds; the observed failures indicate that the contract itself requires clar-ification or revision; or a predefined iteration or cost budget is exhausted. In this way, LLM-driven RTL modification is embedded within a formally checkable and iteratively convergent refinement loop. The resulting workflow prioritizes contract satisfaction through localized legacy-aware evolution, rather than unconstrained one-shot generation. 
+
+4.5 Supporting Mechanisms 
+
+Beyond the stage-wise workflow above, the framework relies on several cross-cutting mechanisms that improve stability, repair quality, and execution efficiency. 
+
+Task-Isolated Subagents. Hardware evolution is a long-horizon and tightly constrained generation-and-verification task. As con-text accumulates, a single agent is prone to instruction drift, which gradually blurs stage boundaries and degrades both stability and correctness. To address this issue, we adopt a task-isolated multi-agent design in which planning, implementation, validation, and repair are executed by fresh subagents, while a main agent is re-sponsible only for orchestration and artifact passing. This design shortens the effective context span, reduces instruction drift, and stabilizes long-horizon hardware evolution under strong procedural constraints. 
+
+Hierarchy-Aware Bottom-Up Repair. In hierarchical hard-ware designs, local defects in lower-level modules often propagate upward and eventually manifest as failures at top-level verification. Directly repairing the top-level module in such cases can misiden-tify the root cause and introduce ineffective changes. We therefore explicitly extract the design hierarchy and perform hierarchy-aware bottom-up repair: a failed module is repaired only after its depen-dent submodules have been stabilized. This strategy respects the actual dependency structure of the design, aligns repair order with error-propagation paths, and reduces mislocalized fixes caused by upstream failure propagation. 
+
+Scripted Verification Orchestration. The validation stage in-volves repetitive operations, including constructing verification commands, invoking hw-cbmc , collecting results, and generating structured logs. Fully relying on agent reasoning for these steps is inefficient and incurs unnecessary token overhead. We therefore encapsulate verification-environment parsing, command construc-tion, batch execution, and report generation into Python scripts, which the agent invokes as standardized verification backends. This scripted design improves execution efficiency, consistency, and reproducibility, while reducing avoidable reasoning cost during validation. 
+
+5 Experiments 5.1 Experimental Setup 
+
+Existing public benchmarks such as VerilogEval [18], RTLLM [22], and CktEvo [29] do not match our setting, because they target either prompt-to-RTL generation or function-preserving optimiza-tion, rather than spec-driven functional evolution from trusted legacy RTL under aligned executable contracts. A realistic eval-uation in our setting requires three key assets: a verified legacy RTL, a semantically aligned next-version executable contract, and proof-consumable change requests. We therefore construct con-trolled version-evolution tasks based on dot_core , a TPU datapath block [14] originally supporting INT8, FP4, and FP8 operations, which implements a 32-way dot-product accumulation pipeline across a multi-level module hierarchy. 
+
+> 6
+
+Table 1: Benchmark statistics for dot_core version evolution tasks. 
+
+Module 𝑅 𝑁 𝑅 𝑁 +1 (ΔLoC) C𝑁 C𝑁 +1 (ΔLoC) dot_core 678 678 (+65,-65) 232 233 (+34,-33) u0_mul 331 336 (+87,-82) 215 319 (+109,-5) u1_exp_align 215 219 (+59,-55) 111 135 (+40,-16) u2_add_vector 333 366 (+105,-72) 288 330 (+63,-21) u3_add 196 196 (–) 183 183 (–) u4_add_mix 214 214 (+4,-4) 316 316 (+2,-2) u5_norm 111 111 (–) 172 172 (–) u6_ffp2fp 109 109 (+5,-5) 106 106 (+2,-2) The benchmark follows a version-N → version-N+1 trajectory, where version-N+1 adds TF32 support [33] by modifying mantissa and exponent widths across the multiplier and alignment datapaths and propagating interface changes through the hierarchy. Table 1 summarizes the resulting benchmark statistics at both the top-module and representative submodule levels, with approximately 
+
+two person-weeks of engineering effort required for benchmark construction. On the contract side, the C𝑁 +1 entries reported in Table 1 are produced by the front-end Specify process, which incrementally updates the executable reference and associated checking semantics to reflect the next-version behavior. In our benchmark construction, this front-end update remains lightweight: once the intended TF32 behavior is specified, preparing and reviewing the corresponding contract typically requires only about one person-day of engineer-ing effort. This is substantially smaller than the cost of backend RTL evolution and formal closure, and is consistent with our intended usage scenario in which the contract serves as a reviewed semantic target before automated hardware evolution begins. All experiments in this section are therefore conducted under a fixed human-reviewed next-version executable contract. We treat contract construction as a separate front-end process and exclude the Specify stage from the main quantitative evaluation, so that the reported results focus on the end-to-end automated evolution capability of the Plan –Implement –Validate backend. Our evaluation uses a workstation equipped with an AMD Ryzen Threadripper PRO 9985WX 64-core CPU. We use hw-cbmc [25] as the primary verification backend for bit-exact equivalence check-ing between 𝑅 𝑁 +1 and C𝑁 +1. For QoR evaluation, we synthesize the evolved RTL using Synopsys Design Compiler 1 with the 
+
+ASAP7 7.5-track standard cell library [34]. Since the goal of this work is functional convergence rather than physical design optimization, post-synthesis cell area and critical-path delay are reported only as secondary QoR metrics. 
+
+5.2 Main Results Across Models 
+
+We evaluate the proposed workflow on the full dot_core evolu-tion task across different LLMs, using the same OpenCode 2-based execution interface throughout. As noted above, the next-version executable contract is fixed and human-reviewed before backend 
+
+> 1
+
+https://www.synopsys.com/implementation-and-signoff/rtl-synthesis-test/design-compiler.html 
+
+> 2
+
+https://opencode.ai/ GPT-5.4 Claude Opus 4.6 Claude Sonnet 4.6 GLM-5 Qwen3.6 Plus MiniMax M2.7 Kimi K2.5 0510 15 20 25              
+
+> Iterations
+> max iter (20)
+> 24320 20 20 20
+> (a) Repair Iterations
+> GPT-5.4 Claude Opus 4.6 Claude Sonnet 4.6 GLM-5 Qwen3.6 Plus MiniMax M2.7 Kimi K2.5 020 40 60
+> Tokens (M)
+> 7.6M 26.3M 47.4M 53.0M 64.6M 54.1M 51.0M
+> (b) Token Usage
+> GPT-5.4 Claude Opus 4.6 Claude Sonnet 4.6 GLM-5 Qwen3.6 Plus MiniMax M2.7 Kimi K2.5 020 40 60
+> Cost (USD)
+> $15.65 $55.75 $31.48 $19.42 $19.48 $6.09 $7.47
+> (c) Monetary Cost
+> GPT-5.4 Claude Opus 4.6 Claude Sonnet 4.6 GLM-5 Qwen3.6 Plus MiniMax M2.7 Kimi K2.5 0100 200 300 400 500
+> Time (min)
+> 91 93 121 352 474 384 365
+> (d) Wall-clock Time
+> Baseline GPT-5.4 Claude Opus 4.6 Claude Sonnet 4.6 02000 4000 6000 8000
+> Cell Area (μm²)  6908 7724 7666 7690
+> (e) PPA — Converged Models Only
+> 01000 2000 3000
+> Delay (ps) 2315 2069 2084 1646
+> Converged Failed (reached max iter)
+
+Figure 4: Comparison of repair iterations, token usage, mon-etary cost, wall-clock time, and post-synthesis PPA across models on the dot_core evolution task. 
+
+automation begins. In particular, the contract-side updates summa-rized in Table 1 are obtained by the front-end Specify process and require only modest engineering review effort. The experiments in this subsection therefore measure the end-to-end automated per-formance of the backend workflow, rather than the cost of contract construction itself. All comparisons in this section use the same workflow configura-tion, skill implementation, verification backend, and budget setting. Here, a run denotes one complete backend evolution attempt, from candidate RTL generation to either successful top-level dot_core 
+
+verification or budget exhaustion. Fig. 4 reports the results across models, including convergence, repair iterations, token usage, monetary cost, wall-clock time, and post-convergence PPA metrics. Since the goal of this work is func-tional convergence rather than explicit PPA optimization, Area and Timing are reported as secondary metrics relative to the legacy RTL baseline. Based on these results, we select GPT-5.4 as the default model for the subsequent architecture-comparison and ablation experiments. The rationale is threefold: 
+
+Absolute Task Capability: The hardware evolution task presents significant complexity. Within the maximum allowed iterations (20), only top-tier models (GPT-5.4, Claude Opus 4.6, and Claude Sonnet 4.6) successfully converged and passed the validation. The other tested models failed to realize the correct RTL updates, narrowing our baseline candidates strictly to the successful ones. 
+
+Superior Evolution Efficiency: Among the successful can-didates, GPT-5.4 demonstrates the highest efficiency in driving 
+
+> 7
+
+Table 2: Comparison between fixed-pipeline and skill-driven orchestration on dot_core evolution.                      
+
+> Workflow Result Iter. Tokens Cost Time(min) Cell Area( 𝜇 m2)Delay(ps) LangGraph-based pass 5914,400 $3.47 65 7650.96 2155.43 Engineer-skill workflow (ours) pass 27,619,937 $15.65 91 7723.55 2068.80
+
+functional convergence. It achieved a passing result in only 2 it-erations and required the shortest execution time (91 minutes), outperforming both Claude Opus 4.6 (4 iterations, 93 minutes) and Claude Sonnet 4.6 (3 iterations, 121 minutes). This indicates that GPT-5.4 possesses stronger reasoning capabilities for localizing and updating 𝑅 𝑁 , requiring fewer corrective feedback loops. 
+
+Optimal Resource and Cost Effectiveness: Given that subse-quent ablation studies require extensive repetitive experiments, to-ken consumption and financial cost are critical factors. GPT-5.4 is ex-ceptionally token-efficient, consuming only 7.6M tokens—roughly 29% of Opus 4.6 and 16% of Sonnet 4.6. Consequently, it offers the lowest cost ($15.65) among the successful models. In summary, GPT-5.4’s comprehensive advantages in functional correctness, iteration speed, and operational cost make it the most robust and practical foundation for our framework evaluation 
+
+5.3 Fixed vs. Flexible Workflow Orchestration 
+
+Using the default model selected above, we compare two workflow organizations on the full end-to-end dot_core evolution task. Both variants implement the same core task stages, but differ in how these stages are organized and coordinated: (1) LangGraph-based : hardens the stages into a fixed multi-agent execution graph with predefined inter-agent communication and execution order. (2) Engineer-skill workflow (ours): uses a skill-driven multi-agent framework with explicit stage decomposition but more flexi-ble coordination. Table 2 reports convergence, repair iterations, and resource cost for the two workflow organizations. The two variants exhibit a clear trade-off between workflow specification and execution flex-ibility. The LangGraph-based pipeline achieves lower token cost and shorter runtime in the reported run, indicating that a fixed execution structure can be highly efficient when the intermedi-ate trajectory aligns with the predefined workflow. In contrast, the engineer-skill workflow incurs higher token consumption and wall-clock time, but converges in fewer repair iterations. Rather than suggesting that one framework uniformly domi-nates the other, this comparison highlights two distinct orchestra-tion regimes. The LangGraph-based variant hardens parts of the workflow into predefined nodes and fixed inter-node transitions, re-ducing per-run overhead when execution follows the expected path. By contrast, the engineer-skill workflow preserves more adaptive interaction with tools, intermediate artifacts, and repair feedback, at the cost of higher runtime and token usage. 
+
+5.4 Ablation Studies 
+
+We assess the contribution of core components within the proposed workflow using the same default model-interface combination on the full end-to-end dot_core task. Full w/o subagents w/o probing w/o hierarchy Direct diff 0510                         
+
+> Iterations
+> 2failed 10 39
+> (a) Repair Iterations
+> Full w/o subagents w/o probing w/o hierarchy Direct diff 010 20 30
+> Tokens
+> 7,619,937 6,389,178 14,957,524 12,205,800 22,166,566
+> (b) Token Usage
+> Full w/o subagents w/o probing w/o hierarchy Direct diff 010 20 30
+> Cost (USD)
+> $15.65 $2.52 $11.19 $10.44 $22.29
+> (c) Monetary Cost
+> Full w/o subagents w/o probing w/o hierarchy Direct diff 050 100 150
+> Time (min)
+> 91 22 149 115 138
+> (d) Wall-clock Time
+> Full w/o probing w/o hierarchy Direct diff 02000 4000 6000 8000
+> Cell Area (μm²)  7724 7703 7671 7729
+> (e) PPA — Pass Settings Only
+> 02000 4000 6000
+> Delay (ps)
+> 2069 2263 1718 5575
+> Full workflow Ablated (pass) Failed
+
+Figure 5: Ablation results on dot_core evolution. 
+
+(1) w/o task-isolated subagents , which removes fresh sub-agent iso-lation while keeping the same overall workflow. (2) w/o mutation-based semantic probing , which disables mutation-guided semantic localization in the planning stage. (3) w/o hierarchy-aware bottom-up repair , which repairs all failing modules in a flat order without considering the design hierarchy. (4) Direct diff w/o structured plan , which replaces the structured modification plan with a direct diff-style text. As shown in Fig. 5, the full workflow achieves the best overall performance, converging in only 2 iterations with lower runtime than all successful ablated variants. Variant (1) fails outright after only two iterations, well before the maximum repair budget of 20, because the agent deviates from the prescribed workflow without fresh sub-agent isolation, confirming that task decomposition is essential for preventing instruction drift. Variant (2) still converges but requires 10 iterations, as the contract_rtl_map that enables localized, legacy-aware patching is no longer available. Variant (3) converges in 3 iterations but with higher token cost and runtime, since the system may misidentify root causes when submodule defects propagate to top-level verification. Variant (4) yields the worst result among successful variants in both iteration count and token cost, indicating that raw diff information alone lacks sufficient structure to guide RTL evolution. In summary, the ablation results confirm that task-isolated sub-agents, mutation-based probing, hierarchy-aware bottom-up repair, and structured planning are complementary components whose synergy enables reliable and efficient hardware evolution. 
+
+> 8
+
+6 Conclusion 
+
+This paper presents spec-driven hardware evolution , a contract-centered formulation of RTL version iteration inspired by spec-driven development. Instead of treating hardware evolution as di-rect prompt-to-RTL generation, we cast it as the process of evolving a validated legacy design under a reviewed executable contract for the next version. Under this formulation, the central question shifts from “what Verilog should be written?” to “what specification should be provided, reviewed, and checked?” . Once the intended next-version behavior is captured in an executable, verification-consumable con-tract, validated legacy RTL can be evolved through a structured, proof-guided process rather than regenerated from scratch. Our results suggest that this contract-centered formulation is particularly well suited to the early stage of real hardware iteration, where the immediate objective is to reach functional convergence on revised requirements. Although our present scope focuses on functional evolution rather than PPA optimization, the evolved RTL produced by the proposed flow can naturally serve as a start-ing point for downstream PPA-oriented refinement. We therefore view this work not as an endpoint, but as a step toward a broader automated front-end design flow in which executable intent cap-ture, functional convergence, and subsequent PPA optimization are integrated into a unified agentic pipeline for digital hardware development. 
+
+References 
+
+[1] Armin Abdollahi, Saeid Shokoufa, Negin Ashrafi, Mehdi Kamal, and Massoud Pedram. 2026. HDLFORGE: A Two-Stage Multi-Agent Framework for Effi-cient Verilog Code Generation with Adaptive Model Escalation. arXiv preprint arXiv:2603.04646 (2026). [2] Ahmed Allam, Youssef Mansour, and Mohamed Shalan. 2025. ASIC-Agent: An Autonomous Multi-Agent System for ASIC Design with Benchmark Evaluation. In 2025 IEEE International Conference on LLM-Aided Design (ICLAD) . IEEE, 23–29. [3] Nathan Binkert, Bradford Beckmann, Gabriel Black, Steven K Reinhardt, Ali Saidi, Arkaprava Basu, Joel Hestness, Derek R Hower, Tushar Krishna, Somayeh Sardashti, et al. 2011. The gem5 simulator. ACM SIGARCH computer architecture news 39, 2 (2011), 1–7. [4] Jason Blocklove, Shailja Thakur, Benjamin Tan, Hammond Pearce, Siddharth Garg, and Ramesh Karri. 2025. Automatically improving llm-based verilog generation using eda tool feedback. ACM Transactions on Design Automation of Electronic Systems (2025). [5] Manuel Blum and Hal Wasserman. 2002. Reflections on the Pentium division bug. IEEE Trans. Comput. 45, 4 (2002), 385–393. [6] Islem Bouzenia, Premkumar Devanbu, and Michael Pradel. 2025. Repairagent: An autonomous, llm-based agent for program repair. In 2025 IEEE/ACM 47th International Conference on Software Engineering (ICSE) . IEEE, 2188–2200. [7] Edmund Clarke, Daniel Kroening, and Karen Yorav. 2003. Behavioral consistency of C and Verilog programs using bounded model checking. In Proceedings of the 40th annual Design Automation Conference . 368–371. [8] Fan Cui, Chenyang Yin, Kexing Zhou, Youwei Xiao, Guangyu Sun, Qiang Xu, Qipeng Guo, Yun Liang, Xingcheng Zhang, Demin Song, et al. 2024. Origen: En-hancing rtl code generation with code-to-code augmentation and self-reflection. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design . 1–9. [9] Mingzhe Gao, Jieru Zhao, Zhe Lin, Wenchao Ding, Xiaofeng Hou, Yu Feng, Chao Li, and Minyi Guo. 2024. Autovcoder: A systematic framework for automated verilog code generation using llms. In 2024 IEEE 42nd International Conference on Computer Design (ICCD) . IEEE, 162–169. [10] Ping Guo, Yiting Wang, Wanghao Ye, Yexiao He, Ziyao Wang, Xiaopeng Dai, Ang Li, and Qingfu Zhang. 2025. EvoVerilog: Large Langugage Model Assisted Evolution of Verilog Code. arXiv preprint arXiv:2508.13156 (2025). [11] Chia-Tung Ho, Haoxing Ren, and Brucek Khailany. 2025. Verilogcoder: Au-tonomous verilog coding agents with graph-based planning and abstract syntax tree (ast)-based waveform tracing tool. In Proceedings of the AAAI Conference on Artificial Intelligence , Vol. 39. 300–307. [12] Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. 2023. Swe-bench: Can language models resolve real-world github issues? arXiv preprint arXiv:2310.06770 (2023). [13] Pengwei Jin, Di Huang, Chongxiao Li, Shuyao Cheng, Yang Zhao, Xinyao Zheng, Jiaguo Zhu, Shuyi Xing, Bohan Dou, Rui Zhang, et al. 2025. Realbench: Bench-marking verilog generation models with real-world ip designs. arXiv preprint arXiv:2507.16200 (2025). [14] Norman P Jouppi, Cliff Young, Nishant Patil, David Patterson, Gaurav Agrawal, Raminder Bajwa, Sarah Bates, Suresh Bhatia, Nan Boden, Al Borchers, et al. 2017. In-datacenter performance analysis of a tensor processing unit. In Proceedings of the 44th annual international symposium on computer architecture . 1–12. [15] Sakari Lahti, Panu Sjövall, Jarno Vanne, and Timo D Hämäläinen. 2018. Are we there yet? A study on the state of high-level synthesis. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems 38, 5 (2018), 898–911. [16] Kezhi Li, Min Li, Xiangyu Wen, Shibo Zhao, Jieying Wu, Junhua Huang, and Qiang Xu. 2026. FormalRTL: Verified RTL Synthesis at Scale. arXiv preprint arXiv:2603.08738 (2026). [17] Mengming Li, Wenji Fang, Qijun Zhang, and Zhiyao Xie. 2025. Specllm: Exploring generation and review of vlsi design specification with large language model. In 
+
+2025 International Symposium of Electronics Design Automation (ISEDA) . IEEE, 749–755. [18] Mingjie Liu, Nathaniel Pinckney, Brucek Khailany, and Haoxing Ren. 2023. Ver-ilogEval: Evaluating Large Language Models for Verilog Code Generation. In 
+
+2023 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) .[19] Qingyuan Liu, Mo Zou, Hengbin Zhang, Dong Du, Yubin Xia, and Haibo Chen. 2026. Sharpen the Spec, Cut the Code: A Case for Generative File System with 
+
+{SYSSPEC }. In 24th USENIX Conference on File and Storage Technologies (FAST 26) . 291–311. [20] Shang Liu, Wenji Fang, Yao Lu, Jing Wang, Qijun Zhang, Hongce Zhang, and Zhiyao Xie. 2024. Rtlcoder: Fully open-source and efficient llm-assisted rtl code generation technique. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (2024). [21] Yao Liu, Lu, Wenji Fang, Mengming Li, and Zhiyao Xie. 2024. Openllm-rtl: Open dataset and benchmark for llm-aided design rtl generation. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design . 1–9. [22] Yao Lu, Shang Liu, Qijun Zhang, and Zhiyao Xie. 2024. RTLLM: An Open-Source Benchmark for Design RTL Generation with Large Language Model. In 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 722–727. [23] Lezhi Ma, Shangqing Liu, Yi Li, Xiaofei Xie, and Lei Bu. 2025. Specgen: Automated generation of formal program specifications via large language models. In 2025 IEEE/ACM 47th International Conference on Software Engineering (ICSE) . IEEE, 16–28. [24] Ruiyang Ma, Daikang Kuang, Ziqian Liu, Jiaxi Zhang, Ping Fan, and Guojie Luo. 2025. Wit-HW: Bug Localization in Hardware Design Code via Witness Test Case Generation. In 2025 IEEE/ACM International Conference On Computer Aided Design (ICCAD) . IEEE, 1–9. [25] Rajdeep Mukherjee, Mitra Purandare, Raphael Polig, and Daniel Kroening. 2017. Formal techniques for effective co-verification of hardware/software co-designs. In Proceedings of the 54th Annual Design Automation Conference 2017 . 1–6. [26] Hongyang Pan, Cunqing Lan, Yiting Liu, Zhiang Wang, Li Shang, Xuan Zeng, Fan Yang, and Keren Zhu. 2024. Physically aware synthesis revisited: guiding technology mapping with primitive logic gate placement. In Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design . 1–9. [27] Zehua Pei, Hui-Ling Zhen, Mingxuan Yuan, Yu Huang, and Bei Yu. 2024. BetterV: controlled verilog generation with discriminative guidance. In Proceedings of the 41st International Conference on Machine Learning . 40145–40153. [28] Deepak Babu Piskala. 2026. Spec-Driven Development: From Code to Contract in the Age of AI Coding Assistants. arXiv preprint arXiv:2602.00180 (2026). [29] Zhengyuan Shi, Jingxin Wang, Tairan Cheng, Changran Xu, Weikang Qian, and Qiang Xu. 2026. CktEvo: Repository-Level RTL Code Benchmark for Design Evolution. arXiv preprint arXiv:2603.08718 (2026). [30] Kimia Tasnia, Alexander Garcia, Tasnuva Farheen, and Sazadur Rahman. 2025. Veriopt: Ppa-aware high-quality verilog generation via multi-role llms. arXiv preprint arXiv:2507.14776 (2025). [31] Minh VT Thai, Tue Le, Dung Nguyen Manh, Huy Phan Nhat, and Nghi DQ Bui. 2025. SWE-EVO: Benchmarking Coding Agents in Long-Horizon Software Evolution Scenarios. arXiv preprint arXiv:2512.18470 (2025). [32] Shailja Thakur, Baleegh Ahmad, Hammond Pearce, Benjamin Tan, Brendan Dolan-Gavitt, Ramesh Karri, and Siddharth Garg. 2024. Verigen: A large language model for verilog code generation. ACM Transactions on Design Automation of Electronic Systems 29, 3 (2024), 1–31. [33] Pedro Valero-Lara, Ian Jorquera, Frank Lui, and Jeffrey Vetter. 2023. Mixed-precision s/dgemm using the tf32 and tf64 frameworks on low-precision ai tensor cores. In Proceedings of the SC’23 Workshops of the International Conference on High Performance Computing, Network, Storage, and Analysis . 179–186. [34] Vinay Vashishtha, Manoj Vangala, and Lawrence T. Clark. 2017. ASAP7 predictive design kit development and cell design technology co-optimization: Invited paper. In 2017 IEEE/ACM International Conference on Computer-Aided Design (ICCAD) .992–998. doi:10.1109/ICCAD.2017.8203889 [35] Yiting Wang, Guoheng Sun, Wanghao Ye, Gang Qu, and Ang Li. 2025. VeriRea-son: Reinforcement Learning with Testbench Feedback for Reasoning-Enhanced 
+
+> 9
+
+Verilog Generation. arXiv preprint arXiv:2505.11849 (2025). [36] Yangbo Wei, Zhen Huang, Huang Li, Wei W Xing, Ting-Jung Lin, and Lei He. 2025. Vflow: Discovering optimal agentic workflows for verilog generation. arXiv preprint arXiv:2504.03723 (2025). [37] Chunqiu Steven Xia and Lingming Zhang. 2024. Automated Program Repair via Conversation: Fixing 162 out of 337 Bugs for $0.42 Each using ChatGPT. In Proceedings of the 33rd ACM SIGSOFT International Symposium on Software Testing and Analysis . 819–831. [38] Zhiyuan Yan, Wenji Fang, Mengming Li, Min Li, Shang Liu, Zhiyao Xie, and Hongce Zhang. 2025. Assertllm: Generating hardware verification assertions from design specifications via multi-llms. In Proceedings of the 30th Asia and South Pacific Design Automation Conference . 614–621. [39] John Yang, Carlos E Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik Narasimhan, and Ofir Press. 2024. Swe-agent: Agent-computer interfaces enable automated software engineering. Advances in Neural Information Processing Systems 37 (2024), 50528–50652. [40] John Yang, Akshara Prabhakar, Karthik Narasimhan, and Shunyu Yao. 2023. Intercode: Standardizing and benchmarking interactive coding with execution feedback. Advances in Neural Information Processing Systems 36 (2023), 23826– 23854. [41] Kechi Zhang, Jia Li, Ge Li, Xianjie Shi, and Zhi Jin. 2024. Codeagent: Enhancing code generation with tool-integrated agent systems for real-world repo-level coding challenges. In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 13643–13658. [42] Yang Zhao, Di Huang, Chongxiao Li, Pengwei Jin, Muxin Song, Yinan Xu, Ziyuan Nan, Mingju Gao, Tianyun Ma, Lei Qi, et al. 2025. Codev: Empowering llms with hdl generation through multi-level summarization. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems (2025). [43] Yujie Zhao, Hejia Zhang, Hanxian Huang, Zhongming Yu, and Jishen Zhao. 2025. Mage: A multi-agent engine for automated rtl code generation. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) . IEEE, 1–7. [44] Yaoyu Zhu, Di Huang, Hanqi Lyu, Xiaoyun Zhang, Chongxiao Li, Wenxuan Shi, Yutong Wu, Jianan Mu, Jinghua Wang, Yang Zhao, et al. 2025. CodeV-R1: Reasoning-Enhanced Verilog Generation. arXiv preprint arXiv:2505.24183 (2025).

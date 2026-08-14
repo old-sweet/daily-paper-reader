@@ -1,0 +1,421 @@
+Title: Learning GR(1) Specifications from Traces
+
+URL Source: https://arxiv.org/pdf/2608.06546v1
+
+Published Time: Mon, 10 Aug 2026 00:09:28 GMT
+
+Number of Pages: 6
+
+Markdown Content:
+Formal Methods in Computer-Aided Design 2026 
+
+# Learning GR(1) Specifications from Traces 
+
+Sam Nicholas Kouteili 
+
+Yale University New Haven, USA sam.kouteili@yale.edu 
+
+William Fishell 
+
+Columbia University New York, USA wf2322@columbia.edu 
+
+Mark Santolucito 
+
+Barnard College, Columbia University New York, USA msantolu@barnard.edu 
+
+Ruzica Piskac 
+
+Yale University New Haven, USA ruzica.piskac@yale.edu 
+
+Abstract —Constrained specification mining enables the au-tomatic discovery of desired properties from system traces. Generalized Reactivity of Rank 1, or GR(1), is a fragment of LTL with polynomial-time synthesis that natively encodes assume-guarantee properties present in most hardware and robotics domains. In this paper, we present GR1M INE , a SAT-based tool for efficiently learning GR(1) formulas from examples. We exploit the GR(1) temporal skeleton to incrementally enumerate formula candidates, leveraging learnt clauses to avoid recomputation. On the Boolean GR(1) Syntech suite, GR1M INE learns a realizable formula for all 60 benchmarks over 30 × faster than generic and constrained LTL mining tools. On non-GR(1) specifications from SYNTCOMP, GR1M INE is still able to recover >2× more realizable specifications than baselines within the timeout. 
+
+I. I NTRODUCTION 
+
+Generalized Reactivity of Rank 1, or GR(1), is a fragment of Linear Temporal Logic (LTL) that naturally captures a broad class of reactive systems. Several real-world systems, from industrial hardware bus protocols such as the AMBA AHB bus arbiter [1], to robotic motion planning [2] and autonomous controllers [3], fall in this class of specifications. In GR(1), a system must maintain ongoing obligations provided the environment satisfies its own fairness conditions [4]. GR(1) is particularly attractive because of its tractability for reactive synthesis: while synthesis from general LTL specifications is doubly exponential in the length of the formula [5], GR(1) synthesis is polynomial in the size of the state space [4]. Noting this, a formal GR(1) model of the system may not be available in practical settings. Consider a scenario such as the one presented in [6], where a black-box hardware controller generates execution traces. With positive and negative traces representing correct and undesirable system behavior (i.e. from test logs with good and bad executions), we can learn a specification discriminating the two. The mined specification not only reveals underlying reactive properties of the system, but can be fed directly into existing GR(1) synthesis tools to produce correct-by-construction controllers. This enables a pipeline from observed behaviors to formally verified imple-mentation, with a declarative model of the system. Existing specification mining tools [7], [8] learn minimal LTL formulas from positive and negative examples. However, the mined formulas do not distinguish between environment assumptions and system guarantees, meaning that synthe-sis must treat all inputs as adversarial. This often renders the mined specification unrealizable, even when a realizable GR(1) specification exists. Moreover, minimal formulas produced by LTL learners may fail to capture intended system behavior. Suppose that a developer calls an LTL miner wanting to uncover reactive properties such as □(a → ♢b), but instead is given a non-reactive formula a ∨ ¬ b that minimally separates the samples. This has inspired works such as ATLAS [9] that allow users to specify structural constraints on learnt formulas. While one can encode the syntactic shape of a GR(1) specification in ATLAS, constrained learners treat the GR(1) skeleton as a filter on a general LTL search space rather than exploiting it algorithmically: scalability thus prohibitively degrades. In this paper, we present GR1M INE , a SAT-based algorithm for learning GR(1) formulas from traces. GR1M INE fixes the GR(1) skeleton and encodes the propositional content of each component as a Directed Acyclic Graph (DAG). By encoding component DAG constraints once and sharing them across enumerated candidate formulas, we exploit the enumerative search space via incremental SAT solving. An environment– system variable partition ensures that mined formulas respect the assume–guarantee boundary and are suitable for synthesis. We evaluate GR1M INE on all Boolean GR(1) specifications from the Syntech benchmarks [3], mining a GR(1) formula for all 60. Conversely, ATLAS in unconstrained and GR(1)-constrained configurations solves 33 and 22 formulas respec-tively within the 3-minute timeout. Evaluating on non-GR(1) benchmarks from SYNTCOMP, GR1M INE mines formulas for 38/60 benchmarks, with ATLAS[LTL] recovering 18 and ATLAS[GR1] only recovering 1. The formulas mined by ATLAS[LTL] are either unrealizable or trivial, yielding 1-state controllers. In all, our contributions are as follows: 1) We develop a novel algorithm for learning GR(1) spec-ifications from examples, leveraging learnt clauses over enumerated formulas. 2) We implement GR1M INE , an efficient GR(1) learner that discriminates positive and negative traces. 3) We benchmark our tool against unconstrained and con-strained LTL solvers. We find that we tractably solve the most benchmarks and produce rich, realizable formulas. II. P RELIMINARIES 
+
+A. Linear Temporal Logic 
+
+We consider LTL over a set of atomic propositions AP =
+
+{x0, . . . , x n−1}. Formulas are built from the grammar 
+
+φ ::= x | ¬ φ | φ ∧ φ | ⃝ φ | φ U φ       
+
+> https://doi.org/ This article is licensed under aCreative Commons Attribution 4.0 International License
+
+where x ∈ AP , and the derived operators eventually ♢φ ≡
+
+true U φ and always □φ ≡ ¬ ♢¬φ. Semantics are defined over infinite words w ∈ (2 AP )ω in the standard way [10]. 
+
+B. Generalized Reactivity of Rank 1 
+
+A GR(1) specification [4] over AP has the form 
+
+(φeI ∧ □φeS ∧⋀︁ mi=1 □♢ Ji)
+
+⏞ ⏟⏟ ⏞ 
+
+> assumptions A
+
+→ (φsI ∧ □φsS ∧⋀︁ kj=1 □♢ Gj )
+
+⏞ ⏟⏟ ⏞ 
+
+> guarantees G
+
+(1) where φeI , φ sI are propositional initial conditions , φeS , φ sS
+
+are propositional safety conditions , and J1, . . . , J m and 
+
+G1, . . . , G k are propositional justice (liveness) conditions .Every component is a propositional formula over AP (i.e., built from ∧, ∨, ¬ and variables only); the temporal operators 
+
+□, ♢ appear only in the fixed positions shown above. 
+
+C. Lasso Traces 
+
+An ultimately periodic word (lasso trace) is a pair (u, v )
+
+with u ∈ (2 AP )∗ and v ∈ (2 AP )+, representing the infinite word u·vω . We write σ |= φ when the infinite word σ = u·vω
+
+satisfies φ under LTL semantics [10]. We store a lasso trace as a finite vector σ = σ[0] · · · σ[L−1] together with a lasso start index ℓ, so that σ[ℓ..L −1] is the repeating loop. We write 
+
+loop (σ) = {ℓ, . . . , L −1} for the set of loop positions. A lasso trace σ satisfies □♢ J iff J holds at some position in loop (σ); it satisfies □φS iff φS holds at every position, and it satisfies φI iff φI holds at position 0. The full formula (1) is an implication: σ satisfies it iff either some assumption fails, or all guarantees hold. 
+
+D. Reactive Synthesis 
+
+Reactive synthesis is the problem of automatically con-structing a system implementation (transducer) that satisfies a given temporal specification for all possible environment behaviors [5]. The input is a specification φ over environment and system variables; the output is a strategy (or controller) that chooses system outputs in response to environment inputs such that φ is guaranteed. GR(1) is the largest fragment of LTL for which reactive synthesis is known to be polynomial: the three-nested fixed-point algorithm of Piterman et al. [4] runs in O(n3mk ) on a game graph with n states, compared to 2EXPTIME-complete general LTL synthesis (note that the game graph is exponential in the number of variables) [5]. In reactive synthesis, propositions are partitioned into envi-ronment (input) variables AP env and system (output) variables 
+
+AP sys . Assumptions constrain the environment and guaran-tees constrain the system. We adopt the standard contract on how components may reference this partition—a com-mon sufficient (though not necessary) restriction adopted for tractable synthesis, rather than a realizability requirement: justice conditions Ji use only AP env , guarantee conditions Gj
+
+use only AP sys , initial conditions are split ( φeI over AP env ,
+
+φsI over AP sys ), and safety conditions may reference all current-state variables but restrict next-state (primed) variables to their respective side.                                                                          
+
+> D= 1
+> m= 1 , k = 1
+> □♢
+> J1→
+> □♢
+> G1??
+> UNSAT
+> m= 1 , k = 2
+> □♢
+> J1→
+> □♢
+> G1
+> □♢
+> G2???
+> UNSAT
+> m= 2 , k = 1
+> □♢
+> J1
+> □♢
+> J2→
+> □♢
+> G1???
+> · · ·
+> UNSAT
+> D= 2
+> m= 1 , k = 1
+> □♢
+> J1→
+> □♢
+> G1??????
+> UNSAT
+> m= 1 , k = 2
+> □♢
+> J1→
+> □♢
+> G1
+> □♢
+> G2?????????
+> UNSAT
+> m= 2 , k = 1
+> □♢
+> J1
+> □♢
+> J2→
+> □♢
+> G1?????????
+> · · ·
+> UNSAT
+> D= 3
+> m= 1 , k = 1
+> □♢
+> J1→
+> □♢
+> G1??????????
+> UNSAT
+> m= 1 , k = 2
+> □♢
+> J1→
+> □♢
+> G1
+> □♢
+> G2???????????????
+> UNSAT
+> m= 2 , k = 1
+> □♢
+> J1
+> □♢
+> J2→
+> □♢
+> G1???????????????
+> · · ·
+> Fig. 1. Two-dimensional search in GR1M INE .Horizontal : template enu-meration over (m, k )via push/pop. Vertical : number of literals D.D= 1 :single literal. D= 2 : two literals, one operator ( ¬x0∧x1, etc.). D= 3 : three literals, two operators. Solid = current; dashed = newly added.
+
+E. Specification Mining 
+
+Given a set of positive traces P and negative traces N ,the specification mining problem is to find a formula φ that separates P and N . Formally, that is to say learn φ such that 
+
+σ |= φ for all σ ∈ P and ς̸ |= φ for all ς ∈ N .III. A LGORITHM 
+
+We now present GR1M INE , a SAT-based procedure for mining GR(1) specifications from lasso traces. GR1M INE per-forms a two-dimensional search: the outer loop increases the number of literals D (vertical axis), controlling how complex each component can be ( D=1 : a single variable, e.g. x0 or 
+
+¬x0; D=2 : two literals, e.g. ¬x0 ∧ x1; D=3 : three literals, e.g. (¬x0 ∨ x1) ∧ x2); the inner loop enumerates template configurations (m, k, F ) (horizontal axis), varying the number of justice and guarantee conditions. For each combination, GR1M INE encodes the mining problem as a SAT instance and checks satisfiability, returning the first solution found. Figure 1 illustrates GR1M INE ’s search strategy. The GR(1) template (1) is parameterized by the number of justice conditions m, guarantees k, and a subset F ⊆{init , safe } indicating which optional component types to in-clude: init ∈ F means the template includes initial-condition components ( init env on the assumption side, init sys on the guarantee side), and safe ∈ F means safety components are included. Since the correct template is unknown, GR1M INE 
+
+searches (m, k, F ) ∈ { 1, . . . , M } × { 1, . . . , K } × 2{init , safe }
+
+in non-decreasing order of total component count m+k+2 |F |.We pre-allocate a set of component identifiers C, one for each slot in the maximal template. Each c ∈ C names an 
+
+unknown propositional formula to be determined by the SAT solver: for instance, init env names the environment initial condition whose content φeI is unknown. Our per-component encoding builds on the DAG-based SAT encoding of Neider and Gavran [7], restricted to propositional operators. The SAT variables xc, n c, l c, r c encode the syntax DAG for c
+
+(Section III-A), yc evaluates it on traces (Section III-B), Algorithm 1: GR1M INE                                                                                                                                                                                         
+
+> Input :Traces ( P,N), partition (AP env ,AP sys ), bounds M,K
+> Output: GR(1) formula separating Pfrom N
+> 1Procedure EncodeAll( S,C, D )
+> 2foreach c∈ C do
+> 3Init xci,p , n ci∀i < D ,p∈Vars (c)// leaves, Sec. III-A
+> 4Init xci,λ ,lci,j ,rci,j ∀D≤i < 2D−1,λ∈ {∧ ,∨} ,j < i
+> // internal nodes
+> 5Init yci,σ,t ∀i < 2D−1,σ∈P∪N,t < |σ|// Sec. III-B
+> 6Init hcσ∀σ∈P∪N// Sec. III-C
+> 7S.add( one-hot labels, arity, acyclicity for xc, l c, r c)
+> 8S.add( propositional semantics of ycvia xc, l c, r c)
+> 9S.add( hcσvia Eqs. (4) –(7) )
+> 10 end procedure
+> 11 S ← SAT SOLVER .NEW ()
+> 12 C ← { J1, . . . , J M, G 1, . . . , G K,init env ,init sys ,safe env ,safe sys }
+> 13 for D= 1 ,2,3, . . . do
+> 14 EncodeAll( S,C, D )// permanent constraints
+> 15 for (m, k, F )∈ { 1,. . ., M }×{ 1,. . ., K }× 2{init ,safe }do
+> 16 A ← { J1,. . ., J m};
+> 17 G ← { G1,. . ., G k}
+> 18 if init ∈Fthen A ← A ∪ { init env };G ← G ∪ { init sys }
+> 19 if safe ∈Fthen A ← A ∪ { safe env };G ← G ∪ { safe sys }
+> 20 S.Push() // ckpt: below is retractable
+> 21 foreach σ∈Pdo
+> 22 S.add( ⋀︁ a∈A haσ⇒⋀︁ g∈G hgσ)// Eq. (8)
+> 23 foreach σ∈Ndo
+> 24 S.add( ⋀︁ a∈A haσ∧ ¬ (⋀︁ g∈G hgσ))// Eq. (9)
+> 25 if S.Sat() then return Reconstruct( model, A,G)
+> 26 S.Pop() // retract consistency constraints
+
+and hc captures whether it holds under its temporal wrapper (Section III-C). The E NCODE ALL subroutine in Algorithm 1 bundles these steps for all components at a given depth. The key observation enabling incremental solving is that all of these constraints are independent of the template assign-ment, with only the consistency constraints ((8)–(9)), asserted in lines 22 and 24 of Algorithm 1, changing. For each depth D,we encode all c ∈ C once, then iterate over template configura-tions. Each configuration partitions the active components into assumption-side ( Ji, init env , safe env ) and guarantee-side ( Gj ,
+
+init sys , safe sys ), asserts the consistency constraints (8)–(9) inside a P USH /P OP scope, and queries the solver. P USH saves a checkpoint on the solver’s constraint stack; P OP retracts all constraints added since the checkpoint, restoring the solver to its prior state. Learned clauses persist across checkpoints, so information gained from one UNSAT configuration prunes subsequent configurations. Algorithm 1 gives the complete procedure; the remaining subsections detail the four families of constraints added by ENCODE ALL : DAG structure (Section III-A), propositional semantics (Section III-B), temporal holds (Section III-C), and trace consistency (Section III-D). 
+
+A. Component DAGs 
+
+Each component c of the GR(1) template is an unknown propositional formula over literals combined with ∧ and ∨.We represent it as a literal-leaves tree with D leaf nodes and 
+
+D−1 internal nodes, for 2D−1 nodes total (a single leaf when 
+
+D=1 ). Nodes 0, . . . , D −1 are leaves (one literal each); nodes 
+
+D, . . . , 2D−2 are internal (one binary operator each); and the root is node 2D−2 for D ≥ 1. For a given D, all DAG variables are created once by E NCODE ALL (Alg. 1) and persist across template configurations; only consistency constraints (Sec. III-D) change. The tree is described by four families of SAT variables:  
+
+> •
+
+Variable selection xci,p : “leaf i selects atomic propo-sition p,” where p ∈ Vars (c), the set of propositions permitted in component c by the environment–system partition. Exactly one p is selected per leaf. For internal nodes, xci,λ with λ ∈ {∧ , ∨} selects the binary operator.  
+
+> •
+
+Polarity nci : “leaf i is negated.” When true, the leaf represents ¬p rather than p. 
+
+> •
+
+Wiring lci,j , rci,j : “the left (right) child of internal node i
+
+is node j,” for D ≤ i < 2D−1, 0 ≤ j < i . Each internal node has exactly one left and one right child.  
+
+> •
+
+Evaluation yci,σ,t : “node i evaluates to true at position 
+
+t of trace σ.” These variables are constrained by the propositional semantics (Section III-B). 
+
+B. Propositional Semantics 
+
+The y variables link each tree to the traces. For a leaf i
+
+selecting proposition xp with polarity flag nci , the evaluation is: yci,σ,t ⇔ σ[t][ p] XOR nci . For primed leaves x′ 
+
+> p
+
+in safety components: yci,σ,t ⇔ σ[next (t)][ p] XOR nci . For internal nodes, the evaluation is determined by the node’s operator and children: 
+
+xci, ∧ ∧ lci,a ∧ rci,b ⇒(︁ yci,σ,t ⇔ yca,σ,t ∧ ycb,σ,t )︁ (2) 
+
+xci, ∨ ∧ lci,a ∧ rci,b ⇒(︁ yci,σ,t ⇔ yca,σ,t ∨ ycb,σ,t )︁ (3) These are asserted for every trace σ and position t.
+
+C. Temporal Holds 
+
+Rather than searching over temporal operators, we hardcode the temporal semantics of each component’s wrapper. A single Boolean variable hcσ captures whether component c holds on trace σ, defined in terms of the root node’s y values. Let ρ
+
+denote the root node index 2D−2. For a trace σ of length L
+
+with lasso start ℓ:
+
+hinit  
+
+> σ
+
+⇔ yinit   
+
+> ρ, σ, 0
+
+(4) 
+
+hsafety  
+
+> σ
+
+⇔⋀︁ L−1 
+
+> t=0
+
+ysafety  
+
+> ρ, σ, t
+
+(5) 
+
+hJi 
+
+> σ
+
+⇔⋁︁ t∈loop (σ) yJi 
+
+> ρ, σ, t
+
+(6) 
+
+hGj 
+
+> σ
+
+⇔⋁︁ t∈loop (σ) yGj 
+
+> ρ, σ, t
+
+(7) 
+
+D. Consistency Constraints 
+
+The consistency constraints are the only constraints that change as the algorithm iterates over configurations (m, k, F )
+
+(Alg. 1, lines 22 and 24). They enforce the assume–guarantee semantics of GR(1) on the given traces, specifically expressing that every positive trace that satisfies all assumptions must also satisfy all guarantees, and every negative trace must satisfy all assumptions while violating at least one guarantee. While iterating through template configurations, if the current configuration is unsatisfiable, the solver retracts the present consistency constraints and tries the next configuration. For-mally, for each positive trace σ ∈ P :⋀︁  
+
+> a∈A
+
+haσ ⇒⋀︁ g∈G hgσ (8) For each negative trace σ ∈ N :⋀︁  
+
+> a∈A
+
+haσ ∧ ¬(︁⋀︁ g∈G hgσ)︁ (9) IV. E VALUATION 
+
+We evaluate GR1M INE on a suite of specifications drawn from real reactive-synthesis benchmarks, comparing against the state-of-the-art constrained LTL learner ATLAS [9] in two configurations. All experiments run on a single core of an Apple M1 Pro ARM machine with a 3-minute timeout. Our evaluation aims to address two research questions: 
+
+RQ1) How effectively does GR1M INE learn specifications from traces generated by GR(1) systems? What about non-GR(1) systems? 
+
+RQ2) How meaningful are learnt specifications for synthe-sis? Are mined formulas realizable, and if so, are synthesized controllers non-trivial? 
+
+A. Benchmarks 
+
+We draw our GR(1) benchmarks from the SYNTECH 
+
+repository of the Spectra project [3]. We consider all Syn-tech benchmarks from the repository that have not been sugared with syntactic extensions (enumerated types, ar-ray indexing). The boolean-only subsets end up being the 
+
+bloemDebugging [11] and cimattiAnalyzing [12] directories, which yield 60 parseable specifications covering hardware-protocol families. To evaluate GR1M INE on specifications outside the GR(1) fragment, we sample 60 TLSF benchmarks from the S YNT -COMP synthesis competition [13]. We consider arbitrary LTL safety/liveness specifications not of the GR(1) form, making them a stress test for whether GR1M INE ’s template-restricted mining still produces useful results when the source specifi-cation is not GR(1)-shaped. For each benchmark, we generate 20 positive and 20 nega-tive lasso traces. Half the traces in each class are produced by a generator that constructs assumption-satisfying traces via Z3 [14]: positive traces satisfy both assumptions and guarantees, while negative traces satisfy the assumptions but violate at least one guarantee. The remaining traces are gen-erated by random sampling of lasso traces, often violating the assumptions. We pad all traces to be length 6, finding that ATLAS does not properly handle inputs with varied trace lengths. We settled on length 6 after preliminary runs with trace lengths 4–8, where longer traces did not empirically capture more complex portions of the original specifications; formula complexity and trace count, rather than trace length, are the dominant runtime bottlenecks. With this mix, we garner rich and varied traces that respect and violate both the assumptions and the guarantees.                                                                                                                                                    
+
+> TABLE I RESULTS ACROSS SYNTECH AND SYNTCOMP BENCHMARKS .Slv :SOLVED WITHIN 3MIN .U:NUMBER OF UNREALIZABLE MINED FORMULA (RED ,
+> SHOWN WHEN NONZERO ). Time :CUMULATIVE WALLCLOCK (SECONDS ).
+> GR1M INE ATLAS[LTL] ATLAS[GR1] Family nSlv(U) Time(s) Slv(U) Time(s) Slv(U) Time(s)
+> SYNTECH
+> A2+AMBA (2) 88356s 1(1) 1272s 01440s A4+AMBA (4) 8810s 8(1) 266s 6640s A5+AMBA (5) 8815s 8475s 41050s AMBA 66128s 2753s 2912s G100 5529s 0900s 0900s G20+GenBuf (20) 8813s 4(1) 1420s 01440s G5+GenBuf (5) 8814s 7262s 8784s GenBuf 9930s 31212s 21413s
+> SYNTECH subtotal 60 60 595s 33 (3) 6561s 22 8579s
+> SYNTCOMP
+> gui glue code synthesis 221s 23s 1185s lily 95746s 1(1) 1528s 01620s ltl2dba 701260s 01260s 01260s ltl2dpa 75557s 01260s 01260s sweap 776s 7(7) 130s 01260s tsl paper 74559s 4603s 01260s tsl smart home jarvis 21 15 1667s 4(1) 3240s 03780s
+> SYNTCOMP subtotal 60 38 4796s 18 (9) 8025s 110625s
+> Total 120 98 5391s 51(12) 14586s 23 19204s
+
+B. Baselines 
+
+We compare GR1M INE against ATLAS [9], a recent con-strained LTL learner that encodes the mining problem as a MaxSAT instance via the Alloy modeling language and the AlloyMax solver. ATLAS accepts user-specified structural constraints in the form of Alloy predicates, allowing it to re-strict the search space. We evaluate against two configurations.  
+
+> •
+
+ATLAS[LTL] : unconstrained LTL mining over the full operator set {□, ♢, ⃝, U, ∧, ∨, ¬, →} . Mined formulas are synthesized via ltlsynt [15].  
+
+> •
+
+ATLAS[GR1] : GR(1) template and the environment– system variable partition encoded as Alloy predicates. As configured, the Alloy fact fixes the template to □♢ J →
+
+□♢ G, with no safety or initial-condition components: ATLAS does not support optional template structure, so covering the full GR(1) template (1) would require enu-merating a separate encoding for each subset of optional components. ATLAS[GR1] and GR1M INE formulas are synthesized via the GR(1) synthesis tool slugs [16]. 
+
+C. Results 
+
+Table I summarizes the results grouped by variable count. Detailed per-benchmark results with mined formulas are given in the accompanying artifact. 
+
+RQ1 How effectively does GR1M INE learn from traces? 
+
+GR1M INE solves all 60 Spectra benchmarks (100%) within the timeout. ATLAS[LTL] solves 33/60 (55%), while AT-LAS[GR1] solves only 22/60 (37%). ATLAS[GR1] times out on all A2+AMBA, G100, and G20+GenBuf benchmarks: encoding the GR(1) template as Alloy predicates atop full 10 1 10 0 10 1 10 2
+
+> Time (s)
+> 010 20 30 40 50 60
+> Benchmarks solved
+> 180s timeout GR1Mine (SYNTECH) ATLAS[LTL] (SYNTECH) ATLAS[GR1] (SYNTECH) GR1Mine (SYNTCOMP) ATLAS[LTL] (SYNTCOMP) ATLAS[GR1] (SYNTCOMP)
+
+Fig. 2. Cactus plot: cumulative benchmarks solved vs. wall-clock time. 10 1 10 0 10 1 10 2      
+
+> GR1Mine time (s)
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> ATLAS[LTL] time (s)
+> GR1Mine vs ATLAS[LTL]
+> SYNTECH solved SYNTECH timeout SYNTCOMP solved SYNTCOMP timeout
+> 10 110 010 110 2
+> GR1Mine time (s)
+> 10 1
+> 10 0
+> 10 1
+> 10 2
+> ATLAS[GR1] time (s)
+> GR1Mine vs ATLAS[GR1]
+> SYNTECH solved SYNTECH timeout SYNTCOMP solved SYNTCOMP timeout
+
+Fig. 3. Scatter plots comparing mining time (log scale). Points above the diagonal indicate GR1M INE is faster. Triangles denote timeouts. 
+
+LTL semantics proves prohibitively expensive at these sizes. On A5+AMBA and G5+GenBuf, all three tools solve most benchmarks, but GR1M INE is significantly faster (avg. ≤1s vs. 17–29s for ATLAS[LTL] and 60–68s for ATLAS[GR1]). On the 60 SYNTCOMP LTL benchmarks, GR1M INE mines a GR(1) formula on 38/60 (63%). ATLAS[LTL] mines a formula on 18/60 (30%), and ATLAS[GR1] mines only 1/60. Under the same template constraint as GR1M INE , the Al-loy/MaxSAT encoding is essentially unable to make progress. The 22 SYNTCOMP benchmarks where GR1M INE returns no specification are precisely those whose ground truth con-tains explicitly non-GR(1) patterns (e.g. persistence/recurrence patterns over nested ⃝). Figure 2 shows a cactus plot of cumulative benchmarks solved as a function of wall-clock time, with solid lines for the Syntech benchmarks and dotted lines for SYNTCOMP. Here, we see that GR1M INE solves both benchmark sets roughly an Order of Magnitude (OoM) faster than ATLAS[LTL] and ∼2OoM faster than ATLAS[GR1]. Figure 3 provides a more gran-ular insight into per-benchmark solve times. On every bench-mark solved by both, GR1M INE is faster than ATLAS[GR1]; ATLAS[LTL] beats GR1M INE on 6/120 benchmarks. 
+
+RQ2 How suitable are learnt specifications for synthesis? 
+
+Alongside the ability to capture a wide range of reac-tive systems, GR(1) specifications are particularly suitable for synthesis as they natively distinguish assumptions from guarantees. Table I shows that all 98 GR1M INE formulas and all 23 ATLAS[GR1] formulas are realizable, while only 39 of 51 ATLAS[LTL] formulas are (76%; 3 unrealizable on Syntech, 9 on SYNTCOMP). Both GR(1)-constrained miners benefit from the env/sys partition baked into the template. AT-LAS[LTL] mines a flat LTL separator over the full vocabulary, drawing no such distinction. As such, the synthesizer then treats the whole formula as a guarantee against an adversarial environment, and any clause that obliges the system to make an environment variable hold is immediately unrealizable. For example, on gen_buf_w_guar_fair_20_genbuf 
+
+ATLAS[LTL] returns ♢ x16 , where x16 is StoB_REQ16 , an environment request line from sender 16. ltlsynt treats this as a guarantee, asking the controller to ensure an input it cannot drive eventually goes high. An adversarial environment holds StoB_REQ16 low forever, so no controller exists. Every ATLAS[LTL] unrealizability we observed has this prop-erty. GR1M INE avoids this by construction: StoB_REQ16 
+
+can only land inside a justice assumption □♢ StoB_REQ16 ,never a guarantee. The remaining (realizable) ATLAS[LTL] formulas are trivial separators such as ♢xi or simple disjunc-tions. V. R ELATED WORK 
+
+a) Learning Specifications from Traces: Flie [7] was a seminal work for learning the smallest LTL formula separating positive from negative lasso traces by SAT encodings over syn-tax DAGs. Our propositional encoding builds on this frame-work but eliminates temporal operator search by fixing the GR(1) skeleton. Tools such as Scarlet [17] and Bolt [18] have been developed for the finite-trace LTL f setting, where traces are not lasso-shaped and temporal operator semantics change. Fijalkow and Lagarde [19] establish complexity bounds for passive LTL learning, showing NP-hardness even for restricted fragments that are weaker than GR(1), e.g. LTL(X, ∧). All of these approaches mine monolithic temporal formulas without an environment-system boundary. 
+
+b) Constrained Specification Mining: Texada [8] was among the first to introduce user-specified property templates into specification mining. LTLSketcher [20] extends this idea to sketch completion: given a partial LTL formula with holes, it fills them from positive and negative examples using a SAT encoding. ATLAS [9] further generalizes structural constraints via first-order relational logic in Alloy, reducing constrained LTL learning to MaxSAT. One can encode GR(1) structure as an ATLAS constraint, but the underlying encoding retains full LTL semantics, in practice leading to intractable search. 
+
+c) GR(1) Learning: Orthogonally, work on GR(1) as-sumption mining [21], [22], [6] automatically refines envi-ronment assumptions for a given set of system guarantees, while [23] localizes errors in existing GR(1) specifications and [24] repairs them. These approaches assume that part of the specification is already known; GR1M INE mines the complete assume–guarantee formula from traces alone. VI. C ONCLUSION 
+
+We presented GR1M INE , a SAT-based algorithm for mining GR(1) specifications from lasso traces. By fixing the temporal skeleton of the GR(1) template and encoding only propo-sitional content, GR1M INE eliminates the need to search over temporal operators and produces formulas that are di-rectly suitable for reactive synthesis. An environment–system variable partition ensures that mined specifications respect the assume–guarantee boundary, and incremental SAT solving enables efficient enumeration over template configurations. Across 120 benchmarks drawn from Syntech and SYNT-COMP, GR1M INE solves 98 within a 3-minute timeout, and all 98 mined specifications are realizable. Compared to the other GR(1)-constrained miner, ATLAS[GR1] (23/120 solved), GR1M INE is consistently an order of magnitude faster. Compared to unconstrained LTL mining via AT-LAS[LTL] (51/120 solved), GR1M INE is faster on all but five small ( ≤ 8 variable) benchmarks while additionally guaran-teeing that every mined formula is realizable. ATLAS[LTL] returns flat LTL separators that omit the env/sys partition and are unrealizable in 24% of its successful runs. REFERENCES [1] R. Bloem, S. Galler, B. Jobstmann, N. Piterman, A. Pnueli, and M. Weiglhofer, “Automatic hardware synthesis from specifications: A case study,” in Proc. Design, Automation and Test in Europe (DATE) ,2007, pp. 1–6. [2] H. Kress-Gazit, G. E. Fainekos, and G. J. Pappas, “Temporal-logic-based reactive mission and motion planning,” IEEE Transactions on Robotics ,vol. 25, no. 6, pp. 1370–1381, 2009. [3] S. Maoz and J. O. Ringert, “GR(1) synthesis for LTL specification pat-terns,” in Proc. Joint Meeting on European Software Engineering Con-ference and Symp. Foundations of Software Engineering (ESEC/FSE) ,2015, pp. 96–106. [4] N. Piterman, A. Pnueli, and Y. Sa’ar, “Synthesis of reactive(1) designs,” in Proc. Verification, Model Checking, and Abstract Interpretation (VMCAI) , 2006, pp. 364–380. [5] A. Pnueli and R. Rosner, “On the synthesis of a reactive module,” in 
+
+Proc. ACM Symp. Principles of Programming Languages (POPL) , 1989, pp. 179–190. [6] L. Ye, Y. Li, G. Frankel, J. Cheng, and E. Polgreen, “Unlocking hardware verification with oracle guided synthesis,” in 2025 Formal Methods in Computer-Aided Design (FMCAD) , 2025, pp. 1–11. [7] D. Neider and I. Gavran, “Learning linear temporal properties,” in Proc. Formal Methods in Computer-Aided Design (FMCAD) , 2018, pp. 1–10. [8] C. Lemieux, D. Park, and I. Beschastnikh, “General LTL specification mining,” in Proc. Automated Software Engineering (ASE) , 2015, pp. 81–92. [9] R. Zhang, C. Zhang, R. Meira-Goes, and D. Garlan, “ATLAS: Con-strained specification learning from examples with AlloyMax,” in Proc. IEEE/ACM Int. Conf. Software Engineering (ICSE) , 2025. [10] A. Pnueli, “The temporal logic of programs,” in Proc. IEEE Symp. Foundations of Computer Science (FOCS) , 1977, pp. 46–57. [11] R. Bloem, B. Jobstmann, N. Piterman, A. Pnueli, and Y. Sa’ar, “Synthe-sis of reactive(1) designs,” Journal of Computer and System Sciences ,vol. 78, no. 3, pp. 911–938, 2012. [12] A. Cimatti, L. Geatti, N. Gigante, A. Montanari, and S. Tonetta, “Expressiveness of extended bounded response LTL,” in Proc. LPAR ,2020. [13] S. Jacobs, R. Bloem, R. Brenguier, A. Khalimov, F. Klein, R. K¨ onighofer, J. Kreber, A. Legg, N. Narodytska, G. P´ erez, J.-F. Raskin, L. Ryzhyk, O. Sankur, M. Seidl, L. Tentrup, and A. Walker, “The reactive synthesis competition (syntcomp): 2018 edition and future directions,” in Proceedings of the Workshop on Synthesis (SYNT) , 2017. [14] L. de Moura and N. Bjørner, “Z3: An efficient SMT solver,” in Tools and Algorithms for the Construction and Analysis of Systems (TACAS) ,ser. LNCS, vol. 4963. Springer, 2008, pp. 337–340. [15] T. Michaud and M. Colange, “Reactive synthesis from LTL specification with spot,” in Proc. Int. Workshop on Synthesis (SYNT) , 2018. [16] R. Ehlers and V. Raman, “Slugs: Extensible GR(1) synthesis,” in Proc. Computer Aided Verification (CAV) , 2016, pp. 333–339. [17] R. Raha, R. Roy, N. Fijalkow, and D. Neider, “Scalable anytime algorithms for learning fragments of linear temporal logic,” in Proc. Tools and Algorithms for the Construction and Analysis of Systems (TACAS) , 2022, pp. 263–280. [18] G. Bathie, N. Fijalkow, T. Matricon, B. Mouillon, and P. Vandenhove, “LTL f learning meets boolean set cover,” in Proc. Tools and Algorithms for the Construction and Analysis of Systems (TACAS) , 2026. [19] N. Fijalkow and G. Lagarde, “The complexity of learning linear temporal logic,” in Proc. Int. Conf. Grammatical Inference (ICGI) , 2021, pp. 237– 250. [20] S. Lutz, D. Neider, and R. Roy, “Specification sketching for linear temporal logic,” in Proc. Automated Technology for Verification and Analysis (ATVA) , 2023, pp. 26–48. [21] K. Chatterjee, T. A. Henzinger, and B. Jobstmann, “Environment as-sumptions for synthesis,” in Proc. Concurrency Theory (CONCUR) ,2008, pp. 147–161. [22] W. Li, L. Dworkin, and S. A. Seshia, “Mining assumptions for syn-thesis,” in Proc. ACM/IEEE Int. Conf. Formal Methods and Models for Codesign (MEMOCODE) , 2011, pp. 43–50. [23] R. K¨ onighofer, G. Hofferek, and R. Bloem, “Debugging formal speci-fications: A practical approach using model-based diagnosis and coun-terstrategies,” in Int. Journal on Software Tools for Technology Transfer (STTT) , vol. 15, 2013, pp. 563–583. [24] T.-A. Georgescu, A. W. Goodall, D. Alrajeh, F. Belardinelli, and S. Uchitel, “Adaptive gr(1) specification repair for liveness-preserving shielding in reinforcement learning,” 2026. [Online]. Available: https://arxiv.org/abs/2511.02605
