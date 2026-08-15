@@ -1,0 +1,2765 @@
+ARMOR: Accelerating RTL Simulation by
+Mitigating the Front-End Bottleneck Using
+Node Compression
+Jiaping Tang∗†‡, Jianan Mu∗#, Zhiteng Chao∗#, Jingzhong Wen§, Jing Ye∗‡, and Huawei Li∗†‡ #
+∗State Key Laboratory of Processors, Institute of Computing Technology, Chinese Academy of Sciences, Beijing, China
+† University of Chinese Academy of Sciences, Beijing, China
+‡ CASTEST Co., Ltd., Beijing, China
+§ Zijing Xinjie Intelligent Technology Co., Ltd., Beijing, China
+{tangjiaping22s, mujianan, chaozhiteng, yejing, lihuawei}@ict.ac.cn, jzhwen@siorigin.com
+Abstract—Register-transfer level (RTL) simulation is indis-
+pensable in chip design. High-performance simulators typically
+lower each node in the RTL graph into an instruction sequence.
+Although this per-node lowering enables aggressive compiler op-
+timizations, it dramatically increases the code footprint, severely
+exceeding instruction cache capacity and causing front-end bot-
+tlenecks. Our profiling reveals that over 50% of pipeline stalls
+are caused by the CPU front-end, becoming a key performance
+bottleneck in state-of-the-art RTL simulators. However, reaping
+the optimization benefits of fully unrolling the RTL graph while
+simultaneously reducing the code footprint to mitigate front-end
+bottlenecks remains highly challenging.
+In this paper, we propose ARMOR, an efficient RTL simulator
+designed to alleviate the front-end bottleneck through node
+compression. The key idea is to exploit the data parallelism
+exposed by the unrolling RTL graph and the insufficient bit-space
+utilization revealed by per-node lowering, leveraging bit-level
+data parallelism to compress multiple nodes simultaneously, so
+that a single instruction sequence can serve multiple nodes instead
+of one per node. To achieve profitable node compression, we
+first propose a module-aware isomorphic subgraph identification
+method that leverages structural isomorphism across module
+instances to systematically identify compression opportunities
+at the subgraph level. We then propose an alignment-aware
+dense packing strategy that groups nodes into packs according
+to dataflow dependencies while preserving data reuse, com-
+plemented by greedy merging strategies to enhance bit-space
+utilization. Finally, we implement a unified bit-level parallelism
+scheme to support bit-level parallel execution of compressed
+nodes. Experimental results show that ARMOR compresses 57%
+of nodes on average, effectively mitigating front-end bottlenecks,
+and achieving 1.6× speedup on CPU designs and 2.7× speedup
+on AI accelerators compared to state-of-the-art simulators.
+Index Terms—Hardware Verification, RTL Simulation, Front-
+End Bottleneck, Subgraph Isomorphism, Bit-level Data Paral-
+lelism
+I. INTRODUCTION
+RTL simulators are fundamental software tools in the digital
+circuit design flow, frequently employed during both design
+and debugging. Improving RTL simulation performance sig-
+nificantly enhances chip development efficiency and has long
+been a key topic of interest in both academia and industry [1],
+[2], [3], [4], [5], [6], [7], [8]. Despite the emergence of various
+Front-End Bound
+Bad Speculation
+Back-End Bound
+Retiring
+73
+71.9
+81
+50.7
+20.5
+0%
+20%
+40%
+60%
+80%
+100%
+Verilator
+Dedup Verilator
+Dedup
+Conv2D-16×16
+Boom-8C
+1
+4
+16
+64
+256
+1024
+4096
+Conv2D-16×16
+Boom-8C
+ (KB / Cycle)
+Verilator
+Dedup
+L1I
+(a)
+(b)
+9.4×
+42.4×
+Fig. 1: Profiling data for Conv2D [18] and Boom designs [19]
+are collected using Intel VTune [20] on the Platinum 8338
+processors. (a): Micro-architectural profiling results of the
+Verilator [3] and Dedup [5]. (b): Instruction working set size
+per cycle of Verilator and Dedup.
+hardware-assisted simulation and emulation platforms [9],
+[10], [11], [12], [13], [14], the mainstream approach for
+RTL simulation remains software-based execution on general-
+purpose CPUs, especially in the early stages of design itera-
+tion, due to their flexibility and ease of debugging [1].
+RTL simulation can be viewed as a topological evaluation
+of a circuit dataflow graph called RTL graph, where each
+node is computed in dependency order to generate the circuit
+state for the next cycle. To accelerate evaluation of RTL
+graphs, prior works [2], [3], [4], [5], [8], [15], [16], [17]
+have explored a range of optimizations, including reducing
+redundant computation, optimizing memory access patterns,
+and minimizing inter-core synchronization overhead. Despite
+achieving significant performance gains, these approaches
+adopt a node-granular execution model, where each node
+is lowered into instructions and executed individually. This
+execution model leads to long instruction streams, resulting in
+increased code footprint.
+RTL simulation on CPUs suffers from a significant front-end
+bottleneck. As shown in Figure 1 (a), for Verilator [3], over
+70% of CPU pipeline slots go unoccupied due to insufficient
+micro-ops supply from the front-end. Our analysis identifies
+L1-I cache misses as the principal cause: RTL graphs often
+arXiv:2608.08462v1  [cs.AR]  9 Aug 2026
+
+
+ Load: 12; Store: 4; Comp: 7
+Total: 23
+(a)
+(b)
+ Load: 6; Store: 2; Comp: 4; Data Rearrangement: 2
+Total: 14
+ϝ0
+Ϟ0
+ϝ1
+Ϟ1
+ϝ2
+Ϟ2
+ϝ3
+Ϟ3
+ϟ0
+ϟ1
+ϟ2
+ϟ3
+Ϡ0
+Ϡ1
+Register
+Dataflow
+Comb logic
+ϝ2ϝ0
+Ϟ2Ϟ0
+ϝ3ϝ1
+Ϟ3Ϟ1
+ϟ2ϟ0
+ϟ3ϟ1
+Ϡ0
+Ϡ1
+Data Rearrangement
+Ϡ1Ϡ0
+Fig. 2: Example of a 2-stage pipeline. RTL simulation without
+node compression (a) and with node compression (b).
+consist of numerous nodes, each lowered into an instruction
+sequence, making the instruction working set excessively
+large. As shown in Figure 1 (b), the working set per cycle can
+grow to hundreds or thousands of kilobytes, vastly exceeding
+the 32 KB L1 instruction cache capacity by more than an
+order of magnitude, causing frequent cache misses. Besides,
+the working set grows with design size, exacerbating the
+bottleneck. Therefore, a key to accelerating CPU-based
+RTL simulation is to reduce the code footprint, thereby
+alleviating pressure on the CPU front-end.
+Structured or reusable representations of the RTL graph
+appear to be a natural way to reduce code footprint. For
+example, loop-based representations roll repeated computation
+into compact kernels [8], and code-reuse approaches extract
+common RTL regions into reusable code [5]. However, both
+approaches reduce code footprint by sacrificing the static
+specialization provided by fully unrolled code, such as hard-
+coded signal accesses and compile-time-visible dataflow [5],
+[8], [21]. This loss of static specialization turns compile-
+time-resolved signal accesses into runtime-resolved memory
+accesses, thereby exacerbating the back-end bottleneck, as
+shown in Figure 1 (a) when Dedup simulates Boom-8C. More-
+over, it also limits the compiler’s ability to perform aggressive
+optimizations [8]. Overall, fully unrolled code usually provides
+strong performance advantages over rolled representations by
+enabling static hard-coding and compiler optimization oppor-
+tunities [8], and therefore remains the mainstream representa-
+tion for compiled RTL simulation [2], [3], [4], [15], [16], [17].
+Therefore, the key challenge in optimizing RTL simulation
+lies in simultaneously achieving two goals: keeping the
+RTL graph fully unrolled to reap the benefits of static
+specialization, while reducing the code footprint caused
+by full unrolling to avoid front-end bottlenecks.
+Although unrolling the RTL graph increases code footprint,
+it also exposes abundant data parallelism, creating opportu-
+nities for optimizing code footprint. Our key insight is to
+exploit this parallelism via node compression: multiple iso-
+morphic nodes are evaluated simultaneously using a single
+instruction sequence instead of one per node. This approach
+preserves the fully unrolled RTL graph while avoiding the
+code footprint growth caused by unrolling, thereby reducing
+the instruction working set and alleviating front-end bottle-
+necks. As illustrated in Figure 2 with a simple yet intuitive
+and powerful example, without node compression shown in
+Figure 2 (a), each simulation cycle requires 23 operations.
+In contrast, with node compression shown in Figure 2 (b),
+each cycle requires only 14 operations. This reduction not only
+reduces the code footprint but also decreases the computational
+workload, thereby improving simulation performance.
+In this paper, we propose ARMOR1, an efficient RTL sim-
+ulator that alleviates front-end bottlenecks through node com-
+pression. Our approach is motivated by two key observations.
+First, machine words are significantly underutilized, leading to
+bit-level waste. Second, unrolled RTL graphs expose abundant
+parallelism among isomorphic nodes, enabling multiple nodes
+to be executed simultaneously. These observations suggest an
+opportunity to increase the per-instruction workload by com-
+pressing multiple nodes into a single instruction sequence. To
+realize this idea, we design a node compression framework that
+systematically exploits such opportunities. We first identify
+isomorphic subgraphs using a module-aware approach to ex-
+pose compression opportunities at the subgraph level. We then
+develop an alignment-aware packing strategy that maximizes
+the number of nodes mapped into a machine word while
+preserving data reuse. Finally, we implement a unified bit-level
+parallel execution scheme that supports common operations
+in the RTL graph and efficiently executes compressed nodes.
+We evaluate ARMOR on a set of AI accelerators and CPU
+designs. Experimental results show that ARMOR compresses
+57% of nodes on average, and achieves 2.7× speedup on
+AI accelerator designs and 1.6× speedup on CPU designs
+compared to state-of-the-art simulators.
+This paper makes the following contributions:
+• We propose node compression, implemented via bit-
+level data parallelism, which exploits both the inherent
+parallelism of isomorphic nodes in the RTL graph and
+the underutilization of bit-space to reduce code footprint
+and mitigate front-end bottlenecks in RTL simulation.
+• We propose a module-aware isomorphic subgraph identi-
+fication method, design an alignment-aware packing strat-
+egy, and implement a unified bit-level parallel execution
+scheme, making node compression practically profitable.
+• We demonstrate that ARMOR is effective and scalable
+in mitigating front-end bottlenecks and delivering perfor-
+mance improvements across diverse RTL designs.
+II. BACKGROUND
+A. RTL Simulation Overview
+RTL simulation converts hardware designs described in
+RTL into a dataflow graph, where nodes represent com-
+ponents (e.g., adders, registers) and edges represent wires
+connecting them [9], [22], [23], as shown in Figures 3 (a)
+and (b). This graph is then translated into a software program,
+as illustrated in Figures 3 (c) and (d), compiled into a simu-
+lator [9]. There are two main types of RTL simulation: event-
+driven and full-cycle or cycle-based. In event-driven simula-
+1https://github.com/jptang99-star/ARMOR.git
+
+
+module Design(
+  input wire CLK, In1,
+  input wire [7:0] In2,
+  output wire [15:0] out);
+  reg [15:0] n1;
+  wire [15:0] n2, n3;
+  assign n2 = n1 * In2;
+  assign n3 = n1 + In2;
+  assign out = In1 ? n2 : n3;
+  always @(posedge CLK) 
+  begin
+     n1 <= In1 ? n2 : n3;
+  end
+endmodule
+(a)
+In2
+In1
+Out
++
+*
+n1
+n2
+n3
+(b)
+void one_cycle_eval(){
+   n2 = In2 * n1;
+   n3 = In2 + n1;
+   out = In1 ? n2 : n3;
+   n1 = out; 
+}
+void eval_n2(){
+   activate[n2] = false;
+   n2 = In2 * n1;
+   activate[out] = n2 has event
+}
+void one_cycle_eval() {
+   if (activate[n2]) eval_n2();
+   ……
+}
+(c)
+(d)
+Fig. 3: Example of RTL code (a) and its corresponding
+dataflow graph (b). Compiled full-cycle simulator (c) and
+event-driven simulator (d) that only shows the eval function
+of node n2. Event management is highlighted in green. The
+one cycle eval function simulates one cycle per execution.
+tion, each signal change triggers events, propagating updates
+until no further events occur. This minimizes computation
+but incurs event management overheads (green-highlighted
+in Figure 3 (d)). Full-cycle simulation, also called oblivious
+simulation, evaluates the entire design every clock cycle,
+even when inputs remain unchanged, leading to redundant
+computations but avoiding scheduling overhead. Both types of
+simulation have their respective application scenarios: event-
+driven suits low-activity designs like CPUs, while full-cycle
+suits high-activity designs like AI accelerators.
+Besides, event-driven simulation and full-cycle simulation
+can leverage compilation techniques, with compiled simula-
+tors outperforming interpreted ones by nearly 100× [3], [6].
+Figures 3 (c) and (d) show compiled implementations for
+full-cycle and event-driven simulations, respectively. Compiled
+simulators unroll the entire dataflow graph, making memory
+access patterns and computations statically known at compile
+time, enabling aggressive compiler optimizations. However,
+this unrolling can overwhelm the processor’s front-end due to
+the large instruction working set.
+B. Front-end Bottleneck
+The processor front-end is responsible for fetching, decod-
+ing, and delivering micro-ops to the rest of the processor
+pipeline, called the back-end [24], [25]. Front-end bound
+describes a performance bottleneck where the processor stalls
+due to limitations in the front-end stages, such as instruction-
+cache misses and insufficient decode bandwidth. When front-
+end bound dominates, the instruction supply rate is insufficient
+to keep the back-end fully utilized, thus resulting in poor
+performance [24], [26], [27], [28], [29], [30].
+Some works [26], [31], [32], [33] tailored for the front-
+end bottleneck have proposed optimization strategies at the
+hardware level, such as improving instruction cache replace-
+ment and instruction prefetching. However, due to the unique
+characteristics of RTL simulation tasks, such as the pres-
+ence of an extremely large instruction working set and long
+reuse interval, these optimizations struggle to deliver the
+expected performance gains. Moreover, compared to software-
+level approaches, hardware-level optimizations typically re-
+quire modifying the processor micro-architecture, which is
+costly, inflexible, and unable to benefit the vast number of
+already-deployed CPUs. Collectively, these factors underscore
+the urgent need for targeted solutions that address front-end
+inefficiencies in RTL simulation, which we focus on in this
+paper.
+III. MOTIVATION & CHALLENGE
+A. Inefficiency of Node-Granular Execution
+91.37
+84.61
+0
+20
+40
+60
+80
+100
+Conv2D-16×16
+Boom-8C
+1-16
+16-32
+Others
+32.08
+8.44
+55.14
+60.83
+8.54
+15.83
+Conv2D-16×16
+Boom-8C
+Mem
+Logic
+Eq
+Others
+1
+100
+10000
+0
+2
+4
+6
+8
+10 12 14
+1
+100
+10000
+1
+11
+21
+31
+41
+51
+61
+71
+81
+91
+101
+Conv2D-16×16
+Boom-8C
+(a)
+(b)
+(c)
+1000
+1000
+96.7%
+96.4%
+Fig. 4: Distribution of (a) Node bit-widths, (b) Node types,
+and (c) Node counts across topology levels in the RTL graph.
+For the Boom-8C design, the first 10% of topology levels are
+reserved for better visualization.
+We perform a systematic analysis of RTL simulation task
+characteristics and hardware resource utilization efficiency,
+yielding the following key observations:
+Observation 1: Bit-space inefficiency. Our analysis of
+the bit-width distribution of various nodes in RTL graphs, as
+shown in Figure 4 (a), reveals that over 80% of nodes operate
+on fewer than 16 bits. In contrast, modern CPUs are designed
+to handle 64-bit operations efficiently. Prior works [2], [3],
+[4], [5], [15], [16], [17] extend these low-bitwidth operands to
+standard widths (e.g., 16 or 32 bits), resulting in severe under-
+utilization of the available bit-space and inefficient use of
+computational resources, which we term bit-space inefficiency.
+We evaluate a set of benchmarks, as detailed in Section V-C3,
+and observe that certain designs exhibit critically low bit-space
+utilization, with utilization below 20%.
+Observation 2: Abundant data-level parallelism. The
+RTL graph exhibits a highly skewed node-type distribution,
+dominated by a few node types. As shown in Figure 4 (b),
+memory-access nodes (e.g., registers declared in RTL designs),
+bitwise logical operation nodes (e.g., AND, OR, XOR, and
+NOT), and Eq operation nodes account for approximately
+32.08%, 55.14%, and 8.54% of all nodes in the Conv2D-
+16 × 16 design, respectively. This indicates the prevalence
+of isomorphic nodes that share the identical operation type
+but differ only in operands. Furthermore, the RTL graph
+also exhibits a pronounced skewed topology, with nodes
+highly concentrated in a small number of topological levels.
+Topological analysis, as shown in Figure 4 (c), reveals that
+nodes are highly concentrated in the first few levels, with
+levels containing over 1,000 nodes accounting for more than
+96% of all nodes in the RTL graph. Critically, nodes within
+
+
+1265
+3150
+2014
+72
+32
+292
+97
+69
+96
+16
+32
+64
+128
+256
+512
+1
+10
+100
+1000
+10000
+Conv2D-16×16
+Gemmini-32×32
+Boom-8C
+Number
+Size
+Coverage
+Fig. 5: Number, Size, and Cov-
+erage denote the number of iso-
+morphic subgraph instances of
+any structure, their average size,
+and the percentage of nodes
+covered by these subgraphs.
+i
+a
+b
+e
+c
+d
+g
+h
+k
+j
+f
+i
+a
+b
+e
+c
+d
+g
+h
+k
+j
+f
+a
+b
+c
+d
+g
+e
+f
+h
+i
+j
+k
+a
+b
+c
+d
+e
+f
+g
+g
+d
+b
+e
+(a): Optimal Pack
+(b): Sub-optimal initial seed
+(c): Sub-optimal expansion decision
+i
+a
+b
+e
+c
+d
+g
+h
+k
+j
+f
+c
+a
+b
+d
+f
+g
+h
+k
+i
+j
+c
+a
+b
+d
+f
+g
+c
+e
+e
+d
+e
+g
+a
+c
+b
+d
+f
+e
+g
+h
+j
+i
+k
+a
+c
+b
+d
+d
+g
+f
+d
+Data flow
+Pack
+Data Rearrangement
+Operands / Results
+Fig. 6: In this illustrative example, nodes at the same topological level are isomorphic,
+and same-colored nodes form a pack. Edges highlighted in red indicate the expansion
+from {b,d} to next-level candidates. (a): An ideal packing result requires only three data
+rearrangements. (b): A sub-optimal initial seed selection chooses {a,b} and {c,d} as seed
+packs. (c): A sub-optimal expansion decision expands from {b,d} to {f,g} instead of {e,g}.
+Both sub-optimal choices result in seven data rearrangements.
+the same topological level can be computed independently.
+Taken together, these characteristics exhibited by RTL graphs
+indicate that RTL simulation exhibits abundant data-level
+parallelism, with large groups of isomorphic nodes amenable
+to parallel evaluation.
+Overall, these observations indicate a granularity mis-
+match between RTL node evaluation and host-machine
+execution. Conventional node-granular execution underuti-
+lizes the bit-space within host machine words and leaves
+abundant independent node-level evaluation unexploited.
+B. Motivation: From Isolated Compression to Subgraph Reuse
+The above observations reveal opportunities for compressed
+execution, where multiple narrow RTL nodes are mapped
+to different bit regions of the same machine word and are
+evaluated together. However, compressing nodes based only
+on locally identical operators is insufficient. If the surrounding
+dataflow offers limited opportunities for reusing compressed
+results, the output of one compressed node group may not
+be directly consumed by downstream compressed nodes, in-
+troducing data rearrangement overhead, i.e., extra operations
+to remap packed bits for downstream use. Therefore, ef-
+fective compressed execution requires repeated computation
+structures whose producer-consumer relationships are also
+preserved. To characterize whether RTL graphs provide such
+opportunities, we further profile repeated subgraphs in RTL
+designs. As shown in Figure 5, nearly 70% of RTL nodes
+are covered by structurally repeated subgraphs, referred to as
+isomorphic subgraphs. In these isomorphic subgraphs, nodes
+at the same structural positions have consistent producer-
+consumer relationships, providing opportunities for reusing
+compressed results. This indicates that compression opportu-
+nities in RTL graphs are not limited to isolated nodes, but
+can propagate along producer-consumer dependencies across
+isomorphic subgraph instances.
+To this end, these results provide a structural basis for
+node compression. Instead of lowering each RTL node into
+a separate instruction sequence, node compression aggregates
+multiple parallelizable RTL nodes into different bit positions
+of the same host word and lowers them collectively into a
+shared instruction sequence. This reduces both the generated
+instruction working set and the number of executed node-
+evaluation operations, thereby mitigating the front-end bottle-
+neck of compiled RTL simulation.
+C. Challenges in Node Compression
+Despite these opportunities, realizing node compression
+is non-trivial. A complete compressed execution flow must
+answer three questions. First, ARMOR must discover node
+groups that preserve reusable producer-consumer structures,
+rather than relying on isolated local compression. Second, it
+must place nodes into machine words while balancing bit-
+space utilization with reusable downstream bit layouts. Third,
+it must generate correct word-level execution for operations
+that introduce dependencies across compressed bit regions.
+These requirements lead to the following challenges.
+Challenge 1: Subgraph-level correspondence in Pack
+Discovery. The first challenge is to discover groups of
+RTL nodes with consistent correspondence across producer-
+consumer dependencies. A natural question is whether ex-
+isting superword-level parallelism (SLP) vectorization can
+be directly applied. Existing general-purpose discovery ap-
+proaches [34], [35], [36], [37], [38], [39], [40] used in SLP
+typically start from seed packs and expand them along use-
+def or def-use chains [34]. This dependency-driven expansion
+can preserve reuse between producer and consumer packs,
+but the resulting correspondence is highly dependent on local
+decisions [41], including the initial seed selection and subse-
+quent expansion choices. Different local choices may induce
+different correspondences among downstream nodes, leading
+to different final packs and data-rearrangement costs. Figure 6
+contrasts the ideal case with two typical failure cases. Specif-
+ically, Figure 6 (a) shows an ideal packing result, resulting
+in only three data rearrangements. In contrast, Figure 6 (b)
+shows a sub-optimal initial seed selection: choosing {a,b}
+and {c,d} as seed packs is locally reasonable, but it induces
+an unfavorable downstream correspondence and increases the
+number of data rearrangements to seven. Figure 6 (c) shows
+another failure mode: even with a good initial seed, a sub-
+optimal expansion decision, e.g., expanding from {b,d} to
+
+
+{f,g} instead of {e,g}, propagates an unfavorable correspon-
+dence and also results in seven data rearrangements. However,
+if pack discovery can recognize {a,b,e,h} and {c,d,g,j} as two
+isomorphic subgraphs in advance in Figure 6 (a), it can directly
+derive the desired correspondence, such as {a,c}, {b,d}, {e,g},
+and {h,j}, thereby achieving an ideal packing result. Such
+subgraph-level correspondence directly avoids relying solely
+on local packability and provides stable and reliable guidance
+for both seed selection and pack expansion.
+Obtaining such subgraph-level correspondence is difficult
+because it hinges on identifying isomorphic subgraphs. Thus,
+the key challenge is to recover this correspondence without
+resorting to a generic exhaustive subgraph-isomorphism search
+over the entire RTL graph.
+Challenge 2: Conflict between bit-space utilization and
+layout reuse. After pack discovery identifies candidate nodes
+for compression, node packing must balance bit-space uti-
+lization and layout reuse. Here, layout reuse means that the
+bit positions produced by one pack match the bit positions
+expected by its downstream consumer pack. For example,
+if a producer pack {a,c} feeds a consumer pack {b,d},
+using the same bit ordering allows the values of a and c
+to be directly consumed by b and d, respectively, without
+data rearrangement. However, packing nodes to preserve such
+producer-consumer layouts may leave bits within a machine
+word underutilized, lowering overall utilization. Conversely,
+packing strategies that aggressively maximize bit utilization
+may combine nodes with incompatible producer or consumer
+layouts, introducing frequent data rearrangement. As these
+objectives are inherently conflicting, achieving high bit-space
+utilization while maintaining reusable bit layouts constitutes a
+challenge in node packing.
+Challenge 3: Incompatibility between bit-level parallel
+execution and cross-slice dependent operations. Node com-
+pression maps multiple nodes onto a single machine word
+to enable bit-level parallel execution, where each node is
+allocated a contiguous group of bits, referred to as a bit slice.
+However, this technique only applies to slice-independent op-
+erations, such as logical operations; any cross-slice dependen-
+cies would prevent correct execution. For example, for equality
+comparisons, directly applying a scalar equality comparison to
+two packed operands produces R = VL−1
+l=0 Eq(Xl, Yl), where
+Xl and Yl are the operands of slice l, and L is the number of
+slices. Ideally, each slice would produce an independent 0/1
+result, but the cross-slice dependency forces aggregation into a
+single output. Consequently, supporting cross-slice dependent
+operations while preserving bit-level parallelism remains a
+challenge in the compressed execution stage.
+To overcome these challenges, we propose the ARMOR
+framework, which is introduced in the following sections.
+IV. FRAMEWORK OF ARMOR
+A. Overview
+As illustrated in Figure 7, the ARMOR framework takes
+FIRRTL [42] files as input, applies bit-level data parallelism
+Input
+Output
+①  Subgraph Identification 
+③ Compression Execution
+ALU
+BMI
+1 0 0
+x
+LUT
+0 1 0
+ 
+ 
+0x2
+0x1
+a
+b
+lut.reset(old_a)
+lut.set(a)
+_pext_u64(lut, mask)
+res =  arg1 op arg2
+_pdep_u64(...)
+② Node Packing
+0x1
+0x2
+a
+b
+Top
+Inst1 of M
+Inst1 of N
+...
+IR 
+0x0
+0x2
+a
+b
+Alignment-aware 
+Packing
+Pack Merging
+Code segment
+Data rearrangement
+ 
+Eq groups
+Pack
+Merge
+Emit
+Low Data Rearrangement 
+Overhead
+High Bit-space 
+Utilization
++
+Hierarchy Graph
+Seed 
+pack
+Fig. 7: An overview of ARMOR.
+to compress nodes, and ultimately lowers it to a C++ file that
+can be compiled into a cycle-based RTL simulator.
+The node-compression pipeline consists of three stages.
+First, ARMOR identifies isomorphic subgraphs from the RTL
+graph. Second, guided by the identified isomorphic subgraphs,
+ARMOR packs parallelizable isomorphic nodes into machine-
+word-sized packs. Finally, ARMOR lowers these packs into
+operation-specific C++ implementations. In the generated
+C++ code, slice-independent operations are emitted as scalar
+bitwise operations, while cross-slice or layout-manipulation
+operations that require bit extraction/deposition explicitly use
+BMI2 intrinsics such as _pext_u64 and _pdep_u64,
+which are then lowered by the C++ compiler to target
+PEXT/PDEP instructions on BMI2-supported platforms.
+The following subsections describe each stage in detail and
+explain how ARMOR addresses the corresponding challenges:
+efficient subgraph-level discovery (Section IV-B), alignment-
+aware dense packing (Section IV-C), and correct compressed
+execution for diverse RTL operations (Section IV-D).
+B. Module-Aware
+Isomorphic
+Subgraph
+Identification
+&
+Alignment
+Identifying isomorphic subgraphs is a fundamental prerequi-
+site for effective node compression, as it provides a subgraph-
+level compression perspective. Without such a perspective,
+compressible nodes are discovered in a scattered and short-
+sighted manner [34], [35], preventing coordinated packing
+across structurally equivalent regions and leading to increased
+data rearrangement overhead. However, directly identifying
+isomorphic subgraphs on an RTL graph is computationally
+impractical, as RTL graphs are large in scale and subgraph
+isomorphism mining is an NP-hard problem [43], [44].
+
+
+Fortunately, RTL graphs are not arbitrary structures but
+are structured by module instantiation, especially in highly
+parallel architectures with extensive module reuse [45], [46],
+[47], [48]. Specifically, each module instance corresponds to
+a subgraph in the RTL graph, and multiple instances of the
+same module naturally exhibit structural isomorphism. This
+structural regularity allows us to bypass general isomorphic
+subgraph mining and instead leverage module hierarchy as
+a deterministic mechanism for identifying isomorphic sub-
+graphs. Based on this observation, we propose a module-aware
+isomorphic subgraph identification & alignment approach that
+leverages module structure to deterministically identify and
+group structurally equivalent nodes across instances, enabling
+coordinated compression at the subgraph level.
+To jointly capture structural information and data depen-
+dencies, we construct a hierarchical graph and a flat dataflow
+graph for the RTL design. The flat dataflow graph Gf =
+(V, Ef) models computation-level dependencies, while the
+hierarchical graph Gh = (M, Eh) represents module instances
+and their containment relationships. Each node v ∈V is
+associated with a module instance m ∈M via a mapping
+ϕ : V →M, preserving module context.
+We define compression domains D as proxies for isomor-
+phic subgraphs, grouping structurally equivalent nodes across
+module instances and serving as the basis for subsequent
+packing. The isomorphic subgraph identification & alignment
+algorithm (Algorithm 1) proceeds as follows.
+• First, module instances in Gh are grouped by module
+type. For each module type T, we collect all instances
+IT = {I1, I2, . . . , Ik}.
+• Second, for each instance Ii, we extract the corresponding
+node set Si = {v ∈V | ϕ(v) = Ii} from the flat dataflow
+graph Gf.
+• Finally, we align structurally equivalent nodes and collect
+them, forming D. Instead of performing general subgraph
+isomorphism testing, we adopt a name-based alignment
+strategy. Since node names within a module definition are
+unique, nodes across different instances can be directly
+aligned by matching their names. For each node name in
+module type T, we aggregate nodes with the same name
+across all instances to form a compression domain Dn,
+and collect all such domains to obtain D.
+This algorithm bypasses costly subgraph isomorphism min-
+ing and testing, reducing the problem from combinatorial
+matching to simple linear-time grouping. The complexity is
+linear in the number of module instances and the number
+of nodes per module, making it highly practical. Overall,
+our module-aware approach enables efficient identification and
+alignment of isomorphic subgraphs, directly addressing the
+challenge of identifying isomorphic structures, and finally
+providing subgraph-level coordination for node compression
+in the RTL graph.
+C. Alignment-Aware Dense Node Packing
+While compression domains contain structurally equivalent
+isomorphic nodes across isomorphic subgraphs, they do not
+Algorithm 1 Module-Aware Subgraph Identification & Align-
+ment
+Input: Flat dataflow graph Gf = (V, Ef)
+Input: Hierarchical graph Gh = (M, Eh)
+Input: Mapping ϕ : V →M
+Output: Compression domains D
+1: D ←∅
+// Isomorphic subgraph identification
+2: Group module instances in M by module type
+3: for all module type T do
+4:
+IT ←instances of type T
+5:
+Extract subgraphs Si = {v ∈V | ϕ(v) = Ii} for each
+Ii ∈IT
+// Isomorphic subgraph alignment
+6:
+Let NT be the set of node names defined in module
+type T
+7:
+for all node name n ∈NT do
+8:
+Dn ←∅▷Dn: one group of structurally aligned
+nodes
+9:
+for all instance Ii ∈IT do
+10:
+v ←node in Si with name n
+11:
+Add v to Dn
+12:
+end for
+13:
+Add Dn to D
+14:
+end for
+15: end for
+16: return D
+directly map to hardware-executable units. To become ex-
+ecutable units, nodes must be organized into packs under
+several constraints. First, each pack must satisfy the hardware
+width constraint, i.e., the total bit-width of packed nodes
+cannot exceed the machine-word width. Second, nodes within
+a pack must be dependency-free so that they can be executed
+in parallel. In addition to these basic legality constraints,
+pack construction must preserve structural alignment across
+isomorphic subgraphs. This alignment enables subgraph-level
+data reuse between packs and reduces unnecessary data rear-
+rangement.
+A fundamental challenge in node packing is the inherent
+conflict between bit-space utilization and data reuse efficiency.
+On the one hand, maximizing bit-space utilization requires
+densely packing nodes to fully utilize machine words. On
+the other hand, high data reuse relies on preserving pro-
+ducer–consumer alignment so that data produced by upstream
+packs can be directly consumed by downstream packs. Packing
+decisions that focus solely on bit-width often break this
+alignment, forcing data to be rearranged across packs and
+introducing data rearrangement overhead, while focusing on
+data reuse alone may lead to underutilization of bit-space.
+To address this challenge, we propose alignment-aware dense
+node packing, a heuristic strategy that explicitly balances
+this trade-off by jointly optimizing data reuse and bit-space
+utilization.
+First, to improve data reuse, we adopt an alignment-aware
+
+
+expansion strategy that expands packs along dataflow de-
+pendencies while maintaining structural alignment, enabling
+both intra- and inter-subgraph data reuse. To maintain struc-
+tural alignment during expansion, we expand packs along
+the dependencies of compression domains in a coordinated
+manner. Specifically, during expansion, we ensure that all
+nodes within each newly expanded pack belong to the same
+compression domain, thereby preserving producer–consumer
+alignment across packs and enabling direct data reuse with
+minimal data rearrangement.
+Second, to improve bit-space utilization, we introduce two
+complementary strategies. In the initial pack construction
+phase, we first select a maximal feasible group of nodes that
+fills a machine word as densely as possible subject to hardware
+width constraints, thereby providing high initial utilization.
+Specifically, for a machine-word width W and a node width
+w (the maximum bitwidth among the node’s operands and
+result), each maximal feasible group selects up to ⌊W/w⌋re-
+maining nodes from the same domain. After alignment-aware
+expansion, we further perform intra-domain pack merging,
+where multiple packs within the same compression domain are
+merged whenever their combined bit-width does not exceed
+the machine word size. Since these packs remain within the
+same compression domain and preserve structural alignment,
+such merging rarely induces data rearrangement.
+Based on these ideas, we propose the alignment-aware dense
+node packing algorithm (Algorithm 2).
+• First, we partition each compression domain according to
+the topological levels of the RTL graph, grouping nodes
+at the same level into a sub-compression domain. This
+ensures that nodes subsequently grouped into the same
+pack are dependency-free and can therefore be executed
+in parallel.
+• Second, we construct a dependency graph G over the sub-
+compression domains, where each node in G stores the
+corresponding sub-compression domain together with the
+packs constructed during packing. The graph G is then
+used for subsequent alignment-aware expansion.
+• Third, we perform a topological traversal of G, iteratively
+constructing initial packs and expanding them. Specifi-
+cally, starting from a maximal feasible group, packs are
+expanded along two levels of data dependencies. First,
+the algorithm follows dependencies in G to identify the
+target compression domain S.domain. Then, based on
+producer–consumer relationships, it selects nodes within
+S.domain that consume the data produced by the seed
+pack PF and groups them into a new pack PS. Once a
+new pack is formed, the associated node S is updated by
+removing the packed nodes from S.domain and inserting
+the new pack into S.packs.
+• Finally, intra-domain merging is applied to improve bit-
+space utilization once the alignment-aware expansion is
+finished.
+Overall, the algorithm follows an “alignment-first, density-
+second” idea, mitigating the conflict between bit-space utiliza-
+Algorithm 2 Alignment-Aware Dense Node Packing
+Input: Compression domains D
+Input: Machine word size W
+Input: Bit-width function w(·)
+Input: Consumer function cons(·)
+Output: Pack set
+// Partition compression domain
+1: S ←PARTITIONBYTOPOLOGICALLEVEL(D)
+// Each node N ∈G stores N.domain and N.packs
+2: G ←BUILDDEPENDENCYGRAPH(S)
+// Alignment-aware expansion
+3: for all nodes N ∈G in topological order do
+4:
+while N.domain̸ = ∅do
+5:
+PN ←SELECTMAXFEASIBLEGROUP(N, W)
+6:
+frontier ←{(N, PN)}
+7:
+update N using PN
+8:
+while frontier̸ = ∅do
+▷Try to expand
+9:
+pop (F, PF ) from frontier
+▷Seed pack PF
+10:
+for all successor nodes S of F in G do
+11:
+PS ←cons(PF ) ∩S.domain ▷New pack
+12:
+if w(PS) ≤W and |PS| > 1 then
+13:
+add (S, PS) to frontier
+14:
+update S using PS
+15:
+end if
+16:
+end for
+17:
+end while
+18:
+end while
+19: end for
+// Intra-domain merging
+▷Dense
+20: for all nodes N ∈G do
+21:
+while ∃Pi, Pj ∈N.packs s.t. w(Pi ∪Pj) ≤W do
+22:
+Pnew ←Pi ∪Pj
+23:
+N.packs ←(N.packs \ {Pi, Pj}) ∪{Pnew}
+24:
+end while
+25: end for
+26: return S
+N∈G N.packs ▷Collect packs across all nodes
+tion and data reuse efficiency, and achieves high utilization
+with limited data rearrangement overhead.
+D. Bit-level Compression Execution
+Operations in RTL graphs, referred to as RTL operations,
+exhibit diverse dependency patterns across slices, complicating
+bit-level parallel execution. In general, these RTL operations
+can be categorized into two types. Slice-independent opera-
+tions allow each slice to be computed independently without
+cross-slice interference, thus enabling direct bit-level paral-
+lelization. In contrast, cross-slice dependent operations are
+coupled across slices or have variable slice widths, preventing
+naive bit-level parallel execution.
+To address this challenge, we categorize RTL operations
+based on their dependency characteristics and adopt tailored
+bit-level compression execution strategies that preserve cor-
+rectness while enabling parallel execution wherever possible.
+In this section, we present a unified bit-level compression
+
+
+(e)
+(c)
+(b)
+(a)
+Src
+Mask
+Dest
+Src
+Mask
+Dest
+(a)
+(d)
+0
+ϝ0
+Ϟ0
+ϟ0
+1
+ϝ1
+Ϟ1
+ϟ1
+machine word
+Memory Layout
+Eq-operation 
+group
+0xA
+0xB
+0xF 0xE
+0/1
+…
+0/1
+0/1 0/1
+At most one output is 1
+Non-constant 
+operand
+1 0 0 0
+Set
+Const operands
+Lookup table
+1 0 0 0 0 0
+0xA
+0xB
+0xC
+0xD
+0xE
+0xF
+Reset
+Non-constant operand from 0xA to 0xF
+PEXT
+Pack order:[0,1]
+MSB LSB
+ϝ0 ϝ1
+Align
+Fig. 8: Examples of (a) PDEP and (b) PEXT; (c) Pack-aligned
+memory layout; (d) An Eq-operation group; (e) LUT-based
+compression execution.
+execution scheme that efficiently supports both types of RTL
+operations.
+1) Bit Manipulation Instructions: Before describing our
+bit-level compression execution, we introduce two key instruc-
+tions from the Bit Manipulation Instructions (BMI) set [49]:
+PDEP and PEXT, which allow efficient bit-level deposition
+and extraction:
+• PDEP (Parallel Bit Deposit) deposits bits from a source
+word into a destination word according to a mask, as
+shown in Figure 8 (a).
+• PEXT (Parallel Bit Extract) extracts bits from a source
+word according to a mask and packs them contiguously
+into the least significant bits of the destination word, as
+shown in Figure 8 (b).
+2) Compression Execution for Logical Operations: Logi-
+cal operations, such as AND, OR, and NOT, form the majority
+of RTL operations (over 55%, shown in Figure 4 (b)) and
+naturally satisfy the slice-independence property, since they
+do not propagate carries across bits. Consequently, multiple
+slices can be executed in parallel without introducing any data
+dependencies. This provides a straightforward and efficient bit-
+level compression execution.
+3) Compression Execution for Memory Access Opera-
+tions: Memory access operations, primarily originating from
+registers, also satisfy the slice-independence property, allowing
+multiple slices to access memory in parallel. Leveraging this
+characteristic, we adopt a pack-aligned memory layout shown
+in Figure 8 (c), where each pack exclusively occupies a single
+machine word with its data layout aligned to the node order
+within the pack. This memory layout avoids separate memory
+access and data rearrangements for individual slices, reducing
+both access and rearrangement overhead.
+4) Compression Execution for Eq Operations: Eq oper-
+ations inherently exhibit cross-slice dependencies, meaning
+that the result of an individual slice cannot be obtained
+independently. Nonetheless, we observe distinct opportunities
+for compression execution across different design types.
+For AI accelerators, quantization techniques [50], [51], [52],
+[53] are widely adopted, resulting in low bit-width operands.
+Leveraging this characteristic, Eq operations between two
+packed operands X and Y can alternatively be implemented
+by first computing the XOR and then using PEXT combined
+with bitwise OR operations. Specifically, let Mi denote the
+mask selecting the i-th bit from all slices. We first compute
+the XOR of the two packed operands, Z = X ⊕Y , which
+identifies differing bits. Then, for each bit position, we extract
+bits from slices using PEXT, Zi = PEXT(Z, Mi), and finally,
+the equality result for all slices is obtained by R = ¬ Wk−1
+i=0 Zi,
+where k is the slice bit-width. Note that this approach is
+beneficial only for Eq operations with small operand bit-
+widths (e.g., ≤4).
+For CPU designs, operands are typically wider, rendering
+the above approach ineffective. However, we observe that
+many Eq operations form groups in which one operand is
+a shared non-constant operand whose value is produced at
+runtime, while the other operand is a compile-time constant
+literal. An example is shown in Figure 8 (d). For each Eq-
+operation group, the non-constant operand takes a fixed value
+in a simulation cycle, so at most one Eq operation in the group
+evaluates to 1 while the others are 0. To exploit this property,
+we adopt a lookup table (LUT)-based compression execution
+method shown in Figure 8 (e). The LUT size is determined by
+the bitwidth of the operands, whose value range is known at
+compile time. In this method, each LUT entry stores a Boolean
+value indicating the result of an Eq operation with a particular
+constant operand. The constant operand determines which
+entry in the LUT is associated, while the non-constant operand
+acts as an index to update the entry. Therefore, the execution
+of each Eq-operation group is transformed into a LUT update:
+at the start of a simulation cycle, the entry indexed by the
+non-constant value is reset, and the other entry indexed by
+the newly computed non-constant value is subsequently set.
+This approach efficiently compresses multiple Eq operations
+into a single LUT update. Furthermore, PEXT can also be
+applied to extract bits from the LUT in parallel. Besides, to
+avoid excessive memory overhead, we limit the LUT size to
+512 entries, which requires only 64 bytes of storage and is
+therefore negligible.
+5) Compression Execution for Special Operations: Cer-
+tain special operations, including shift-based operations and
+selective bit extraction, also exhibit cross-slice dependencies.
+Shift Operations: Shift-based operations, such as left shifts,
+typically involve a constant operand in RTL simulation. At
+compile time, we construct a mask according to the slice
+layout and constant operand, and at runtime, PDEP deposits
+the source bits into their target positions. Figure 8 (a) illustrates
+an example where PDEP performs a left shift by one bit across
+all slices.
+Bit Extraction Operations: These operations extract se-
+lected bits from slices, usually specified by a constant operand.
+We implement them using PEXT, generating the mask at
+compile time and extracting bits at runtime. Figure 8 (b) shows
+an example where the most significant bit of each slice is
+extracted.
+
+
+V. EVALUATION
+A. Setup
+The experiments are conducted on a server equipped with
+two Intel Xeon Platinum 8338 processors, each featuring
+64 cores. Each core is configured with a private 32KB L1
+instruction cache, a private 48KB L1 data cache, and a private
+1.25MB L2 cache. Each processor includes a shared 48MB L3
+cache. Clang++-12 is used as the default compiler throughout
+this study, with optimization level -O2.
+The simulators used for comparison include Verilator (ver-
+sion 5.036) [3], Arcilator [54], Khronos [16], Repcut [4], and
+RTeAAL Sim [8] as cycle-based compiled RTL simulation
+baselines aligned with ARMOR. Dedup [5] and ESSENT [15]
+are also included, although they are event-driven, because
+Dedup also targets front-end bottlenecks in RTL simulation
+through code reuse, and ESSENT is its baseline. In addition,
+FIRRTL IR is adopted as the canonical input representation, as
+it can be converted to other input formats required by different
+simulators, such as CIRCT IR [54] and Verilog. Notably,
+RTeAAL Sim uses a loop-based representation that enables
+several loop-unrolling optimizations; we therefore adopt its
+PSU configuration, which provides the best performance.
+B. Benchmark Evaluation
+We evaluate two representative design categories: AI accel-
+erators and CPU designs. The designs are generated using the
+TensorLib [18] and Chipyard [55]. Both frameworks support
+scalable hardware configurations by varying the number of
+processing elements (PEs) or cores. We select the following
+designs as benchmarks (Table I):
+• GEMM-n×n:
+General
+Matrix-Matrix
+Multiplica-
+tion (GEMM) accelerator with an n×n PE array, where
+each PE operates on 8-bit operands.
+• Conv2D-n×n: Convolution accelerator with an n×n PE
+array, where each PE operates on 8-bit operands.
+• Gemmini-n×n: DNN accelerator with an n×n PE array,
+where each PE operates on 8-bit operands [56].
+• Rocket-nC: RocketChip with n in-order RISC-V Medium
+Rocket cores [57].
+• Boom-nC: Boom with n out-of-order RISC-V Small
+Boom cores [19].
+• Boom-MnC: Boom with n out-of-order RISC-V Mega
+Boom cores [19].
+TABLE I: Evaluation of benchmark scale and module reuse.
+Benchmark
+IR Nodes
+IR Edges
+Module
+Instance
+Reuse
+GEMM-16×16
+21410
+30345
+14
+1778
+99%
+Conv2D-16×16
+93350
+150838
+21
+1570
+99%
+Gemmini-32×32
+154948
+261205
+99
+3240
+97%
+Rocket-8C
+122062
+202753
+341
+1297
+74%
+Boom-2C
+169628
+308586
+461
+1098
+58%
+Boom-8C
+611397
+1123760
+461
+2745
+83%
+Boom-M8C
+2862097
+5452476
+378
+4365
+91%
+Average
+-
+-
+-
+-
+85%
+Table I summarizes the characteristics of the evaluated
+benchmarks, including the scale of RTL graphs, the number
+of modules and instances, and the module reuse ratio. On
+average, the module reuse ratio reaches 85%, indicating a
+high degree of structural reuse in the highly parallel designs.
+Such structural regularity implies the presence of abundant
+isomorphic subgraphs in the RTL graphs, thereby creating
+substantial opportunities for node compression.
+11.1
+46.1
+22.7
+36.48
+64.77
+25.58
+17.16
+28.97
+30.11
+38.53 34.51
+10
+30
+50
+70
+0
+20
+40
+60
+80
+GEMM-16×16
+Conv2D-16×16
+Gemmini-32×32
+Rocket-8C
+Boom-2C
+Boom-8C
+Boom-M8C
+Average
+Benefit (% )
+Compression or Overhead
+ Nodes (% )
+Mem Access 
+Compute 
+Overhead
+Benefit
+Fig. 9: Breakdown of node compression, including memory
+access and computation nodes, together with the overhead
+of data rearrangement, and the resulting net reduction. The
+average values are highlighted in red.
+Figure 9 provides a detailed breakdown of node compres-
+sion along with the overhead introduced by data rearrange-
+ment. The overhead is quantified by the number of introduced
+data packing and unpacking operations. On average, 11.1%
+of memory access nodes and 46.1% of computation nodes are
+compressed. This compression comes at a cost of 22.7% over-
+head from data rearrangement. Nevertheless, after accounting
+for this overhead, the proposed node compression still achieves
+an average net reduction of 34.51% in the size of the RTL
+graph.
+Figure 10 quantifies the implicit code reuse enabled by node
+compression. Unlike conventional function-level code reuse,
+node compression reuses code implicitly at the instruction-
+sequence level: one compressed word-level instruction se-
+quence represents the scalar execution of multiple isomor-
+phic RTL nodes before compression. We quantify the code
+reuse enabled by node compression using the eliminated
+instruction percentage. From the static-code perspective, node
+compression achieves an average static implicit code reuse rate
+of 29.4%, meaning that 29.4% of the generated instruction
+footprint is removed by reusing one compressed instruction
+sequence for multiple isomorphic nodes. From the dynamic-
+execution perspective, it achieves an average dynamic im-
+plicit code reuse rate of 24.54%, meaning that 24.54% of
+56.78
+30.06
+29.4
+51.16
+30.74
+24.54
+0
+10
+20
+30
+40
+50
+60
+Conv2D-16×16
+Boom-8C
+Average
+Eliminated Instructions (% )
+Dynamic 
+Static 
+Fig. 10: Percentage of static and dynamic instructions elimi-
+nated with node compression.
+
+
+1.83
+2.79
+3.84
+1.28
+1.71
+1.95
+1.56
+0
+0.5
+1
+1.5
+2
+2.5
+3
+0
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+GEMM-16×16
+Conv2D-16×16
+Gemmini-32×32
+Rocket-8C
+Boom-2C
+Boom-8C
+Boom-M8C
+IPC
+Speedup (×)
+Speedup
+IPC
+1.86
+2.02
+1.11
+2.11
+2.64
+1.64
+1.65
+2.32
+1.45 1.29
+0.83
+1.16
+2.07
+1.04 1.03
+1.75
+0.5
+1.5
+2.5
+IPC
+1 1.3
+1.11
+1.971.84
+0.770.75
+2.69
+1
+0.64
+1.241.171.141.19
+1.29
+1.63
+0
+0.5
+1
+1.5
+2
+2.5
+3
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Arcilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+AI Accelerator
+CPU
+Speedup (×)
+(a) 
+(b) 
+Fig. 11: (a) Comparison of simulation performance in terms of speedup and IPC. (b) Average speedup and IPC across AI
+accelerator and CPU designs. The baseline is Repcut. ARMOR is highlighted with yellow bars, and its speedup values are
+annotated on the bars.
+dynamically executed scalar instructions are avoided through
+compressed execution.
+C. Performance Comparison
+1) Runtime comparison: We evaluate the performance of
+various simulators across all the aforementioned benchmarks.
+Figure 11 presents the speedup of each simulator relative to
+Repcut, along with its instructions per cycle (IPC). As shown
+in Figure 11, ARMOR consistently achieves the best perfor-
+mance for both AI accelerator and CPU designs. Specifically,
+ARMOR attains a peak speedup of 3.84× on Gemmini-32×32
+and 1.95× on Boom-8C. On average, ARMOR achieves
+speedups of 2.69× on AI accelerator designs and 1.63× on
+CPU designs. In terms of IPC, ARMOR also outperforms
+other simulators, except for RTeAAL. Specifically, ARMOR
+achieves average IPCs of 2.32 on AI accelerator designs and
+1.75 on CPU designs, both substantially higher than Verilator,
+which shows the lowest IPCs of 1.11 and 0.83, respectively.
+The higher IPC achieved by ARMOR can be attributed to
+its effective mitigation of front-end bottlenecks, preventing
+pipeline stalls caused by insufficient instruction supply. A
+detailed analysis of this effect is presented in Section V-C2.
+Interestingly, for the event-driven simulators ESSENT and
+Dedup, simulation performance on AI accelerator designs
+is consistently inferior to that of cycle-based simulators. In
+contrast, for CPU designs, they generally outperform cycle-
+based simulators, except in the case of ARMOR. This phe-
+nomenon is determined by the intrinsic signal activity patterns
+of the two types of designs. The high signal activity in AI
+accelerator designs [58], [59] makes the overhead of event
+scheduling and management in event-driven simulation exceed
+the cost of redundant computation in cycle-based simulation.
+Conversely, CPU designs exhibit extremely low signal activ-
+ity [15], [60], [61], enabling event-driven simulation to prune
+inactive computations and thus achieve higher performance.
+Despite the above observations, ARMOR consistently achieves
+the best performance among all simulators, demonstrating its
+robustness across diverse design types. It is worth noting
+that although ARMOR is a cycle-based simulator, the node
+46.5
+46
+19.7 26.1
+51.5
+24.7
+61
+29.1 26.4 17.3
+42.9
+27.3 22.6 32.9 38.5 35.9
+21.3
+50.6
+31.1 34.7 44.5
+47.1 47.6
+73
+71.9
+73.7
+31.9
+68.2
+57.8
+81
+50.7
+74.8 61.9 55.7 55.6 76.1
+6.4
+43.4
+58.1 47.6
+44
+51.7
+20.5
+42.5
+21.5
+0%
+20%
+40%
+60%
+80%
+100%
+Repcut
+Khronos
+Verilator
+Dedup
+RTeAAL
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+RTeAAL
+Dedup
+ESSENT
+Armor
+Conv2D-16×16
+Boom-8C
+Average
+Retiring
+Front-End Bound
+Bad Speculation
+Back-End Bound
+Fig. 12: Micro-architecture results of Conv2D-16×16, Boom-
+8C designs, and the average.
+compression technique proposed in this paper is not limited
+to cycle-based simulation and can also be applied in event-
+driven simulation.
+2) Front-End Bottleneck Comparison: To evaluate AR-
+MOR’s effectiveness in mitigating front-end bottlenecks, we
+conduct a detailed micro-architectural analysis using both
+Perf [62] and Intel VTune [20]. VTune’s Top-Down Mi-
+croarchitecture Analysis identifies performance bottlenecks
+of software running on Intel processors, focusing on four
+metrics: Retiring, Front-end bound, Back-end bound, and Bad
+speculation [25].
+Figure 12 reports the top-down metrics for two designs,
+Conv2D-16 × 16 (AI accelerator) and Boom-8C (CPU), as
+well as the averages across all evaluated benchmarks. As
+expected, fully unrolled simulators suffer from more severe
+front-end bottlenecks than non-fully-unrolled simulators such
+as Dedup and RTeAAL Sim. However, reducing full unrolling
+also introduces significant back-end pressure. For example,
+the back-end bounds of RTeAAL Sim and Dedup reach
+42.5% and 21.5%, respectively, which are much higher than
+those of fully unrolled simulators. We do not further explore
+this front-end/back-end trade-off in this paper; instead, the
+following analysis focuses on the setting targeted by ARMOR:
+mitigating front-end bottlenecks in fully unrolled simulators.
+Among the fully unrolled simulators, ARMOR exhibits the
+lowest front-end bound for both AI accelerator and CPU
+
+
+5 . 2 6
+3 . 4 2
+3 . 4 6
+5 . 3 6
+1 1 . 2 6
+4 . 1 1
+1 0 . 1 8
+1 . 8
+8 . 6 2
+3 . 1
+1
+1
+1 . 2 6
+1 . 1 3
+1 . 6 3
+1 . 0 3
+1 . 0 7
+1
+1 . 2 8
+1 . 2
+1 . 9 1
+0 . 9 4
+1 . 5
+1
+C o n v 2 D - 1 6 × 1 6
+B o o m
+- 8 C
+0
+2
+4
+6
+8
+1 0
+1 2
+N o r m
+a l i z e d V a l u e
+( a )
+( b )
+C o n v 2 D - 1 6 × 1 6
+B o o m
+- 8 C
+0
+3 0
+6 0
+9 0
+1 2 0
+1 5 0
+1 8 0
+L 1 I M
+i s s e s ( B )
+ R e p c u t  
+ K h r o n o s 
+ V e r i l a t o r  
+ D e d u p 
+ E S S E N T 
+ A r m o r
+N o r m
+a l i z e d L 1 I M
+P K I
+0
+1
+2
+Fig. 13: (a): Normalized idq_uops_not_delivered.core.
+(b): L1I cache misses and normalized L1I MPKI. All
+normalized values are relative to ARMOR; lower is better.
+25.57
+45.61
+1.78
+0
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+0
+20
+40
+60
+80
+100
+GEMM-16×16
+Conv2D-16×16
+Gemmini-32×32
+Rocket-8C
+Boom-2C
+Boom-8C
+Boom-M8C
+Average
+Relative Improvement (×)
+Bit Ulitization (% )
+Single-node 
+Multi-node
+Relative Improvement
+48-64
+32-48
+16-32
+1-16
+(a) 
+9%
+91%
+(c) 
+58%
+11%
+1%
+30%
+(b) 
+Fig. 14: (a) Bit-space utilization comparison between single-
+node execution and multi-node execution. Node bit-width
+distribution in the Conv2D-16 × 16 design under the single-
+node (b) and multi-node (c) execution.
+designs, with an average front-end bound of 47.6%, lower
+than Verilator’s 76.1%, the highest among the evaluated fully
+unrolled simulators. Furthermore, we note that the front-end
+bound is calculated relative to each simulator’s total CPU
+execution cycles2 rather than an absolute cross-simulator com-
+parison. To obtain a more simulator-independent measure, we
+record idq_uops_not_delivered.core events using
+Perf, which counts the number of micro-ops the front-end fails
+to deliver. As shown in Figure 13 (a), ARMOR consistently
+achieves the lowest value of this metric among all evaluated
+simulators. This indicates that ARMOR delivers micro-ops
+more efficiently, experiencing lower front-end pressure than
+other simulators.
+Complementing this, Figure 13 (b) reports L1 instruction
+cache misses, and L1 instruction cache misses per kilo instruc-
+tions (L1I MPKI). Overall, ARMOR exhibits fewer L1 cache
+misses and lower L1I MPKI than other simulators. This re-
+duction directly decreases instruction fetch stalls and prevents
+pipeline stalls due to cache fills. Consequently, the front-end
+can supply instructions to the back-end more steadily, mit-
+igating instruction starvation. Taken together, these analyses
+show that ARMOR improves both instruction fetch efficiency
+and front-end instruction supply, thereby effectively alleviating
+front-end bottlenecks and ultimately enhancing overall CPU
+pipeline utilization compared to other simulators.
+2Front-end bound = idq uops not delivered.core / (n × cycles), where n
+is the CPU issue width.
+1.79
+1.78
+1.82
+1.98
+0
+0.5
+1
+1.5
+2
+2.5
+0
+10
+20
+30
+40
+50
+60
+70
+80
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+1C
+2C
+4C
+8C
+Speedup (×)
+Frequency
+Speedup
+1.46
+1.9
+2
+2.79
+4.63
+0
+1
+2
+3
+4
+5
+0
+500
+1000
+1500
+2000
+2500
+3000
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+Repcut
+Verilator
+Armor
+2×2
+4×4
+8×8
+16×16
+20×20
+Speed (KHz)
+Frequency
+Speedup
+(a) Conv2D
+(b) Boom
+Fig. 15: The performance of RTL simulators and the corre-
+sponding speedup relative to Repcut across different architec-
+tural parallelism configurations.
+3) Bit-space utilization comparison: To evaluate the im-
+provement in machine-word utilization, we compare the bit-
+space utilization between the single-node execution and our
+multi-node execution model. As shown in Figure 14 (a), on
+average, the bit utilization of single-node execution is 25.57%,
+while multi-node execution achieves 45.61%, yielding a 1.78×
+improvement. These results demonstrate that single-node exe-
+cution leads to substantial under-utilization of machine words,
+whereas multi-node execution effectively improves bit-space
+utilization.
+To better understand the source of the improvement in bit-
+space utilization, we analyze the distribution of node bit-
+widths in the Conv2D-16 × 16 design, which exhibits the
+largest improvement in bit utilization across all designs. Node
+widths are grouped into four ranges: [1,16), [16,32), [32,48),
+and [48,64]. As shown in Figure 14 (b) under single-node
+execution, about 91% of nodes have bit-widths smaller than
+16 bits, leading to substantial waste of machine-word space.
+In contrast, with our node compression, the utilized bit-
+widths of approximately 70% of the packs exceed 32 bits, as
+shown in Figure 14 (c), significantly improving machine-word
+utilization.
+D. Impact of Architectural Parallelism Degree
+To evaluate how simulation performance changes with the
+degree of architectural parallelism, we scale the number of
+replicated modules in the RTL design. Specifically, we select
+benchmarks from both AI accelerators and CPU designs,
+varying parallelism by scaling the PE array size for Conv2D
+(2×2 to 20×20) and the number of cores for Boom (1 to 8).
+As shown in Figure 15, the performance advantage of
+ARMOR becomes increasingly pronounced as the degree of
+parallelism grows. For instance, for the Conv2D design, the
+speedup over Repcut improves from 1.46× under the 2×2
+configuration to 4.63× at 20×20. Although the performance
+gain for Boom is less pronounced, it still shows a steady
+increasing trend with higher parallelism. This trend is at-
+tributed to higher architectural parallelism, which introduces
+more substantial isomorphic structures in the RTL graph,
+providing greater opportunities for node compression and
+ultimately more effectively alleviating front-end bottlenecks.
+Consequently, ARMOR is able to achieve greater perfor-
+
+
+GEMM-16×16
+Conv2D-16×16
+Rocket-8C
+Boom-8C
+0
+20
+40
+60
+80
+100
+1
+4
+16
+1
+4
+16
+1
+4
+16
+1
+4
+16
+Bit Utilization (% )
+2.08
+1.59
+1
+1.2
+1.4
+1.6
+1.8
+2
+2.2
+1
+2
+4
+8
+16 Max
+Speedup (×)
+(a) 
+(b) 
+GEMM
+16×16
+Conv2D
+16×16
+Rocket
+8C
+Boom
+8C
+Fig. 16: Speedup (a) and Bit-space utilization (b) of ARMOR
+under different compression granularities. The speedup is
+normalized to the compression granularity of 1.
+mance gains. More importantly, this trend further highlights
+that ARMOR is expected to exhibit even more pronounced
+performance advantages on future designs with higher par-
+allelism [48]. Conversely, these results also indicate that
+designs with lower module reuse or more irregular structures
+provide fewer compression opportunities, so the benefit of
+node compression is expected to be smaller. Overall, these
+results demonstrate that ARMOR achieves superior scalability
+by effectively leveraging structural isomorphism introduced by
+highly parallel architectures, enabling consistently higher per-
+formance gains across both AI accelerator and CPU designs.
+E. Impact of Compression Granularity
+To analyze the impact of the number of compressed nodes
+per machine word on simulation performance, we vary the
+compression granularity by limiting the maximum number
+of nodes packed into a single machine word. Specifically,
+we limit the number of compressed nodes to 1, 2, 4, 8,
+16, and Max, where Max represents the hardware-imposed
+upper bound on the pack size. Figure 16 shows the impact
+of compression granularity on simulation performance and
+bit-space utilization. As shown in Figure 16 (a), increasing
+the number of compressed nodes per machine word improves
+simulation performance for both AI accelerator and CPU
+designs. This is because larger pack sizes enable more ef-
+fective exploitation of bit-level parallelism, reducing both the
+number of executed operations and the code footprint, thereby
+improving simulation performance. Correspondingly, packing
+more nodes into one machine word also increases bit-space
+utilization, as illustrated in Figure 16 (b).
+F. Impact of Data width
+Modern AI accelerators widely adopt quantization tech-
+niques, such as INT8, and even lower-precision data represen-
+tations, to reduce computation and memory cost [50], [51],
+[52], [53]. Since data width affects the number of nodes that
+can be packed into a single machine word in ARMOR, we
+evaluate its impact on the performance of ARMOR across
+different data widths. In this experiment, we evaluate widely
+adopted quantization data widths of 2-bit, 4-bit, 8-bit, and
+16-bit on the Conv2D-16 × 16 and GEMM-16 × 16 designs,
+while keeping the architecture unchanged. Figure 17 shows
+the performance of the baseline (without node compression)
+and ARMOR across different data widths. We observe that
+0
+50
+100
+150
+Baseline
+Armor
+Baseline
+Armor
+Baseline
+Armor
+Baseline
+Armor
+2 Bit
+4 Bit
+8 Bit 16 Bit
+Speed (KHz)
+(a)
+1.51×
+200
+250
+300
+350
+400
+Baseline
+Armor
+Baseline
+Armor
+Baseline
+Armor
+Baseline
+Armor
+2 Bit
+4 Bit
+8 Bit
+16 Bit
+1.08×
+(b)
+2.5×
+1.3×
+Fig. 17: RTL simulation performance under different data
+widths of AI accelerators: (a) Conv2D-16 × 16; (b) GEMM-
+16 × 16.
+2.79
+1.95
+2.91
+2.08
+0
+1
+2
+3
+4
+Repcut
+Khronos
+Verilator
+Dedup
+ESSENT
+Armor
+Repcut
+Khronos
+Verilator
+Dedup
+ESSENT
+Armor
+Speedup (×)
+Server
+Desktop
+Conv2D-16×16
+Boom-8C
+Fig. 18: Performance of different RTL simulators on server
+and desktop platforms, normalized to Repcut. The speedup of
+ARMOR is highlighted in red.
+the baseline remains insensitive to the data width, whereas
+ARMOR benefits from reduced data widths. For example,
+for the Conv2D-16 × 16 design, ARMOR achieves a 1.51×
+speedup when the data width decreases from 16 bits to 2 bits,
+and delivers up to 2.5× speedup over the baseline at 2 bits.
+This improvement is driven by similar factors as discussed in
+Section V-E. As the data width decreases, more nodes can
+be packed into a single machine word, thereby improving
+performance.
+G. Impact of Cache Capacity
+To evaluate the impact of cache capacity, we conduct
+experiments on a desktop platform with a smaller cache
+hierarchy (L1I: 32KB, L2: 256KB, L3: 16MB), compared
+to the server platform described in Section V-A. To avoid
+environmental differences (e.g., CPU frequency) between the
+two platforms, all results are normalized to Repcut instead of
+absolute performance. Figure 18 shows the performance of
+different RTL simulators on the server and desktop platforms.
+We can obtain two observations. First, across both the server
+and desktop platforms, ARMOR consistently outperforms
+other simulators, demonstrating its robust performance and
+strong generality across different hardware platforms. Second,
+unlike other simulators, ARMOR achieves higher speedups
+on the desktop platform than on the server. This improvement
+stems from its effective alleviation of cache pressure, making
+ARMOR more cache-friendly and particularly effective under
+constrained cache capacities, further highlighting ARMOR’s
+ability to alleviate front-end bottlenecks.
+
+
+Conv2D-16×16
+Boom-8C
+(a)
+(b)
+(c)
+0
+0.2
+0.4
+0.6
+0.8
+1
+1.2
+O2 w/o slp
+O2 w/ slp
+O3 w/o slp
+O3 w/ slp
+0
+0.2
+0.4
+0.6
+0.8
+1
+1.2
+O2 w/o slp
+O2 w/ slp
+O3 w/o slp
+O3 w/ slp
+1.8
+1.71
+1.16
+2.05
+1.33
+1.52
+2.08
+2.5
+1.59
+1
+1.5
+2
+2.5
+Conv2D-16×16 Gemmini-32×32
+Boom-8C
+w/o Module-aware
+w/o Align-aware
+w/o Greedy merge
+w/o Operation-specific
+Total
+Speedup (×)
+Fig. 19: Performance of Verilator (a) and ARMOR (b) under
+four compiler configurations, with speedups normalized to
+O2 w/o SLP. (c) ARMOR performance when removing each
+component, with speedups normalized to the configuration
+without node compression.
+H. Ablation Study
+1) Ablation of C++ Compiler: To evaluate the impact of
+compiler optimization and SLP vectorization, we compile both
+ARMOR-generated and Verilator-generated simulators under
+four configurations: O2 w/o SLP, O2 w/ SLP, O3 w/o SLP, and
+O3 w/ SLP. As shown in Figure 19 (a) and (b), enabling SLP
+vectorization or increasing the optimization level provides only
+limited performance improvement for both simulators, with
+gains below 5%, indicating that compiler auto-vectorization
+cannot effectively recover the compression opportunities ex-
+ploited by ARMOR.
+2) Ablation of ARMOR Components: To estimate the
+contribution of each component, we evaluate the following
+variants of ARMOR.
+• w/o Module-aware replaces ARMOR’s module-aware
+pack discovery with a seed-driven search inspired by
+SLP [34], [39]: starting from register nodes in the RTL
+graph, it searches candidate packs along use-def and def-
+use chains.
+• w/o Align-aware keeps aligned packing inside each mod-
+ule but disables alignment-aware packing across module
+boundaries, which increases data rearrangement at mod-
+ule boundaries.
+• w/o Greedy merge preserves the initial dense pack using
+SELECTMAXFEASIBLEGROUP but disables the subse-
+quent intra-domain pack merging.
+• w/o Operation-specific applies node compression only to
+slice-independent operations, while cross-slice-dependent
+operations remain uncompressed and use the original per-
+node execution.
+• Total denotes the full ARMOR design.
+As shown in Figure 19 (c), each component contributes
+to the performance of ARMOR. As expected, module-aware
+pack discovery shows the largest impact because it provides
+a subgraph-level view for pack discovery; without this view,
+local seed-based search is more likely to make short-sighted
+packing decisions that increase data rearrangement overhead.
+We also observe that w/o Operation-specific causes the largest
+slowdown on Gemmini-32 × 32. Further analysis shows that
+Gemmini-32 × 32 contains many bit-extraction operations,
+which frequently break data reuse and increase data rearrange-
+ment overhead when operation-specific compressed execution
+is disabled. Overall, the full ARMOR design achieves the best
+performance, showing that each component is necessary for
+profitable node compression.
+VI. DISCUSSION & FUTURE WORK
+Relation to SIMD: ARMOR currently uses scalar machine
+words as the execution substrate, packing RTL nodes into
+software-defined bit slices to improve bit-space utilization.
+Rather than directly mapping RTL nodes to SIMD lanes, a
+natural integration is first to apply ARMOR’s bit-level node
+compression within each word, and then use SIMD to process
+multiple compressed words in parallel.
+Portability
+of
+BMI2: ARMOR currently uses BMI2
+PDEP/PEXT instructions to implement cross-slice dependent
+operations after node compression. On platforms where BMI2
+PDEP/PEXT is unavailable, ARMOR falls back to a con-
+servative mode by disabling compression for cross-slice de-
+pendent operations and only compressing slice-independent
+operations.
+Complementarity with Parallel Simulation: ARMOR is
+orthogonal to partitioning-based multi-threaded RTL simula-
+tion, such as RepCut-style [4] approaches. A practical integra-
+tion is to first partition the RTL graph across threads and then
+apply node compression locally within each partition. Since
+compressed packs are formed inside a partition, ARMOR
+does not introduce additional cross-thread dependencies or
+synchronization, and it preserves partition-local code and data
+locality. The main open issue is load balancing: different
+partitions may expose different compression opportunities,
+so their post-compression workloads may deviate from the
+original partitioning cost model.
+Future Work: An important direction for future work is
+to investigate the trade-off between scalar and SIMD exe-
+cution. Some cross-slice dependent operations may benefit
+more from SIMD execution, motivating the exploration of
+how compressed packs should be mapped to scalar or SIMD
+execution units based on their operation characteristics and
+data layouts.
+VII. RELATED WORK
+The performance of RTL simulation has already become a
+bottleneck in hardware design [63], [64]. Prior research efforts
+can be categorized into the following types.
+Sequential RTL Simulation. Verilator [3] is an open-
+source simulator, capable of generating fast, cycle-accurate
+models for digital circuits. ESSENT [15] combines event-
+driven and full-cycle simulation by employing a coarsened,
+conditional, singular, static execution model that exploits
+low activity while minimizing event management overhead.
+GSIM [2] further builds on ESSENT by reducing event
+management overhead and redundant computations. Dedup [5]
+proposes a coarse-grained circuit deduplication strategy, which
+identifies multiple instances of a single module within a digital
+circuit and creates shared code that can be applied to all
+
+
+of these instances. Khronos [16] optimizes RTL simulation
+by fusing inter-cycle memory accesses, which performs well
+for domain-specific accelerators employing deep pipelines.
+RTeAAL Sim [8] reformulates RTL simulation as a sparse
+tensor algebra problem that can incorporate a wide range of
+tensor algebra optimizations. Despite optimizing RTL sim-
+ulation from different perspectives, many existing compiled
+simulators still rely on per-node lowering, while approaches
+such as Dedup and RTeAAL reduce code footprint through
+reusable or rolled representations at the cost of static special-
+ization. In contrast, ARMOR compresses multiple RTL nodes
+into shared instruction sequences, reducing code footprint
+while preserving the static specialization of fully unrolled RTL
+simulation.
+Parallel RTL simulation. Recent research explores par-
+allelization techniques to boost RTL simulation performance.
+RepCut [4] reduces inter-thread synchronization by replicating
+small overlaps, achieving a near-linear speedup. RTLFlow [65]
+is a GPU-accelerated RTL simulator that exploits stimulus-
+level parallelism. GEM [66] introduces an emulator-inspired
+methodology that compiles RTL into a GPU-friendly vir-
+tual Very Long Instruction Word representation, enabling
+high-performance RTL simulation on GPUs. Parendi [17]
+exploits the abundant fine-grained parallelism and maps it onto
+the massively parallel Graphcore Intelligence Processing Unit
+to enable large-scale parallel RTL simulation.
+FPGA Emulation and Hardware Accelerator. FPGA
+prototypes map RTL circuits to FPGA gates for high-speed
+simulation, but face capacity and compile-time limitations.
+FireSim [12] is an open-source FPGA emulation platform for
+cycle-accurate simulation, and FireAxe [11] extends it with
+user-guided partitioning across multiple FPGAs. Commercial
+emulation platforms, such as Cadence Palladium [13], employ
+dedicated emulation hardware to support high-speed execution
+of large-scale RTL designs. Manticore [10] is an RTL simu-
+lation accelerator that uses a static bulk-synchronous parallel
+execution model to eliminate fine-grain synchronization over-
+head. ASH [9] is a parallel RTL simulation architecture that
+combines fine-grained dataflow and selective event-driven ex-
+ecution to efficiently exploit both parallelism and low activity
+in RTL simulation.
+VIII. CONCLUSION
+This paper presents ARMOR, which alleviates front-end
+bottlenecks through node compression. ARMOR leverages bit-
+level data parallelism, allowing a single instruction sequence
+to serve multiple nodes instead of one per node, reducing the
+code footprint. ARMOR introduces a module-aware isomor-
+phic subgraph identification method to mine compression op-
+portunities, an alignment-aware dense node packing strategy to
+balance data reuse and bit-space utilization, and a unified bit-
+level parallelism scheme to support bit-level parallel execution
+of RTL operations. Experimental results show that ARMOR
+compresses, on average, 57% of nodes, achieving speedups of
+2.69× on AI accelerator designs and 1.63× on CPU designs,
+outperforming state-of-the-art simulators.
+ACKNOWLEDGMENT
+We thank the anonymous reviewers for their insightful
+and constructive feedback. We also thank Shengwen Liang,
+Tianyun Ma, and Husheng Han for their valuable guidance
+and suggestions on the writing of this paper. This work
+is supported by the Strategic Priority Research Program of
+the Chinese Academy of Sciences (XDB0660103) and the
+National Natural Science Foundation of China (92373206,
+U25A20486). The corresponding authors are Jianan Mu,
+Zhiteng Chao, and Huawei Li.
+REFERENCES
+[1] S. Beamer, “A case for accelerating software rtl simulation,” IEEE
+Micro, vol. 40, no. 4, pp. 112–119, 2020.
+[2] L. Chen, D. Zhao, Z. Yu, N. Sun, and Y. Bao, “Gsim: Accelerating
+rtl simulation for large-scale designs,” in 2025 62nd ACM/IEEE Design
+Automation Conference (DAC), 2025, pp. 1–7.
+[3] W. S. Wilson, “Verilator: Fast, free, open-source systemverilog simula-
+tor,” https://verilator.org, 2024, accessed: 2025-07-22.
+[4] H. Wang and S. Beamer, “Repcut: Superlinear parallel rtl simulation
+with replication-aided partitioning,” in Proceedings of the 28th ACM
+International Conference on Architectural Support for Programming
+Languages and Operating Systems, Volume 3, ser. ASPLOS 2023.
+New York, NY, USA: Association for Computing Machinery, 2023, p.
+572–585. [Online]. Available: https://doi.org/10.1145/3582016.3582034
+[5] H.
+Wang,
+T.
+Nijssen,
+and
+S.
+Beamer,
+“Don’t
+repeat
+yourself!
+coarse-grained
+circuit
+deduplication
+to
+accelerate
+rtl
+simulation,”
+in
+Proceedings
+of
+the
+29th
+ACM
+International
+Conference
+on
+Architectural Support for Programming Languages and Operating
+Systems, Volume 4, ser. ASPLOS ’24.
+New York, NY, USA:
+Association for Computing Machinery, 2025, p. 79–93. [Online].
+Available: https://doi.org/10.1145/3622781.3674184
+[6] Cadence Design Systems, Inc., Xcelium Parallel Simulator, 2023,
+accessed: July 23, 2025. [Online]. Available: https://www.multimediado
+cs.com/assets/cadence emea/documents/xcelium parallel simulator.pdf
+[7] Synopsys, Inc., “Vcs functional verification solution,” https://www.syno
+psys.com/verification/simulation/vcs.html, 2024, accessed: 2026-03-21.
+[8] Y. Zhu, B. Chen, C. W. Fletcher, and N. Nayak, “Rteaal sim:
+Using tensor algebra to represent and accelerate rtl simulation,” in
+Proceedings of the 31st ACM International Conference on Architectural
+Support for Programming Languages and Operating Systems, Volume
+2,
+ser.
+ASPLOS
+’26.
+New
+York,
+NY,
+USA:
+Association
+for
+Computing Machinery, 2026, p. 1660–1676. [Online]. Available:
+https://doi.org/10.1145/3779212.3790214
+[9] F. Elsabbagh, S. Sheikhha, V. A. Ying, Q. M. Nguyen, J. S. Emer,
+and D. Sanchez, “Accelerating rtl simulation with hardware-software
+co-design,” in Proceedings of the 56th Annual IEEE/ACM International
+Symposium on Microarchitecture, 2023, pp. 153–166.
+[10] M. Emami, S. Kashani, K. Kamahori, M. S. Pourghannad, R. Raj,
+and J. R. Larus, “Manticore: Hardware-accelerated rtl simulation with
+static bulk-synchronous parallelism,” in Proceedings of the 28th ACM
+International Conference on Architectural Support for Programming
+Languages and Operating Systems, Volume 4, 2023, pp. 219–237.
+[11] J. Whangbo, E. Lim, C. L. Zhang, K. Anderson, A. Gonzalez,
+R. Gupta, N. Krishnakumar, S. Karandikar, B. Nikoli´c, Y. S. Shao,
+and K. Asanovi´c, “Fireaxe: Partitioned fpga-accelerated simulation of
+large-scale rtl designs,” in 2024 ACM/IEEE 51st Annual International
+Symposium on Computer Architecture (ISCA), 2024, pp. 501–515.
+[12] S. Karandikar, H. Mao, D. Kim, D. Biancolin, A. Amid, D. Lee,
+N. Pemberton, E. Amaro, C. Schmidt, A. Chopra, Q. Huang, K. Kovacs,
+B. Nikolic, R. Katz, J. Bachrach, and K. Asanovic, “Firesim: Fpga-
+accelerated cycle-exact scale-out system simulation in the public cloud,”
+in 2018 ACM/IEEE 45th Annual International Symposium on Computer
+Architecture (ISCA), 2018, pp. 29–42.
+[13] Cadence Design Systems, Inc., “Palladium emulation platform,” https:
+//www.cadence.com/en US/home/tools/system-design-and-verification/
+emulation-and-prototyping.html, 2024, accessed: 2026-03-21.
+[14] Synopsys, Inc., “Zebu emulation platform,” https://www.synopsys.com
+/verification/emulation.html, 2024, accessed: 2026-03-21.
+
+
+[15] S. Beamer and D. Donofrio, “Efficiently exploiting low activity factors to
+accelerate rtl simulation,” in Proceedings of the 57th ACM/EDAC/IEEE
+Design Automation Conference, ser. DAC ’20.
+IEEE Press, 2020.
+[16] K. Zhou, Y. Liang, Y. Lin, R. Wang, and R. Huang, “Khronos: Fusing
+memory access for improved hardware rtl simulation,” in Proceedings
+of the 56th Annual IEEE/ACM International Symposium on Microarchi-
+tecture, 2023, pp. 180–193.
+[17] M. Emami, T. Bourgeat, and J. R. Larus, “Parendi: Thousand-way
+parallel rtl simulation,” in Proceedings of the 30th ACM International
+Conference on Architectural Support for Programming Languages and
+Operating Systems, Volume 2, ser. ASPLOS ’25.
+New York, NY, USA:
+Association for Computing Machinery, 2025, p. 783–797. [Online].
+Available: https://doi.org/10.1145/3676641.3716010
+[18] L. Jia, Z. Luo, L. Lu, and Y. Liang, “Tensorlib: A spatial accelerator
+generation framework for tensor algebra,” in 2021 58th ACM/IEEE
+Design Automation Conference (DAC), 2021, pp. 865–870.
+[19] J. Zhao, B. Korpan, A. Gonzalez, and K. Asanovic, “Sonicboom: The
+3rd generation berkeley out-of-order machine,” May 2020.
+[20] Intel Corporation, “Top-down microarchitecture analysis method,” https:
+//www.intel.com/content/www/us/en/docs/vtune-profiler/cookbook/2023
+-0/top-down-microarchitecture-analysis-method.html, 2023, accessed:
+2025-07-22.
+[21] T. Theodoridis, T. Grosser, and Z. Su, “Understanding and exploiting
+optimal function inlining,” in Proceedings of the 27th ACM International
+Conference on Architectural Support for Programming Languages and
+Operating
+Systems,
+ser.
+ASPLOS
+’22.
+New
+York,
+NY,
+USA:
+Association for Computing Machinery, 2022, p. 977–989. [Online].
+Available: https://doi.org/10.1145/3503222.3507744
+[22] J. Tang, J. Mu, Z. Liu, G. Yu, T. Hua, B. Sun, S. Liu, J. Ye, and H. Li,
+“Riros: A parallel rtl fault simulation framework with two-dimensional
+parallelism and unified schedule,” in 2025 IEEE/ACM International
+Conference On Computer Aided Design (ICCAD), 2025, pp. 1–9.
+[23] J. Tang, J. Mu, S. Liu, Z. Liu, F. Gu, X. Zhang, L. Wang, S. Liang, J. Ye,
+H. Li, and X. Li, “Eraser: Efficient rtl fault simulation framework with
+trimmed execution redundancy,” in 2025 Design, Automation & Test in
+Europe Conference (DATE), 2025, pp. 1–7.
+[24] S. Deng, B. Huang, and J. Szefer, “Leaky frontends: Security vulnera-
+bilities in processor frontends,” in 2022 IEEE International Symposium
+on High-Performance Computer Architecture (HPCA), 2022, pp. 53–66.
+[25] A. Yasin, “A top-down method for performance analysis and counters
+architecture,” in 2014 IEEE International Symposium on Performance
+Analysis of Systems and Software (ISPASS), 2014, pp. 35–44.
+[26] R. Brunner and R. Kumar, “Weeding out front-end stalls with uneven
+block size instruction cache,” in 2024 57th IEEE/ACM International
+Symposium on Microarchitecture (MICRO), 2024, pp. 1382–1396.
+[27] N. P. Nagendra, G. Ayers, D. I. August, H. K. Cho, S. Kanev,
+C. Kozyrakis, T. Krishnamurthy, H. Litz, T. Moseley, and P. Ran-
+ganathan, “Asmdb: Understanding and mitigating front-end stalls in
+warehouse-scale computers,” IEEE Micro, vol. 40, no. 3, pp. 56–63,
+2020.
+[28] M. Ferdman, A. Adileh, O. Kocberber, S. Volos, M. Alisafaee,
+D. Jevdjic, C. Kaynak, A. D. Popescu, A. Ailamaki, and B. Falsafi,
+“Clearing the clouds: a study of emerging scale-out workloads on
+modern hardware,” in Proceedings of the Seventeenth International
+Conference on Architectural Support for Programming Languages
+and Operating Systems, ser. ASPLOS XVII.
+New York, NY, USA:
+Association for Computing Machinery, 2012, p. 37–48. [Online].
+Available: https://doi.org/10.1145/2150976.2150982
+[29] A. Sriraman, A. Dhanotia, and T. F. Wenisch, “Softsku: Optimiz-
+ing server architectures for microservice diversity @scale,” in 2019
+ACM/IEEE 46th Annual International Symposium on Computer Archi-
+tecture (ISCA), 2019, pp. 513–526.
+[30] S. Kanev, J. P. Darago, K. Hazelwood, P. Ranganathan, T. Moseley,
+G.-Y. Wei, and D. Brooks, “Profiling a warehouse-scale computer,” in
+2015 ACM/IEEE 42nd Annual International Symposium on Computer
+Architecture (ISCA), 2015, pp. 158–169.
+[31] D.
+Chasapis,
+G.
+Vavouliotis,
+D.
+A.
+Jim´enez,
+and
+M.
+Casas,
+“Instruction-aware cooperative tlb and cache replacement policies,”
+in
+Proceedings
+of
+the
+30th
+ACM
+International
+Conference
+on
+Architectural Support for Programming Languages and Operating
+Systems, Volume 1, ser. ASPLOS ’25.
+New York, NY, USA:
+Association for Computing Machinery, 2025, p. 619–636. [Online].
+Available: https://doi.org/10.1145/3669940.3707247
+[32] T. A. Khan, A. Sriraman, J. Devietti, G. Pokam, H. Litz, and B. Kasikci,
+“I-spy: Context-driven conditional instruction prefetching with coalesc-
+ing,” in 2020 53rd Annual IEEE/ACM International Symposium on
+Microarchitecture (MICRO), 2020, pp. 146–159.
+[33] V. Kalbande, H. J. Deshmukh, A. Ros, and B. Panda, “Icarus: Criticality
+and reuse based instruction caching for datacenter applications,”
+in
+Proceedings
+of
+the
+31st
+ACM
+International
+Conference
+on
+Architectural Support for Programming Languages and Operating
+Systems, Volume 2, ser. ASPLOS ’26.
+New York, NY, USA:
+Association for Computing Machinery, 2026, p. 978–992. [Online].
+Available: https://doi.org/10.1145/3779212.3790175
+[34] S. Larsen and S. Amarasinghe, “Exploiting superword level parallelism
+with
+multimedia
+instruction
+sets,”
+in
+Proceedings
+of
+the
+ACM
+SIGPLAN 2000 Conference on Programming Language Design and
+Implementation, ser. PLDI ’00.
+New York, NY, USA: Association
+for Computing Machinery, 2000, p. 145–156. [Online]. Available:
+https://doi.org/10.1145/349299.349320
+[35] Y. Chen, C. Mendis, M. Carbin, and S. Amarasinghe, “Vegen: a
+vectorizer generator for simd and beyond,” ser. ASPLOS ’21.
+New
+York, NY, USA: Association for Computing Machinery, 2021, p.
+902–914. [Online]. Available: https://doi.org/10.1145/3445814.3446692
+[36] A. Shahbahrami, B. Juurlink, D. Borodin, and S. Vassiliadis, “Avoiding
+conversion and rearrangement overhead in simd architectures,” Int. J.
+Parallel Program., vol. 34, no. 3, p. 237–260, Jun. 2006. [Online].
+Available: https://doi.org/10.1007/s10766-006-0015-0
+[37] J. Huh and J. Tuck, “Improving the effectiveness of searching for
+isomorphic chains in superword level parallelism,” in 2017 50th Annual
+IEEE/ACM International Symposium on Microarchitecture (MICRO),
+2017, pp. 718–729.
+[38] R. Barik, J. Zhao, and V. Sarkar, “Efficient selection of vector instruc-
+tions using dynamic programming,” in 2010 43rd Annual IEEE/ACM
+International Symposium on Microarchitecture, 2010, pp. 201–212.
+[39] V. Porpodas, “Supergraph-slp auto-vectorization,” in 2017 26th Interna-
+tional Conference on Parallel Architectures and Compilation Techniques
+(PACT), 2017, pp. 330–342.
+[40] V. Porpodas, A. Magni, and T. M. Jones, “Pslp: Padded slp automatic
+vectorization,” in 2015 IEEE/ACM International Symposium on Code
+Generation and Optimization (CGO), 2015, pp. 190–201.
+[41] Y. Park, S. Seo, H. Park, H. K. Cho, and S. Mahlke, “Simd
+defragmenter: efficient ilp realization on data-parallel architectures,”
+in
+Proceedings
+of
+the
+Seventeenth
+International
+Conference
+on
+Architectural Support for Programming Languages and Operating
+Systems, ser. ASPLOS XVII.
+New York, NY, USA: Association
+for Computing Machinery, 2012, p. 363–374. [Online]. Available:
+https://doi.org/10.1145/2150976.2151014
+[42] P. S. Li, A. M. Izraelevitz, and J. Bachrach, “Specification for the firrtl
+language,” https://aspire.eecs.berkeley.edu/wp/wp-content/uploads/201
+7/11/Specification-for-the-FIRRTL-Language-Izraelevitz.pdf, EECS
+Department, University of California, Berkeley, Tech. Rep. UCB/EECS-
+2016-9, Feb. 2016, accessed: 2025-07-29.
+[43] J.
+R.
+Ullmann,
+“An
+algorithm
+for
+subgraph
+isomorphism,”
+J.
+ACM, vol. 23, no. 1, p. 31–42, Jan. 1976. [Online]. Available:
+https://doi.org/10.1145/321921.321925
+[44] C. McCreesh, P. Prosser, C. Solnon, and J. Trimble, “When subgraph
+isomorphism is really hard, and why this matters for graph databases,”
+J. Artif. Int. Res., vol. 61, no. 1, p. 723–759, Jan. 2018.
+[45] K.
+Asanovic,
+R.
+Bodik,
+J.
+Demmel,
+T.
+Keaveny,
+K.
+Keutzer,
+J. Kubiatowicz, N. Morgan, D. Patterson, K. Sen, J. Wawrzynek,
+D. Wessel, and K. Yelick, “A view of the parallel computing
+landscape,” Commun. ACM, vol. 52, no. 10, p. 56–67, Oct. 2009.
+[Online]. Available: https://doi.org/10.1145/1562764.1562783
+[46] E. Lindholm, J. Nickolls, S. Oberman, and J. Montrym, “Nvidia tesla:
+A unified graphics and computing architecture,” IEEE Micro, vol. 28,
+no. 2, pp. 39–55, 2008.
+[47] N. P. Jouppi, C. Young, N. Patil, D. Patterson, G. Agrawal, R. Bajwa,
+S. Bates, S. Bhatia, N. Boden, A. Borchers, R. Boyle, P.-l. Cantin,
+C. Chao, C. Clark, J. Coriell, M. Daley, M. Dau, J. Dean, B. Gelb, T. V.
+Ghaemmaghami, R. Gottipati, W. Gulland, R. Hagmann, C. R. Ho,
+D. Hogberg, J. Hu, R. Hundt, D. Hurt, J. Ibarz, A. Jaffey, A. Jaworski,
+A. Kaplan, H. Khaitan, D. Killebrew, A. Koch, N. Kumar, S. Lacy,
+J. Laudon, J. Law, D. Le, C. Leary, Z. Liu, K. Lucke, A. Lundin,
+G. MacKean, A. Maggiore, M. Mahony, K. Miller, R. Nagarajan,
+R.
+Narayanaswami,
+R.
+Ni,
+K.
+Nix,
+T.
+Norrie,
+M.
+Omernick,
+N. Penukonda, A. Phelps, J. Ross, M. Ross, A. Salek, E. Samadiani,
+
+
+C. Severn, G. Sizikov, M. Snelham, J. Souter, D. Steinberg, A. Swing,
+M. Tan, G. Thorson, B. Tian, H. Toma, E. Tuttle, V. Vasudevan,
+R. Walter, W. Wang, E. Wilcox, and D. H. Yoon, “In-datacenter
+performance analysis of a tensor processing unit,” SIGARCH Comput.
+Archit. News, vol. 45, no. 2, p. 1–12, Jun. 2017. [Online]. Available:
+https://doi.org/10.1145/3140659.3080246
+[48] Q. Yu and D. Wentzlaff, “Area bloating and the future of specialization,”
+in 2026 IEEE International Symposium on High Performance Computer
+Architecture (HPCA), 2026, pp. 1–14.
+[49] Y. Hilewitz and R. B. Lee, “A new basis for shifters in general-
+purpose processors for existing and advanced bit manipulations,” IEEE
+Transactions on Computers, vol. 58, no. 8, pp. 1035–1048, 2009.
+[50] E. Park, D. Kim, and S. Yoo, “Energy-efficient neural network ac-
+celerator based on outlier-aware low-precision computation,” in 2018
+ACM/IEEE 45th Annual International Symposium on Computer Archi-
+tecture (ISCA), 2018, pp. 688–698.
+[51] H. Sharma, J. Park, N. Suda, L. Lai, B. Chau, J. K. Kim, V. Chandra,
+and H. Esmaeilzadeh, “Bit fusion: Bit-level dynamically composable
+architecture for accelerating deep neural network,” in 2018 ACM/IEEE
+45th Annual International Symposium on Computer Architecture (ISCA),
+2018, pp. 764–775.
+[52] Z. Song, B. Fu, F. Wu, Z. Jiang, L. Jiang, N. Jing, and X. Liang,
+“Drq: Dynamic region-based quantization for deep neural network
+acceleration,” in 2020 ACM/IEEE 47th Annual International Symposium
+on Computer Architecture (ISCA), 2020, pp. 1010–1021.
+[53] C. Guo, C. Zhang, J. Leng, Z. Liu, F. Yang, Y. Liu, M. Guo, and
+Y. Zhu, “Ant: Exploiting adaptive numerical data type for low-bit deep
+neural network quantization,” in 2022 55th IEEE/ACM International
+Symposium on Microarchitecture (MICRO), 2022, pp. 1414–1433.
+[54] CIRCT, “Circt: Circuit ir compilers and tools,” https://github.com/llvm/
+circt, accessed: 2025-08-10.
+[55] A. Amid, D. Biancolin, A. Gonzalez, D. Grubb, S. Karandikar, H. Liew,
+A. Magyar, H. Mao, A. Ou, N. Pemberton, P. Rigge, C. Schmidt,
+J. Wright, J. Zhao, Y. S. Shao, K. Asanovi´c, and B. Nikoli´c, “Chipyard:
+Integrated design, simulation, and implementation framework for custom
+socs,” IEEE Micro, vol. 40, no. 4, pp. 10–21, 2020.
+[56] H. Genc, S. Kim, A. Amid, A. Haj-Ali, V. Iyer, P. Prakash, J. Zhao,
+D. Grubb, H. Liew, H. Mao, A. Ou, C. Schmidt, S. Steffl, J. Wright,
+I. Stoica, J. Ragan-Kelley, K. Asanovic, B. Nikolic, and Y. S. Shao,
+“Gemmini: Enabling systematic deep-learning architecture evaluation
+via full-stack integration,” in Proceedings of the 58th Annual Design
+Automation Conference (DAC), 2021.
+[57] K. Asanovic, R. Avizienis, J. Bachrach, S. Beamer, D. Biancolin,
+C. Celio, H. Cook, D. Dabbelt, J. Hauser, A. Izraelevitz, S. Karandikar,
+B. Keller, D. Kum, and J. Koenig, “The rocket chip generator,” EECS
+Department, University of California, Berkeley, Tech. Rep. UCB/EECS-
+2016-17, vol. 4, pp. 6–2, 2016.
+[58] Synopsys, “How pcie connects ai accelerators & cpus,” https://www.sy
+nopsys.com/blogs/chip-design/pcie-ai-accelerator-chip-design.html,
+2023, accessed: 2026-03-31.
+[59] A. Reuther, P. Michaleas, M. Jones, V. Gadepally, S. Samsi, and
+J. Kepner, “Ai and ml accelerator survey and trends,” in 2022 IEEE
+High Performance Extreme Computing Conference (HPEC), 2022, pp.
+1–10.
+[60] W. Fang, Y. Fu, J. Gao, L. Guo, G. Gutin, and X. Zhang, “Acceleration
+of timing-aware gate-level logic simulation through one-pass gpu paral-
+lelism,” IEEE Transactions on Computers, vol. 74, no. 8, pp. 2675–2686,
+2025.
+[61] H. Esmaeilzadeh, E. Blem, R. S. Amant, K. Sankaralingam, and
+D. Burger, “Dark silicon and the end of multicore scaling,” in 2011
+38th Annual International Symposium on Computer Architecture (ISCA),
+2011, pp. 365–376.
+[62] L. Torvalds, “Perf: Linux profiling with performance counters,” https:
+//github.com/torvalds/linux/tree/master/tools/perf, accessed: 2025-08-10.
+[63] T. Karn, S. Rawat, D. Kirkpatrick, R. Roy, G. Spirakis, N. Sherwani,
+and C. Peterson, “Eda challenges facing future microprocessor design,”
+IEEE Transactions on Computer-Aided Design of Integrated Circuits
+and Systems, vol. 19, no. 12, pp. 1498–1506, 2000.
+[64] P. Gupta, “Improving vcs (verilog compiler & simulator),” 2020.
+[65] D.-L. Lin, H. Ren, Y. Zhang, B. Khailany, and T.-W. Huang, “From rtl to
+cuda: A gpu acceleration flow for rtl simulation with batch stimulus,” in
+Proceedings of the 51st International Conference on Parallel Processing,
+2022, pp. 1–12.
+[66] Z. Guo, Y. Zhang, R. Wang, Y. Lin, and H. Ren, “Gem: Gpu-accelerated
+emulator-inspired rtl simulation,” in 2025 62nd ACM/IEEE Design
+Automation Conference (DAC), 2025, pp. 1–7.
