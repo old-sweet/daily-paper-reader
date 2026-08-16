@@ -1,0 +1,183 @@
+Title: Refining LLM-based Directed Test Input Generation via Runtime Value Feedback
+
+URL Source: https://arxiv.org/pdf/2608.07926v1
+
+Published Time: Tue, 11 Aug 2026 00:25:58 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Refining LLM-based Directed Test Input Generation via Runtime Value Feedback 
+
+## Narin Han 
+
+narinhan@cbnu.ac.kr Chungbuk National University Cheongju, Republic of Korea 
+
+## Shin Hong 
+
+hongshin@cbnu.ac.kr Chungbuk National University Cheongju, Republic of Korea 
+
+## Abstract 
+
+LLM-based directed input generation techniques have shown promising effectiveness at producing target-reaching test inputs. However, due to the constraint of available code in-formation and inherent unpredictability of LLM inference, reliable directed input generation requires mechanisms to ground the process in observed runtime behavior. We pro-pose ReDig, a runtime feedback-guided refinement frame-work which adds a control loop around an LLM-based di-rected test input generation technique to refine the directed input generation with runtime values observed in prior target-missing test executions. In the case studies with Poppler 
+
+and Libsndfile , we found that ReDig effectively derive run-time value feedback to diagnose why the previous test script failed to reach the target lines, and also effectively leverage given runtime value feedback to refine the test scripts in subsequent steps. 
+
+## 1 Introduction 
+
+LLM-based directed input generation [7, 19] synthesizes test scripts that produce inputs intended to reach specific program locations designated as targets 1. This approach leverages the abilities of LLMs to infer the input constraints required to reach target locations based on the available code context and pretrained knowledge of relevant open-source projects, and input file formats. It has shown particu-lar promise for generating proof-of-vulnerability inputs for confirming the reachability of vulnerable code identified by static analyses [15] or LLM-based code analyses [3]. However, the effectiveness of LLM-based directed input generation is constrained when the available code does not provide sufficient contextual information [4]. Even with ade-quate context, LLMs may still fail to produce effective inputs due to plausible-but-incorrect assumptions about program behavior [16]. Therefore, reliable directed input generation requires mechanisms to ground the process in observed run-time behavior rather than relying solely on LLM inference. We propose ReDig, a runtime feedback-guided refinement framework for LLM-based directed input generation, and present the preliminary results of our work in progress (WIP). This framework adds a control loop around an LLM-based directed input generation technique to refine the information 
+
+> 1Hereafter we refer to a test input produced by a LLM generated script as a “generated test input” for simplicity.
+
+given to the LLM input generator using observations from prior test executions. To this end, when a generated input fails to reach the target location, this framework provides the LLM test generator with runtime observations extracted from the failed execution via gdb [17], enabling it to revise invalid assumptions about program behaviors, and generate a more effective directed test input in the next iteration. We explore the feasibility of the proposed technique through four case studies drawn from Libsndfile and Poppler . The results show that LLMs can effectively use runtime value feedback to iteratively explore different paths, and reach un-covered target locations. These findings suggest that LLMs can use runtime value feedback effectively to diagnose why the previous test script failed to reach the target, and leverage this knowledge in subsequent directed input generation. 
+
+## 2 Technique 
+
+2.1 Overview 
+
+The ReDig framework is based on our insight that refining directed test input generation requires identifying the root cause of previous directed test inputs, much like diagnosing the root cause of a failure for debugging. Just as faulty pro-gram logic drives an execution into an unintended state at an unexpected program location, a target-missing directed test input contains elements that are incompatible with the path condition required to reach the target. Extending this analogy, we conjecture that LLM-based di-rected input generation can be improved by leveraging infor-mation about the execution of a target-missing directed test input, such as the program location at which the execution diverges from the target-reaching path, which unintended runtime values occur, and which input elements contributed to that divergence. Figure 1 describes three major components and their in-teractions. The Directed Input Generator drives the LLM to generate directed test inputs, and evaluate whether their executions reach the target line (see Section 2.3). When the generated test inputs fail to reach the target line, the Feed-back Generator produce runtime information relevant to un-successful test executions as feedback to the Directed Input Generator (see Section 2.4). These two components are sched-uled by the Test Generation Controller to reach the target line efficiently. arXiv:2608.07926v1 [cs.SE] 8 Aug 2026 Figure 1. ReDig Workflow 
+
+2.2 Motivating Example 
+
+One of our case studies with Poppler (i.e., Case 2 in Sec. 3) illustrates how the proposed technique effectively guides LLM-based directed input generation. In this study, the pro-posed technique is given Line 678 in addCombining() of 
+
+TestOutputDev.cc as the directed input generation target. This test generation process spans five alternating turns of the Directed Input Generator and Feedback Generator before reaching the target line. 
+
+• Turn 1. Directed Input Generator: Initially, the pro-posed technique included the entire code of addCombining() 
+
+in the prompt, along with the code of functions in the shortest call path and performed five trials of directed input generation. The program was executed with each inputs and the line coverage was measured. It turned out that none of the inputs pass the sanity check at Line 634 and causing the function to return immediately. 
+
+• Turn 2. Feedback Generator: Since the target line (i.e., Line 678) remained uncovered, the framework invoked the Feedback Generator, supplying it with each generated test input and the covered lines. The Feedback Generator first requested the LLM to identify critical runtime states that resulted in the unintended path. The LLM identified len ,
+
+wMode , and fA->getWMode() as relevant values to inspect when the program executes Line 634. The GDB Driver executed the target program with each target-missing test input and retrieved these values at runtime: for example, 
+
+len was zero. These observations were fed back to the Directed Input Generator. 
+
+• Turn 3. Directed Input Generator: Upon receiving these observed values, the Directed Input Generator refined the prompt and performed additional test generation trials. At the second generation, the test input passed the sanity check at Line 634, and covered Lines 637–639, 642, and 676. Yet, the refined test input did not satisfy the branch condition at Line 676, and the target still remained uncov-ered.        
+
+> 633 addCombining (FontInfo *fA, double fsA, Unicode u, ...) { 634 if (len == 0 || wMode != 0 || fA->getWMode() != 0) 635 return; ... 637 Unicode cCurrent = getCombiningChar(u); 638 Unicode cPrev = getCombiningChar(text[len - 1]); ... 642 if(cCurrent != 0 && unicodeTypeAlphaNum(text[len - 1])){ ... 676 if(cPrev != 0 && unicodeTypeAlphaNum(u)) { ... 678 maxD = (fA->getAsc()-fA->getDest()) * fsA; /**TARGET**/
+
+Figure 2. Target Code Snippet of Motivating Example 
+
+• Turn 4. Feedback Generator: For further exploration, the Feedback Generator was invoked with the latest gen-erated input. Based to the LLM query result, the runtime values of cCurrent , u, cPrev , len , and text[len-1] were extracted at a breakpoint on Line 676. This observations revealed that cPrev was zero when the test execution did not satisfy the condition at Line 676. 
+
+• Turn 5. Directed Test Generator: The Directed Input Generator incorporated the runtime value information, including cPrev , into the test generation prompt, and gen-erated additional test inputs. The first two generated test inputs failed, but the third one satisfied the branch condi-tion at Line 676, and succeeded in covering the target at Line 678. 
+
+2.3 LLM-based Directed Test Input Generation 
+
+The Directed Input Generator constructs a prompt and per-forms an LLM inference with it to generate a directed test input. Once a new test input is generated, the Directed Input Generator runs the target program through the Coverage Driver to check whether the target line is reached and to determine which lines are covered by the test input. This coverage information is then passed to the Test Generation Controller. The test generation prompt includes the target function code annotated with the target line location (e.g., Line 678 in Figure 2). To support reasoning about the target func-tion call context, the prompt also includes the entire code of the functions in a shortest call path to the target func-tion. The prompt instructs the LLM to utilize this informa-tion to predict feasible program states at the target func-tion execution. To this end, the Directed Input Generator constructs a call graph of the target program and then iden-tifies a shortest path from the entry function (e.g., main() 
+
+or LLVMFuzzerTestOneInput() ) to the target function. This analysis explores call paths in a path-insensitive manner, and resolves indirect calls by assuming that function pointers sharing the same type and field may alias each other. A seed input is a previously generated input that covers certain lines in the target function. When the seed input and its line coverage are available from preceding steps, the 
+
+> 2
+
+prompt additionally instructs to re-use the seed input ele-ments to preserve the target function reachability. Further-more, when a feedback prompt is provided (see Section 2.4, the prompt instructs the LLM to generate new inputs by identifying and fixing misaligned elements in the given seed input based on the observed runtime value information. 
+
+2.4 Feedback-guided Refinement of Test Generation 
+
+The Feedback Generator produces a runtime feedback in-stance as a prompt text describing the runtime value exami-nation in the test execution failed at covering the target line. Given target-missing input, the Feedback Generator provides the LLM with the input and its line coverage information and then ask it to act as the test engineer to list prospective run-time values for understanding the root causes of the target miss, and to suggest modification of the target-missing input to re-orient it to the target. To this end, the prompt instructs the LLM to provide at most five runtime value queries. A query consists of a code location of a gdb breakpoint, and an expression for gdb to retrieve the runtime values at the breakpoint. Inspired by AutoSD [9], we conjecture that the LLM can suspect the conflicts between the prior hypothesis about the target path condition and the runtime observation, and effectively establish new hypothesis to refine the test input to reach the target location. To automate runtime value extraction, the Feedback Gen-erator synthesizes a gdb script in Python, and runs the target binary via the GDB Driver. The Feedback Generator extracts observed runtime values from the resulting gdb log, and then incorporates the observations into the feedback sup-plied to the next generation iteration. When the breakpoint of a query reaches multiple times in an execution, the Feed-back Generator provides all observed values as the answer of the query. The Test Generation Controller dynamically schedules the overall process according to a search strategy within the given testing budget. In each iteration, the controller dispatches the directed input generation task 𝑁 times, ac-counting for the non-deterministic nature of LLM-based generation. Initially, the Test Generation Controller does not provide any seed input. Once a seed input has been se-lected, however, the Directed Input Generator receives it as a reference for generating the next input. After running tests with the 𝑁 generated test inputs, the Test Generation Controller observes their line coverage, and if any generated input covers a previously uncovered line, it updates the seed input to the one that covers the largest number of previously uncovered lines in the target function (random selection to break ties). If none of the generated inputs covers a new line, the Test Generation Controller performs feedback-guided generation for 𝑁 times. Specifically, in each iteration, it dispatches the Feedback Generator to refine the current seed input and then invokes the Directed Input Generator using the resulting runtime feedback. If any of the newly generated 𝑁 test inputs covers new lines, the controller updates the seed to the input that covers previously uncovered lines most. Otherwise, the controller restarts the process without a seed input to stop exploiting the current search direction. 
+
+2.5 Implementation 
+
+ReDig is implemented as 4343 LoC in Python 3, together with 102 Lines of the textual data of the prompt templates. In the case studies, we used GPT-5.4 as its backbone LLM via the OpenAI API with temperature 0. The target program is built and executed in the Docker container. The Docker containers for the Coverage Driver and GDB Driver are built and run separately. We used Docker version 28.1.1. The call path analysis is implemented with Clang LibTool-ing [18] which is built on top of the LLVM 9 [12]. The Cov-erage Driver uses the llvm-cov for measuring the line cov-erage. The GDB Driver uses gdb version 8.1.1. The Feedback Generator generates and uses the gdb script to automatically conduct runtime value extraction in the gdb executions. A 
+
+gdb script sets the breakpoint and prints the indicated expres-sion for each runtime value query. The GDB Driver returns a Json object containing the list of observed values for each runtime value query. The list contains multiple values if the line is reached multiple times in an execution. The list is empty if the indicated line is never executed, or the line or expression is invalid. 
+
+## 3 Case Studies 
+
+3.1 Overview 
+
+We conducted case studies to explore the feasibility of the proposed framework for generating test inputs of C/C++ programs in the real world. As target projects, we chose Poppler commit-1d23101, and Libsndfile commit-86c9f92. which have been used as the reference versions of the target projects in the Magma benchmark [6]. Libsndfile is an audio-data reading and writing library supporting various file formats, and Poppler 
+
+is a PDF rendering library. They are open-source C/C++ programs widely studied in software testing research. For each project, we performed the pilot studies with 120 randomly sampled functions to measure how many lines of them are reached or unreached by running the naive version of the Directed Test Generator five times, which provides only the target function code annotated with the target line in the prompt. Based on the results, we chose addCombining() 
+
+for Poppler , and ogg_opus_read_refill() for Libsndfile .In Poppler , addCombining() is a Unicode character manipu-lation function which adds a combining character to a nearby base character when their positions overlap. In Libsndfile ,
+
+ogg_opus_read_refill() reads an Ogg file and decodes the next Opus packet into an audio buffer.                               
+
+> 3Subject Success Tests Turns Feedbacks Values Token Case 1 Yes 11 25590765 Case 2 Yes 13 2510 93825 Case 3 Yes 7253122436 Case 4 No 15 715 13 344475
+
+Table 1. Case Study Results The two chosen functions showed substantially lower average target-reaching rates (0.12 addCombining() , and 0.10 for ogg_opus_read_refill() ) than the other functions in their projects. The two target lines were selected from the lines that were never reached in the pilot studies. The four case study subjects are as follows: - Case 1. Poppler/TextOutputDev.cc:644 
+
+- Case 2. Poppler/TextOutputDev.cc:678 
+
+- Case 3. Libsndfile/ogg_opus.c:982 
+
+- Case 4. Libsndfile/ogg_opus.c:1062 
+
+ReDig was conducted once for each subject. In the case studies, we configured the Test Generation Controller to repeat the same test generation task five times (i.e., 𝑁 = 5). The call path analysis identified 13 functions in Cases 1 and 2, and 6 functions in Cases 3 and 4 as the call paths, respectively. The LLM API uses in the case studies costs 3.26 USD in total 2.Table 1 summarizes the directed test input generation in the four case studies. The “Tests” column shows the number of generated test inputs. Our framework succeeded in reach-ing the target lines for Cases 1–3 within three to five turns (“Turns”), where a turn represents one dispatch of either Di-rected Input Generator or Feedback Generator involving one LLM invocation. Before reaching the target, each test gen-eration process involved 5 to 15 feedback instances (“Feed-backs”), containing 3 to 13 unique runtime values (“Values”). This result supports the effectiveness of the feedback-guided refinement. Among the four, three case studies present successful di-rected test input generation, while one case study shows a failure (i.e., Case 4). Table 1 shows that, in all success cases, target-hitting input was not generated at once, but feedback generation and refined test generation were performed. The “Values” column shows that, across multiple feedback gen-erations, the Feedback Generator consistently queries a few variables or expressions. 
+
+3.2 Case 1. Success After Restart 
+
+ReDig successfully generated a target-hitting test input after one refinement round (three turns in total) and a subsequent restart. The episode proceeded as follows: 1) The Directed Input Generator first generated five inputs. Three inputs reached the target function but not the target line. Since they had identical line coverage, one test input was selected as the seed.             
+
+> 2GPT-5.4 costs 15 USD per 1M output tokens in July 2026.
+> 976 static int ogg_opus_read_refill (...) { 977 uint64_t pkt_granulepos ; ... 981 if (odata->pkt_indx == odata->pkt_len) { 982 nn = ogg_opus_unpack_next_page (...) ; /**TARGET**/ 983 if (nn <= 0) 984 return nn ; 985 }986 if (odata->pkt_indx == odata->pkt_len) 987 return 0 ; .... 1032 if (pkt_granulepos <= oopus->pg_pos) { 1033 oopus->len = nsamp ; 1034 } else { 1035 if (ogg_page_eos (&odata->opage)) ...
+
+Figure 3. Target Code Snippet of Case 3 2) Using the seed and its coverage, the Feedback Genera-tor produced runtime-value feedback. The Directed Input Generator then generated a refined input based on the seed and feedback. 3) None of the five refined inputs hit the target line. However, one refined input covers a previously uncovered line and was selected as the new seed. 4) ReDig generated new feedback for this seed and produced five additional refined inputs. None hit the target line or increased coverage, so the Test Generation Controller discarded the seed and restarted the generation process. 5) After restart, five new inputs were generated without a seed. Like in Step 1, none of these inputs covers the target line, but four of them reached the target function, so one input was selected as a new seed. 6) At the first refinement iteration, the Directed Input Gen-erator successfully generated a target-hitting input. In the follow-up analysis, we examined the ten inputs generated at the beginning of the two refinement cycles by observing the LLM trajectory. The explanations on the ten inputs reveal two distinct input-design patterns, and the seeds selected in the two cycles belonged to different patterns. This case demonstrates that runtime feedback supports exploitation by refining a seed while preserving its under-lying design, whereas restarting supports exploration by introducing a substantially different seed. Their combination ultimately led to a target-hitting test input. Case 2 is described in detail as the Motivating Example (see Section 2.2) which follows a process similar to that of Case 1. 
+
+3.3 Case 3. Success After Refinement 
+
+ReDig demonstrated that the Runtime feedback enabled the Directed Input Generator to revise its initial hypothesis and produce a target-hitting test input with Case 3. The target                                         
+
+> 4def ogg_crc ( page : bytes } -> int : ... def build_page ( packet_data_list , ...) : ... - audio_packet =b '\ xF8 \ xFF \ xFE ' + audio_packet1 =b '\ xF8 \ xFF \ xFE ' + audio_packet2 =b '\ xFC \ xFF \ xFE ' page0 =build_page ([ opus_head ] ,0 x02 ,0 , serial ,0) page1 =build_page ([ opus_tags ] ,0 x00 ,0 , serial ,1) - page2 =build_page ([ audio_packet ] ,0 x04 ,960 , serial ,2) + page2 =build_page ([ audio_packet1 ] ,0 x00 ,960 , serial ,2) + page3 =build_page ([ audio_packet2 ] ,0 x04 ,1920 , serial ,3) - out =page0 +page1 +page2 + out =page0 +page1 +page2 +page3 with open ( output_filename , 'wb ') as f: f. write ( out )
+
+Figure 4. Revision of Test Input Producing Script for Case 3 line 982 is located in ogg_opus_read_refill() , which pro-cesses packets extracted from an Ogg page to refill an audio-decoding buffer. The target line loads and unpacks the next page when all currently buffered packets have been con-sumed. The refinement process unfolded as follows: 1) The Directed Input Generator initially hypothesized that a minimally valid Ogg Opus file containing the required headers and an audio packet would cause the target func-tion to be invoked with an exhausted packet buffer. This assumption was stated explicitly in its explanation: "when reading begins, packet indices are initially exhausted." Accordingly, it generated an input for which the target branch was expected to be taken during the first relevant invocation. 2) The generated input was successfully recognized and pro-cessed as an Ogg Opus file, but it did not cover the target line. This result indicated that the failure was not caused by basic input recognition or parsing, but by an incorrect assumption about the runtime state at the target condition. 3) The Test Generation Controller invoked the Feedback Gen-erator to devise the runtime value queries to identify the cause of missing the target line in the preceding test input. The Feedback Generator produced the runtime queries including the following two expressions: the target branch condition, odata->pkt_indx == odata->pkt_len , the number of packets remaining in the buffer , odata->pkt_len - odata->pkt_indx .4) The GDB Driver run the target program, and retrieved the corresponding runtime values. The results show that 
+
+odata->pkt_indx == odata->pkt_len was evaluated to False, and odata->pkt_len - odata->pkt_indx is evaluated to 1, indicating that that the packet buffer was not exhausted and that exactly one packet remained when the target function was invoked. Thus, the function di-rectly processed the buffered packet without executing the target line to load another page. 5) Given this runtime value feedback, the Directed Input Generator generated a new test input which successfully reaches the target line. The trajectory of the Directed Input Generator shows that the LLM proposed to "provide two separate audio pages after the headers" and to "make the first refill consume the only buffered packet and then force a second refill attempt when no packets remain." This explanation implies that the LLM effectively identified the misaligned hypothesis, and refined it considering the observed runtime behaviors. Figure 4 summarizes the code difference between the first (Step 1) and revised (Step 5) test input producing scripts. The key change in the refined test script is to have two audio packets in two separate pages, and move the end-of-stream indication to the second page. The revised test script is properly aligned with the explanation in the trajectory of Step 5. The produced input will request the target functions to be invoked twice, such that the first invocation consumed the already-buffered packet, and the subsequent invocation encountered an exhausted packet buffer and executed the target line to load the next page. This case illustrates that runtime feedback can falsify an incorrect hypothesis about the program state and guide the Directed Input Generator toward a more precise hypothesis. 
+
+3.4 Case 4. Diverse Path Exploration via Feedback 
+
+In Case 4, ReDig did not succeed to generate a target-hitting test input within the given time bound. Nonetheless, the ex-ecution paths explored by the generated test inputs support that the runtime feedback mechanism contributes substan-tially to maintaining diversity in the search. The episode proceeded as follows: 1) The Directed Input Generator first generated five inputs, none of which reached the target line. In the meantime, the seed is updated as one of the generated input which covers the greatest number of lines in the target function. 2) The Test Generation Controller run five refinement at-tempts but none of the refined test inputs reaches the target line. Through this round, one of the refined test inputs covers a previously uncovered line in the target function, thus replaced the seed input. 3) This refinement process continued for two more rounds (four additional turns), updating the seed after each round. 4) Since no generated input had increased target-function coverage, the Test Generation Controller discarded the seed after the third round, and restarted the search with a newly generated seed. 5) ReDig repeatedly started over four more times until the time bound expired, while no target-hitting input was produced. 
+
+> 5
+
+We inspected the line and branch coverage achieved by each seed input to check whether path exploration continued during the test generation process, or stalled in the middle. We confirmed that every seed input takes different combi-nations of branches in the target function. We suspect that the runtime feedback effectively guides the Directed Input Generator to revise the seed inputs in ways that changed the resulting path conditions and progressively explored alternative execution paths. 
+
+## 4 Discussion 
+
+4.1 Related Work 
+
+Atlantis [3] uses LLMs with program analysis techniques to discover vulnerabilities and generate Proof-of-Vulnerability inputs. Its Path-Based PoV Generator iteratively refines LLM-generated inputs using execution feedback that indicates how far each input processes along a path from a fuzzing harness to a security-sensitive sink. OSS-Fuzz-Gen [2] intro-duce context-aware crash validation, which checks whether a crash is feasible from realistic program entry points by considering its surrounding call and state context. These works motivate our use of execution feedback and program context to refine LLM-based directed test input generation. Recently, more techniques have been proposed to utilize coverage information as feedback for LLM-based test gener-ation. Panta [5] combines static control-flow analysis with dynamic coverage analysis to prioritize under-tested exe-cution paths and asks the LLM to generate tests for them. CoverUp [1] generates Python regression tests targeting un-covered lines and branches. When the generated tests return errors, CoverUp utilizes the error information to refine the tests such that the intended test coverage can be attained in the subsequent test generation. Compared with these existing techniques, the salient tech-nical aspects of ReDig is that the Feedback Generator of ReDig specifically instructs the LLM to determine the run-time values that should be inspected to discover and test the misaligned hypothesis and employs a runtime debugger (i.e., 
+
+gdb ) to dynamically extract the runtime values from actual executions of previously generated inputs. In addition, the Directed Input Generator of ReDig effectively utilizes both the runtime value feedback and the previously generated test inputs to progressively guide directed input generation toward the target. TestWeaver [13] augments the target code with the run-time values observed in the prior test executions to assist LLMs to accurately reason about the context of uncovered code regions. ReDig differs from TestWeaver that ReDig selects which runtime values to observe, and devises how to refine the directed input generation by determining mis-aligned hypotheses in the earlier test executions. We believe that these strategic uses of runtime values are crucial for the scalability. The case studies show that ReDig is capable of testing C/C++ programs in the real world with a large number of functions, while the experiments of TestWeaver employs small-scale Python programs only. 
+
+4.2 Future Work 
+
+This paper presents our work-in-progress of the ReDig frame-work improving the LLM-based directed input generation via execution-based grounding with runtime value feedback. Building on the current framework, we plan to extend ReDig and investigate the following research directions: 
+
+• Exploring alternative feedback-generation strate-gies. Currently, the Feedback Generator uses a fixed prompt to instruct the LLM to formulate runtime-value queries for diagnosing misalignments in previously generated test inputs. We plan to investigate alternative prompting strate-gies inspired by different debugging hypotheses and rea-soning patterns. Such diversity may encourage broader exploration of possible failure causes and improve the effectiveness of iterative input refinement. 
+
+• Reusing previously generated seeds and feedback. 
+
+The Directed Test Generator currently uses only the latest seed input as a reference for generating the next test input. Consequently, useful information acquired during earlier test-generation attempts may not be fully utilized. We plan to extend the Test Generation Controller to select and provide multiple relevant seed inputs, together with previously generated feedback, thereby enabling more effective knowledge transfer across iterations. 
+
+• Exploring adaptive search control. The current Test Generation Controller uses a fixed number of repeated generation attempts to mitigate LLM nondeterminism. However, the appropriate number of repetitions may vary substantially across target programs and target lines, and it is difficult to determine in advance. We therefore plan to develop an adaptive controller that dynamically adjusts the number and type of generation attempts according to the outcomes of previous iterations. 
+
+• Comprehensive empirical evaluation. We plan to eval-uate the framework systematically using a diverse set of real-world C/C++ programs and target lines exhibit-ing different structural and semantic characteristics. The evaluation will examine not only target-reachability per-formance, but also generation cost, convergence behavior, robustness across repeated runs, and the contribution of each framework component. 
+
+• Applying the directed input generation to patch val-idation and failure reproduction. We plan to extend ReDig to generating test inputs targeting code changes to provide patch validation and support continuous and regression fuzzing [10, 11, 20], and generating test inputs designed to reproducing specific failure symptoms [8, 14] to support subsequent debugging activities. 
+
+> 6
+
+## 5 Conclusion 
+
+We propose ReDig, a runtime-value-feedback-guided refine-ment for LLM-based directed test input generation, and present our work-in-progress framework. ReDig uses run-time values observed in prior test executions to iteratively re-fine the information provided to the LLM directed input gen-erator. We present four case studies with real-world C/C++ programs demonstrating how runtime feedback can effec-tively guide LLM to successful directed test input generation, and present our future works to resolve the current short-comings and extend its applications. 
+
+## References 
+
+[1] Juan Altmayer Pizzorno and Emery D Berger. 2025. Coverup: Effective High Coverage Test Generation for Python. Proceedings of the ACM on Software Engineering 2, FSE (2025), 2897–2919. [2] Paschal Amusuo, Dongge Liu, Ricardo Andres Calvo Mendez, Jonathan Metzman, Oliver Chang, and James C Davis. 2026. Lessons from Mitigating False Positives in Google’s OSS-Fuzz-Gen. In Proceedings of the 34th ACM International Conference on the Foundations of Software Engineering . 316–321. [3] Taesoo Kim et al. 2025. ATLANTIS: AI-driven Threat Localization, Analysis, and Triage Intelligence System. arXiv:2509.14589 [cs.CR] 
+
+https://arxiv.org/abs/2509.14589 
+
+[4] Wang et al. 2025. TestEval: Benchmarking Large Language Models for Test Case Generation. In Findings of the Association for Computational Linguistics: NAACL 2025 , Luis Chiruzzo, Alan Ritter, and Lu Wang (Eds.). Association for Computational Linguistics, Albuquerque, New Mexico, 3547–3562. doi: 10.18653/v1/2025.findings-naacl.197 
+
+[5] Sijia Gu, Noor Nashid, and Ali Mesbah. 2025. LLM Test Generation via Iterative Hybrid Program Analysis. arXiv preprint arXiv:2503.13580 
+
+(2025). [6] Ahmad Hazimeh, Adrian Herrera, and Mathias Payer. 2021. Magma: A Ground-Truth Fuzzing Benchmark. Proceedings of the ACM on Measurement and Analysis of Computing Systems (POMACS) 4, 3, Article 49 (jun 2021), 29 pages. [7] Zongze Jiang, Ming Wen, Jialun Cao, Xuanhua Shi, and Hai Jin. 2024. Towards Understanding the Effectiveness of Large Language Models on Directed Test Input Generation. In Proceedings of the 39th IEEE/ACM International Conference on Automated Software Engineering . 1408– 1420. [8] Wei Jin and Alessandro Orso. 2012. Bugredux: Reproducing field failures for in-house debugging. In 2012 34th international conference on software engineering (ICSE) . IEEE, 474–484. [9] Sungmin Kang, Bei Chen, Shin Yoo, and Jian-Guang Lou. 2025. Explain-able automated debugging via large language model-driven scientific debugging. Empirical Software Engineering 30, 2 (2025), 45. [10] Jeewoong Kim and Shin Hong. 2024. BugOss: A benchmark of real-world regression bugs for empirical investigation of regression fuzzing techniques. J. Syst. Softw. 216, C (Oct. 2024), 12 pages. doi: 10.1016/j. jss.2024.112119 
+
+[11] Thijs Klooster, Fatih Turkmen, Gerben Broenink, Ruben Ten Hove, and Marcel Böhme. 2023. Continuous fuzzing: A study of the effec-tiveness and scalability of fuzzing in ci/cd pipelines. In 2023 IEEE/ACM International Workshop on Search-Based and Fuzz Testing (SBFT) . IEEE, 25–32. [12] Chris Lattner and Vikram Adve. 2004. LLVM: A Compilation Frame-work for Lifelong Program Analysis and Transformation. In Proceed-ings of the International Symposium on Code Generation and Optimiza-tion (CGO) . San Jose, CA, USA, 75–88. [13] Cuong Chi Le, Cuong Duc Van, Tung Duy Vu, Thai Minh Pham Vu, Hoang Nhat Phan, Huy Nhat Phan, and Tien N Nguyen. 2025. Test-Weaver: Execution-aware, Feedback-driven Regression Testing Gener-ation with Large Language Models. arXiv preprint arXiv:2508.01255 
+
+(2025). [14] Hwiwon Lee, Ziqi Zhang, Hanxiao Lu, and Lingming Zhang. 2026. Sec-bench: Automated benchmarking of llm agents on real-world software security tasks. Advances in Neural Information Processing Systems 38 (2026), 116342–116378. [15] Caroline Lemieux, Jeevana Priya Inala, Shuvendu K Lahiri, and Sid-dhartha Sen. 2023. Codamosa: Escaping coverage plateaus in test generation with pre-trained large language models. In 2023 IEEE/ACM 45th International Conference on Software Engineering (ICSE) . IEEE, 919–931. [16] Zhengxiong Luo, Mehtab Zafar, Dylan Wolff, and Abhik Roychoud-hury. 2026. Code-Augur: Agentic Vulnerability Detection via Specifi-cation Inference. arXiv:2606.18619 [cs.CR] https://arxiv.org/abs/2606. 18619 
+
+[17] Richard Stallman, Roland Pesch, Stan Shebs, et al. 1988. Debugging with GDB. Free Software Foundation 675 (1988). [18] The Clang Team. [n. d.]. LibTooling: Clang documentation. https: //clang.llvm.org/docs/LibTooling.html . Accessed: 2026-08-04. [19] Vasudev Vikram and Rohan Padhye. 2026. Fuzzing with Agents? Generators Are All You Need. arXiv preprint arXiv:2604.01442 (2026). [20] Xiaogang Zhu and Marcel Böhme. 2021. Regression Greybox Fuzzing. In ACM SIGSAC Conference on Computer and Communications Security (CCS) .

@@ -6,35 +6,38 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-15
-- 运行时间：2026-08-15 20:43:55 UTC
+- 最新运行日期：2026-08-16
+- 运行时间：2026-08-16 20:35:50 UTC
 - 运行状态：成功
 - 本次总论文数：5
-- 精读区：1
-- 速读区：4
+- 精读区：0
+- 速读区：5
 
 ### 今日简报（AI）
-今日精读1篇、速读4篇，聚焦RTL仿真加速与验证方法。最值得关注的是《ARMOR》通过节点压缩缓解仿真前端瓶颈（8.0/10），以及概率饱和计数器综合的差分隐私保证方向。建议优先精读ARMOR的压缩技术，并浏览其余篇目以把握验证与生成的最新趋势。
-- 详情：[/202608/15/README](/202608/15/README)
+今日速读5篇论文，最高分为7.0的《InSPECtor》，聚焦处理器规范验证、LLM测试生成与CPS行为建模。  
+值得关注的方向是处理器规范验证的代理方法，以及利用运行时反馈改进LLM测试输入生成。  
+建议优先精读《InSPECtor》，其余两篇可作背景拓展。
+- 详情：[/202608/16/README](/202608/16/README)
 
 ### 精读区论文标签
-1. [ARMOR: Accelerating RTL Simulation by Mitigating the Front-End Bottleneck Using Node Compression](/202608/15/2608.08462v1-armor-accelerating-rtl-simulation-by-mitigating-the-front-end-bottleneck-using-node-compression)  
-   标签：评分：8.0/10、query:fsh
-   evidence：提出ARMOR加速RTL仿真，属于数字电路硬件验证的核心技术
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Synthesizing Probabilistic Saturating Counters with Differentially Private Formal Guarantees](/202608/15/2608.10521v1-synthesizing-probabilistic-saturating-counters-with-differentially-private-formal-guarantees)  
+1. [InSPECtor: Improving SLEIGH Processor Specification Veracity via Proxy](/202608/16/2608.13042v1-inspector-improving-sleigh-processor-specification-veracity-via-proxy)  
    标签：评分：7.0/10、query:fsh
-   evidence：对分支预测器中的概率饱和计数器进行基于差分隐私的形式化分析，以验证抗侧信道安全性
-2. [Termination analysis with interpolation-based transition invariant generation](/202608/15/2608.08857v1-termination-analysis-with-interpolation-based-transition-invariant-generation)  
+   evidence：面向处理器规格验证的模糊测试式代理校验
+2. [Refining LLM-based Directed Test Input Generation via Runtime Value Feedback](/202608/16/2608.07926v1-refining-llm-based-directed-test-input-generation-via-runtime-value-feedback)  
    标签：评分：6.0/10、query:fsh
-   evidence：基于插值的迁移不变量生成终止性分析，属于可迁移到硬件验证的形式化验证技术
-3. [P$^{3}$: Joint Program-and-Proof Planning for Verified Code Generation](/202608/15/2608.09277v1-p3-joint-program-and-proof-planning-for-verified-code-generation)  
+   evidence：基于LLM的定向测试生成与运行时反馈，可迁移至硬件验证
+3. [Synthesizing Behavioural Models of CPS Using Automata Learning and Statistical Machine Learning](/202608/16/2608.08214v1-synthesizing-behavioural-models-of-cps-using-automata-learning-and-statistical-machine-learning)  
+   标签：评分：6.0/10、query:ml-verify
+   evidence：机器学习和自动机学习用于形式验证中的行为模型合成
+4. [Termination analysis with interpolation-based transition invariant generation](/202608/16/2608.08857v1-termination-analysis-with-interpolation-based-transition-invariant-generation)  
+   标签：评分：6.0/10、query:fsh
+   evidence：基于插值的形式验证技术，可迁移到硬件模型检测
+5. [A Contract-Grade Verifier for LLM-Generated GPU Kernels, and a Native Blackwell Backward for the Gated-Linear-Recurrence Family](/202608/16/2608.12700v1-a-contract-grade-verifier-for-llm-generated-gpu-kernels-and-a-native-blackwell-backward-for-the-gated-linear-recurrence-family)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：LLM验证代码生成的程序与证明联合规划
-4. [Can Formal Specifications Be Synthesized from Tests Alone?](/202608/15/2608.13240v1-can-formal-specifications-be-synthesized-from-tests-alone)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：基于LLM的形式规格综合与有界模型检验验证，方法可迁移至硬件形式验证
+   evidence：面向LLM生成GPU内核的合同级验证器，对生成代码施加形式化正确性属性
 
 
 <div class="dpr-home-promo-card">

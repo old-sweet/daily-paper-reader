@@ -1,0 +1,787 @@
+Title: Termination analysis with interpolation-based transition invariant generation
+
+URL Source: https://arxiv.org/pdf/2608.08857v1
+
+Published Time: Tue, 11 Aug 2026 01:32:41 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Termination analysis with interpolation-based transition invariant generation 
+
+Konstantin Britikov 
+
+USI, Switzerland 
+
+Martin Blicha 
+
+Argot Collective, Switzerland 
+
+Grigory Fedyukovich 
+
+FSU, United States 
+
+Natasha Sharygina 
+
+USI, Switzerland 
+
+Abstract —Termination and nontermination of infinite-state systems are complementary problems that, despite their close connection, are typically addressed by separate techniques. The core idea of this paper is to connect termination and nontermi-nation analysis, enabling the two to share intermediate results and guide one another. We present a new termination analysis approach based on the generation of well-founded transition in-variants. It leverages Craig interpolation for transition invariant generation, capturing the structural reasons for termination. The proposed technique extends safety-based nontermination analy-sis, enabling it to prove both termination and nontermination within a unified framework. We implemented our approach in the GOLEM verification framework and evaluated it on benchmarks from the Termination Competition (TermComp). Empirical results demonstrate that combining termination and nontermination is beneficial and yields performance comparable to state-of-the-art tools. 
+
+I. I NTRODUCTION 
+
+Termination analysis of infinite-state systems is a funda-mental problem in formal methods. Proving termination and nontermination is undecidable [1], yet there exist many tech-niques that succeed on a large class of real-world problems. Modern techniques treat termination and nontermination as separate problems, since each has a different proof procedure. The existence of a ranking function by e.g. [2]–[11] witnesses termination by providing a measure that strictly decreases along every transition. Alternatively, fixpoint computation, e.g. [12], and disjunctively well-founded transition invari-ants [13]–[16] have been proposed for termination analysis. Nontermination techniques are predominantly based on the detection of recurrent sets — sets of states from which execution cannot escape [8], [10], [17]–[20]. There also exist alternative approaches based on Hoare-style reasoning [21], safety proving [22], [23], representing infinite runs as sums of geometric series [24], or synthesis of negative exact loop bounds [11]. In this work, we present a unified framework for proving both termination and nontermination. This framework extends the safety-based nontermination analysis [22] (SNA), enabling it to prove termination. The extension is a novel interpolation-based method for generating disjunctively well-founded tran-sition invariants for termination analysis. The proposed ap-proach uses terminating transition traces constructed by SNA, overapproximating them with a Craig interpolation [25]. The interpolant is processed into a transition invariant candidate, which is used to prove termination. Additionally, based on the transition invariant candidate, the algorithm creates smaller, focused (non)termination problems, which guide the analysis of the whole transition system. Solving these problems helps to extend the transition invariant candidate and enables an efficient nontermination analysis of complex problems. We implemented our new technique in the G OLEM Con-strained Horn Clause solver [26]. We evaluated it on the Integer Transition Systems benchmarks from the Termination Competition [27]. Our tool solved a large number of termi-nating instances and demonstrated significant improvement for nontermination analysis, compared to the classical SNA. The comparison with the winners of the Termination Competi-tion 2025 1—K OAT, L OAT [28], and T2 [18]— shows that our approach is competitive with the state-of-the-art tools and can solve unique instances, including those that were never solved by any tool before. Overall, the contributions of this paper are as follows: (1) a novel interpolation-based method for the generation of disjunctively well-founded transition invariants, (2) a unified termination/nontermination analysis procedure that utilises the intermediate results of (non)termination analysis for self-guidance and (3) its implementation and successful evaluation. II. P RELIMINARIES 
+
+This section introduces the definitions and formalisms used in the paper. Logical formulas in our approach are defined over the theory of Linear Integer Arithmetic (LIA). We use X, X ′
+
+to denote sets of variables (unprimed and primed), where X is a set of state variables, and X′ = {x′|x ∈ X} is a set of next state variables. If a formula contains variables over multiple states, we use superscript notation, e.g., X(0) , . . . , X (n).The formula defined over X is a state formula, and a formula over X ∪ X′ is a transition formula. State formulas encode a set of states, and transition formulas define binary relations over the states. We use Id (X, X ′) to denote the identity transition formula V 
+
+> x∈X
+
+x = x′.A transition system is defined as TS = ⟨Init , Tr , X ⟩,where Init is a formula encoding the initial states of the system, Tr is a transition formula, encoding the transition relation, and X is the set of system variables. With respect to transition system, a transition trace is a formula encod-ing multiple consecutive transitions: Tr n(X(0) , . . . , X (n)) = 
+
+Tr (X(0) , X (1) )∧· · ·∧ Tr (X(n−1) , X (n)). A safety problem is 
+
+> 1https://termination-portal.org/wiki/Termination Competition 2025. arXiv:2608.08857v1 [cs.LO] 9 Aug 2026
+
+P = ⟨Init , Tr , Bad, X ⟩, where Bad is a formula representing states that violate the safety property. Safety verification amounts to determining whether there exists a transition trace that reaches a Bad state from some initial state. If TS is safe, then there exists an in-ductive invariant Inv (X) such that (1) ∀X. Init (X) →
+
+Inv (X), (2) ∀X, X ′.Inv (X) ∧ Tr (X, X ′) → Inv (X′),and (3) ∀X.Inv (X) → ¬Bad (X). We use SAFETY -CHECK (P ) to denote a safety verification procedure that returns a tuple ⟨SAFE , Inv (X)⟩ if TS is safe (Inv (X)
+
+is an inductive invariant). If TS is unsafe it returns 
+
+⟨UNSAFE , Tr n(X(0) , . . . , X (n))⟩, s.t. ∃X(0) , . . . , X (n)2.
+
+Init (X(0) ) ∧ Tr n(X(0) , . . . , X (n)) ∧ Bad (X(n))
+
+A transition system is called nonterminating if there exists an initial state from which it is possible to take any number of transitions, meaning ∃X. Init (X) such that: 
+
+∀n ∈ N.∃X(1) , . . . , X (n).Tr n(X, X (1) , . . . , X (n))
+
+Definition 1 (Recurrent Set) . For a Transition System 
+
+⟨Init , Tr , X ⟩, a formula N (X) is a recurrent set if: (1) 
+
+∀X.N (X) → ∃X′.Tr (X, X ′) ∧ N (X′), (2) ∃X.N (X) ∧
+
+Init (X).Transition System is nonterminating if there exists a re-current set . Intuitively, every state in a recurrent set has a successor that also lies in the recurrent set, and the recurrent set contains some of the initial states. A TS is called terminating if for every initial state it enables only a finite number of transitions. Transition System 
+
+⟨Init , Tr , X ⟩ terminates, if ∀X. Init (X) the following holds: 
+
+∃n ∈ N.¬∃ X(1) , . . . , X (n).Tr n(X, X (1) , . . . , X (n))
+
+Definition 2 (Transition invariant) . For a Transition Sys-tem ⟨Init , Tr , X ⟩, TrInv (X, X ′) is a transition invariant if: ∀X, X ′.R (X) ∧ Tr +(X, X ′) → TrInv (X, X ′), where 
+
+Tr +(X, X ′) is the transitive closure of Tr (X, X ′) and R(X)
+
+is a formula encoding all states reachable in TS .
+
+Definition 3 (Well-founded Relation) . A binary relation W ⊆
+
+D × D over a domain D is well-founded if there exists no infinite descending chain: 
+
+∄ d0, d 1, d 2, · · · ∈ D. ∀i ∈ N. (di, d i+1 ) ∈ W
+
+A relation W (X, X ′) can be proven to be well-founded by synthesizing a ranking function f (X), such that 
+
+∀X, X ′.W (X, X ′) → f (X) > f (X′) [2]. Termination can be proven using transition invariants [29]. If a transition invariant is a finite union of well-founded relations (for example, if each relation admits a ranking function), then the transition system terminates. 
+
+Definition 4 (Disjunctively well-founded relation) . A relation 
+
+K(X, X ′) = Sni=0 Wi(X, X ′) is called disjunctively well-founded if every relation Wi(X, X ′) is well-founded.        
+
+> 2It is a shorthand notation for ∃X(0) , . . . , ∃X(n)START
+> P = <Init, Tr, Sink, X>
+> Safety check
+> of P
+> <SAFE , Inv>
+> Inv is a
+> Recurrent set
+> Yes
+> <UNSAFE , Tr n>
+> Si(X) /\
+> Tr(X,X') /\
+> ¬S i+1 (X')
+> i = n-1
+> Is
+> UNSAT
+> i = 0 NO
+> Init = Init /\ ¬S 0(X)
+> YES
+> Tr = Tr /\ ¬Si+1 (X')
+> Is SAT
+> Updated P
+> BlockTerm
+> No
+> Construct states
+> reachable after i and
+> i+1 transitions
+> NONTERMINATING
+> UNKNOWN
+> Si, S i+1
+> i = i -1
+> Figure 1. Execution flow of Safety-based Nontermination analysis, cf. [22]
+
+Given two formulas A and B where A ∧ B is unsatisfiable, a Craig interpolant [25] for A and B is a formula I, where: (1) A → I; (2) I ∧ B is unsatisfiable; and (3) I only contains the symbols, common to both A and B. Craig interpolants are widely used as overapproximations. We write I TP (A, B ) for the computation of a Craig interpolant. 
+
+A. Proving Nontermination via Safety 
+
+Many techniques reduce termination and nontermination analysis to safety verification. One notable approach is the reduction of nontermination to safety, which constructs recur-rent sets via inductive invariants [22]. It was introduced in the context of proving nontermination of programs with loops, and can be extended to transition systems. 
+
+Definition 5 (Sink states) . For a Transition System 
+
+⟨Init , Tr , X ⟩, a state s is a sink state, if ¬∃ s′.Tr (s, s ′). We use Sink (X) to denote the formula encoding all sink states in the transition system: ∀X. Sink (X) ↔ ¬∃ X′.Tr (X, X ′)
+
+Algorithm 1 for Safety-based Nontermination analysis (SNA) takes a safety problem P = ⟨Init , Tr , Sink , X ⟩,where sink states are constructed from TS using quantifier elimination (QE): Sink (X) = ¬QE (∃X′.Tr (X, X ′)) . As an output, it returns NONTERM if the system is nonterminating, and UNKNOWN, if the algorithm cannot conclude the anal-ysis. Figure 1 illustrates the execution flow of Safety-based Nontermination. SNA iteratively solves increasingly refined safety problems until the given sink states are proven unreachable. In every iteration, if there exists a trace reaching sink states (line 3), BLOCK TERM (Algorithm 2) refines the safety problem P
+
+by blocking the states that deterministically lead to the sink states, updating the safety problem. B LOCK TERM is described in detail below. When the original sink states are no longer reachable, SNA checks if the computed inductive invariant 
+
+Inv (X) is a recurrent set (line 6). This amounts to deciding satisfiability of the following formula: 
+
+Inv (X) ∧ ¬∃ X′.Tr (X, X ′).Algorithm 1: Safety-based Nontermination Analysis (SNA), cf. [22] 
+
+Input : Safety problem P = ⟨Init , Tr , Sink , X ⟩
+
+Output: NONTERM | UNKNOWN  
+
+> 1
+
+while ⊤ do  
+
+> 2
+
+⟨res , ϕ = Tr n or Inv ⟩ ← SAFETY CHECK (P ) 
+
+> 3
+
+if res = UNSAFE then  
+
+> 4
+
+P ← BLOCK TERM (P, ϕ ) 
+
+> 5
+
+else  
+
+> 6
+
+if ∀X.ϕ (X) → ∃ X′.Tr (X, X ′) then  
+
+> 7
+
+return NONTERM  
+
+> 8
+
+return UNKNOWN 
+
+Algorithm 2: BLOCK TERM (P, Tr n), cf. [22] 
+
+Input : Safety problem P = ⟨Init , Tr , Sink , X ⟩,terminating trace Tr n(X(0) , . . . , X (n)) = 
+
+Tr (X(0) , X (1) ) ∧ · · · ∧ Tr (X(n−1) , X (n))
+
+Output: Refined safety problem P ′
+
+Data : S0, . . . , S n - formulas which encode states within trace reachable in 0, ..., n transitions  
+
+> 1
+
+i ← n − 1 
+
+> 2
+
+while i > 0 do  
+
+> 3
+
+Si+1 (X) ← QE (∃X(0) , . . . , X (i), X (i+2) , . . . , X (n).
+
+Init (X(0) ) ∧ Tr n ∧ Sink (X(n)))[ X(i+1) 7 → X] 
+
+> 4
+
+Si(X) ← QE (∃X(0) , . . . , X (i−1) , X (i+1) , . . . , X (n).
+
+Init (X(0) ) ∧ Tr n ∧ Sink (X(n)))[ X(i) 7 → X] 
+
+> 5
+
+if SAT ? Si(X) ∧ Tr (X, X ′) ∧ ¬ Si+1 (X′) then  
+
+> 6
+
+Tr ′(X, X ′) ← Tr (X, X ′) ∧ ¬ Si+1 (X′) 
+
+> 7
+
+return ⟨Init , Tr ′, Sink , X ⟩ 
+
+> 8
+
+i ← i − 1 
+
+> 9
+
+Init ′(X(0) ) ← Init (X(0) ) ∧¬QE (∃X(1) , . . . , X (n).Init (X(0) ) ∧ Tr n ∧ Sink (X(n)))  
+
+> 10
+
+return ⟨Init ′, Tr , Sink , X ⟩
+
+If Inv (X) is a recurrent set, then the transition system is nonterminating. Otherwise, SNA returns UNKNOWN. The B LOCK TERM procedure takes as input a safety prob-lem P and a trace formula Tr n(X(0) , . . . , X (n)) such that 
+
+Init (X(0) )∧Tr n(X(0) , . . . , X (n))∧Sink (X(n)) is satisfiable. The algorithm iteratively analyses the trace from the last transition backwards. Using QE, Algorithm 2 computes Si
+
+and Si+1 , encoding the states that are reachable after i and 
+
+i+1 transitions from Init (lines 3, 4). Then, at line 5 it checks if Si(X) ∧ Tr (X, X ′) ∧ ¬ Si+1 (X′) is satisfiable.Intuitively, with this query, the algorithm checks if it is possible to take an alternative transition at step i, one that does not lead to the sink states. If it is possible, the algorithm blocks the states deterministically leading to the sink states by excluding them from the transition relation (line 6). If the whole trace is deterministic (it is not possible to take an alternative transition along the trace), B LOCK TERM blocks the subset of initial states deterministically leading to sink (line 9). 
+
+Lemma 1. If Algorithm 1 returns NONTERM , then the transition system is nonterminating, cf. [22]. 
+
+Example 1. Consider a transition system TS = ⟨Init , Tr , X ⟩
+
+with X = {x}, Init (X) ≜ ⊤, and Tr (X, X ′) ≜ (x′ = x −
+
+1∨x′ = x−2) ∧x̸ = 0 . The sink states are Sink (X) ≜ x = 0 ,and the initial safety problem is P = ⟨Init , Tr , Sink , x ⟩. This 
+
+TS is nonterminating, since x infinitely decreases. The execution of Algorithm 1 updates the initial states and the transition relation in two iterations of the algorithm, via BLOCK TERM : Init (X) ← x̸ = 0 , and Tr (X, X ′) ←
+
+Tr (X, X ′) ∧ x′̸ = 0 . The safety check of the updated problem concludes SAFE, with Inv (X) ≜ x̸ = 0. Inv (X) is a recurrent set, and algorithm returns NONTERM. 
+
+Motivation for transition invariant-based termination anal-ysis. Consider a small modification (replacing x̸ = 0 with 
+
+x > 0): Tr (X, X ′) ≜ (x′ = x − 1 ∨ x′ = x − 2) ∧ x > 0.This renders TS terminating since x is strictly positive and decreases every step. However, Algorithm 1 cannot detect termination by design, and it would return UNKNOWN. Let us examine the execution of Algorithm 1 on this example. First, using B LOCK TERM , it blocks initial states that instantly terminate: Init (X) ← x > 0. In the second iteration, S AFETY CHECK (P ) returns UNSAFE with a trace Tr 1(X(0) , X (1) ) satisfying ∃X(0) , X (1) .Init (X(0) ) ∧
+
+Tr 1(X(0) , X (1) ) ∧ Sink (X(1) ). Our key insight is to gen-eralise such terminating traces into a formula describing an entire class of terminating behaviours. If this generalisation yields a disjunctively well-founded transition invariant over all reachable states, it witnesses termination. Particularly, 
+
+TrInv (X, X ′) ≜ x′ < x ∧ x > 0 is a well-founded transi-tion invariant that proves the termination of TS . Section III presents the algorithm that automates this generalisation via Craig interpolation. III. T ERMINATION ANALYSIS VIA INTERPOLATION -BASED 
+
+TRANSITION INVARIANT GENERATION 
+
+We present a new termination analysis approach that lever-ages safety verification to generate a well-founded transition invariant via interpolation. At each iteration, our procedure constructs a trace from the initial states to a sink state. A candidate well-founded transition invariant is then constructed based on the overapproximation of the terminating trace. If the candidate is valid for all reachable states (meaning it is a transition invariant), termination is concluded. The interpolation-based approach enables efficient generation of a transition invariant guided by the termination conditions. 
+
+A. Interpolation-based Generation of Well-Founded Transition Invariants 
+
+The core of our approach is TRINV GEN , a procedure for the automated interpolation-based generation of well-founded transition invariants. Given a transition system and a terminating trace, it constructs a disjunctively well-founded approximation of the trace. If the resulting formula constitutes a transition invariant over all reachable states, it witnesses termination. The procedure consists of five steps: (1) Computing NT n,the formula encoding states from which non-sink states can be reached within n transitions. NT n is used to construct the interpolant. The negation of NT n encodes the states Construct states,     
+
+> nonterminating in
+> n transitions: NT n(x)
+> Overapproximate the
+> Tr nvia interpolation
+> DNFize interpolant
+> Construct TrInv(x,x'),
+> preserving well-
+> founded disjuncts
+> Construct states C(x),
+> where TrInv is valid
+> transition invariant
+> Transition Invariant Generation
+> START <TrInv, C> Figure 2. Execution Flow of Interpolation-based Transition Invariant Gener-ation
+
+Algorithm 3: TRINV GEN (P, Tr n, TrInv ).
+
+Input : Safety problem P = ⟨Init , Tr , Sink , X ⟩, transition trace Tr n(X(0) , X (1) , . . . , X (n)), candidate transition invariant TrInv (X, X ′)
+
+Output: Updated transition invariant TrInv (X, X ′) and formula C(X) encoding states covered by transition invariant  
+
+> 1
+
+NT n(X(0) ) ← QE (∃X(1) , . . . , X (n).
+
+Tr n(X(0) , X (1) , . . . , X (n)) ∧ ¬ Sink (X(n)))  
+
+> 2
+
+itp (X, X ′) ←
+
+ITP (Tr n(X, . . . , X ′), ¬NT n(X) ∧ ¬ Sink (X′))  
+
+> 3
+
+Cs (X, X ′) ← TODNF (itp ) 
+
+> 4
+
+TrInv ← TrInv ∨ W
+
+> i
+
+{di ∈ Cs | ∃ ranking function f (X)} 
+
+> 5
+
+C(X) ← Sink (X) ∨ ¬ QE (∃X′, X ′′ . Tr (X, X ′) ∧ Id (X′, X ′′ ) ∨ TrInv (X′, X ′′ ) ∧ ¬ TrInv (X, X ′′ ))  
+
+> 6
+
+return ⟨TrInv , C ⟩
+
+from which Sink is guaranteed to be reached in at most 
+
+n transitions. (2) Constructing an over-approximation of the terminating trace via interpolation. The usage of sink states allows the interpolant to capture the reason for termination. (3) Converting the interpolant into an underapproximating DNF formula. This enables efficient ranking function synthesis for each disjunct. (4) Filtering disjuncts, preserving only disjuncts that encode well-founded relations. These disjuncts are used to construct a candidate transition invariant. Only well-founded relations are preserved, as transition invariant needs to be disjunctively well-founded to witness termination. (5) Com-puting the formula C(X), encoding states for which candidate transition invariant is valid. Transition invariant needs to be valid only over the reachable states to conclude termination. Therefore, if all reachable states satisfy C(X), then TS is terminating. The overall flow of the procedure is illustrated in Figure 2 and described in Algorithm 3. Algorithm 3 takes as input a safety problem P = ⟨Init , Tr ,
+
+Sink , X ⟩, a transition trace Tr n(X(0) , X (1) , . . . , X (n)), and a transition invariant formula TrInv (X, X ′). It returns a tuple of formulas ⟨TrInv , C ⟩, where TrInv (X, X ′) is a disjunctively well-founded transition invariant candidate, and C(X) is a formula encoding the states for which TrInv is a valid transition invariant. It proceeds in the following steps: 
+
+Step 1 : Computing NT n (line 1). NT n(X) encodes all states from which a non-sink state is reachable within n transi-tions. The following property defines it: ∀X(0) .NT n(X(0) ) ↔∃X(1) , . . . , X (n).Tr n(X(0) , . . . , X (n)) ∧ ¬ Sink (X(n))
+
+NT n is constructed with quantifier elimination, eliminating all variables from the formula except for X(0) . Construction of NT n enables the overapproximation of the trace. 
+
+Example 2. Consider TS = ⟨Init , Tr , X ⟩ with Init ≜ x > 0,
+
+Tr (X, X ′) ≜ (x′ = x − 1 ∨ x′ = x − 2) ∧ (x > 0 ∨ x < −10) ,
+
+X ≜ {x}. The sink states are Sink (X) ≜ x ≤ 0 ∧ x ≥ − 10 .For n = 1 , quantifier elimination yields NT 1(X) = x > 
+
+1 ∧ x < −10 : states from which ¬Sink is reachable in one transition. 
+
+Step 2 : Interpolation (line 2). The following formula is unsatisfiable by construction since any state that satisfies 
+
+¬NT n must reach Sink within at most n steps: 
+
+¬NT n(X(0) ) ∧ Tr n(X(0) , . . . , X (n)) ∧ ¬ Sink (X(n))
+
+This allows us to compute a Craig interpolant that over-approximates the trace Tr n. Crucially, the usage of the sink states for the interpolant construction allows the interpolant to capture the reason why the particular trace is terminating. 
+
+Step 3 : DNF underapproximation (line 3). For a transition invariant to witness termination, it must be disjunctively well-founded: every disjunct must encode a well-founded relation. Converting the interpolant to DNF would simplify the well-foundedness check for separate disjuncts. However, complete DNF conversion can cause an exponential blowup in formula size and take a significant amount of time. Moreover, even a complete DNF is not guaranteed to yield a transition invariant. Instead, our algorithm follows a lazy approach: it constructs an under-approximating DNF formula on demand. Specifi-cally, the algorithm constructs disjuncts as follows: (1) the SMT solver produces a model that satisfies itp ; (2) the literals satisfied by this model are extracted and conjoined to form a single disjunct; (3) this disjunct is blocked from itp and the process repeats until some m disjuncts are constructed. The result is a formula: 
+
+Cs (X, X ′) ≜
+
+> m
+
+_
+
+> i=0
+
+di
+
+where each di is a conjunction, and Cs (X, X ′) → itp (X, X ′).This approach significantly reduces formula size and speeds up both the DNF construction and subsequent well-foundedness check, while preserving correctness: in the worst case, Cs fails to be a transition invariant, but this is also possible even with a complete DNF conversion. 
+
+Step 4 : Filtering Well-Founded Disjuncts (line 4). For each disjunct d(X, X ′) ∈ Cs (X, X ′), the algorithm checks if 
+
+d(X, X ′) encodes a well-founded relation. Our technique syn-thesizes linear ranking functions automatically following [2] for checking the existence of a ranking function. The dis-juncts admitting a ranking function are preserved, the rest are discarded. The resulting formula is disjoined with the input candidate transition invariant TrInv .
+
+Step 5 : Synthesis of the states for which transition invariant is valid (line 5). If TrInv is a transition invariant over all reachable states, then TS terminates, since every disjunct encodes a well-founded relation. To verify this, the procedure computes the formula C(X) encoding the states over which TrInv is a valid transition invariant (including sink states, as any candidate invariant is valid over Sink ). 
+
+Definition 6 (Coverage formula) . Given a transition system 
+
+TS = ⟨Init , Tr , X ⟩ and a formula TrInv (X, X ′), a formula 
+
+C(X) is called coverage, if the following holds ∀X, X ′, X ′′ :
+
+C(X) ∧ Tr (X, X ′) →TrInv (X, X ′)
+
+C(X) ∧ Tr (X, X ′) ∧ TrInv (X′, X ′′ ) →TrInv (X, X ′′ )
+
+That is, TrInv is a transition invariant over states that satisfy 
+
+C(X).Similarly to NT n, C(X) is constructed by applying quan-tifier elimination, negating the states for which TrInv is not a transition invariant. It is a coverage formula by construction. 
+
+Example 3. Continuing Example 2, suppose the procedure constructs an interpolant itp (X, X ′) ≜ x′ < x ∧ (x > 0 ∨
+
+x < −10) . Afterwards, algorithm would construct DNF form: 
+
+(x′ < x ∧ x > 0) ∨ (x′ < x ∧ x < −10) , and since the second disjunct is not well founded, it would be dropped, resulting in TrInv (X, X ′) ≜ x′ < x ∧ x > 0. Quantifier elimination at line 5 then returns C(X) ≜ (x ≥ − 10 ∧ x ≤ 0) ∨ x > 0.
+
+Note. If ¬C(X) is unreachable, then TrInv (X, X ′) is a disjunctively well-founded transition invariant over all reach-able states, and witnesses termination of the transition sys-tem. For illustration, the transition invariant in Example 3 is sufficient to prove termination since the states satisfying 
+
+¬C(X) ≜ x < −10 cannot be reached within TS .
+
+Lemma 2. Let TS = ⟨Init , Tr , X ⟩ be a transition system and let C(X) be a formula such that ¬C(X) is unreachable in TS . If TrInv (X, X ′) is a finite disjunction of formulas encoding well-founded relations and satisfies ∀X, X ′, X ′′ :
+
+C(X) ∧ Tr (X, X ′) →TrInv (X, X ′)
+
+C(X) ∧ Tr (X, X ′) ∧ TrInv (X′, X ′′ ) →TrInv (X, X ′′ )
+
+then TS is terminating. Proof. We show that TrInv is a disjunctively well-founded transition invariant over the reachable states of TS , from which termination follows by [29]. 
+
+Disjunctive well-foundedness. By construction, for each disjunct di of TrInv = W 
+
+> i
+
+di there exists a ranking function. Therefore, every disjunct is a logical encoding of well-founded relation [2]. Hence TrInv is disjunctively well-founded. 
+
+Transition invariant. We show that ∀X, X ′. R(X) ∧
+
+Tr +(X, X ′) → TrInv (X, X ′), where R(X) denotes the reachable states of TS , by induction on the number of steps 
+
+n in Tr +(X, X ′).
+
+Base case (n = 1 ): It is needed to prove that: 
+
+R(X) ∧ Tr (X, X ′) → TrInv (X, X ′)
+
+Since ¬C(X) is unreachable, R(X) → C(X), and therefore 
+
+R(X) ∧ Tr (X, X ′) → C(X) ∧ Tr (X, X ′).The following assumption holds by the lemma statement: 
+
+C(X) ∧ Tr (X, X ′) → TrInv (X, X ′).START    
+
+> P = <Init, Tr, Sink, X>
+> Safety check
+> of P
+> Transition
+> Invariant
+> Generation
+> Updated P
+> Safety check
+> of <Init, Tr, ¬C, X>
+> <TrInv, C>
+> P = BlockTerm <UNSAFE , *>
+> Transition Invariant-based Termination
+> <SAFE , Inv>
+> Inv is a
+> Recurrent set
+> Yes
+> No
+> NONTERMINATING
+> UNKNOWN
+> <UNSAFE , Tr n>
+> <SAFE , *>
+> TERMINATING
+> Figure 3. Execution Flow of Interpolation-based Transition Invariant Gener-ation (New components are placed in a grey block, lines 5,6,8).
+
+Therefore the base case holds. 
+
+Inductive step : Assume R(X) ∧ Tr n(X, . . . , X ′) →
+
+TrInv (X, X ′) for some n ≥ 1. Let Tr n+1 (X, X ′′ ) hold, so there ∃X, X ′, . . . , X ′′ .R (X)∧Tr (X, X ′)∧Tr n(X′, . . . , X ′′ ).Since R(X) is a formula encoding all reachable states: R(X)∧
+
+Tr (X, X ′) ∧ Tr n(X′, . . . , X ′′ ) → R(X) ∧ Tr (X, X ′) ∧
+
+R(X′)∧Tr n(X′, . . . , X ′′ ). Since R(X)∧Tr n(X, . . . , X ′) →
+
+TrInv (X, X ′), then trivially R(X) ∧ Tr (X, X ′) ∧ R(X′) ∧
+
+Tr n(X′, . . . , X ′′ ) → R(X) ∧ Tr (X, X ′) ∧ TrInv (X′, X ′′ ).Now, due to the fact that R(X) → C(X), the following holds: 
+
+R(X) ∧ Tr (X, X ′) ∧ TrInv (X′, X ′′ ) → C(X) ∧ Tr (X, X ′) ∧
+
+TrInv (X′, X ′′ ). By the lemma hypothesis: 
+
+C(X) ∧ Tr (X, X ′) ∧ TrInv (X′, X ′′ ) → TrInv (X, X ′′ ).
+
+Therefore, through the chain of implications, we have: 
+
+R(X) ∧ Tr n+1 (X, X ′) → TrInv (X, X ′).
+
+Thus TrInv is a disjunctively well-founded transition in-variant over all reachable states, and TS is terminating. 
+
+B. Interpolation-based Termination Analysis 
+
+This subsection presents the full termination analysis pro-cedure using the interpolation-based transition invariant gen-eration. It integrates T RINV GEN into the main loop of Algo-rithm 1. At each iteration, instead of only blocking terminating states, the algorithm also constructs a transition invariant candidate. The overall flow is shown in Figure 3. The Algorithm 4 takes as input a safety problem P =
+
+⟨Init , Tr , Sink , X ⟩, where Init and Tr encode the initial states and transition relation, Sink is the formula encoding sink states, and X is the set of variables over which the transition system is defined. As an output, the algorithm returns NONTERM if TS is nonterminating, TERM if it is terminating, and UNKNOWN if the procedure cannot determine the final result. The procedure maintains a candi-date transition invariant TrInv (X, X ′). During the execution, 
+
+TrInv is extended with new disjuncts, which are generated by the T RINV GEN procedure, and encode well-founded relations. Changes to the original SNA are at lines 5, 6, and 8. Algorithm 4: Interpolation-based Transition Invariant Generation for Proving and Disproving Termination.                                                                      
+
+> Input :Safety problem P=⟨Init ,Tr ,Sink , X ⟩
+> Output: TERM |NONTERM |UNKNOWN
+> Data :TrInv - formula that encodes transition invariant
+> 1TrInv ← ⊥
+> 2while ⊤do
+> 3⟨res , ϕ =Tr nor Inv ⟩ ← SAFETY CHECK (P)
+> 4if res =UNSAFE then
+> 5⟨TrInv , C ⟩ ← TRINV GEN (P, ϕ, TrInv )
+> 6⟨res ′,⟩ ← SAFETY CHECK (⟨Init ,Tr ,¬C, X ⟩)
+> 7if res ′=UNSAFE then P←BLOCK TERM (P, ϕ )
+> 8else return TERM
+> 9else
+> 10 if ∀X.ϕ (X)→ ∃ X′.Tr (X, X ′)∧ϕ(X′)then
+> 11 return NONTERM
+> 12 return UNKNOWN
+
+Every iteration of Algorithm 4, similarly to the Algorithm 1, begins with the safety check at line 3. The algorithm handles two possible cases: 
+
+a) UNSAFE : A terminating trace Tr n exists. The al-gorithm calls T RINV GEN to extend TrInv and compute the coverage formula C(X) (line 5). Then, it checks if ¬C(X)
+
+is reachable from the initial states (line 6). If ¬C(X) is reachable, the algorithm refines the safety problem by block-ing the states that deterministically lead to termination via BLOCK TERM , and the loop continues. Otherwise, TrInv is a transition invariant over all reachable states, and the algorithm concludes termination. 
+
+b) SAFE : No sink state is reachable, and there exists an inductive invariant Inv (X). If Inv (X) is a recurrent set, the system is nonterminating. Otherwise, the algorithm returns UNKNOWN as the analysis is inconclusive. 
+
+Example 4. Consider TS from Example 2 with Init ≜ x > 0,
+
+Tr ≜ (x′ = x−1∨x′ = x−2) ∧(x > 0∨x < −10) , X ≜ {x}.Preprocessing computes Sink ≜ x ≤ 0 ∧ x ≥ − 10 . Then, the algorithm is called with P = ⟨Init , Tr , Sink , X ⟩.The safety check detects a trace Tr 1 reaching Sink .TRINV GEN produces a transition invariant candidate 
+
+TrInv (X, X ′) ≜ x′ < x ∧ x > 0 and the formula 
+
+C(X) ≜ (x ≤ 0 ∧ x ≥ − 10) ∨ x > 0. The safety check for ⟨Init , Tr , ¬C(X), X ⟩ returns SAFE, and the algorithm concludes that the transition system is terminating. 
+
+Limitation of the approach. Consider a different TS , with 
+
+X = {x, u }, Init (X) ≜ u < 10 ∧ x > 0, and Tr (X, X ′) ≜
+
+(( x′ = x − 1 ∧ u′ = u) ∨ (x′ = x + 1 ∧ u′ = u + 1 ∧ u < 
+
+10)) ∧ x > 0. Intuitively, each transition either decrements x
+
+(and keeps u unchanged), or increments both x and u until 
+
+u < 10 . Once u = 10 , only the decrementing transition is possible, and x decreases monotonically to zero. Hence TS is terminating. The sink states are Sink (X) ≜ x ≤ 0.The Algorithm 4 detects a trace Tr 1(X(0) , X (1) ) reach-ing Sink states. T RINV GEN constructs transition invariant: 
+
+TrInv (X, X ′) ≜ x′ < x ∧ x > 0. The coverage formula is computed as: C(X) ≜ x ≤ 0 ∨ (x > 0 ∧ u = 10) . The safety check for ⟨Init , Tr , ¬C, X ⟩ returns UNSAFE, since states with u < 10 are reachable from Init . B LOCK TERM 
+
+then blocks the states that are guaranteed to reach sink: 
+
+Tr (X, X ′) ← Tr (X, X ′) ∧ x′ > 0.The algorithm calls SAFETY CHECK (P ), which returns SAFE with inductive invariant Inv (X) ≜ x > 0. However, 
+
+Inv is not a recurrent set, so Algorithm 4 returns U NKNOWN .The root cause why the algorithm cannot prove termination is that TrInv does not cover states with u < 10 . It captures why the system terminates when u = 10 , but not the global argument: u grows until at most u = 10 , after which x de-creases monotonically. A complete termination proof requires a second disjunct covering the u < 10 region. In Section IV, we present an extension that focuses on the state space for which the transition invariant candidate is not valid, aiming to extend the transition invariant. 
+
+C. Correctness 
+
+This subsection proves the soundness of the introduced approach. We first prove that when the algorithm returns TERM, the transition system is terminating, and then we prove the correctness for the nontermination. 
+
+Lemma 3. If Algorithm 4 returns TERM , then the transition system ⟨Init , Tr , X ⟩ is terminating. Proof. TERM is returned only at line 8. It means that there exists a transition invariant TrInv which is valid over states 
+
+C(X), and ¬C(X) is unreachable from the initial states. The safety problem is updated iteratively, blocking the states that deterministically lead to termination, so in the end the 
+
+P = ⟨Init ′, Tr ′, Sink , X ⟩, where Init ′(X) = Init (X) ∧Vmi=0 ¬Si(X) and Tr ′ = Tr (X, X ′) ∧ Vlj=0 ¬Sj (X′) .According to Lemma 2, transition system ⟨Init ′, Tr ′, X ⟩ is terminating, since TrInv is a disjunctively well-founded tran-sition invariant over all reachable states. Since the states satisfying Wmi=0 Si(X) and Wlj=0 Sj (X′)
+
+deterministically lead to the termination, every trace of 
+
+⟨Init , Tr , X ⟩ either follows Tr ′ or passes through a blocked state, which leads to termination. Hence ⟨Init , Tr , X ⟩ is terminating. 
+
+Lemma 4. If Algorithm 4 returns NONTERM , then the transition system ⟨Init , Tr , X ⟩ is nonterminating. Proof. The proof of this lemma follows directly from Lemma 1, as the nontermination analysis in Algorithm 4 follows exactly the same process as Algorithm 1. IV. E XTENDED INTERPOLATION -BASED TRANSITION 
+
+INVARIANT GENERATION FOR PROVING AND DISPROVING 
+
+TERMINATION 
+
+Algorithm 4 is already capable of proving termination effi-ciently through the construction of transition invariants. This section describes an extension of the algorithm that aims to improve interaction between termination and nontermination analyses. Additionally, we present further extensions to the original SNA algorithm that improve overall performance. START        
+
+> P = <Init, Tr, Sink, X>
+> Safety check
+> of P
+> Inv is a
+> Recurrent set
+> Yes
+> Prs.push(<Init ,Tr,
+> Sink', X>) Transition
+> Invariant
+> Generation
+> No
+> Safety check
+> of <Init, Tr, ¬C, X>
+> <TrInv, C>
+> Prs.push(
+> BlockTerm)
+> Construct states
+> Smnot covered by
+> TrInv
+> Prs.push(<S m, Tr,
+> Sink, X>)
+> P = Prs.pop()
+> Prs is empty?
+> Yes
+> No
+> P = Prs.pop()
+> Init(X) /\ Tr(X,X')
+> Is SAT
+> P = Prs.pop()
+> Is UNSAT
+> NONTERMINATING TERMINATING
+> <SAFE , Inv> <UNSAFE , Tr n>
+> <SAFE , *>
+> <UNSAFE , *>
+
+Figure 4. Extended Interpolation-based Termination Analysis (new compo-nents are highlighted in dark orange and dark blue colors). 
+
+The high-level flow of the extended algorithm can be seen in Figure 4. 
+
+A. Analysis of States for which Transition Invariant is not Valid 
+
+A transition invariant candidate can be used to guide the termination analysis. Particularly, Algorithm 4 constructs the formula C(X) encoding states for which the transition invari-ant is valid. If ¬C(X) is reachable, there exist states for which the transition invariant is not valid, and which potentially can lead to nontermination. The intuition is to compute the reach-able states Sm within ¬C(X) (which corresponds to line 11 of Algorithm 5). Then, it is possible to run (non)termination check for these particular states within TS (line 12). In the case of termination, the algorithm produces a wit-ness transition invariant that extends the transition invariant of the original system, making it valid for more states. If nontermination is proved for Sm, then the original TS is also nonterminating, since Sm is reachable from the initial states. 
+
+B. Overall Algorithm 
+
+Algorithm 5 extends Algorithm 4 to enable more efficient (non)termination analysis. First, in addition to maintaining the transition invariant, the algorithm maintains a stack of safety problems to be analyzed: Prs (line 2). At each iteration, the algorithm pops a safety problem from the stack and analyzes it. The stack allows the algorithm to focus on (non)termination analysis of particular reachable states within TS . The original safety problem always remains in the Prs stack. The postprocessing phase of transition invariant construc-tion is the main change to Algorithm 4. When ¬C is reachable, the extended algorithm performs three actions: (1) it pushes the B LOCK TERM -refined problem (line 10); (2) it computes a formula encoding reachable states, for which transition invariant candidate is not valid (line 11); and (3) it pushes a new subproblem to analyze for termination (line 12), with Sm
+
+as the initial states. This allows the algorithm to concentrate on proving termination or nontermination of particular reachable states. 
+
+Algorithm 5: Extended Interpolation-based Transition Invariant Generation for Proving and Disproving Ter-mination. 
+
+Input : Safety problem P
+
+Output: TERM | NONTERM 
+
+Data : TrInv - candidate transition invariant, Prs - stack of safety problems  
+
+> 1
+
+TrInv ← ⊥  
+
+> 2
+
+Prs ← [P ] 
+
+> 3
+
+while ⊤ do  
+
+> 4
+
+P ′ ≡ ⟨ Init , Tr , Sink , X ⟩ ← Prs .pop ()  
+
+> 5
+
+⟨res , ϕ ⟩ ← SAFETY CHECK (P ′) 
+
+> 6
+
+if res = UNSAFE then  
+
+> 7
+
+⟨TrInv , C ⟩ ← TRINV GEN (P ′, ϕ, TrInv ) 
+
+> 8
+
+⟨res ′, ϕ ′⟩ ← SAFETY CHECK (⟨Init , Tr , ¬C, X ⟩) 
+
+> 9
+
+if ⟨res ′, ϕ ′⟩ = ⟨UNSAFE , Tr m⟩ then  
+
+> 10
+
+Prs .push (BLOCK TERM (P ′, ϕ ))  
+
+> 11
+
+Sm(X) ← QE (∃X(0) , . . . , X (m−1) .Init (X(0) ) ∧
+
+ϕ′(X(0) , . . . , X (m)) ∧ ¬ C(X(m)))[ X(m) 7 → X] 
+
+> 12
+
+Prs .push (⟨Sm, Tr , C, X ⟩) 
+
+> 13
+
+else  
+
+> 14
+
+if Prs = ∅ then return TERM  
+
+> 15
+
+else continue  
+
+> 16
+
+else  
+
+> 17
+
+if ∀X.ϕ (X) → ∃ X′.Tr (X, X ′) ∧ ϕ(X′) then  
+
+> 18
+
+return NONTERM  
+
+> 19
+
+if UNSAT ? Init (X) ∧ Tr (X, X ′) then  
+
+> 20
+
+if Prs = ∅ then return TERM  
+
+> 21
+
+else continue  
+
+> 22
+
+Sink ′(X) ← ¬ QE (∃X′.Tr (X, X ′))  
+
+> 23
+
+Prs .push (⟨Init , Tr , Sink ′, X ⟩)
+
+If ¬C is not reachable, TrInv proves termination of the currently analyzed TS (the last TS popped from the stack), and the number of remaining subproblems decreases. If the stack is empty, Algorithm 5 returns TERM. The algorithm incorporates two further extensions. 
+
+Simple termination check (line 19). When the safety check returns SAFE and ϕ(X) is not a recurrent set, the algorithm additionally checks whether it is possible to take a transition from the initial states by querying: 
+
+Init (X) ∧ Tr (X, X ′)
+
+If this formula is unsatisfiable, then no transition can be taken from the initial states (or all transitions are blocked, meaning all reachable states deterministically lead to termination), and the system is trivially terminating. 
+
+Refinement of Sink states (lines 22, 23). When ϕ(X) is not a recurrent set, this is often because B LOCK TERM has eliminated all transitions leading to Sink . This means that the produced ϕ contains sink states due to the updated Tr . New formula encoding sink states is computed as: 
+
+Sink ′(X) = ¬QE (∃X′.Tr ′(X, X ′)) 
+
+Formula Sink ′ replaces Sink in the safety problem, enabling the analysis to proceed instead of returning UNKNOWN. 
+
+Lemma 5. If Algorithm 5 returns TERM , then the original transition system ⟨Init , Tr , X ⟩ is terminating. Proof. TERM is returned at line 14 or line 19. As in Algorithm 4, to return TERM, the termination conditions need to be satisfied for the transition system ⟨Init ′, Tr ′, X ⟩,where Init ′(X) = Init (X) ∧ V 
+
+> i
+
+¬Si(X), and Tr ′(X, X ′) = 
+
+Tr (X, X ′) ∧ V 
+
+> j
+
+¬Sj (X′). Wmi=0 Si(X) and Wlj=0 Sj (X′) are the states that deterministically lead to termination. 
+
+Case 1. If TERM is returned at line 14, then the termination proof follows directly from Lemma 3. This is the case, since the original safety problem is preserved in the stack, so if 
+
+Prs = ∅, the original safety problem is terminating. 
+
+Case 2. If TERM is returned at line 19, then formula 
+
+Init ′(X) ∧ Tr ′(X, X ′) is unsatisfiable, so no transition is reachable from Init ′. Thus, all feasible transitions in the original transition system lead to deterministically terminating states, and the transition system is terminating. 
+
+Lemma 6. If Algorithm 5 returns NONTERM , then the original transition system ⟨Init , Tr , X ⟩ is nonterminating. Proof. NONTERM is returned at line 18, where ϕ(X) is a recurrent set for the currently considered TS ⟨Init ′, Tr ′, X ⟩.By Lemma 1, there exists a recurrent set in the transition system ⟨Init ′, Tr ′, X ⟩, and since Tr ′(X, X ′) → Tr (X, X ′)
+
+and Init ′ is reachable from Init (or it is Init ), this recurrent set witnesses nontermination of TS .V. I MPLEMENTATION AND EVALUATION 
+
+This section presents the implementation details and exper-imental evaluation of our approach. 
+
+A. Implementation 
+
+We implemented the prototypes of Algorithms 1, 4, and 5 inside of G OLEM ; we refer to these implementations as SNA, I TP TIG , and I TP TIG +. G OLEM was chosen because it supports multiple different safety verification procedures, such as Property-Directed Reachability [30] (PDR), Transition Power Abstraction [31] (TPA), and Interpolation-based Model Checking [32]. Additionally, we used quantifier elimination, already implemented in G OLEM . For SMT queries and inter-polation, our implementation uses the O PEN SMT solver [33], [34]. O PEN SMT is integrated within G OLEM and provides native support for interpolation. 
+
+B. Evaluation 
+
+We compared I TP TIG + against SNA and I TP TIG to evaluate the effect of combining termination and nontermination analy-ses. Additionally, we evaluated I TP TIG + against several state-of-the-art tools: L OAT [28] (version eacb74b), K OAT [28] (version 41cb681), T2 [18] (version 10f1373). The evaluation focused on termination analysis of Integer Transition Systems. Experiments were conducted on Ubuntu 20.04 machine with an AMD EPYC 7452 32-core processor and 8x32 GiB RAM. Our evaluation addressed the following research questions:  
+
+> •
+
+RQ1: How does extending SNA with the termination procedure affect verification performance?  
+
+> •
+
+RQ2: How does I TP TIG + perform compared to state-of-the-art tools?                                            
+
+> Table I COMPARISON OF ITP TIG +WITH SNA AND ITP TIG .
+> Algorithm Total Terminating Nonterminating Uniquely
+> SNA 343 0343 7ITP TIG 521 186 335 7ITP TIG +761 320 441 240 Table II COMPARISON OF ITP TIG +WITH STATE -OF -THE -ART TOOLS .
+> Algorithm Total Terminating Nonterminating Uniquely
+> LOAT 525 0525 48 KOAT 562 562 026 T2 1002 572 430 40 ITP TIG +761 320 441 8
+
+The benchmark suite of Integer Transition Systems was taken from the Termination Competition [27]. Overall, there are 1222 benchmarks (538 nonterminating, 665 terminating, and 19 unknown). We excluded 42 trivially terminating bench-marks from the evaluation (termination of which can be detected by trivial syntactic checks), which are solved by all tools. The evaluation was executed with the 120 seconds timeout (the increase of the timeout does not significantly influence the evaluation). Table I gives the experimental results for I TP TIG +, SNA, and I TP TIG . It confirms that I TP TIG + consistently outper-forms both SNA and I TP TIG for terminating and nonterminat-ing instances, solving 240 instances solved by neither SNA nor ITP TIG . We attribute this to I TP TIG +’s generation of focused sub-problems, which allows the analysis to concentrate on specific reachable states. This benefits recurrent set detection by focusing the analysis on specific states not covered by the transition invariant. It also benefits termination proving by extending the transition invariant with additional disjuncts that cover different regions of the reachable state space. In answer to RQ1 , the combination of termination and nontermination reasoning in I TP TIG + significantly outperforms either individ-ual approach in isolation. Interestingly, I TP TIG + behaves differently depending on the underlying safety verification engine: with TPA it solved 761 instances and with PDR – 755. That said, it solved 24 (resp. 18) benchmarks uniquely with TPA (resp. PDR). Figure 5 shows a scatter plot comparing ITP TIG +against state-of-the-art termination analyzers, where each axis represents the solving time in seconds for a given tool. Orange squares denote nonterminating instances; blue crosses denote terminating instances. Points above the diagonal indicate instances where ITP TIG + is faster than the competitor. ITP TIG + solves 761 benchmarks, with T2 solving 1002, KOAT 562, and L OAT 525 instances, the full comparison can be seen in Table II. As shown in Figure 5, I TP TIG +, despite being a prototype implementation, is competitive with state-of-the-art termination analyzers. Among all compared tools, ITP TIG + uniquely solves eight instances. Notably, two of these — juLinkedListCreateAddAll.jar-obl-11 
+
+and juLinkedListCreateAddAllAt.jar-obl-17 Figure 5. Comparison of I TP TIG + with K OAT, L OAT and T2 (runtime in seconds). 
+
+have never been solved in the Termination Competition. ITP TIG + found recurrent sets and proved nontermination for them. In answer to RQ2 , I TP TIG + is competitive with state-of-the-art tools and solves instances not solved by any tool in the Termination Competition. VI. R ELATED WORK 
+
+Recent years have seen significant advances in automated techniques for both termination and nontermination analysis. 
+
+Nontermination. Nontermination analysis is typically cen-tered on the construction of recurrent sets — sets of states from which execution cannot escape [10], [17]–[20], [22]. These techniques range from template-based synthesis to safety-check-based recurrent set construction, the latter of which our approach directly extends [22]. An alternative approach detects nontermination by identifying lasso-shaped executions — finite paths leading to a cycle — via bounded model check-ing [23]. Leike and Heizmann [24] use geometric nontermina-tion witnesses: finite representations of infinite executions via sums of geometric series. Unlike the approaches above, which treat nontermination in isolation, our technique is integrated with termination analysis within a unified framework, so that intermediate results guide one another. 
+
+Termination. The most widely studied approach to ter-mination analysis is the synthesis of ranking functions [2]– [4], [6], [7], [9]–[11]. State-of-the-art techniques focus on the construction of multiphase or lexicographic ranking func-tions [4], [10], which significantly broaden the class of pro-grams for which termination can be proved. However, the complexity of a transition system can make ranking function synthesis infeasible. With fixpoint computation, [12] reduces termination and nontermination to the validity of a first-order fixpoint formula. Disjunctively well-founded transition invariants [15], [16], [29], [35] enable over-approximating the behavior of the transition system. The central challenge there is the generation of the transition invariant itself: existing techniques rely either on template-based generation [16] or on the direct construction of a ranking relation from a particular trace [35]. In contrast, our approach uses Craig interpolation to guide transition invariant synthesis with respect to the actual termination conditions, producing property-directed invariants. VII. C ONCLUSION 
+
+We have presented an interpolation-based approach to tran-sition invariant generation for proving and disproving termi-nation of infinite-state systems. The approach extends safety-based nontermination analysis with a termination proving ca-pability, unifying the two within a single framework. Our key insight is to exploit terminating traces produced by the SNA as a source of structural information, using Craig interpolation to construct well-founded transition invariants guided by the termination conditions. The interaction between termination and nontermination reasoning is central to our technique: transition invariants focus the nontermination analysis on not covered states, while SNA provides terminating traces that drive invariant generation. Grounding the approach in safety verification provides a robust foundation, enabling efficient checking of both termination and nontermination via existing safety solvers. We proved the soundness of the algorithm and conducted an extensive experimental evaluation. The results demonstrate the benefit of combining termination and nonter-mination analysis, and show that our approach achieves com-petitive performance against state-of-the-art tools, including the unique solution of instances never solved by any tool in the Termination Competition. 
+
+Acknowledgements. This work was supported in part by SNSF grant No. 200021-236601. We thank Marek Jankola and Dirk Beyer for fruitful discussions on termination analysis. REFERENCES [1] M. Braverman, “Termination of integer linear programs,” in Computer Aided Verification, 18th International Conference, CAV 2006, Seattle, WA, USA, August 17-20, 2006, Proceedings , ser. Lecture Notes in Computer Science, T. Ball and R. B. Jones, Eds. Springer, 2006, pp. 372–385. [Online]. Available: https://doi.org/10.1007/11817963 34 [2] A. Podelski and A. Rybalchenko, “A complete method for the synthesis of linear ranking functions,” in Verification, Model Checking, and Abstract Interpretation, 5th International Conference, VMCAI 2004, Venice, Italy, January 11-13, 2004, Proceedings ,ser. Lecture Notes in Computer Science, B. Steffen and G. Levi, Eds. Springer, 2004, pp. 239–251. [Online]. Available: https://doi.org/10.1007/978-3-540-24622-0 20 [3] S. Kura, H. Unno, and I. Hasuo, “Decision tree learning in cegis-based termination analysis,” in Computer Aided Verification - 33rd International Conference, CAV 2021, Virtual Event, July 20-23, 2021, Proceedings, Part II , ser. Lecture Notes in Computer Science, A. Silva and K. R. M. Leino, Eds. Springer, 2021, pp. 75–98. [Online]. Available: https://doi.org/10.1007/978-3-030-81688-9 4 [4] A. M. Ben-Amram and S. Genaim, “Ranking functions for linear-constraint loops,” J. ACM , vol. 61, no. 4, pp. 26:1–26:55, 2014. [Online]. Available: https://doi.org/10.1145/2629488 [5] M. Heizmann, J. Hoenicke, and A. Podelski, “Termination analysis by learning terminating programs,” in Computer Aided Verification - 26th International Conference, CAV 2014, Held as Part of the Vienna Summer of Logic, VSL 2014, Vienna, Austria, July 18-22, 2014. Proceedings , ser. Lecture Notes in Computer Science, A. Biere and R. Bloem, Eds. Springer, 2014, pp. 797–813. [Online]. Available: https://doi.org/10.1007/978-3-319-08867-9 53 [6] J. Giesl, C. Aschermann, M. Brockschmidt, F. Emmes, F. Frohn, C. Fuhs, J. Hensel, C. Otto, M. Pl¨ ucker, P. Schneider-Kamp, T. Str¨ oder, S. Swiderski, and R. Thiemann, “Analyzing program termination and complexity automatically with aprove,” J. Autom. Reason. , vol. 58, no. 1, pp. 3–31, 2017. [Online]. Available: https://doi.org/10.1007/s10817-016-9388-y [7] Y. Sarita, A. Singh, S. Gomber, G. Singh, and M. Vishwanathan, “Efficient ranking function-based termination analysis via bidirectional decompositional search,” in Programming Languages and Systems - 35th European Symposium on Programming, ESOP 2026, Held as Part of the International Joint Conferences on Theory and Practice of Software, ETAPS 2026, Turin, Italy, April 11-16, 2026, Proceedings, Part II , ser. Lecture Notes in Computer Science, R. Krebbers, Ed. Springer, 2026, pp. 181–209. [Online]. Available: https://doi.org/10.1007/978-3-032-22723-2 7 [8] A. M. Ben-Amram, J. J. Dom´ enech, and S. Genaim, “Multiphase-linear ranking functions and their relation to recurrent sets,” in Static Analysis - 26th International Symposium, SAS 2019, Porto, Portugal, October 8-11, 2019, Proceedings , ser. Lecture Notes in Computer Science, B. E. Chang, Ed. Springer, 2019, pp. 459–480. [Online]. Available: https://doi.org/10.1007/978-3-030-32304-2 22 [9] C. Urban, A. Gurfinkel, and T. Kahsai, “Synthesizing ranking functions from bits and pieces,” in Tools and Algorithms for the Construction and Analysis of Systems - 22nd International Conference, TACAS 2016, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2016, Eindhoven, The Netherlands, April 2-8, 2016, Proceedings , ser. Lecture Notes in Computer Science, M. Chechik and J. Raskin, Eds. Springer, 2016, pp. 54–70. [Online]. Available: https://doi.org/10.1007/978-3-662-49674-9 4 [10] G. Fedyukovich, Y. Zhang, and A. Gupta, “Syntax-guided termination analysis,” in Computer Aided Verification - 30th International Conference, CAV 2018, Held as Part of the Federated Logic Conference, FloC 2018, Oxford, UK, July 14-17, 2018, Proceedings, Part I , ser. Lecture Notes in Computer Science, H. Chockler and G. Weissenbacher, Eds. Springer, 2018, pp. 124–143. [Online]. Available: https://doi.org/10.1007/978-3-319-96145-3 7 [11] D. Riley and G. Fedyukovich, “Exact loop bound analysis,” Proc. ACM Program. Lang. , vol. 9, no. PLDI, pp. 1814–1837, 2025. [Online]. Available: https://doi.org/10.1145/3729323 [12] H. Unno, T. Terauchi, Y. Gu, and E. Koskinen, “Modular primal-dual fixpoint logic solving for temporal verification,” Proc. ACM Program. Lang. , vol. 7, no. POPL, pp. 2111–2140, 2023. [Online]. Available: https://doi.org/10.1145/3571265 [13] D. Beyer, M. Jankola, and M. Lingsch-Rosenfeld, “Tran-sition invariants revisited: Termination witnesses and their validation,” in Proc. CAV . Springer, 2026. [Online]. Available: https://www.sosy-lab.org/research/pub/2026-CAV.Transition Invariants Revisited Termination Witnesses and Their Validation.pdf [14] B. Cook, A. Podelski, and A. Rybalchenko, “Termination proofs for systems code,” in Proceedings of the ACM SIGPLAN 2006 Conference on Programming Language Design and Implementation, Ottawa, Ontario, Canada, June 11-14, 2006 , M. I. Schwartzbach and T. Ball, Eds. ACM, 2006, pp. 415–426. [Online]. Available: https://doi.org/10.1145/1133981.1134029 [15] D. Kroening, N. Sharygina, A. Tsitovich, and C. M. Wintersteiger, “Termination analysis with compositional transition invariants,” in 
+
+Computer Aided Verification, 22nd International Conference, CAV 2010, Edinburgh, UK, July 15-19, 2010. Proceedings , ser. Lecture Notes in Computer Science, T. Touili, B. Cook, and P. B. Jackson, Eds. Springer, 2010, pp. 89–103. [Online]. Available: https://doi.org/10.1007/978-3-642-14295-6 9 [16] A. Tsitovich, N. Sharygina, C. M. Wintersteiger, and D. Kroening, “Loop summarization and termination analysis,” in Tools and Algorithms for the Construction and Analysis of Systems - 17th International Conference, TACAS 2011, Held as Part of the Joint European Conferences on Theory and Practice of Software, ETAPS 2011, Saarbr¨ ucken, Germany, March 26-April 3, 2011. Proceedings ,ser. Lecture Notes in Computer Science, P. A. Abdulla and K. R. M. Leino, Eds. Springer, 2011, pp. 81–95. [Online]. Available: https://doi.org/10.1007/978-3-642-19835-9 9 [17] F. Frohn and J. Giesl, “Proving non-termination and lower runtime bounds with loat (system description),” in Automated Reasoning - 11th International Joint Conference, IJCAR 2022, Haifa, Israel, August 8-10, 2022, Proceedings , ser. Lecture Notes in Computer Science, J. Blanchette, L. Kov´ acs, and D. Pattinson, Eds., vol. 13385. Springer, 2022, pp. 712–722. [Online]. Available: https: //doi.org/10.1007/978-3-031-10769-6 41 [18] M. Brockschmidt, B. Cook, S. Ishtiaq, H. Khlaaf, and N. Piterman, “T2: temporal property verification,” in Tools and Algorithms for the Construction and Analysis of Systems - 22nd International Conference, TACAS 2016, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2016, Eindhoven, The Netherlands, April 2-8, 2016, Proceedings , ser. Lecture Notes in Computer Science, M. Chechik and J. Raskin, Eds. Springer, 2016, pp. 387–393. [Online]. Available: https://doi.org/10.1007/978-3-662-49674-9 22 [19] M. Brockschmidt, T. Str¨ oder, C. Otto, and J. Giesl, “Automated detection of non-termination and nullpointerexceptions for java bytecode,” in 
+
+Formal Verification of Object-Oriented Software - International Conference, FoVeOOS 2011, Turin, Italy, October 5-7, 2011, Revised Selected Papers , ser. Lecture Notes in Computer Science, B. Beckert, F. Damiani, and D. Gurov, Eds. Springer, 2011, pp. 123–141. [Online]. Available: https://doi.org/10.1007/978-3-642-31762-0 9 [20] D. Larraz, K. Nimkar, A. Oliveras, E. Rodr´ ıguez-Carbonell, and A. Rubio, “Proving non-termination using max-smt,” in Computer Aided Verification - 26th International Conference, CAV 2014, Held as Part of the Vienna Summer of Logic, VSL 2014, Vienna, Austria, July 18-22, 2014. Proceedings , ser. Lecture Notes in Computer Science, A. Biere and R. Bloem, Eds. Springer, 2014, pp. 779–796. [Online]. Available: https://doi.org/10.1007/978-3-319-08867-9 52 [21] T. C. Le, S. Qin, and W. Chin, “Termination and non-termination specification inference,” in Proceedings of the 36th ACM SIGPLAN Conference on Programming Language Design and Implementation, Portland, OR, USA, June 15-17, 2015 , D. Grove and S. M. Blackburn, Eds. ACM, 2015, pp. 489–498. [Online]. Available: https://doi.org/10.1145/2737924.2737993 [22] H. Y. Chen, B. Cook, C. Fuhs, K. Nimkar, and P. W. O’Hearn, “Proving nontermination via safety,” in Tools and Algorithms for the Construction and Analysis of Systems - 20th International Conference, TACAS 2014, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2014, Grenoble, France, April 5-13, 2014. Proceedings , ser. Lecture Notes in Computer Science, E. ´Abrah´ am and K. Havelund, Eds. Springer, 2014, pp. 156–171. [Online]. Available: https://doi.org/10.1007/978-3-642-54862-8 11 [23] A. Biere, C. Artho, and V. Schuppan, “Liveness checking as safety checking,” in 7th International ERCIM Workshop in Formal Methods for Industrial Critical Systems, FMICS 2002, ICALP 2002 Satellite Workshop, M´ alaga, Spain, July 12-13, 2002 , ser. Electronic Notes in Theoretical Computer Science, R. Cleaveland and H. Garavel, Eds., no. 2. Elsevier, 2002, pp. 160–177. [Online]. Available: https://doi.org/10.1016/S1571-0661(04)80410-9 [24] J. Leike and M. Heizmann, “Geometric nontermination arguments,” in 
+
+Tools and Algorithms for the Construction and Analysis of Systems - 24th International Conference, TACAS 2018, Held as Part of the European Joint Conferences on Theory and Practice of Software, ETAPS 2018, Thessaloniki, Greece, April 14-20, 2018, Proceedings, Part II , ser. Lecture Notes in Computer Science, D. Beyer and M. Huisman, Eds. Springer, 2018, pp. 266–283. [Online]. Available: https://doi.org/10.1007/978-3-319-89963-3 16 [25] W. Craig, “Three uses of the Herbrand-Gentzen theorem in relating model theory and proof theory,” The Journal of Symbolic Logic , vol. 22, no. 3, pp. 269–285, 1957. [26] M. Blicha, K. Britikov, and N. Sharygina, “The golem horn solver,” in Computer Aided Verification - 35th International Conference, CAV 2023, Paris, France, July 17-22, 2023, Proceedings, Part II ,ser. Lecture Notes in Computer Science, C. Enea and A. Lal, Eds., vol. 13965. Springer, 2023, pp. 209–223. [Online]. Available: https://doi.org/10.1007/978-3-031-37703-7 10 [27] J. Giesl, F. Mesnard, A. Rubio, R. Thiemann, and J. Waldmann, “Termination competition (termcomp 2015),” in Automated Deduction - CADE-25 - 25th International Conference on Automated Deduction, Berlin, Germany, August 1-7, 2015, Proceedings , ser. Lecture Notes in Computer Science, A. P. Felty and A. Middeldorp, Eds. Springer, 2015, pp. 105–108. [Online]. Available: https: //doi.org/10.1007/978-3-319-21401-6 6 [28] N. Lommen and J. Giesl, “Aprove (koat + loat),” in Tools and Algo-rithms for the Construction and Analysis of Systems , A. Gurfinkel and M. Heule, Eds. Cham: Springer Nature Switzerland, 2025, pp. 205–211. [29] A. Podelski and A. Rybalchenko, “Transition invariants,” in 19th IEEE Symposium on Logic in Computer Science (LICS 2004), 14-17 July 2004, Turku, Finland, Proceedings . IEEE Computer Society, 2004, pp. 32–41. [Online]. Available: https://doi.org/10.1109/LICS.2004.1319598 [30] A. R. Bradley and Z. Manna, “Property-directed incremental invariant generation,” Formal Aspects Comput. , vol. 20, no. 4-5, pp. 379–405, 2008. [Online]. Available: https://doi.org/10.1007/s00165-008-0080-9 [31] M. Blicha, G. Fedyukovich, A. E. J. Hyv¨ arinen, and N. Sharygina, “Transition power abstractions for deep counterexample detection,” in Tools and Algorithms for the Construction and Analysis of Systems - 28th International Conference, TACAS 2022 , ser. Lecture Notes in Computer Science, D. Fisman and G. Rosu, Eds., vol. 13243. Springer, 2022, pp. 524–542. [Online]. Available: https://doi.org/10.1007/978-3-030-99524-9 29 [32] K. L. McMillan, “Interpolation and sat-based model checking,” in 
+
+Computer Aided Verification, 15th International Conference, CAV 2003, Boulder, CO, USA, July 8-12, 2003, Proceedings , ser. Lecture Notes in Computer Science, W. A. H. Jr. and F. Somenzi, Eds., vol. 2725. Springer, 2003, pp. 1–13. [Online]. Available: https://doi.org/10.1007/978-3-540-45069-6 1 [33] A. E. J. Hyv¨ arinen, M. Marescotti, L. Alt, and N. Sharygina, “Opensmt2: An SMT solver for multi-core and cloud computing,” in Theory and Applications of Satisfiability Testing - SAT 2016 -19th International Conference, Bordeaux, France, July 5-8, 2016, Proceedings , ser. Lecture Notes in Computer Science, N. Creignou and D. L. Berre, Eds., vol. 9710. Springer, 2016, pp. 547–553. [Online]. Available: https://doi.org/10.1007/978-3-319-40970-2 35 [34] R. Bruttomesso, E. Pek, N. Sharygina, and A. Tsitovich, “The opensmt solver,” in Tools and Algorithms for the Construction and Analysis of Systems, 16th International Conference, TACAS 2010, Held as Part of the Joint European Conferences on Theory and Practice of Software, ETAPS 2010, Paphos, Cyprus, March 20-28, 2010. Proceedings , ser. Lecture Notes in Computer Science, J. Esparza and R. Majumdar, Eds. Springer, 2010, pp. 150–153. [Online]. Available: https://doi.org/10.1007/978-3-642-12002-2 12 [35] B. Cook, A. Podelski, and A. Rybalchenko, “Abstraction refinement for termination,” in Static Analysis, 12th International Symposium, SAS 2005, London, UK, September 7-9, 2005, Proceedings , ser. Lecture Notes in Computer Science, C. Hankin and I. Siveroni, Eds. Springer, 2005, pp. 87–101. [Online]. Available: https: //doi.org/10.1007/11547662 8
