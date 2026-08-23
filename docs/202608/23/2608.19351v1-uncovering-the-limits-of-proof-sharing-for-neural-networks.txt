@@ -1,0 +1,2170 @@
+Title: Uncovering the Limits of Proof Sharing for Neural Networks
+
+URL Source: https://arxiv.org/pdf/2608.19351v1
+
+Published Time: Fri, 21 Aug 2026 00:06:52 GMT
+
+Number of Pages: 35
+
+Markdown Content:
+# Uncovering the Limits of Proof Sharing for Neural Networks 
+
+Kanak Das 1, Shubham Ugare 2, Bor-Yuh Evan Chang 3⋆, Sasa Misailovic 2,Gagandeep Singh 2, and Manu Sridharan 1 
+
+> 1
+
+University of California, Riverside 
+
+kdas006@ucr.edu, manu@cs.ucr.edu  
+
+> 2
+
+University of Illinois Urbana-Champaign 
+
+sugare2@illinois.edu, misailo@illinois.edu, ggnds@illinois.edu  
+
+> 3
+
+University of Colorado Boulder & Amazon 
+
+evan.chang@colorado.edu 
+
+Abstract. Robustness verification of neural networks is increasingly important, due to their use in many critical domains. In certain sce-narios, proof sharing has been shown to accelerate incomplete verifica-tion techniques by reusing intermediate-layer abstract states, or tem-plates , across queries. However, questions remain as to the robustness of template-based acceleration across varying network architectures, prop-erties, datasets, and training methods. In this work, we perform a sys-tematic study of the effectiveness of template-based acceleration and its limits. Our study shows that template subsumption rates can vary widely across scenarios. We present a novel metric of jointly stable neu-rons to explain this variation, showing that in some cases template-based techniques are very unlikely to provide any speedup. Then, we present 
+
+FastCert , a novel technique for automatically distributing templates across neural network layers to increase performance impact, eschew-ing templates entirely if they are unlikely to produce a speedup. Across a large set of covering-design based L0-verification tasks, FastCert 
+
+achieved an average speedup of 1 .13 × over an extant template-based reuse technique. 
+
+1 Introduction 
+
+Neural networks have emerged as the dominant paradigm for image classification, powering applications from autonomous driving to medical diagnosis. Despite their success, it is established that carefully crafted perturbations known as adversarial examples can cause networks to misclassify inputs, while remaining imperceptible to human observers [5, 12, 35]. To mitigate these risks, there has been significant interest in creating certi-fiably robust neural networks, resistant to adversarial threats [18]. These meth- 
+
+> ⋆
+
+Bor-Yuh Evan Chang holds concurrent appointments at the University of Colorado Boulder and as an Amazon Scholar. This paper describes work performed at the University of Colorado Boulder and is not associated with Amazon. arXiv:2608.19351v1 [cs.LG] 19 Aug 2026 2 K. Das et al. 
+
+ods expose networks to adversarial perturbations during training, often lever-aging formal verification techniques to guide and refine the optimization pro-cess [20, 41]. Then, formal verifiers [17, 42] are used post-training to guarantee the network’s robustness to specified perturbations, such as sound but incom-plete verifiers based on abstract interpretation [30, 31, 41]. Recent work has shown that intermediate abstractions computed by such incomplete verifiers can be generalized into templates [10, 37], enabling proofs to be reused and accelerating subsequent verification queries. Typically, a small set of templates are derived by verifying local L∞ properties [12, 18, 35], each permitting perturbations within a related region of the input space. These meth-ods have been shown to be effective on related properties of the same input over the same or quantized networks, such as shifted patches or random t-pixel per-turbations over an image. But, the effectiveness of template-based acceleration has not been studied carefully in the context of other properties such as L0 ver-ification, a realistic threat model [15] where there have been significant recent advances in verification practicality [26, 28]. Further, no work has studied the limits of template-based acceleration across a variety of network architectures, properties, data sets, and training methods. Our first key contribution is a systematic framework characterizing when template reuse is a principled accelerator for robustness verification and when the verifier should instead run without it. For a template-based verifier to achieve speedups, a high percentage of verification queries must be subsumed by a small set of templates, but at the same time, each template must be precise enough to enable query verification. We devise a novel metric of jointly stable neurons 
+
+across a set of abstract states to explain the potential for template reuse given this tradeoff. Through a limit study, we show that if the percentage of jointly sta-ble neurons is low, extant template-based proof sharing techniques are unlikely to provide any verification speedup. Our measurements across several networks and training methods show that the potential for template-based acceleration varies widely across scenarios. Given the observed variance in template effectiveness, there exists a need to automatically determine how best to employ templates for a given verification task. Our second key contribution is a novel technique FastCert to automati-cally distribute templates across layers of a neural network to maximize perfor-mance impact, or eschew templates if they are unlikely to produce a speedup. 
+
+FastCert performs profiling and template generation before verification, pre-dicting template subsumption rates by sampling a very small set of queries. We implement FastCert and show that for a state-of-the-art L0 verifier, it nearly always provides a greater speedup than previous proof-sharing techniques in cases where templates can be effective, while significantly mitigating the slow-down when templates are ineffective. This paper makes the following contributions: 
+
+– We perform a limit study of the effectiveness of template-based proof reuse, characterize its potential success using a novel metric of jointly stable neu-rons and showing the success rate varies widely. Uncovering the Limits of Proof Sharing for Neural Networks 3
+
+– We give a method to automatically determine whether, where, and how to apply template reuse for a given network and set of verification tasks. 
+
+– We implement our approach in a tool FastCert and demonstrate its practi-cality for accelerating covering-design-based L0 verification, with an average speedup of 1 .13 × over the state-of-the-art approach for applying templates (a 7 hour reduction in wall-clock time.). 
+
+2 Background 
+
+Neural Networks A neural network N is a function N : Rdin → Rdout ,commonly built from a composition of individual layers NL ◦ NL−1 ◦ · · · ◦ N1.We consider fully-connected feed-forward networks, where each layer Ni(x) = ReLU( Ax + b). The Rectified Linear Unit (ReLU) activation applies max( ·, 0) element-wise. For a classification task with c classes, the network outputs dout := 
+
+c scores, assigning the class with the highest score as its prediction. For k < L ,
+
+N1: k denotes the application of the first k layers and Nk+1: L denote the final 
+
+L − k layers. 
+
+Local Robustness Verification Given a set of inputs and a postcondition ψ,neural network verification aims to prove that ψ holds on the network output for all given inputs [1]. Local robustness verification proves that ψ holds for all network outputs corresponding to an input region I(x0) formed around some input x0. Formally, local robustness verification proves that ∀z ∈ I (x0), N (z) |=
+
+ψ. We write I(x0) |= ψ if the property holds. 
+
+Threat Models and Specifications The L0 threat model captures sparse per-turbations: given an input x0, the admissible region IL0 (x0, k ) is {z | ∥ x0 −z∥0 ≤
+
+k}, allowing an adversary to arbitrarily modify up to k input features[8, 21, 34]. Unlike norm-bounded dense noise (e.g., small L∞ deviations) that yields a sin-gle convex region, the L0 model induces a combinatorial family of verification subproblems for one image, corresponding to the many choices of which fea-tures are altered. In the patch threat model [6, 9], an adversary may arbitrarily perturb the pixels inside a single contiguous w × h region, leaving all other pix-els unchanged; the input region Ipatch (x0, w, h ) allows arbitrary changes to any 
+
+w × h patch within the image, yielding multiple verification subproblems across patch locations. In geometric perturbations, the adversary applies a transform 
+
+Tδ from a prescribed family (e.g., bounded rotation/contrast/brightness), with parameters δ ∈ ∆; the input region Igeo (x0, ∆ ) = {Tδ (x0) | δ ∈ ∆} is typi-cally non-convex due to resampling/interpolation and is commonly verified by splitting ∆ into finitely many r cases [2]. 
+
+Robustness Under Adversarial Threats To defend against the adversarial threat, specialized types of neural network training is employed. It pursues a dual objective: minimize classification loss on data while maximizing robustness so predictions remain stable within the threat model. PGD [18] training does this empirically by finding worst-case perturbations per example and updating the model to classify them; IBP [20] training does it with sound guarantees by propagating bounds to certify that all inputs in a region keep the label and opti-mizing the certified margin. Recent methods such as SABR [22] compute bounds 4 K. Das et al. 
+
+on small, carefully selected subregions of the adversarial space to reduce approxi-mation error and improve both standard and certified accuracy, while TAPS [19] combines IBP and PGD to optimize more precise but unsound worst-case loss approximations. CURE [13] targets multi-norm robustness by regularizing and shaping networks so bounds remain tight across multiple norms. For localized threats, certified patch defenses [6] extend guarantees from norm-bounded noise to contiguous regions by reasoning over all patch placements. 
+
+Verification via Abstract Interpretation Scalable neural network verifiers typically rely on abstract interpretation [7, 30–32] to soundly overapproximate the set of reachable outputs. The verifier first encodes the input region with a shape in some abstract domain (e.g., boxes, zonotopes, or polyhedra) that en-closes I(x0). This shape is propagated layer by layer via abstract transformers 
+
+that overapproximate each layer’s concrete operations. After k layers, the re-sulting abstract state Sk overapproximates the concrete states reachable at that layer. At the output layer, SL bounds all possible network outputs; if it also satisfies the postcondition ψ, the property is certified to hold. This approach is sound but incomplete: the overapproximation may be too coarse to prove a valid 
+
+ψ.
+
+3 Proof Templates 
+
+In this section, we describe template-based proof sharing for incomplete verifi-cation and present a simple performance model for when reuse is beneficial. 
+
+3.1 Preliminaries 
+
+Neural network verification via abstract interpretation has been optimized using 
+
+proof templates [10, 37]. A template at an intermediate layer k is an abstract state Tk that has been certified to satisfy the postcondition ψ, i.e., Nk+1: L(Tk) |=
+
+ψ. To use a template for a new verification query, the verifier propagates the query to layer k, obtaining abstract state Qk. If Qk is fully contained within the template, termed subsumption , and denoted Qk ⊑ Tk, then Nk+1: L(Tk) |= ψ
+
+implies Nk+1: L(Qk) |= ψ, verifying the query without further propagation. In practice, the box domain is employed for representing templates [10, 37]: at layer k, a box is a vector of intervals, Sk = ⟨[lj , u j ]⟩nk
+
+> j=1
+
+, with each interval bounding the output of neuron j. Subsumption checking in the box domain is very efficient, making it desirable for templates. 
+
+3.2 Template Construction and Use 
+
+In prior work [10, 37], a verified query is leveraged to construct a proof template by generalizing its intermediate-layer abstract state. In fig. 1, the abstract in-terpreter first verifies an L∞ query I∞(x)—it computes an abstract state after each layer over-approximating the result of passing the input region through the previous layers. The query is considered verified if the final abstract state, Uncovering the Limits of Proof Sharing for Neural Networks 5Layer 1  Layer 2  Layer 3  Layer 4 
+
+Fig. 1: Template reuse in a 4-layer network. From an input image x, we first verify an initial query under I∞(x), then build a layer-k=2 template by iteratively relaxing the layer-2 abstract state while it remains verifiable (represented by the yellow region with dotted boundary). For a later query under I0(x), the propagated layer-2 query state is subsumed by the template, so the property is proved immediately and propagation through layers 3 and 4 is skipped, saving tail cost. computed after layer 4, satisfies the post-condition ψ. For fig. 1, as shown by the decision boundary after layer 4, the query is successfully verified. To construct a template, first, a set of layers is chosen at which to use tem-plates. At a selected layer k, the previously-computed abstract state is itera-tively relaxed while preserving verifiability through the suffix Nk+1: L, yielding a more general state that can subsume subsequent queries whose layer-k states are similar. Existing approaches commonly instantiate this procedure from L∞
+
+specifications [10, 37]: they first use binary search to find the largest verifiable 
+
+L∞-ball around the input, then relax the resulting layer-k abstract state to max-imize generality subject to successful propagation and discharge on Nk+1: L. The resulting relaxed state is stored as a template at layer k, which can be reused for potential subsumption of future queries. Moreover, prior work shows that replacing a single L∞-ball over the input space with multiple masked L∞-balls over subregions yields a more diverse template set and increases subsumption rates [10, 37]. Using templates requires checking if the abstract shape computed for a sub-sequent query is subsumed by a template (see section 3.1). For fig. 1, a template is placed after layer 2 (the yellow region with dotted boundary), and a subse-quent query aims to verify an L0 query I0(x). Since the abstract state for this query is contained within the layer 2 template, the property is verified, without further propagation of the abstract state through the remaining layers. 
+
+3.3 A Performance Model for Template-Based Verification 
+
+The potential performance improvement provided by proof sharing with tem-plates is impacted by various factors, and depending on the template subsump-tion rate, templates may even lead to a slowdown (which we observed in prac-tice). We will refer back to the model presented here when discussing the poten-6 K. Das et al. 
+
+tial for template-based speedups for different networks (section 4) and presenting our technique for automatically optimizing template usage (section 5). Consider a network N with L layers and a fixed input x inducing r verification specifications. Fix a reuse layer k and a template set T of size m. Let tgen denote the one-time cost to construct T ; tpref (k) the per-specification cost to propagate through N1: k; tmatch (m) the per-specification cost to test subsumption Qk ⊑ T
+
+for all T ∈ T ; and ttail (k) the per-specification cost to complete verification over Nk+1: L when no match occurs. Let ρk ∈ [0 , 1] be the fraction of the r
+
+specifications whose layer-k abstract state is subsumed by at least one template in T . The expected end-to-end verification time with template reuse is then, 
+
+tgen + r
+
+
+
+tpref (k) + tmatch (m) + (1 − ρk) ttail (k)
+
+
+
+(1) Under the assumption that the baseline verification exhibits approximately constant per-layer computational cost ν, it follows that tpref (k) = kν , ttail (k) = (L − k)ν, tgen = λmLν for template creation time parameter λ > 0 and 
+
+tmatch (m) = ηm for template matching time parameter η > 0. Speedup S,relative to baseline verification time rLν is therefore, 
+
+S =
+
+
+
+1 + λ mr + ηm Lν − ρk L−kL
+
+−1
+
+(2) Hence S > 1 is precisely when the saved tail cost ρk(L − k)/L exceeds the 
+
+amortized overheads of template generation and lookup, λm/r + ηm/ (Lν ). Op-erationally, this favors (i) earlier viable layers where ( L − k)/L is large, provided the queries yields a sufficiently high ρk; (ii) a small number of templates to keep lookup and generation costs small; and (iii) large number of specifications, which amortize tgen . Using templates at very deep layers (small residual) or oversized template sets (large overhead) eliminate gains, in which case the template based approach might not be beneficial. With this speedup model, prior work [10, 37] has shown that template reuse can yield significant performance gains for patch verification, fixed-size L0 ver-ification, and geometric perturbations. In such scenarios, verification instances count r is typically a few hundred and template set length m is up to 4. However, prior work did not perform a rigorous study of the impacts of neural network type, dataset, training method, and layer choice on the effectiveness of template-based proof sharing. 
+
+4 The Limits of Template-Based Proof Sharing 
+
+Here, we first present a model for understanding the limits of existing template-based proof sharing techniques to speed neural network verification, based on the concept of neuron stability . Then, we present a limit study of template-based proof reuse, showing its applicability varies widely depending on specific settings. Uncovering the Limits of Proof Sharing for Neural Networks 7
+
+4.1 Efficient Proof Sharing and Neuron Stability 
+
+For efficient proof sharing via templates, section 3.3 shows that we need (1) a high template match rate, (2) low cost to compute templates, and (3) low cost to determine template subsumption for an abstract shape. Further, there is a baseline correctness condition that (4) the abstract interpreter can verify the property for the template. Here, we explore how neuron stability interacts with these conditions, specifically how many unstable neurons make it very unlikely all four conditions can be simultaneously satisfied. Neural network ReLU activation layers (see section 2) act element-wise, sup-pressing negative pre-activations and preserving positive ones. ReLU therefore partitions neurons into active (positive output) and inactive (zero output) sets, creating an activation pattern. In abstract interpretation, when propagating an abstract state through the network, ReLU layers are the primary source of impre-cision. For the box domain, given an abstract state for a neuron j represented by the interval [ lj , u j ], the abstract interpreter must determine the effect of applying ReLU on the interval. This requires a case analysis based on the containment of 0 in [ lj , u j ], as 0 is the ReLU decision boundary. Hence, the precision of the abstract interpretation hinges on whether the abstract state of the pre-activation value of a neuron is sufficient to determine the outcome of its ReLU activation. A neuron is considered stable [4, 25] if its pre-activation interval, [ lj , u j ], does 
+
+not cross the ReLU’s decision boundary of 0. This occurs under two conditions: 
+
+– The interval is entirely non-negative ( lj ≥ 0), meaning the neuron is always active and the ReLU function consistently acts as the identity. 
+
+– The interval is entirely non-positive ( uj ≤ 0), meaning the neuron is always inactive and the ReLU behaves as the constant zero function. In both cases, the activation behavior is fixed across all concrete behaviors represented by the abstract state, hence the term stability .A neuron is unstable if its interval [ lj , u j ] has a negative lower bound and a positive upper bound ( lj < 0 < u j ). For such neurons, the abstract state is too coarse to resolve the sign of the pre-activation value. Consequently, a sound abstract transformer for the ReLU function must conservatively account for both outcomes (an active or inactive neuron), typically leading to precision loss. For an abstract state Sk, we denote the sets of indices for stable and unstable neurons as Stable( Sk) and Unstable( Sk), respectively. 
+
+Induced Partial Orders The subsumption relation ⊑ on abstract states (sec-tion 3.1) has direct implications for neuron stability. If a state Qk is subsumed by a template Tk, any unstable neuron in Qk must also be unstable in Tk. This is because the query’s interval [ lQj , u Qj ] containing zero implies the necessarily wider template interval [ lTj , u Tj ] also contains zero. This yields the following inclusion relation unstable neuron sets: 
+
+Qk ⊑ Tk =⇒ Unstable( Qk) ⊆ Unstable( Tk)8 K. Das et al. 
+
+Hence, a template must accommodate all the instabilities present in any query it subsumes. Similarly, the sets of stable neurons are related by the inclusion Stable( Tk) ⊆ Stable( Qk). 
+
+Template Generality vs. Stability Variance The effectiveness of proof sharing hinges on a trade-off between template generality and the stability of individual queries. For a small set of templates to be effective, each template must be general enough to subsume a large number of queries. But, for a single template 
+
+Tk capable of subsuming a set of queries {Qik}mi=1 , Unstable( Tk) must include the union of the unstable neurons of the queries: 
+
+[
+
+> i
+
+Unstable( Qik) ⊆ Unstable( Tk) (3) Hence, a very general template must account for all the instabilities present in the queries it subsumes. This instability set can grow large if the queries exhibit diverse instability patterns, with differing unstable neurons across the abstract states for individual queries. 4 Such instability variance poses a funda-mental challenge to creating a compact and effective set of templates: a template that abstracts over a large number of unstable neurons is likely too imprecise to enable verification of the property of interest. (Every unstable ReLU necessitates an over-approximation, introducing precision loss that compounds layer-by-layer, often rendering the final bounds too loose to be conclusive.) And, since efficient template computation and matching is required for speedups, this issue cannot be sidestepped by larger template sets or more complex templates. 
+
+4.2 Neuron Instability in Practice 
+
+Here, we describe a study that shows the limits of proof sharing via templates in practice and the relationship of neuron stability patterns to proof sharing potential. 
+
+Methodology We used the MNIST and CIFAR-10 datasets in our study. We considered six neural networks for each dataset, varying in training methods. Alongside standard training, we tested the training methods PGD [18], SABR [22], TAPS [19], CURE [13], and CertifiedPatchDefense (CPD) [6]. All the networks used in the limit study consist of 7 fully connected layers, with 200 neurons per layer. We considered three perturbation types to generate verification queries from a common input image that yield large number of queries and are amenable to be analyzed via abstract interpretation based verifiers: (1) random L0 perturbations of 1 to 30 pixels generating 1000 queries, (2) localized 2 × 2 patch perturbations generating 729 queries for MNIST images and 1024 queries for CIFAR-10 images, and (3) composite geometric transformations used in prior work on MNIST [2,   
+
+> 4In principle, a neuron that is stable in each individual query can still be forced unstable in a template if it is stably active in some queries and stably inactive in others. We observed no such cases in our experiments. Uncovering the Limits of Proof Sharing for Neural Networks 9
+
+10] including ±2◦ rotation, ±10% contrast and ±1% brightness changes split into 
+
+r perturbations. We present L0 perturbations as a representative case; results for patch and geometric perturbations, which exhibit similar trends, are deferred to Appendix 1. For each generated query, we propagate the input region with DeepZ and record the abstract state Qik at each ReLU layer k with nk neurons. For a query set {Qik}mi=1 , Jointly Stable Neurons at percentile p ∈ [0 , 1] is the fraction of neurons stable in at least a p-fraction of the queries: JointlyStableNeurons p({Qik}mi=1 ) = 
+
+
+
+j : |{ i : j / ∈ Unstable( Qik)}| 
+
+m ≥ p
+
+
+
+nk
+
+(4) At p = 1, this is the fraction of neurons outside the union of unstable neurons across all queries at that layer, i.e., 1 − | S 
+
+> i
+
+Unstable( Qik)|/n k. By eq. (3), a smaller value means any template subsuming all queries must contain many un-stable neurons. A steep drop as p increases indicates that instability is dispersed across queries, so templates covering an increasing fraction of queries must in-clude more unstable neurons, limiting their effectiveness for proof sharing. In figs. 2 and 3, we plot Jointly Stable Neurons and template subsumption for all the ReLU layers of networks trained on MNIST and CIFAR-10, respectively, using 100 input images per network; shaded bands indicate variability across images. The x-axis gives the percentile threshold p expressed as a percentage, and the y-axis gives JointlyStableNeurons p({Qik}mi=1 ) as a percentage of neu-rons at that layer. We use one template generated under L∞ perturbation for subsumption checking; following the template generation technique described in section 3.2. 
+
+Subsumption Rates First, focusing on the template subsumption rates in figs. 2 and 3, we see a significant variance across datasets, layers, and training methods. Consistent with prior observations [37], later layers consistently have higher subsumption rates, as by that point the networks tend to distill the se-mantic features of the input, enabling similar queries to yield similar abstract states. Training method has a substantial impact on potential subsumption rates. Networks trained without specific certifiable guarantees, the Standard and PGD trained models, exhibit generally lower subsumption rates: for MNIST this is most pronounced in the earlier layers, while for CIFAR-10 it persists across all layers. In contrast, networks trained with certified objectives (CURE, CPD, SABR, TAPS) are designed to satisfy worst-case guarantees against perturba-tions, and thus tend to emphasize features that remain informative despite vari-ations in the perturbations. We see these behaviors reflected in generally higher subsumption rates for these training methods across both datasets. However, even for certified-trained networks, the subsumption rates vary sig-nificantly across layers, and across datasets. E.g., the subsumption rate at layer 2 on MNIST for TAPS roughly 80% whereas for CPD its less than 60%. This un-predictability led us to develop the profiling technique for automating template configuration described in section 5. 10 K. Das et al. 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 2: Jointly stable neurons and template subsumption rates under random-L0
+
+perturbations in MNIST networks. 
+
+Joint Stability Figures 2 and 3 show that in nearly all cases, greater joint stability across abstract states correlates with higher template subsumption, as expected. For the majority of the cases, we observe that jointly stable neurons drop quickly as p increases at the first layer for all networks. Hence, if a single template were to subsume a majority of these abstract states, it must have a high Uncovering the Limits of Proof Sharing for Neural Networks 11 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 3: Jointly stable neurons and template subsumption rates under random-L0
+
+perturbations in CIFAR-10 networks. number of unstable neurons, and hence would be unlikely to enable verification of the desired property. The very low subsumption rates at the first layer confirm this predicted ineffectiveness. Conversely, at later layers, the drop in jointly stable neurons is significantly less, indicating that the template will not have to 12 K. Das et al. 
+
+accommodate high instability. And consequently, we observe higher subsumption at these layers. We do observe some interesting exceptions to these trends. On CIFAR-10 Standard and PGD in fig. 3, earlier layers exhibit high joint stability across percentile of queries, but subsumption remains low. These cases indicate that while joint stability captures a key prerequisite for reuse, it does not guaran-tee that the resulting per-neuron bounds align tightly enough across queries to be subsumed by a few templates. Even with similar joint stability, early-layer abstract states may be insufficiently distilled (or too high-variance in interval geometry). Dataset complexity likely plays a role as well. As MNIST is far less feature-rich than CIFAR-10, homogenic semantic structure may emerge earlier in the network, allowing early-layer templates to be useful. For example, consider the TAPS and SABR-trained MNIST networks in fig. 2; unlike their CIFAR-10 counterparts, they exhibit some subsumption even in the first layer, and joint stability is maintained. CURE on MNIST in fig. 2 illustrates a nuanced case. Although joint stability drops at stricter percentile thresholds, the drop is not severe at the coverage levels relevant to the observed subsumption rates. In particular, subsumption rates remain around 60 −80% starting from layer 2, and the joint stability curves indicate that a large fraction of neurons remain jointly stable for a comparable fraction of queries. Thus, the low stability at the highest percentiles does not rule out reuse: it says that a single template is unlikely to cover nearly all queries without absorbing additional instability. Templates can still be effective when targeting a substantial, but not exhaustive, subset of the queries. Overall, the results indicate that joint stability effectively explains subsump-tion rates for template-based proof sharing. 5 The data show that the effectiveness of such proof sharing is highly configuration-dependent; a fixed policy for where and how to use templates will not generalize across these settings. In the next section, we describe a new adaptive strategy to automatically adapt to these varying conditions. 
+
+5 Automatic Configuration of Templates 
+
+The practical efficacy of template-based proof sharing is critically dependent on a combination of factors: the training methodology, the specific property under verification, the cardinality of the template set used, and the choice of layer for reuse. An uninformed use of templates could actually degrade overall verification performance, a phenomenon we have observed in practice. Prior work [10, 37] largely sidestepped this parameterization challenge, re-lying on manual, empirical measurements to select a fixed set of L∞-masked templates, and up to two promising layers for template reuse. While this method-ology has demonstrated viability in constrained settings, manual tuning will not scale to a wide variety of real-world scenarios; the experiments of section 4.2   
+
+> 5Similar trends hold for patch and geometric perturbations; results are deferred to Ap-pendix 1. Uncovering the Limits of Proof Sharing for Neural Networks 13
+
+alone (including the results in Appendix 1) consider hundreds of combinations of training method, layer choice, and perturbation type. Further, there have been significant advances in L0 verification via techniques like Calzone [26] and CoverD [28], making L0 verification increasingly practical but posing new challenges for proof sharing. These methods have expanded ver-ification settings from fixed-size t-pixel perturbations to arbitrary k-pixel per-turbations where k > t . Calzone [26] exploits the observation that robustness for any k > t perturbed pixels implies robustness for every t subset. It predicts a large k via dynamic programming and sampling, then uses covering designs to generate k-sized queries, submitted to a verifier, refining to smaller sets as needed. CoverD [28] advances this covering-based approach by proposing cover-ing verification designs, an algorithm that selects between candidate coverings without constructing them but rather predicting their block-size distributions from closed-form mean/variance, then constructing the chosen covering on-the-fly. The volume and structural complexity of queries generated by such methods can vary dramatically. Prior work [37] demonstrates template reusability for ran-dom 3-pixel perturbations, but covering-design-based approaches involve verify-ing perturbations that may alter 100 or more pixels, making them a challenging testbed for template reuse. To improve the applicability of template reuse, we introduce a lightweight, 
+
+a priori profiling technique. This technique provides a principled method to (i) identify and prune verification scenarios where using templates is futile, and (ii) automatically select a set of advantageous layers and curate a compact set of templates to maximize anticipated performance gain. 
+
+5.1 Layer Selection and Template Set Refinement 
+
+In practice, not all layers are equally suitable for template reuse. Early layers may exhibit low subsumption rates (see section 4.2), while very late layers offer limited potential savings due to the small residual depth. And, the number of templates must be balanced against lookup costs, as larger template sets increase both generation and matching overheads. Identification of a set of layers and template sets that can exhibit the highest potential for subsumption is governed by the performance model from section 3.3. We leverage this model in algorithm 1 to guide the selection of layers and templates for FastCert . The algorithm takes as input a network, an input image, a set of candidate reuse layers Lcand ,sampling size P , and a set of candidate template counts M. It evaluates each layer-template configuration ( k, m ) to assess its viability for template reuse, and outputs the set of viable ( k, m ) configurations. At each layer, to achieve a speedup S > 1, the subsumption fraction ρk must exceed a minimum threshold ρmin  
+
+> k
+
+that depends on the amortized overheads and the residual network depth, L − k. This threshold is derived from eq. (2): 
+
+ρmin  
+
+> k
+
+=
+
+
+
+λ mr + η m L ν 
+
+ LL − k (k < L ).14 K. Das et al. 
+
+Algorithm 1 FastCert Layer and Templates Selection 
+
+1: Input: Network N , image x, candidate layers Lcand , sampling size P , candidate template counts M.2: Output: Set of pairs ( k, Tk ) of selected layers and their template sets 3: viable ← [] 4: for each k ∈ L cand do 
+
+5: (m⋆, ρ ⋆k , T ⋆k ) ← None 6: for each m ∈ M do 
+
+7: // Build m templates at layer k from image x
+
+8: T (m) 
+
+> k
+
+← ∅ 
+
+9: Generate m number of L∞ masks 
+
+10: for i = 1 to m do 
+
+11: Compute template Ti at layer k using mask i; add Ti to T (m)
+
+> k
+
+12: end for 
+
+13: // Estimate subsumption on the set of P L 0 queries on image x
+
+14: c hit ← 015: for j = 1 to P do 
+
+16: Sample a L0 query on x; compute Qj at layer k
+
+17: for i = 1 to m do 
+
+18: if Qj ⊑ Ti then 
+
+19: c hit ← c hit + 1 break 
+
+20: end if 
+
+21: end for 
+
+22: end for 
+
+23: ρk (m) ← c hit /P 
+
+24: // Cost-model viability test 
+
+25: if ρk (m) ≥ ρmin  
+
+> k
+
+(k, m, r ) then 
+
+26: // Keep the best viable (m, ρ ) for this layer determined by subsumption 
+
+27: (m⋆, ρ ⋆k , T ⋆k ) ← (m, ρ k (m), T (m) 
+
+> k
+
+)28: end if 
+
+29: end for 
+
+30: if (m⋆, ρ ⋆k , T ⋆k )̸ = None then 
+
+31: Append ( k, ρ ⋆k , m ⋆, T ⋆k ) to viable 
+
+32: end if 
+
+33: end for 
+
+34: return {(k, T ⋆k ) : ( k, ·, ·, T ⋆k , ·) ∈ viable }
+
+Layers with subsumption fractions below a minimum threshold ρmin  
+
+> k
+
+will not yield sufficient savings to justify the overhead of matching. In algorithm 1, 
+
+FastCert evaluates each candidate layer k ∈ L cand and each candidate tem-plate count m ∈ M , using an estimation of the subsumption fraction ρk(m) by sampling a set of diverse L0 queries and computing the fraction subsumed by a set of m templates. A layer-template configuration ( k, m ) is viable if it meets the threshold ρk(m) ≥ ρmin  
+
+> k
+
+(k, m, r ). 
+
+Lviable = {k ∈ L cand : ρk ≥ ρmin  
+
+> k
+
+},Uncovering the Limits of Proof Sharing for Neural Networks 15 
+
+If no layer-template configuration meets the viability threshold, the algorithm returns an empty set and verification proceeds without templates. This design ensures that template-based verification is applied only when empirical evidence suggests a net performance gain, gracefully degrading to standard verification when template reuse is unprofitable. 
+
+6 Methodology 
+
+In this section, we describe the methodology used to experimentally validate the effectiveness of FastCert .
+
+6.1 Configuration 
+
+We instantiate FastCert with verification queries generated by Calzone [26] and CoverD [28], two state-of-the-art L0 robustness verification frameworks. Both frameworks generate verification queries using covering designs to efficiently ex-plore the space of possible pixel perturbations. While the original Calzone and CoverD frameworks fall back to complete solvers when search tree over pixel sets is exhausted and reaches leaf nodes, we exclusively use the incomplete verifier for all queries. This isolates the performance impact of template reuse as an improvement on the core abstract interpretation backend. 0 200 400 600 
+
+> Sampling Size (p)
+> 020 40 60 80 100
+> Subsumption Rate (%)
+> Layer 1 Layer 2 Layer 3 Layer 4 Layer 5
+
+Fig. 4: Sampling size vs. subsumption rate estimates for MNIST PGD with 4 templates. To create a comprehensive yet tractable evaluation, we generate a to-tal of 750,000 verification queries per network. This total was derived from 10 images per network. We instantiate the workload for t-pixel perturbation tasks with t = 3 with Calzone and CoverD. They employ covering-design to gener-ate query sets whose perturbed pixel counts, k > t , can vary significantly, producing a heterogeneous set of veri-fication problems. For each image, we cap the workload at 75,000 queries. To ensure consistent query set across dif-ferent methods compared, we cache the sampling phase of Calzone/CoverD and reuse across all evaluations. To estimate the subsumption rate ρk at each candidate layer, we perform a brief profiling run on a small sample of P = 200 queries per image. Across networks and layers, subsumption estimates vary substantially for small sam-ples (up to ∼150 queries), but stabilize around ∼200 queries. Importantly, the threshold-crossing decision is not sensitive to sampling variability beyond this point (e.g., fig. 4). We give more data justifying our choice of P in Appendix 2. 16 K. Das et al. 
+
+To balance template diversity against lookup costs, we consider a set of can-didate template set sizes of, M = {1, 2, 4}. Lcand includes the layers where the minimum subsumption fraction ρmin  
+
+> k
+
+is less than or equal to 1 for at least one 
+
+m ∈ M , ensuring that only layers with potential for speedup are considered. We evaluate FastCert on fully-connected and convolutional networks trained on MNIST and CIFAR-10 (summarized in table 1). The suite includes standard, robust, and certified-trained models of varied sizes used in prior work [10, 26, 28, 37]. As we observed that SABR and TAPS trained networks exhibited sub-stantially lower verifiability under Calzone/CoverD-generated L0 perturbation queries with our incomplete verifier domains, we exclude them from the final evaluation set. We base our evaluation using DeepZ [10, 30] and Box [20] abstract domains, and compare FastCert against two baseline techniques for both the domains. The first one is a standard verification approach that does not attempt template-based proof sharing. The other one uses a static, hand-picked reuse strategy described in prior work. It always enables template reuse with one template (m = 1) at fixed, pre-selected layers (layers 2 and 3 [10, 37]). This allows us to measure the benefit of FastCert ’s layer and template selection strategy over the state-of-the-art policy. Table 1: Networks used in the FastCert evaluation.               
+
+> Dataset Model Architecture #Neurons MNIST, CIFAR-10 CPDMed 7×200 linear layers 1400 CPDBig 9×500 linear layers 4500 CURE 9×500 linear layers 4500 PGD 6×500 linear layers 3000 Standard 6×500 linear layers 3000 CPDConv 4 Conv layers, 4 linear layers 8448
+
+6.2 Implementation and Environment 
+
+FastCert is implemented in Python and extends the DeepZ [10, 30] verifier. We integrated the query generation algorithms from Calzone [26] and CoverD [28] to create our verification tasks. All experiments were conducted on a Google Cloud Platform instance equipped with a 12-core Intel Cascade Lake CPU, 85GB of RAM, and an NVIDIA A100 GPU with 40GB of memory. 
+
+7 Experimental Evaluation 
+
+We conducted an empirical evaluation to validate the efficacy of FastCert .The evaluation showed that the naive reuse of existing policy for template-based proof sharing can be detrimental to performance, and that our automated, profile-guided approach can both mitigate this pitfall and maximize gains. Our investigation was structured around the following research questions: Uncovering the Limits of Proof Sharing for Neural Networks 17 
+
+Table 2: Calzone results (750K queries, 10 images, t=3) with DeepZ and Box domains. V=Verified(%), T=Baseline (No Template) Time in seconds, Sub=Subsumption rate (%), Spd=Speedup, E=Extant Template Reuse Strat-egy, F= FastCert .
+
+> (a) MNIST
+
+DeepZ Box Net V T Sub Spd V T Sub Spd (%) (s) E F E F (%) (s) E F E FCPDMed 92.4 5293 57.8 85.2 1.28 1.41 94.6 4310 28.7 92.0 1.02 1.40 
+
+CPDBig 88.4 6309 87.0 98.6 1.91 2.10 92.8 4966 62.9 98.7 1.39 2.00 
+
+CPDConv 84.5 4781 68.4 72.0 1.08 1.06 84.5 8752 52.6 68.4 0.99 1.00 
+
+CURE 44.5 4704 43.7 85.3 1.12 1.24 31.5 2890 33.0 82.9 1.03 1.10 
+
+PGD 92.6 5166 0.5 88.7 0.91 1.17 86.7 4247 0.0 40.5 0.87 1.03 
+
+Std 96.5 4925 56.0 90.2 1.21 1.34 89.7 4265 0.0 0.0 0.87 0.98 
+
+> (b) CIFAR-10
+
+DeepZ Box Net V T Sub Spd V T Sub Spd (%) (s) E F E F (%) (s) E F E FCPDMed 97.6 5997 43.1 60.9 1.20 1.25 98.9 4935 33.6 55.1 1.13 1.34 
+
+CPDBig 95.2 7406 46.3 68.4 1.31 1.45 97.7 6032 62.8 79.4 1.50 1.80 
+
+CPDConv 85.3 3451 58.5 84.5 1.01 1.08 96.8 6721 67.7 88.6 1.01 1.03 
+
+CURE 94.8 7161 3.5 31.5 0.94 1.02 82.7 6031 0.5 9.0 0.90 1.01 
+
+PGD 58.1 5227 0.0 10.2 0.92 1.05 14.4 4298 0.0 0.0 0.86 0.99 
+
+Std 54.3 5071 0.0 0.0 0.90 0.99 13.0 4328 0.0 0.0 0.88 0.99 – RQ1: What is the impact of the previous fixed-layer template reuse strategy on end-to-end verification time for L0 verification queries? 
+
+– RQ2: In cases where the previous strategy reduces verification performance, can FastCert ’s ability to detect when template reuse is futile mitigate the performance reduction? What is the overhead of the profiling process in this scenario? 
+
+– RQ3: In cases where the extant reuse strategy improves verification per-formance, what further performance gains are obtained from FastCert ’s automated selection of layers and template count? 
+
+– RQ4: Does FastCert generalize across the abstract domains used by in-complete verifiers, in settings where template reuse is applicable? We answer RQ1 through RQ4 respectively in sections 7.1 to 7.4. Finally, we discuss limitations in section 7.5. 18 K. Das et al. 
+
+Table 3: CoverD results (750K queries, 10 images, t=3) with DeepZ and Box domains. V=Verified(%), T=Baseline (No Template) Time in seconds, Sub=Subsumption rate (%), Spd=Speedup, E=Extant Template Reuse Strat-egy, F= FastCert .
+
+> (a) MNIST
+
+DeepZ Box Net V T Sub Spd V T Sub Spd (%) (s) E F E F (%) (s) E F E FCPDMed 89.9 4768 59.7 85.8 1.24 1.35 91.7 3850 32.2 91.2 1.07 1.45 
+
+CPDBig 87.5 5842 89.2 98.7 1.88 2.04 90.8 4916 60.1 98.8 1.33 2.00 
+
+CPDConv 84.9 4530 69.3 72.3 1.02 1.02 84.3 8602 53.7 70.1 1.04 1.05 
+
+CURE 43.3 4321 53.4 89.8 1.12 1.24 30.3 2925 41.8 78.8 1.08 1.14 
+
+PGD 89.4 4896 0.4 86.5 0.89 1.09 79.5 4323 0.0 48.4 0.86 1.02 
+
+Std 96.9 4716 62.8 93.5 1.25 1.34 89.4 4429 0.0 0.0 0.88 0.96 
+
+> (b) CIFAR-10
+
+DeepZ Box Net V T Sub Spd V T Sub Spd (%) (s) E F E F (%) (s) E F E FCPDMed 96.5 6047 47.3 68.5 1.21 1.29 98.4 4858 37.6 58.1 1.12 1.36 
+
+CPDBig 95.4 7495 54.3 75.4 1.37 1.53 97.2 6314 63.4 81.1 1.51 1.86 
+
+CPDConv 84.4 3376 60.8 84.1 1.02 1.04 94.6 5508 75.0 91.7 1.00 1.01 
+
+CURE 95.9 7174 6.4 40.4 0.93 1.05 83.9 6203 0.1 8.3 0.91 1.02 
+
+PGD 58.1 5444 0.0 0.0 0.92 0.99 16.2 4645 0.0 0.0 0.88 1.00 
+
+Std 51.1 5362 0.0 0.0 0.91 1.00 13.1 4614 0.0 0.0 0.87 0.99 7.1 Performance of Extant Template Reuse Policy 
+
+Extant reuse yields substantial speedups on networks where subsumption is mod-erately high, but consistently slows verification when subsumption is very low. From tables 2 and 3 and fig. 5, we observe two distinct behaviors, When reuse is viable, extant reuse achieves speedup ranging 1 .01 × − 1.91 × on Calzone, and 1.02 × − 1.88 × in CoverD. When reuse is futile, extant reuse slows down verifi-cation by 1% − 14% on Calzone and 7% − 14% on CoverD. This performance degradation arises because the overhead of template matching outweighs the neg-ligible savings from subsumption. The performance degradation in these cases is predicted by the template reuse cost model in section 3.3, and by the measures of joint stability from eq. (4) presented in section 4, particularly in figs. 2 and 3. 
+
+7.2 Efficacy of Automated Futility Detection 
+
+In scenarios where template reuse is detrimental, FastCert ’s automated fu-tility detection effectively avoids slowdowns. Automated futility detection in Uncovering the Limits of Proof Sharing for Neural Networks 19 0 10 20 30 40     
+
+> Configuration Index
+> 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0 2.1 2.2 2.3
+> Speedup
+> Extant - Calzone Extant - CoverD FastCert - Calzone FastCert - CoverD MNIST ( /)
+> CIFAR-10 ( /)
+> DeepZ (filled) Box (hollow) Baseline Paired values
+
+Fig. 5: Combined speedup results across all 48 configurations: FastCert out-performs extant reuse in 46, ties in one, and is slightly slower in one; the overall improvement is statistically significant according to a paired two-sided Wilcoxon signed-rank test ( W = 4, p = 3 .1 × 10 −9). 
+
+FastCert can identify these scenarios and disable reuse, preventing slowdowns. Our profiling step figures out quickly that no layers are viable for reuse, return-ing empty layer-template configuration set (algorithm 1). This avoids the added overhead of template matching, resulting in verification times comparable to the baseline without reuse, as seen in tables 2 and 3. The remaining slowdown stems from template creation and matching against 200 L0 queries per image during profiling, but this cost is negligible compared to the 75,000 verification queries per image. FastCert only incurs an average slowdown of 1 .6% (ranging over 1% − 4%), a significant improvement over the 10 .1% (ranging over 1% − 14%) average slowdown observed with extant template reuse. This is demonstrated across both Calzone and CoverD in fig. 5, where FastCert consistently outper-forms extant reuse in futile scenarios. 
+
+7.3 Advantage in Favorable Scenarios 
+
+In configurations where template reuse is effective, FastCert ’s automated selec-tion of reuse layers and template counts improves over extant reuse, ultimately achieving an average of 1 .13 × (ranging over 0 .98 × − 1.5×) performance gain overall. 20 K. Das et al. 
+
+Overall, FastCert achieves speedups of up to 2 .10 × on MNIST networks (e.g., CPDBig ) and up to 1 .86 × on CIFAR-10 networks (e.g., CPDBig ) com-pared to no template reuse (tables 2 and 3 and fig. 5). These peak improvements arise because FastCert (i) identifies layers with higher template subsump-tion and (ii) chooses template counts that increase hit rate while controlling template-matching overhead. For example, for a representative MNIST input on CPDMed for Calzone, FastCert applies two templates each at layers 2 and 3, and one template each at layers 4 and 5. In contrast, extant reuse relies on a static, manually chosen configuration; FastCert adapts reuse layers and template counts to the subsumption behavior of each network and dataset. In CPDConv the gains are minor since reuse occurs only at late linear layers followed by convolutional layers, which constrains subsumption potential and leaves little room for improvement [37]. 
+
+7.4 Generality Across Abstract Domains 
+
+We evaluate FastCert with both DeepZ and Box, two abstract domains that are compatible with template reuse as identified in prior work [10]. We also ex-perimented with another widely used abstract domain, Polyhedra (with Deep-Poly [31]), but found them impractically slow at our evaluation scale: for exam-ple, on CPDMed (MNIST) under CoVerD with 750k queries and no template reuse, DeepPoly is 8 .08 × slower than DeepZ and 9 .54 × slower than Box. Ac-cordingly, we focus our evaluation on DeepZ and Box. From fig. 5, we observe that FastCert achieves almost similar speedup trends in both domains, with slightly better performance in Box. Specifically, 
+
+FastCert achieves 0 .98 × − 1.29 × speedup over extant reuse in DeepZ with an average of 1 .10 ×, and 1 .01 ×− 1.5× speedup over extant reuse in Box domain with an average of 1 .17 × across the tools and datasets. This shows that FastCert 
+
+generalizes well across both the abstract domains. 
+
+7.5 Limitations 
+
+We study template reuse for robustness verification in the incomplete-verifier setting, and instantiate FastCert with the incomplete verification backends of Calzone and CoVerD. While these tools may ultimately invoke a complete procedure when the abstract domain cannot discharge a query at the leaf levels, 
+
+FastCert operates only on the incomplete backend and is agnostic to any subsequent complete verification step. Our work is limited to verification queries generated from a single input image (local robustness). Extending template reuse across multiple inputs; for example, to support global robustness properties or batched/multi-input settings, is another promising direction. The performance model used in this work employs a constant per layer cost to derive viability threshold. Verification cost can depend on the layer type, size and on the abstract domain; although our end-to-end measurements capture this variation, extending 
+
+FastCert with a layer-aware cost model may further improve its configuration decisions. Uncovering the Limits of Proof Sharing for Neural Networks 21 
+
+8 Related Work 
+
+DNN Verification. Existing DNN verifiers can be broadly classified as com-plete or incomplete [11, 24, 26, 28–31, 43, 45, 47]. Incomplete methods trade some precision for scalability, enabling the verification of larger and more com-plex networks that complete methods struggle to handle. Most of the prior works on DNN verification is focused on L∞ verification [11, 30, 31]. Unlike L∞ robust-ness, L0 robustness induces a discrete, combinatorial, non-convex perturbation space, making scalable certification substantially more challenging. Calzone [26] and CoverD [28] address this challenge with covering designs, reducing t-pixel robustness to large collections of variable-size k-pixel queries with k > t ; in prac-tice, this can produce tens to hundreds of thousands of related queries per image. More recent work [27] advances this line by characterizing the convex hull of an 
+
+L0 ball as the intersection of its bounding box and a scaled L1-like polytope. Prior template-reuse work demonstrates benefits on much smaller fixed-size L0
+
+workloads, but none study whether template reuse remains effective in covering-design setup. 
+
+Incremental Verification. Incremental verification has improved the scala-bility of traditional program verification to an industrial scale [14, 16, 23, 33]. Incremental program analysis tasks reuse partial results [44], constraints [39], and precision information [3] from previous runs for faster analysis of individ-ual commits. Program changes typically affect a small, localized part of the code, whereas DNN updates modify weights across many layers without altering control flow. This key difference makes incremental DNN verification a distinct challenge in comparison to program analysis. Similarly, many recent works [10, 36–38, 46] have successfully used incremen-tal verification for improving the efficiency of DNN verification. These works include incremental complete verification [36, 46], incremental probabilistic ver-ification [38] and incremental incomplete verification [10, 37]. Our work extends this line by systematically analyzing when and how verification effort can be reused effectively, providing both theoretical and automated support for tem-plate reuse. Wei et al. [40] considers incremental incomplete verification of relatively small DNNs with last-layer perturbation. Fischer et al. [10] introduced proof transfer to reuse verification effort across different input specifications of a single network, achieving up to 2.9x reduction in verification cost but with limited applicability to convolutional layers. Complementarily, Ugare et al. [37] extended this idea to transfer proofs across approximate networks by introducing a template trans-formation technique that enables sound and efficient verification for networks with convolutional architectures. Our work builds on these ideas by conducting a limit study of template effectiveness, identifying conditions where template reuse is counterproductive, and proposing an automated system that decides when, where, and how to apply template reuse efficiently. 22 K. Das et al. 
+
+9 Conclusions 
+
+We have presented a study of the limits of template-based proof sharing for neural network verification. We showed that certain combinations of networks, training methods, and datasets are fundamentally unsuited to template-based speedups, due to excessive variance in jointly stable neurons. Then, we gave a new technique for automatically determining how best to apply templates to a verification task, including automatic detection of when templates should not be used. We implemented our technique in a tool FastCert , and an experimental evaluation showed that it improves over a state-of-the-art template technique, providing greater speedup in cases where templates work well and significantly reducing slowdown in cases where they are unsuitable. 
+
+Appendix 1 Joint Stability for Other Perturbations 
+
+Section 4.2 presented trends in joint stability and subsumption rates for L0
+
+perturbations. We observed similar joint stability and template subsumption trends across patch and geometric perturbations as well. In figs. 6 and 7, we plot the jointly stable neurons and template subsumption rates across different 2 × 2 patch perturbation scenarios in MNIST and CIFAR-10 networks. And in figs. 8 to 11, we plot the jointly stable neurons and template subsumption rates across geometric perturbations for MNIST networks. Here, ±2◦ rotation, 
+
+±10% contrast and ±1% brightness changes are split into r = 4, 6, 8, and 10 perturbations, respectively resulting in 64, 216, 512 and 1000 queries per image [2, 10]. The common trends of earlier layers having lower joint stability and subsumption rates, and later layers having higher joint stability and subsumption rates hold in these perturbation scenarios as well. The interesting cases observed in section 4.2; e.g., CIFAR-10 Standard and PGD networks, with earlier layers having higher joint stability but still very low subsumption rates in fig. 3 for 
+
+L0 perturbations are also observed in fig. 7 for patch perturbations. Similarly, trends reported for SABR, TAPS, and CURE MNIST networks in fig. 2 remain identical in the patch and geometric perturbation scenarios under figs. 6 and 8 to 11. 
+
+Appendix 2 Sampling Sizes for Subsumption Estimation 
+
+Figures 12 to 14 fully detail our evaluation of how many sampled L0 queries are needed to reliably estimate layer-wise subsumption for the algorithm of section 5. For each network, we select 10 input images (MNIST/CIFAR-10) and sample verification queries by perturbing 5 to 20 randomly chosen pixels. For each layer, we plot the estimated subsumption rate against a fixed set of templates as a function of the number of sampled queries (10-600). For each configuration, we repeat this process 10 times and plot the mean (as solid lines) and standard deviation (as shaded regions). We also plot the minimum subsumption rate re-quired to yield speedup (dotted), computed by FastCert ’s performance model Uncovering the Limits of Proof Sharing for Neural Networks 23 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 6: Jointly stable neurons and template subsumption rates under 2 × 2 patch perturbations in MNIST networks. (section 3.3). The plots are generated against different template counts of 1, 2, and 4. Across networks and layers, subsumption estimates vary substantially for small samples (up to ∼150 queries), but stabilize around ∼200 queries. Impor-tantly, the threshold-crossing decision is not sensitive to sampling variability 24 K. Das et al. 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 7: Jointly stable neurons and template subsumption rates under 2 × 2 patch perturbations in CIFAR-10 networks. beyond this point (e.g., fig. 4). While in rare cases, such as MNIST CPDMed with 2 templates fig. 13a, at layer 1, estimated subsumption falls very close to the threshold, even with larger samples of 600 queries, the variability remains similar. In almost all other cases, the gap between the estimated subsumption rate and the threshold to select or skip a layer for template reuse remains clear. Uncovering the Limits of Proof Sharing for Neural Networks 25 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+40 50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+40 50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+40 50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+40 50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+40 50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+40 50 60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 8: Jointly stable neurons and template subsumption rates under geometric perturbations (4 splits) in MNIST networks. Thus we conclude that our choice of P = 200 queries per image for subsump-tion estimation strikes a good balance between profiling overhead and reliable layer selection. 26 K. Das et al. 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+60 70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 9: Jointly stable neurons and template subsumption rates under geometric perturbations (6 splits) in MNIST networks. Uncovering the Limits of Proof Sharing for Neural Networks 27 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 10: Jointly stable neurons and template subsumption rates under geometric perturbations (8 splits) in MNIST networks. 28 K. Das et al. 50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CPD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+SABR 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+50 75 80 85 90 95 97 99 
+
+Percentile 
+
+70 80 90 100 
+
+> Jointly Stable Neurons (%)
+
+TAPS 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 
+
+(a) Jointly stable neurons 1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+SABR 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Subsumption Rate 
+
+1 2 3 4 5 6 7
+
+Layer 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+TAPS 
+
+Subsumption Rate 
+
+(b) Template subsumption rates 
+
+Fig. 11: Jointly stable neurons and template subsumption rates under geometric perturbations (10 splits) in MNIST networks. Uncovering the Limits of Proof Sharing for Neural Networks 29 0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDBig 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDMed 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDConv 
+
+Layer 1 Layer 2 Layer 3 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+(a) MNIST 0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDBig 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDMed 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDConv 
+
+Layer 1 Layer 2 Layer 3 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+(b) CIFAR-10 
+
+Fig. 12: Comparing predicted minimum subsumption thresholds with observed subsumption rates across different sampling sizes with 1 template. 30 K. Das et al. 0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDBig 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDMed 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDConv 
+
+Layer 1 Layer 2 Layer 3 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+(a) MNIST 0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDBig 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDMed 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDConv 
+
+Layer 1 Layer 2 Layer 3 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+(b) CIFAR-10 
+
+Fig. 13: Comparing predicted minimum subsumption thresholds with observed subsumption rates across different sampling sizes with 2 templates. Uncovering the Limits of Proof Sharing for Neural Networks 31 0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDBig 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDMed 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDConv 
+
+Layer 1 Layer 2 Layer 3 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+(a) MNIST 0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDBig 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDMed 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CPDConv 
+
+Layer 1 Layer 2 Layer 3 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+CURE 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+PGD 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+0 200 400 600 
+
+Sampling Size (p) 
+
+020 40 60 80 100 
+
+> Subsumption Rate (%)
+
+Standard 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 
+
+(b) CIFAR-10 
+
+Fig. 14: Comparing predicted minimum subsumption thresholds with observed subsumption rates across different sampling sizes with 4 templates. 32 K. Das et al. 
+
+Artifact Availability. The artifact accompanying this paper, including the 
+
+FastCert source code, networks, and experimental scripts, is available on Zen-odo (DOI: 10.5281/zenodo.21314767). 
+
+Acknowledgments. This research was supported in part by the National Sci-ence Foundation under grants CCF-2238079, CCF-2313028, CCF-2223825, CCF-2223826, a gift from Oracle Labs, and a Google Research Award. The views expressed herein are those of the authors and do not necessarily reflect those of our funders. 
+
+Bibliography 
+
+[1] Albarghouthi, A.: Introduction to neural network verification (2021), 
+
+https://arxiv.org/abs/2109.10317 
+
+[2] Balunovic, M., Baader, M., Singh, G., Gehr, T., Vechev, M.: Certifying geometric robustness of neural networks. Advances in Neural Information Processing Systems 32 (2019) [3] Beyer, D., L¨ owe, S., Novikov, E., Stahlbauer, A., Wendler, P.: Preci-sion reuse for efficient regression verification. In: Proceedings of the 2013 9th Joint Meeting on Foundations of Software Engineering. p. 389–399. ESEC/FSE 2013 (2013). https://doi.org/10.1145/2491411.2491429 
+
+[4] Botoeva, E., Kouvaros, P., Kronqvist, J., Lomuscio, A., Misener, R.: Effi-cient verification of relu-based neural networks via dependency analysis. In: Proc. of Advances in Artificial Intelligence (AAAI) (2020) [5] Carlini, N., Wagner, D.A.: Towards evaluating the robustness of neural networks. In: Symposium on Security and Privacy (S&P) (2017) [6] Chiang, P., Ni, R., Abdelkader, A., Zhu, C., Studer, C., Goldstein, T.: Cer-tified defenses for adversarial patches. In: Proc. of International Conf. on Learning Representations (ICLR) (2020) [7] Cousot, P., Cousot, R.: Abstract interpretation: A unified lattice model for static analysis of programs by construction or approximation of fixpoints. In: Proc. of Principles of Programming Languages (POPL) (1977) [8] Croce, F., Andriushchenko, M., Singh, N.D., Flammarion, N., Hein, M.: Sparse-RS: A versatile framework for query-efficient sparse black-box adver-sarial attacks. In: Thirty-Sixth AAAI Conference on Artificial Intelligence, AAAI (2022) [9] Eykholt, K., Evtimov, I., Fernandes, E., Li, B., Rahmati, A., Xiao, C., Prakash, A., Kohno, T., Song, D.: Robust physical-world attacks on deep learning visual classification. In: Proceedings of the IEEE conference on computer vision and pattern recognition. pp. 1625–1634 (2018) [10] Fischer, M., Sprecher, C., Dimitrov, D.I., Singh, G., Vechev, M.: Shared certificates for neural network verification. In: Computer Aided Verifica-tion: 34th International Conference, CAV 2022. p. 127–148. Springer-Verlag (2022). https://doi.org/10.1007/978-3-031-13185-1_7 Uncovering the Limits of Proof Sharing for Neural Networks 33 
+
+[11] Gehr, T., Mirman, M., Drachsler-Cohen, D., Tsankov, P., Chaudhuri, S., Vechev, M.: Ai2: Safety and robustness certification of neural networks with abstract interpretation. In: 2018 IEEE Symposium on Security and Privacy (SP). pp. 3–18. IEEE (2018) [12] Goodfellow, I.J., Shlens, J., Szegedy, C.: Explaining and harnessing adver-sarial examples. In: 3rd International Conference on Learning Representa-tions, ICLR (2015) [13] Jiang, E., Cheung, D.S., Singh, G.: Towards generalized certified robustness with multi-norm training. Trans. Mach. Learn. Res. 2026 (2026), https: //openreview.net/forum?id=U5U7pazr6X 
+
+[14] Johnson, K., Calinescu, R., Kikuchi, S.: An incremental verification frame-work for component-based software systems. In: Proceedings of the ACM SIGSOFT Symposium on Component-Based Software Engineering. p. 33–42. CBSE ’13 (2013). https://doi.org/10.1145/2465449.2465456 
+
+[15] Kotyan, S., Vargas, D.V.: Adversarial robustness assessment: Why in evalu-ation both l0 and l∞ attacks are necessary. PloS one 17 (4), e0265723 (2022) [16] Lakhnech, Y., Bensalem, S., Berezin, S., Owre, S.: Incremental verification by abstraction. In: International Conference on Tools and Algorithms for the Construction and Analysis of Systems. pp. 98–112. Springer (2001) [17] Li, L., Xie, T., Li, B.: SoK: Certified robustness for deep neural networks. In: 44th IEEE Symposium on Security and Privacy, SP 2023, San Francisco, CA, USA, 22-26 May 2023. IEEE (2023) [18] Madry, A., Makelov, A., Schmidt, L., Tsipras, D., Vladu, A.: Towards deep learning models resistant to adversarial attacks. In: Proc. International Con-ference on Learning Representations (ICLR) (2018) [19] Mao, Y., M¨ uller, M., Fischer, M., Vechev, M.: Connecting certified and adversarial training. Advances in Neural Information Processing Systems 
+
+36 , 73422–73440 (2023) [20] Mirman, M., Gehr, T., Vechev, M.: Differentiable abstract interpretation for provably robust neural networks. In: Proceedings of the 35th Interna-tional Conference on Machine Learning. Proceedings of Machine Learn-ing Research, vol. 80, pp. 3578–3586. PMLR (10–15 Jul 2018), https: //proceedings.mlr.press/v80/mirman18b.html 
+
+[21] Modas, A., Moosavi-Dezfooli, S.M., Frossard, P.: Sparsefool: a few pixels make a big difference. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. pp. 9087–9096 (2019) [22] M¨ uller, M.N., Eckert, F., Fischer, M., Vechev, M.: Certified training: Small boxes are all you need. In: International Conference on Learning Represen-tations (2023), https://openreview.net/forum?id=7oFuxtJtUMH 
+
+[23] O’Hearn, P.W.: Continuous reasoning: Scaling the impact of formal meth-ods. In: Dawar, A., Gr¨ adel, E. (eds.) Proceedings of the 33rd An-nual ACM/IEEE Symposium on Logic in Computer Science, LICS 2018 (2018). https://doi.org/10.1145/3209108.3209109 , https://doi.org/ 10.1145/3209108.3209109 
+
+[24] Salman, H., Yang, G., Zhang, H., Hsieh, C.J., Zhang, P.: A convex relax-ation barrier to tight robustness verification of neural networks. Advances in Neural Information Processing Systems 32 (2019) 34 K. Das et al. 
+
+[25] Serra, T., Yu, X., Kumar, A., Ramalingam, S.: Scaling up exact neural network compression by relu stability. Advances in neural information pro-cessing systems 34 , 27081–27093 (2021) [26] Shapira, Y., Avneri, E., Drachsler-Cohen, D.: Deep learning robustness ver-ification for few-pixel attacks. Proc. ACM Program. Lang. 7(OOPSLA1) (2023) [27] Shapira, Y., Drachsler-Cohen, D.: Tight robustness certification through the convex hull of ℓ0 attacks. Proceedings of the AAAI Conference on Arti-ficial Intelligence 40 (44), 37913–37922 (2026). https://doi.org/10.1609/ aaai.v40i44.41128 
+
+[28] Shapira, Y., Wiesel, N., Shabelman, S., Drachsler-Cohen, D.: Boosting few-pixel robustness verification via covering verification designs. In: Interna-tional Conference on Computer Aided Verification. pp. 377–400. Springer (2024) [29] Singh, G., Ganvir, R., P¨ uschel, M., Vechev, M.: Beyond the single neuron convex barrier for neural network certification. Advances in Neural Infor-mation Processing Systems 32 (2019) [30] Singh, G., Gehr, T., Mirman, M., P¨ uschel, M., Vechev, M.: Fast and ef-fective robustness certification. Advances in Neural Information Processing Systems 31 , 10802–10813 (2018) [31] Singh, G., Gehr, T., P¨ uschel, M., Vechev, M.: An abstract domain for certi-fying neural networks. Proceedings of the ACM on Programming Languages 
+
+3(POPL), 1–30 (2019) [32] Singh, G., Laurel, J., Misailovic, S., Banerjee, D., Singh, A., Xu, C., Ugare, S., Zhang, H.: Safety and trust in artificial intelligence with ab-stract interpretation. Found. Trends Program. Lang. 8(3–4), 250–408 (Jun 2025). https://doi.org/10.1561/2500000062 , https://doi.org/ 10.1561/2500000062 
+
+[33] Stein, B., Chang, B.E., Sridharan, M.: Demanded abstract interpreta-tion. In: Freund, S.N., Yahav, E. (eds.) PLDI ’21: 42nd ACM SIGPLAN International Conference on Programming Language Design and Imple-mentation, Virtual Event, Canada, June 20-25, 2021. pp. 282–295. ACM (2021). https://doi.org/10.1145/3453483.3454044 , https://doi.org/ 10.1145/3453483.3454044 
+
+[34] Su, J., Vargas, D.V., Sakurai, K.: One pixel attack for fooling deep neural networks. IEEE Trans. Evol. Comput. 23 (5) (2019) [35] Szegedy, C., Zaremba, W., Sutskever, I., Bruna, J., Erhan, D., Goodfellow, I.J., Fergus, R.: Intriguing properties of neural networks. In: 2nd Interna-tional Conference on Learning Representations, ICLR (2014) [36] Ugare, S., Banerjee, D., Misailovic, S., Singh, G.: Incremental verification of neural networks. Proc. ACM Program. Lang. 7(PLDI) (Jun 2023). https: //doi.org/10.1145/3591299 , https://doi.org/10.1145/3591299 
+
+[37] Ugare, S., Singh, G., Misailovic, S.: Proof transfer for fast certification of multiple approximate neural networks. Proc. ACM Program. Lang. 
+
+6(OOPSLA1) (Apr 2022). https://doi.org/10.1145/3527319 , https: //doi.org/10.1145/3527319 Uncovering the Limits of Proof Sharing for Neural Networks 35 
+
+[38] Ugare, S., Suresh, T., Banerjee, D., Singh, G., Misailovic, S.: Incremental randomized smoothing certification. In: The Twelfth International Con-ference on Learning Representations (2024), https://openreview.net/ forum?id=SdeAPV1irk 
+
+[39] Visser, W., Geldenhuys, J., Dwyer, M.B.: Green: Reducing, reusing and recycling constraints in program analysis. In: Proceedings of the ACM SIG-SOFT 20th International Symposium on the Foundations of Software En-gineering. FSE ’12 (2012). https://doi.org/10.1145/2393596.2393665 
+
+[40] Wei, T., Liu, C.: Online verification of deep neural networks under domain or weight shift. CoRR abs/2106.12732 (2021) [41] Wong, E., Kolter, Z.: Provable defenses against adversarial examples via the convex outer adversarial polytope. In: International conference on machine learning. pp. 5286–5295. PMLR (2018) [42] Wu, H., Isac, O., Zelji´ c, A., Tagomori, T., Daggitt, M., Kokke, W., Refaeli, I., Amir, G., Julian, K., Bassan, S., et al.: Marabou 2.0: a versatile for-mal analyzer of neural networks. In: International Conference on Computer Aided Verification. pp. 249–264. Springer (2024) [43] Xu, K., Shi, Z., Zhang, H., Wang, Y., Chang, K.W., Huang, M., Kailkhura, B., Lin, X., Hsieh, C.J.: Automatic perturbation analysis for scalable cer-tified robustness and beyond. Advances in Neural Information Processing Systems 33 , 1129–1141 (2020) [44] Yang, G., Dwyer, M.B., Rothermel, G.: Regression model checking. In: 2009 IEEE International Conference on Software Maintenance. pp. 115–124 (2009). https://doi.org/10.1109/ICSM.2009.5306334 
+
+[45] Yang, R., Laurel, J., Misailovic, S., Singh, G.: Provable defense against geometric transformations. In: The Eleventh International Conference on Learning Representations (2023), https://openreview.net/forum?id= ThXqBsRI-cY 
+
+[46] Zhang, G., Zhang, Z., Bandara, H.D., Chen, S., Zhao, J., Sui, Y.: Effi-cient incremental verification of neural networks guided by counterexam-ple potentiality. Proc. ACM Program. Lang. 9(OOPSLA1) (Apr 2025). 
+
+https://doi.org/10.1145/3720417 
+
+[47] Zhang, H., Weng, T.W., Chen, P.Y., Hsieh, C.J., Daniel, L.: Efficient neu-ral network robustness certification with general activation functions. In: Advances in neural information processing systems (2018)
