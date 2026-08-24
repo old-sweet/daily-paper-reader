@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-08-24 <!--dpr-date:20260824-->
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/24/2608.21356v1-ai-with-authority-from-application-to-silicon" data-sidebar-item="{&quot;title&quot;: &quot;AI with Authority, from Application to Silicon&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.21356v1-ai-with-authority-from-application-to-silicon&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;生成式AI智能体引导经过验证的编译、RTL设计与RISC-V流片，机器验证作为证明内核。&quot;}">AI with Authority, from Application to Silicon</a>
   * 2026-08-23 <!--dpr-date:20260823-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202608/23/2608.14956v1-llm-based-framework-for-generating-and-verifying-parallel-devs-statecharts" data-sidebar-item="{&quot;title&quot;: &quot;LLM-based Framework for Generating and Verifying Parallel DEVS Statecharts&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2608.14956v1-llm-based-framework-for-generating-and-verifying-parallel-devs-statecharts&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;使用LLM生成和验证状态图，可迁移至硬件形式验证&quot;}">LLM-based Framework for Generating and Verifying Parallel DEVS Statecharts</a>
