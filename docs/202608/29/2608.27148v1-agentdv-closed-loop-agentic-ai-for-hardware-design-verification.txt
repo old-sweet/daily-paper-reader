@@ -1,0 +1,239 @@
+Title: AgentDV: Closed-Loop Agentic AI for Hardware Design Verification
+
+URL Source: https://arxiv.org/pdf/2608.27148v1
+
+Published Time: Fri, 28 Aug 2026 01:07:58 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# AgentDV: Closed-Loop Agent ic AI for Hardware 
+
+# Design Verification 
+
+Navya Goli 1, Junzhe Liu 2, Zhenge Jia 2 and Umamaheswara Rao Tida 1
+
+Department of Electrical and Computer Engineering, Clemson University, Clemson, SC, USA 1
+
+School of Computer Science and Technology, Shandong University, Qingdao, China 2
+
+Abstract —Register-transfer level (RTL) verification consumes a major part of modern system-on-chip (SoC) development effort. Yet, recent LLM-based verification-code generation often fails to produce runnable, design-consistent, and coverage-producing testbenches. We present AgentDV , a closed-loop agentic AI framework for automated RTL verification environment genera-tion. AgentDV transforms single-shot LLM testbench generation into a tool-grounded verification pipeline by combining LLM-guided analysis, testbench construction, simulation, coverage measurement, and iterative refinement. The framework intro-duces three key ideas: 1) runnability filtering to reject invalid generated environments, 2) CSR-grounded checking to reduce hallucinated signals and incorrect expected behavior, and 3) coverage-guided iteration to regenerate tests based on measured verification gaps. We evaluate AgentDV using three LLMs on challenge DUTs and public OpenTitan peripheral and security IP blocks. From our analysis, we observed that direct single-shot prompting fails to produce a valid coverage-producing environment on benchmarks. AgentDV achieves 100% pass rate on four DUTs and an average of 80.9% pass rate on all DUTs using Claude Sonnet 4.6. Similarly, an average of 58.7% and 60.6% pass rate is achieved for Llama and Qwen models, respectively. In addition, an average of 74.5%, 69.1%, and 64.9% of line coverage and 88.4%, 82.3%, and 76.7% of branch coverage for the benchmarks under consideration for Claude Sonnet 4.6, Llama, and Qwen models, respectively. 
+
+Index Terms —RTL verification, Large Language Models, Agentic AI, DV environment generation, CSR-based checking, Coverage-guided refinement, OpenTitan 
+
+I. I NTRODUCTION 
+
+Register-transfer level (RTL) functional verification has become a major bottleneck in modern system-on-chip (SoC) development as design complexity continues to increase. The engineering effort consumes about 50–60 % of total ASIC project time on design verification [1]. Although simulation tools and verification methodologies have advanced, RTL verification remains a highly manual and iterative process. This motivates automated RTL verification workflows that can generate executable tests, measure coverage, and refine the verification suite through feedback. Recent LLM-based RTL verification studies have be-gun to address this need by automating test generation and refinement, but verification environment generation for intellectual-property (IP)-level designs remains challenging. AutoBench [2], CorrectBench [3], and PRO-V-R1 [4] improve 
+
+> Corresponding authors: ngolii@clemson.edu, utida@clemson.edu
+
+automatic testbench generation, self-correction, and reference-model-based checking. In these approaches, expected behavior is often produced by an LLM-generated or indirectly validated functional reference model. An incorrect reference model can therefore allow a test to pass even when the checking logic is flawed. In addition, these works are also primarily evalu-ated on academic RTL benchmarks, such as VerilogEval and RTLLM [5], [6], leaving practical IP-level DV automation less explored. UVM 2 moves closer to environment-level automa-tion by generating UVM components and refining tests with coverage feedback [7]. Nevertheless, testbench component generation alone does not complete the verification loop when expected-behavior modeling, scoreboard/checker construction, and protocol-aware coverage closure remain open. This gap is captured by the ISQED 2026 Agentic AI design verification challenge [8]. The challenge formalizes an autonomous RTL verification setting where an agent starts from RTL, a natural-language specification, and a CSR map. However, it defines the task rather than the solution. Apractical flow must still make autonomous DV executable, design-grounded, and coverage-guided. These challenges mo-tivate AgentDV, which treats autonomous DV as a closed-loop verification flow rather than a one-shot code-generation task. In this work, we focus on CSR-grounded verification as a reliable first layer because each DUT provides a CSR map. This work presents AgentDV , a closed-loop LLM-assisted framework for automated RTL verification environment gen-eration. AgentDV is implemented using Verilator, cocotb, and pyUVM [9]–[11] with three LLM backends: Claude Sonnet 4.6, Llama 3.3 70B, and Qwen2.5-Coder 32B [12]– [16]. AgentDV is designed around the verification loop rather than during the code-generation step. The framework critically analyzes generated tests using deterministic design artifacts, checks runnability before admitting tests to the suite, measures line and branch coverage, and uses coverage feedback to guide additional test generation. In this work, AgentDV focuses on CSR-grounded verification as a reliable first layer toward broader autonomous DV automation. The major contributions of this work are summarized as follows:  
+
+> •
+
+We propose AgentDV , a closed-loop agentic AI frame-work for automated RTL verification environment gen-eration that integrates LLM-guided test generation, tool execution, and coverage feedback. arXiv:2608.27148v1 [cs.SE] 27 Aug 2026 • We introduce a deterministic CSR-grounded verification strategy that reduces reliance on LLM-inferred register addresses, reset values, access policies, and expected behavior. We also incorporate runnability filtering and coverage-guided iteration into the LLM generation loop, allowing generated verification artifacts to be filtered, executed, measured, and refined.  
+
+> •
+
+We evaluate AgentDV across three LLM backends and two benchmark suites, demonstrating that the proposed framework substantially improves valid coverage com-pared with direct single-shot prompting. This improve-ment comes from combining DUT grounding, runnability checking, and coverage feedback.  
+
+> •
+
+AgentDV achieves 100% pass rate on four DUTs and an average of 80.9% pass rate on all DUTs using Claude Sonnet 4.6. Similarly, an average of 58.7% and 60.6% pass rate is achieved for Llama and Qwen models, respectively. In addition, an average of 74.5%, 69.1%, and 64.9% of line coverage and 88.4%, 82.3%, and 76.7% of branch coverage for the benchmarks under consideration for Claude Sonnet 4.6, Llama, and Qwen models, respectively. To the best of Authors’ knowledge, AgentDV is the first LLM-based DV automation study to report pass-rate and RTL coverage for automated verification-environment generation on public OpenTitan and security IP blocks. Upon acceptance, we will open-source the framework and benchmark setup. The remainder of this paper is organized as follows. Sec-tion II reviews related work and the autonomous RTL verifica-tion task setting. Section IV presents the AgentDV framework. Section V describes the experimental setup and reports the results. Section VI concludes the paper. II. B ACKGROUND AND MOTIVATION 
+
+A. LLM-Assisted RTL Verification 
+
+Recent work has explored LLMs at different stages of the RTL verification flow. AutoBench [2] studies automatic testbench generation, CorrectBench [3] adds self-correction, and PRO-V-R1 [4] integrates tool feedback and reference-model-based checking. These approaches show that LLM-generated verification artifacts improve when generation is structured and connected to external feedback, rather than produced through direct prompting alone. Despite this progress, existing LLM-based DV flows still leave important parts of the IP-level verification environment unresolved. Testbench generation improves stimulus creation, but it does not by itself guarantee design-consistent check-ing. Reference-model-based approaches can provide expected behavior, but the reference model itself becomes part of the verification trust chain. If the reference model is incorrect, a generated test may pass even when the checking logic does not accurately verify the DUT behavior. Other works address complementary parts of the verification flow. LLM4DV [17] explores LLM-guided coverage-directed stimulus generation, while assertion-generation methods use LLMs to derive properties from design specifications [18]. UVM 2 [7] moves closer to environment-level automation by generating UVM components and refining tests using coverage feedback. However, complete subscriber/scoreboard and reference-model generation remain outside its core scope, leaving design-consistent checking as an open issue. Recent UVM-oriented systems such as HAVEN [19], UVMarvel [20], and ChatTest [21] further advance LLM-assisted testbench or verification-environment generation, but they target different generated artifacts, protocols, and benchmark suites. These limitations motivate an automated DV flow that connects generated stimulus with design-grounded expected behavior, runnability filtering, coverage measurement, and feedback-directed refinement. 
+
+B. Autonomous Verification Task Setting 
+
+The ISQED 2026 Agentic AI Design Verification Challenge provides a concrete task setting for autonomous DV automa-tion [8]. In the AutoVerifier task, an agent starts from RTL source, a natural-language specification, and a CSR register map, and must produce a verification environment that can execute tests, measure coverage, iterate on uncovered behavior, and report results. The task is organized into seven stages: ANALYZE , P LAN , B UILD , T EST , M EASURE , I TERATE , and REPORT .This setting is different from one-shot test generation. The generated environment must compile, run, check meaningful behavior, and support coverage-driven refinement under abounded execution budget. The task also emphasizes general-ization to unseen DUTs with a common TileLink-UL interface. These constraints motivate a flow that uses deterministic processing for design facts and uses LLMs where planning, reasoning, or test generation is needed. 
+
+C. Register-Based Checking and RAL 
+
+Register-based checking is a common foundation for bus-attached IP verification. A control-and-status register (CSR) map defines the software-visible behavior of the design, in-cluding register addresses, fields, reset values, and access policies. In UVM-style verification, a Register Abstraction Layer (RAL) represents this map as a software model. The RAL mirror tracks the expected value of each register field as the testbench performs reads and writes, and check-enabled reads compare the RTL response against the mirrored value. This mechanism is useful for LLM-assisted DV because register behavior should be derived from design artifacts rather than inferred by the model. If an LLM is asked to infer register addresses, field encodings, reset values, or access policies, hallucinated design facts can corrupt the checking logic. Deriving the register model from the CSR specification makes register addresses, reset values, field encodings, and access policies explicit and deterministic, providing a reliable first layer for automated verification. III. P ROBLEM FORMULATION 
+
+Given a design under test, the input to the autonomous DV task is I = ( R, S, M), where R is the RTL source, S is Fig. 1. Concrete input-output example for the AgentDV problem formulation. For a UART DUT, the input consists of RTL, specification, and CSR-map artifacts, and AgentDV generates an executable verification package with environment files, generated tests/checkers, coverage feedback, and verification results. 
+
+the natural-language specification, and M is the CSR register map. The objective is to generate a verification package 
+
+O = (E, T , C, F), where E is an executable verification environment, T is the generated test suite, C is the coverage report, and F is the set of verification findings. Fig. 1 shows a concrete UART example of this input-output formulation, where RTL R, specification S, and CSR-map artifacts M are mapped to an executable verification package. The generated package must satisfy three requirements. First, the tests must be runnable under simulation and must interact with valid DUT interfaces. Second, the checking be-havior must be design-consistent, with expected values derived from available design artifacts rather than freely inferred by the LLM. Third, the flow must be measurable and iterative: each simulation run should produce coverage information that can guide subsequent test generation. The main challenge is that LLM-generated verification arti-facts do not guarantee these properties. A generated test may reference invalid signals, assume incorrect register behavior, fail during simulation, or exercise no new RTL behavior. Therefore, the problem is not only to generate verification code, but to ensure that the generated artifacts are interface-valid, design-consistent, executable under simulation, and use-ful for coverage-driven refinement. IV. A GENT DV F RAMEWORK 
+
+A. Overview 
+
+AgentDV implements the autonomous DV formulation de-fined in Section III. As shown in Fig. 2, AgentDV takes the input tuple I = ( R, S, M) and generates a verification package O. The pipeline is organized into two phases: a 
+
+setup phase that prepares the verification environment from the input design artifacts, and an execution and closure phase that runs tests, measures coverage, iterates using feedback, and generates the final report. The remainder of this section describes the setup phase (Section IV-B), the execution and closure phase (Sec-tion IV-C), and the closed-loop coverage-directed iteration that drives gap closure (Section IV-D). 
+
+B. Setup Phase 
+
+The setup phase converts I into an executable verifica-tion environment E through three stages: Analyze , Plan , and 
+
+Build . Analyze uses Verilator’s front-end and the OpenTitan 
+
+reggen [22] library to extract a structured view from R and 
+
+M, namely the port list, the TL-UL bus interface, and the register list with per-field access policies. Plan then invokes the LLM once with S and the register list to produce a YAML verification plan whose items are tagged with feature name, priority, and target coverage bin. Build is fully templated and mechanically generates the pyUVM RAL stack from the register list, namely a uvm_reg_block subclass with one uvm_reg per register and one uvm_reg_field per field, the TL-UL adapter that translates RAL accesses into TileLink transactions, and the environment wiring. The same stage generates a templated CSR test suite that exercises three canonical register behaviors: reset-value checks, multi-pattern read/write, and walking-one over every writable bit. All three call reg.read(check_t.CHECK) , so the mirror inside the RAL library, not the test code, supplies the expected value at every read. 
+
+C. Execution and Closure Phase 
+
+The execution phase takes the RAL stack and the templated CSR suite from the setup phase, runs the suite under simu-lation, and iterates on coverage. In the Test stage, the LLM is invoked once per verification-plan item (typically 10 to 20 items per DUT) to synthesize a feature test that extends the Fig. 2. Overview of the AgentDV framework. The input tuple I = ( R, S, M) consists of RTL, specification, and Hjson CSR map. AgentDV processes these inputs through seven stages, organized into a setup phase ( Analyze , Plan , Build ) and an execution and closure phase ( Test , Measure , Iterate , Report ). Green blocks denote deterministic templated tool stages, while blue blocks denote LLM-driven stages. The Iterate stage uses coverage feedback to guide additional    
+
+> Test generation, with a Kmax iterations and early stopping after two consecutive zero-gain iterations.
+
+templated CSR suite, and the combined suite then runs as a cocotb simulation under Verilator. The simulation produces a coverage database and a pass/fail record, which Measure 
+
+parses into line, branch, and toggle coverage and into an annotated list of uncovered RTL regions. Iterate then prompts the LLM with the annotated uncovered regions and the register table to produce one gap-directed test per iteration, re-runs the cocotb simulation, and uses the updated coverage to guide the next iteration. The final stage, Report , assembles the per-stage outputs into a Markdown summary, per-failure bug reports, and a structured JSON agent log. The two LLM-driven stages in this phase, Test and Iterate ,are bound at inference time to two deterministic tools: a retrieval-augmented index ( RAG ) that supplies targeted doc-umentation snippets when needed, and a runnability check (verify ) that validates every generated test before admitting it to the suite. The closed-loop dynamics and the runnability check are described in Section IV-D. 
+
+D. Closed-Loop Coverage-Directed Iteration 
+
+The Iterate stage closes the verification loop in AgentDV. After iteration k, Measure reports a coverage vector ck and an annotated set of uncovered RTL regions Uk. Iterate selects the next target region from Uk and prompts the LLM with that region and the register table to generate a gap-directed test tk+1 . The new test passes through the runnability check, runs through the cocotb simulator under Verilator, and is admitted to the suite only if it is runnable and contributes to coverage. The loop terminates after five iterations or af-ter two consecutive iterations without coverage improvement (max_iterations=5 , patience=2 ), which caps the per-DUT cost while preserving the closed-loop property. Two tool bindings keep each iteration grounded and runnable. Selective retrieval (RAG ) adds targeted snippets from a local document store covering the TileLink-UL proto-col, the cocotb APIs, the coverage APIs, and pyUVM usage; retrieval is gated on whether the prompt references a symbol the analyzed DUT does not define, so documentation context is added only when needed. The runnability check (verify )runs an ast.parse on the generated file and a single-test cocotb invocation under Verilator. It produces one of three outcomes, illustrated in Fig. 3: a pass admits the test to the suite; a Python crash appends the exception text to the next LLM call as concrete error feedback and retries once, discarding the file on a second crash; an assertion failure from a RAL reg.read(check_t.CHECK) call is retained as a verification finding, since it indicates a real mismatch between the hardware response and the mirror. This loop converts LLM-generated tests into simulation-validated and coverage-measured verification artifacts rather than admitting them as standalone generated code. V. E VALUATION 
+
+This section evaluates the effectiveness of AgentDV. We first describe the experimental setup in Section V-A, followed by the evaluation metrics in Section V-B. We then discuss the this procedure runs inside         
+
+> TEST ITERATE
+> Stimulus generation
+> Runnability validation
+> (verify)
+> LLM call
+> synthesize test_iter<N>.py
+> verify –step 1
+> ast.parse(file)
+> verify –step 2
+> cocotb single-test sim
+> under Verilator
+> PASS
+> admitted to
+> the test suite
+> Python CRASH
+> retry once with error;
+> delete on 2nd failure
+> AssertionError
+> RAL check t.CHECK fail;
+> retained as bug finding
+> retry
+> with
+> error
+> fed
+> back to
+> LLM
+> Gap regions Register table RAG snippet
+> LLM-driven
+> step
+> Verification
+> (Check)
+> step
+> Exception
+> outcome
+> Assertion
+> outcome
+> Inputs/
+> context
+> Pass
+> outcome
+> Retry/
+> feedback
+> loop
+> Valid runs
+> Python
+> exception RAL mismatch
+
+Fig. 3. Stimulus generation in the Test and Iterate stages. Given a target feature or uncovered region Uk , the register table, and retrieved documentation when needed, the LLM generates a candidate test tk+1 . The verify stage performs ast.parse and a single-test cocotb run under Verilator. A passing test is admitted to the suite; a Python crash is retried once with error feedback; and a RAL check_t.CHECK failure is retained as a verification finding. 
+
+benchmark results on the challenge and the public OpenTitan-derived suites in Section V-C, and present the ablation study in Section V-D. 
+
+A. Experimental Setup 
+
+We evaluate AgentDV on two RTL verification benchmark suites using three LLM backends. The flow uses Verila-tor 5.x for RTL simulation, cocotb 2.0 for Python-based co-simulation, and pyUVM 4.0 for UVM-style verification environment construction. The seven-stage AgentDV pipeline is orchestrated with LangGraph [23]. We evaluate three LLM backends: Claude Sonnet 4.6, Llama 3.3 70B Instruct AWQ, and Qwen2.5-Coder 32B In-struct AWQ [12]–[16]. Claude Sonnet 4.6 is accessed through an API backend, while Llama and Qwen are served locally with vLLM on a two-GPU machine with 48 GB of GPU memory. This setup enables a comparison between a strong cloud model and open-weight models using the same veri-fication process. The two open-weight models also utilize a RAL-aware prompt structure to address their limitations in following instructions related to register semantics. Prior LLM-based DV frameworks differ in the generated artifacts, tool flows, and benchmark suites, making direct numerical comparison misaligned. Our evaluation therefore focuses on two controlled comparisons: direct single-shot prompting versus AgentDV, and three LLM backends under the same AgentDV flow. The evaluated DUTs are summarized in Table I. The ISQED 2026 challenge benchmark contains compact single-file DUTs ranging from simple peripherals to cryptographic blocks. The OpenTitan benchmark is built from public OpenTitan periph-eral and security IP blocks and includes package, primitive, and shared dependency files. This split evaluates AgentDV on both controlled challenge designs and larger open-source RTL integration settings. All results are reported under a pass@1 setting. For each DUT and LLM, AgentDV generates one verification suite, and the suite is evaluated without retrying or selecting among multiple candidate suites. The closed-loop stage is limited to 
+
+Kmax = 5 iterations with patience = 2 ; therefore, the loop stops after two consecutive iterations without coverage gain. A Claude-based AgentDV run completes in approximately 150 s at about $0.11 per DUT, while the locally served open-weight models require approximately 10–12 minutes per DUT. 
+
+B. Evaluation Metrics 
+
+We evaluate AgentDV using three key metrics: pass rate, line coverage, and branch coverage. Pass rate measures whether the generated verification suite is runnable and valid on clean RTL. Line coverage captures how much RTL code is reached during simulation, whereas branch coverage cap-tures how well control-flow alternatives, such as if /else 
+
+and case outcomes, are exercised. Thus, coverage measures whether the runnable test suite activates meaningful design behavior beyond simply executing without failure. Let Tgen be the set of feature tests generated by the LLM in the Test stage. Let Tverify ⊆ Tgen be the subset that passes the runnability check in the verify stage. Let Npass denote the number of tests in Tverify that simulate on clean RTL without assertion failure. If no generated test passes the runnability check, the pass rate is reported as 0 %. The pass rate is defined as 
+
+PassRate = Npass 
+
+|Tverify | × 100 . (1) Line and branch coverage are collected using Verilator’s built-in coverage support after executing the generated verifi-cation suite Tverify :
+
+LineCov . = Nexecuted lines 
+
+Ntotal lines 
+
+× 100 ,
+
+BranchCov . = Ncovered branches 
+
+Ntotal branches 
+
+× 100 .
+
+(2) 
+
+C. Results and Discussion 
+
+Tables II and III summarize the pass-rate and coverage results across the challenge and public benchmarks. The results TABLE I BENCHMARK SUMMARY FOR AGENT DV EVALUATION .
+
+Benchmark DUT Design description Files LOC Mods. 
+
+Challenge nexus_uart UART peripheral with serial control/status behavior 1 705 1Challenge bastion_gpio 32-pin GPIO block with direction, data, and control registers 1 323 1Challenge warden_timer 64-bit timer with watchdog and interrupt-style control paths 1 635 1Challenge aegis_aes AES-128 block with CSR control and encryption datapath behavior 1 705 1Challenge sentinel_hmac HMAC-SHA256 block with CSR control and hash-compression datapath 1 795 1Public OpenTitan opentitan_uart UART IP with TL-UL integration and shared dependencies 41 9,731 30 Public OpenTitan opentitan_aes AES IP with control logic and cryptographic datapath 97 27,591 75 Public OpenTitan opentitan_hmac HMAC-SHA256 IP with message/control and hash datapath logic 47 14,922 36 Public OpenTitan opentitan_rv_timer Register-driven 64-bit timer IP with interrupt behavior 35 7,013 25 TABLE II TEST PASS RATE (%) PER DUT. T HE Claude w/o AgentDV BASELINE FAILS TO PRODUCE A VALID COVERAGE -PRODUCING ENVIRONMENT , SO ITS PASS RATE IS REPORTED AS 0.0 %. B OLD PASS RATES INDICATE ≥ 90 % .
+
+DUT Claude Claude Llama Qwen w/o w/ w/ w/ AgentDV AgentDV AgentDV AgentDV 
+
+Challenge benchmark 
+
+nexus uart 0.0 100 38 56 bastion gpio 0.0 100 75 60 warden timer 0.0 91 75 50 aegis aes 0.0 100 88 63 sentinel hmac 0.0 36 50 73 
+
+Challenge Avg. 0.0 85.4 65.2 60.4 
+
+Public OpenTitan benchmark 
+
+opentitan uart 0.0 100 38 100 
+
+opentitan aes 0.0 55 63 43 opentitan hmac 0.0 55 38 50 opentitan rv timer 0.0 91 63 50 
+
+Public Avg. 0.0 75.3 50.5 60.8 Overall Avg. 0.0 80.9 58.7 60.6 
+
+TABLE III LINE AND BRANCH COVERAGE (%) PER DUT AND PER LLM. 
+
+DUT Claude Llama Qwen   
+
+> line / branch line / branch line / branch
+
+Challenge benchmark 
+
+nexus uart 88.4 / 92.1 78.3 / 59.2 78.3 / 59.2 bastion gpio 100.0 / 100.0 89.6 / 94.7 97.9 / 100.0 warden timer 97.7 / 100.0 95.3 / 100.0 95.3 / 100.0 aegis aes 37.0 / 93.1 36.5 / 93.1 37.0 / 93.1 sentinel hmac 61.3 / 93.3 51.3 / 88.3 39.5 / 62.5 
+
+Avg 76.9 / 95.7 70.2 / 87.1 69.6 / 83.0 
+
+Public benchmark 
+
+opentitan uart 76.3 / 90.9 72.9 / 81.8 76.3 / 81.8 opentitan aes 68.6 / 53.3 62.8 / 53.3 43.3 / 46.9 opentitan hmac 58.9 / 72.5 57.1 / 70.0 34.1 / 46.5 opentitan rv timer 82.6 / 100.0 78.3 / 100.0 82.6 / 100.0 
+
+Avg 71.6 / 79.2 67.8 / 76.3 59.1 / 68.8 
+
+show that AgentDV can generate runnable and coverage-effective verification suites, but its effectiveness depends on both the LLM and the DUT structure. The Claude w/o AgentDV column shows the one-shot baseline, while the remaining columns report results with the full AgentDV flow. Claude provides the strongest overall result. With AgentDV, Claude achieves an average pass rate of 85.4 % on the chal-lenge benchmark, 75.3 % on the public benchmark, and 80.9 % across all nine DUTs. It also achieves at least 90 % pass rate on six of the nine DUTs and reaches 100 % pass rate on four DUTs. Llama and Qwen achieve overall average pass rates of 58.7 % and 60.6 %, respectively. This trend is also reflected in coverage. On the challenge benchmark, Claude reaches an average of 76.9 % line coverage and 95.7 % branch coverage, compared with 70.2 % / 87.1 % for Llama and 69.6 % / 83.0 % for Qwen. On the public benchmark, Claude also gives the highest average coverage, reaching 71.6 % line coverage and 79.2 % branch coverage. The results also show that the best LLM is DUT-dependent. For sentinel_hmac ,Qwen achieves a higher pass rate than Claude (73 % versus 36 %). However, Claude still achieves higher coverage on the same DUT, with 61.3 % line and 93.3 % branch coverage, compared with 39.5 % line and 62.5 % branch coverage for Qwen. This difference suggests that pass rate and coverage capture different properties of the generated suite. Qwen generates more tests that survive execution on this DUT, while Claude generates tests that exercise more RTL behavior but are less stable under the pass-rate criterion. This result motivates reporting both metrics rather than relying on one aggregate score. The complexity of the benchmark also changes the failure mode. The challenge DUTs are compact single-file designs, and most control behavior is reachable through a small CSR interface. In this setting, AgentDV obtains high coverage on peripheral-style blocks. For example, bastion_gpio 
+
+reaches 100 % line and branch coverage with Claude, and 
+
+warden_timer reaches 97.7 % line and 100 % branch cov-erage. These results show that the feedback loop is effective when uncovered behavior can be reached through additional register-level tests. Public OpenTitan IPs are more difficult because they include larger dependency trees and deeper internal design structures. Claude reaches a pass rate of 100 % on opentitan_uart 
+
+and 91 % on opentitan_rv_timer , but drops to 55 % on opentitan_aes and opentitan_hmac . A similar trend appears in coverage. The public timer reaches 100 % branch coverage for all three LLMs, while the public AES and HMAC blocks show lower branch coverage. This indicates that Fig. 4. Ablation of closed-loop iteration for line coverage on the challenge DUTs. The initial segment represents coverage from the first generated suite, and the remaining segments show incremental coverage gained through feedback iterations. The organizer baseline is available only for nexus_uart and is shown only as a reference.    
+
+> Fig. 5. Ablation of closed-loop iteration for branch coverage on the challenge DUTs. The initial segment represents coverage from the first generated suite, and the remaining segments show incremental coverage gained through feedback iterations. The organizer baseline is available only for nexus_uart and is shown only as a reference.
+
+AgentDV handles control-oriented IP more effectively than datapath-heavy cryptographic IP. The results from aegis_aes clearly highlight this lim-itation. All three LLMs remain near 37 % line coverage, although branch coverage is above 93 %. The generated tests exercise register decode, read/write behavior, and CSR-level control paths. However, the AES datapath requires a complete transaction sequence, including key loading, plaintext loading, engine start, status polling, and ciphertext observation. Since the current AgentDV flow focuses on CSR-level verification, the closed-loop feedback can identify the uncovered datapath logic but cannot fully activate it without protocol-level stimu-lus generation. The same observation applies to HMAC-style designs. SHA-256 compression logic is difficult to cover through isolated CSR accesses. Therefore, coverage improvement sat-urates even when the loop is allowed to continue. This result does not indicate that closed-loop iteration is ineffective. Rather, it shows the boundary of CSR-oriented test generation: the loop improves coverage when the missing behavior is reachable from the available stimulus abstraction, but datapath-heavy IP requires transaction-level sequences and stronger reference-model support. Overall, AgentDV is most effective for DUTs whose behav-ior is exposed through register-level control and status inter-faces. It generates stable and high-coverage tests for UART, GPIO, and timer-style blocks. For AES and HMAC designs, it still produces useful CSR verification suites, but full coverage closure requires protocol-aware stimulus and datapath-level checking. The contribution of closed-loop iteration is analyzed separately in Section V-D. 
+
+D. Ablation Study 
+
+This ablation evaluates the contribution of the closed-loop 
+
+Iterate stage. Fig. 4 and Fig. 5 reports the iteration-wise contribution to line and branch coverage, respectively. In each stacked bar, the initial segment corresponds to the coverage obtained before feedback, while the remaining segments show the incremental coverage gained through closed-loop itera-tions. The results show that coverage feedback provides measur-able improvement beyond the initial test-generation step. In several cases, the first iteration gives the largest gain because the LLM receives concrete uncovered-region information from the first simulation run. Later iterations provide smaller gains as the remaining uncovered logic becomes harder to reach through the available stimulus abstraction or as the DUT approaches coverage saturation. The coverage contribution varies across DUTs. Peripheral-oriented designs such as bastion_gpio and 
+
+warden_timer reach high coverage early, leaving limited opportunity for additional iterations. Other DUTs, including 
+
+nexus_uart , aegis_aes , and sentinel_hmac ,show clearer incremental gains from feedback-directed test generation. This trend indicates that the Iterate stage is most effective when the remaining uncovered behavior is reachable through additional register-level scenarios. The AES and HMAC results clarify the boundary of the current implementation. AgentDV improves coverage for CSR-access behavior, register decode, and control/status logic. However, deeper datapath logic often requires complete protocol-level transactions and stronger expected-behavior modeling. As a result, later iterations may saturate even when uncovered logic remains. This observation supports the main scope of the paper: AgentDV establishes a reliable CSR-grounded verification layer, while protocol-level stimulus gen-eration and datapath reference modeling remain future work. VI. C ONCLUSION 
+
+This work presents AgentDV, a closed-loop framework for LLM-assisted RTL verification environment generation. AgentDV combines LLM-based test construction with Ver-ilator, cocotb, pyUVM, and coverage-guided feedback to generate executable and interface-aware verification suites. Simulation results show that AgentDV generates runnable and coverage-effective verification suites across both compact and large RTL designs. With Claude Sonnet 4.6, AgentDV reaches 100 % pass rate on four DUTs and achieves 76.9 % line cover-age and 95.7 % branch coverage on the challenge benchmark. On the public OpenTitan benchmark, the framework achieves 71.6 % line coverage and 79.2 % branch coverage using only wrapper-level adaptation. The open-weight models remain competitive, reaching within 25 percentage points of Claude without API cost. The remaining coverage gap is mainly observed on cryptographic DUTs, where CSR-level stimulus cannot fully activate deep datapath behavior. Future work will extend AgentDV with protocol-level transaction generation, stronger reference models, and adaptive oracle selection for datapath-oriented IPs. REFERENCES [1] H. D. Foster, “Part 8: The 2022 Wilson Re-search Group Functional Verification Study,” https: //blogs.sw.siemens.com/verificationhorizons/2022/12/12/ part-8-the-2022-wilson-research-group-functional-verification-study/, 2022, siemens EDA Verification Horizons blog series, accessed May 20, 2026. [2] R. Qiu, G. L. Zhang, R. Drechsler, U. Schlichtmann, and B. Li, “Autobench: Automatic testbench generation and evaluation using llms for hdl design,” in Proceedings of the 2024 ACM/IEEE International Symposium on Machine Learning for CAD , 2024, pp. 1–10. [3] ——, “Correctbench: Automatic testbench generation with functional self-correction using llms for hdl design,” in 2025 Design, Automation & Test in Europe Conference (DATE) . IEEE, 2025, pp. 1–7. [4] Y. Zhao, Z. Wu, B. Yuan, Z. Yu, H. Zhang, W. Ni, C.-T. Ho, H. Ren, and J. Zhao, “Pro-v-r1: Reasoning enhanced programming agent for rtl verification,” arXiv preprint arXiv:2506.12200 , 2025. [5] M. Liu, N. Pinckney, B. Khailany, and H. Ren, “Verilogeval: Evaluating large language models for verilog code generation,” in 2023 IEEE/ACM International Conference on Computer Aided Design (ICCAD) . IEEE, 2023, pp. 1–8. [6] Y. Lu, S. Liu, Q. Zhang, and Z. Xie, “Rtllm: An open-source benchmark for design rtl generation with large language model,” in 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 2024, pp. 722–727. [7] J. Ye, Y. Hu, K. Xu, D. Pan, Q. Chen, J. Zhou, S. Zhao, X. Fang, X. Wang, N. Guan et al. , “From concept to practice: an auto-mated llm-aided uvm machine for rtl verification,” arXiv preprint arXiv:2504.19959 , 2025. [8] International Society for Quality Electronic Design (ISQED), “Agentic AI Design Verification Challenge 2026,” Online competition webpage, 2026, accessed: 2026-05-20. [Online]. Available: https://www.isqed. org/English/Conference/competition.html [9] W. Snyder, P. Wasson, D. Galbi, G. Lore et al. , “Verilator: Open-source Verilog and SystemVerilog compiler,” https://verilator.org, available at https://github.com/verilator/verilator. [10] cocotb contributors, “cocotb: A coroutine-based cosimulation testbench environment for verifying vhdl and systemverilog rtl using python,” https://github.com/cocotb/cocotb, 2026. [11] R. Salemi and contributors, “pyuvm: The UVM written in Python,” https: //github.com/pyuvm/pyuvm, 2020, accessed: August 28, 2026. [12] Anthropic, “Introducing Claude Sonnet 4.6,” https://www.anthropic.com/ news/claude-sonnet-4-6, Feb. 2026, accessed: 2026-05-21. [13] Meta AI, “Llama 3.3 70B Instruct Model Card,” https://huggingface.co/ meta-llama/Llama-3.3-70B-Instruct, 2024, hugging Face model reposi-tory, accessed May 21, 2026. [14] Hansen, Casper, “Llama-3.3-70B-Instruct-AWQ,” https://huggingface. co/casperhansen/llama-3.3-70b-instruct-awq, 2024, aWQ-quantized Hugging Face model repository, accessed May 21, 2026. [15] B. Hui, J. Yang, Z. Cui, J. Yang, D. Liu, L. Zhang, T. Liu, J. Zhang, B. Yu, K. Lu, K. Dang, Y. Fan, Y. Zhang, A. Yang, R. Men, F. Huang, B. Zheng, Y. Miao, S. Quan, Y. Feng, X. Ren, X. Ren, J. Zhou, and J. Lin, “Qwen2.5-Coder Technical Report,” arXiv preprint arXiv:2409.12186 , 2024. [16] Qwen Team, “Qwen2.5-Coder-32B-Instruct-AWQ,” https://huggingface. co/Qwen/Qwen2.5-Coder-32B-Instruct-AWQ, 2024, aWQ-quantized Hugging Face model repository, accessed May 21, 2026. [17] Z. Zhang, B. Szekely, P. Gimenes, G. Chadwick, H. McNally, J. Cheng, R. Mullins, and Y. Zhao, “Llm4dv: Using large language models for hardware test stimuli generation,” in 2025 IEEE 33rd Annual Interna-tional Symposium on Field-Programmable Custom Computing Machines (FCCM) . IEEE, 2025, pp. 133–137. [18] W. Fang, M. Li, M. Li, Z. Yan, S. Liu, H. Zhang, and Z. Xie, “Assertllm: Generating and evaluating hardware verification assertions from design specifications via multi-llms,” arXiv preprint arXiv:2402.00386 , 2024. [19] C.-C. Meng, Y.-R. Lu, G.-Y. Lin, T. T. Yeh, K.-C. Wu, I. Wu et al. ,“Haven: Hybrid automated verification engine for uvm testbench syn-thesis with llms,” arXiv preprint arXiv:2604.27643 , 2026. [20] J. Ye, D. Pan, H. Liu, Y. Hu, J. Zhou, K. Xu, X. Fang, X. Wang, N. Guan, and Z. Jiang, “Uvmarvel: an automated llm-aided uvm machine for subsystem-level rtl verification,” arXiv preprint arXiv:2605.04704 ,2026. [21] G.-W. Wan, S. Su, J. Zhang, S. Z. Wong, M. Xing, L. Ji, Z. Jiang, X. Wang, and J. Yang, “Chattest: Coverage-enhanced testbench genera-tion for agile hardware verification with llms,” in IEEE/ACM Proceed-ings Design, Automation and Test in Europe (DATE) , 2026, pp. 1–7. [22] OpenTitan Project, “Register Tool: reggen and regtool,” https://opentitan. org/book/util/reggen/index.html, 2026, accessed: 2026-05-27. [23] LangChain AI, “LangGraph: Low-Level Orchestration Framework for Stateful Agents,” https://github.com/langchain-ai/langgraph, 2026, ac-cessed May 27, 2026.

@@ -1,0 +1,915 @@
+Title: NoC-Out: A Formally-verified Network-on-Chip Library for Rule-based Hardware Designs
+
+URL Source: https://arxiv.org/pdf/2608.24478v1
+
+Published Time: Wed, 26 Aug 2026 01:04:44 GMT
+
+Number of Pages: 32
+
+Markdown Content:
+# NoC-Out: A Formally-verified Network-on-Chip Library for Rule-based Hardware Designs 
+
+Max Kurze [0009 −0006 −3404 −2569] , František Farka [0000 −0001 −8177 −1322] , and Sebastian Ertel [0009 −0000 −3953 −9810] 
+
+Barkhausen Institut, Germany 
+
+> {first}.{last}@barkhauseninstitut.org
+
+Abstract. The Network-on-Chip (NoC) is the communication backbone of any multiprocessor chip. A failure of the NoC has severe consequences for the whole system. Yet, no approach exists that provides formally-verified NoCs with strong guarantees but without tedious verification effort. Any library that generates formally-verified NoCs needs to be paramet-ric in the structure of the NoC. This requires a hardware description language (HDL) that allows for parametric and concurrent yet efficient hardware designs as well as the necessary program logic to reason about them in a modular fashion. So far, HDLs fall short in both aspects. In this paper, we implement NoC-Out, the first library/generator for formally-verified k-dimensional NoC designs. In order to build NoC-Out, we extended Kôika, a rule-based HDL in the Rocq theorem prover, with support for concurrent yet efficient NoC designs and a program logic for modular, automated reasoning. Given a configuration, NoC-Out pro-duces a k-dimensional torus NoC in Kôika, which can then be compiled to Verilog. Each produced NoC is equipped with a proof that it refines our formal NoC specification; no additional verification effort is required. Our specification proves a strong liveness guarantee, which consequently applies to all generated NoCs. In our evaluation, we find that our verifica-tion approach is even required to synthesize efficient NoCs in rule-based HDLs. 
+
+Keywords: Formal verification · Network-on-chip · Theorem proving · Program logic 
+
+## 1 Introduction 
+
+Modern hardware architectures are heterogeneous platforms that compose full-fledged processors with specialized accelerators in a network-on-chip (NoC) [2,3,15]. A failure or compromise of the NoC is not only costly but jeopar-dizes the trust of the whole hardware platform [8]. Formal verification of strong guarantees for NoCs requires expert knowledge. Yet, an approach to generate formally-verified NoC designs with strong guarantees at zero end-user verification cost does not exist. arXiv:2608.24478v1 [cs.PL] 25 Aug 2026 2 M. Kurze et al. 
+
+A network-on-chip consists of a set of routers interconnected via hardware channels to enable the components of a hardware platform to communicate with each other via messages. As such, this network is essential to the platform and its components. But every hardware platform needs to meet different requirements. Some are optimized for performance. Others focus on energy-efficiency. And resistance to side-channel attacks makes security a pressing concern for many. As such, hardware platforms are inherently heterogeneous and integrate full-fledged (RISC-V) processors, tensor compute units for machine learning, crypto accelerators, and other domain-specific circuits. To optimize the communication in these platforms, very different NoC architectures and implementations exist. Existing approaches to the formal verification of NoC designs need to be carried out for every NoC individually, and do not connect to actual hardware designs [19]. Most notably, GeNoC, a generic NoC model defined in ACL2, emits local obligations that every specific model needs to prove. From these local obli-gations global properties can be inferred automatically. However, these models are not directly connected to the corresponding hardware implementations. As a result, such specifications are often high-level, making them easier to verify but less likely to match the implementation. Meanwhile, promising approaches to formally-verified hardware design exist but lack the necessary infrastructure. Kôika, Kami and Fjfj are hardware de-scription languages (HDLs) implemented in Rocq [5,9,4]. All three HDLs are rule-based for which the NoC presents a particularly challenging use case when it comes to generating efficient hardware. All three HDLs come with well-defined and mechanized semantics. As such, proving that an actual hardware program refines a formal specification is possible. Yet, scaling such proofs even to a small NoC remains a daunting task, as a program logic for modular reasoning together with corresponding proof automation is still missing. As such, many NoCs re-main unverified and thus not trustworthy. In order to provide strong guarantees without end-user verification efforts, we incorporate the NoC structure into the specification. To scale this to more than one NoC, we abstract the network structure to k-dimensional tori. To connect this specification to actual hardware implementations, we define it in the Rocq theorem prover and introduce the missing infrastructure into Kôika to prove that a NoC implementation follows this specification. In this paper, we design a formally-verified NoC generator in Kôika, called 
+
+NoC-Out . NoC-Out takes a configuration that specifies the number of dimen-sions k and produces a corresponding k-dimensional NoC hardware description. Every produced NoC is formally-verified against the specification and requires no additional verification effort. Furthermore, to demonstrate the soundness of the specification, we prove a global liveness guarantee on top of it. We use Kôika which has an accompanying compiler with a proof that it pre-serves the semantics in the translation to Verilog. Figure 1 presents an overview of Kôika and the twofold contributions of this paper. We first extend Kôika to then define NoC-Out. Specifically, we contribute: NoC-Out 3 
+
+> NoC-Out (Section 5) Kôika extensions (Section 4) Parametric NoC design Kôika program Verilog program Semantic preservation compile Kôika semantics Verilog semantics Parametric NoC library
+> cuttlec Verilog description Properties extract extract OCaml Rocq Verilog Alternative semantics Program logic NoC Specification NoC configuration Refinement
+
+Fig. 1: The Kôika compile(r) and the Kôika programs are extracted from Coq into OCaml. We highlight the contributions of this paper and the existing formal definitions of Kôika. 
+
+Read-After-Write (RAW) semantics for Kôika In the design of NoC-Out, we noticed that the semantics of Kôika are too strict when it comes to concurrency. This prevents an efficient NoC design (Section 3.4). Hence, we implemented Read-After-Write semantics to increase concurrent register access. To show that this does not jeopardize Kôika’s data race freedom, we reestablished all the guarantees of Kôika including compiler correctness. Our RAW semantics apply to hardware designs beyond NoCs. 
+
+A program logic for Kôika We created a program logic for Kôika to write specifications as Hoare triples and reason about Kôika programs in a modular fashion with support for proof automation. To the best of our knowledge, this is the first program logic for a rule-based hardware description language. 
+
+A parametric NoC library These two extensions to Kôika enabled the de-sign of NoC-Out. NoC-Out includes a formal specification of k-dimensional on chip communication networks. In order to prove refinement only once for all k-dimensional NoCs, the implementation in Kôika is non-trivial. It is parametric in the number of NoC dimensions and their respective sizes. We are unaware of such a highly parameterized hardware design that is formal yet practical. The rest of the paper starts with an introduction into the design of our NoC library show-casing how it goes beyond what is possible in hardware design languages such as SystemVerilog. In Section 3, we explain the challenges that we faced in the design of NoCs in Kôika. Afterwards, Section 4 defines our extensions to Kôika that enable the design of NoC-Out in Section 5. To study the practicality of NoC-Out, we synthesize several NoCs in Section 6. We find that practical and scalable NoC design in rule-based hardware requires strong reasoning, as in NoC-Out, to lift data-race-freedom guarantees from runtime to design time . Finally, we review related work and point to future directions in Section 7. Our admit-free Rocq development for NoC-Out is available as an artifact of this paper. 4 M. Kurze et al. 
+
+## 2 A library for multi-dimensional NoC design 
+
+Support for higher-order programming in hardware design languages is limited which makes the design of a library for NoCs challenging. At the same time, higher-order reasoning does not exist and hence it is impossible to formally-verify such a library itself. The most popular language for hardware design, SystemVerilog, supports a C-like macro system and a more principled approach to generate code based on module parameters and generate blocks. Module parameters are wires, i.e., logic in SystemVerilog terminology. For a library that generates NoCs of size N ×N , we would respectively define a module with 
+
+parameter N . 
+
+> module noc #(parameter int WIDTH = 32, N) (input logic clk, rst);
+
+Additionally, we parameterize the module over the WIDTH of the data to be routed. In the noc module, we then define the input and output interfaces for all routers and the channels. 
+
+> channel_if #(WIDTH) channels [4][N * N] (); channel_if #(WIDTH) src_if [N * N] (); channel_if #(WIDTH) dst_if [N * N] ();
+
+The channel_if is the data type for data transfer both inside the network and outside the network, i.e., data enters the NoC via a source interface ( src_if ) and leaves it via a destination interface ( dst_if ). A generate block would generate the N ×N routers and connect them respectively.    
+
+> generate for (genvar i = 0; i < N * N; i++) begin
+> router #(.WIDTH, .N, .X(i / N), .Y(i % N)) rtr (/* router connections */);
+> end endgenerate endmodule
+
+We omit the complicated code for setting up the proper router connections. The router also needs to be parameterized by its index ( X:Y ), which is necessary for routing decisions.           
+
+> module router #(parameter int WIDTH = 32, N, X, Y) (input logic clk, rst, channel_if.in dir_in [4], src_if, channel_if.out dir_out [4], dst_if);
+> always_ff @(posedge clk) begin if (rst) begin /* reset logic */ end else begin /* routing / arbitration / switching */ end end endmodule
+
+NoC-Out 5
+
+Once more, we omit the complicated code that generalizes the router design, i.e., routing, arbitration and switching, over N, X and Y. We just assume that it should be feasible to implement these parts in a generic fashion. Instead, we focus on stating properties about the NoC as SystemVerilogAssertions (SVA), an extension of SystemVerilog with a form of temporal logic [16]. An interesting liveness property would generalize over the state of the whole NoC, the data that is routed and the packets that are injected into and retrieved from the NoC. 
+
+Theorem 1 (Single NoC liveness). Any message m that managed to enter into the NoC at any router i will eventually be delivered to its destination. 
+
+Since SVA does not support quantification, this liveness property must be constructed from smaller properties, one for each of the N ×N routers.     
+
+> generate for (genvar i = 0; i < N * N; i++) begin assert property (liveness #(i));
+> end endgenerate
+
+For every router, we assert that if a packet entered at this router then it will eventually arrive at its destination and the transmitted data did not change.    
+
+> property liveness #(int SRC); logic [WIDTH-1:0] data; logic [ADDR_W-1:0] dest; (src_if[SRC].valid, dest = src_if[SRC].dest, data = src_if[SRC].data) |-> ##[0:$] (dst_if[dest].valid && dst_if[dest].data == data);
+> endproperty
+
+The connective A |-> ##[0:$] B denotes that if assertion A holds in the current clock cycle then B must hold after an arbitrary number ( $) of clock cycles 1.
+
+Implications At this point, we generate a proof obligation for every instantiated NoC as visualized in Figure 2a. Our stated property is valid with respect to the SVA standard, but it is unclear whether it is supported by the various proprietary formal tools. Despite that, the proof effort is substantial, even for small instances of the NoC. Formal tools for SVA usually use a combination of model checking and SAT solving and as such depend heavily on the state space of the design. Assume a benevolent approximation, omitting all the additional complexity of a NoC, that wants to fulfill the above liveness property (which we implement and verify in the rest of the paper) and assumes a data WIDTH of 1 bit. Then even a small 2×2 NoC already contains 236 states. Recent work in modelling such NoCs in a model checker reports verification times ranging from hours to days [12]. Even worse, their property is weaker than the liveness property that we stated 
+
+> 1
+
+A hardware design is essentially an infinite loop where each loop iteration is re-ferred to as a clock cycle .6 M. Kurze et al. Configuration Hardware Design     
+
+> 2×23×3
+> N×N
+> ...
+> . . .
+> NoC library proof obligation proof obligation proof obligation Configuration Hardware Design
+> 2×23×3
+> N×. . . ×N
+> ...
+> . . .
+> NoC library higher-order proof (a) External proof obligations (b) Internal higher-order proof ( NoC-Out )
+
+Fig. 2: Two different NoC library designs: In languages such as SystemVerilog, it is possible to emit proof obligations with every instantiated NoC, but the state space quickly explodes making them unprovable for model checkers. In NoC-Out, we conduct a single higher-order proof about all the NoCs that the library generates. No additional verification is necessary anymore while NoC-Out scales to NoCs with arbitrary dimensions. above. Specifically, they only used a local liveness property over each individual router. That is, the liveness property – even for this small 2×2 instance of our  
+
+> noc
+
+module – would be unbearable to check. 
+
+Library reasoning At this point, we would like to hide all these proof obligations inside the library as visualized in Figure 2b. That is, we would like to reason about all the NoCs that the library could ever generate. 
+
+Theorem 2 (NoC liveness). For every generated NoC, Theorem 1 holds. 
+
+If we could do this then there would be no further proof obligation for the generated NoCs. A – hypothetical – property in SVA would therefore have to reason about the noc module itself.   
+
+> property liveness_lib;
+> ∀N, noc #(.N).liveness
+> endproperty
+
+But this is impossible to state in SVA. First, SVA does not have a notion of universal quantification ( ∀). Second, the N which is quantified over is a module parameter that gets elaborated even before any formal framework sees it. That is, it is impossible to even state such a property let alone reasoning about it. And as a consequence, the expressivity of SystemVerilog is clearly insufficient for the goals of this paper. Instead, we decided to use Kôika, a language for hardware design embedded in the Rocq prover, to construct our NoC generator along with the higher-order proof for the liveness property (Theorem 2). Beyond that, NoC-Out does not only allow for 2-dimensional NoC designs but generalizes to arbitrary-sized k-dimensional tori. NoC-Out 7
+
+## 3 Hardware design in Kôika 
+
+To introduce the challenges and shortcomings of Kôika that we encountered in the design of NoC-Out, we start from a simple NoC and gradually add complex-ity. To introduce Kôika’s programming model, we define a simple 3-staged NoC pipeline with unidirectional messaging. This pipeline suffices to show that stating properties about the execution is neither modular nor idiomatic and makes proof challenging. Afterwards, we add bidirectional messaging, i.e., messages may also travel the dimensions in reverse. This increases concurrency inside the routers and shows that Kôika’s semantics would enforce inefficient NoC designs. The NoC-Out library in Section 5 then generalizes over many aspects that are left specific in this section. 
+
+3.1 A 3-stage pipeline NoC     
+
+> router 0router 1router 2up 0up 1noc_enter noc_exit
+
+Fig. 3: The 3-stage NoC pipeline.  
+
+> Variant reg_t := | up 0
+> | up 1
+> .
+
+(a) Definition    
+
+> Definition R reg := match reg with | up 0=> bits_t flit_size | up 1=> bits_t flit_size end.
+
+(b) Data types    
+
+> Definition r reg : R reg := match reg with | up 0=> empty_flit | up 1=> empty_flit end.
+
+(c) Initialization 
+
+Fig. 4: The Kôika definition registers for the 2 channels in a 3-stage NoC pipeline. To introduce Kôika’s programming model, we develop the simple unidirec-tional 3-stage pipeline from Figure 3. Messages enter the NoC at the router with the lowest dimensional index ( router 0), travel the dimension up -wards (from left to right) and exit the NoC at the router with the highest dimensional index (router 2). To exchange messages, two routers are connected via a channel , i.e., a queue that preserves FIFO ordering of messages. As such, for every channel there is a router that sends/enqueues messages and another router that receives/de-queues these messages. For sake of simplicity, we degenerate the channels of our NoC in this paper to queues of size 1. We leave the extension to channels that store more than a single message as future work. Kôika’s programming model abstracts over hardware concepts such as wires and clocks thereby making it amenable to non-hardware engineers. A Kôika pro-8 M. Kurze et al. 
+
+gram consists of three parts: the register definition, the functional specification, and an execution schedule. 
+
+Registers Hardware programs execute in cycles. Registers are the state of a hardware program, i.e., a value stored to a register in one cycle is available in the next cycle. The channels capture the state, i.e., the in-flight messages, of our NoC and as such need to be defined as registers. Figure 4 presents the three steps to define the set of registers (4a), specify their types (4b) and initialize them (4c). A channel up n sends a message from a router at index n to a router at index n+1. Similarly, in a bidirectional NoC, a channel down n sends a message from a router at index n to a router at index n − 1. The type of the channels is  
+
+> bits_t flit_size
+
+, i.e., a bit vector of the size of a single message, also called a 
+
+flit . As such, our channels can store only a single message. Since every hardware state needs to be initialized, we start from an empty_flit , which zeroes all bits. 
+
+Actions Expressions in Kôika are called actions . An action may perform opera-tions on bit vectors, incorporate condition control flow, call external functions, and read from or write to registers. That is, actions can only communicate with other actions via registers, e.g., our routers communicate via channel registers. For our NoC, we implement three actions, one for each variant of the routers in the pipeline. In router 0 (5a), a message enters via the (external) interface of the NoC (Line 2) and is sent up wards in the dimension (Line 3). The interme-diate router 1 (5b) retrieves the message from channel up 0 (Line 2) and pipes it up wards via channel up 1 (Line 3). Lastly, router 2 (5c) retrieves the message from channel up 1 (Line 2) and emits it via the (external) NoC interface. 
+
+Schedule To define a Kôika program, we register the three actions as rules in a schedule (see Figure 5d). The schedule represents one hardware execution cycle where every rule, i.e., every action, runs exactly once. 2  
+
+> Definition router 0:= <{ let m = noc_enter() in write 0(up 0, m) }>.
+
+(a) Leftmost router   
+
+> Definition router 1:= <{ let m = read 0(up 0)in write 0(up 1, m) }>.
+
+(b) Intermediate router   
+
+> Definition router 2:= <{ let m = read 0(up 1)in noc_exit(m) }>.
+
+(c) Rightmost router     
+
+> Definition schedule := router 0|> router 1|> router 2|> done.
+
+(d) Scheduling the rules, i.e., the different routers, in the NoC. 
+
+Fig. 5: The three router implementations for our simple unidirectional NoC pipeline. 
+
+> 2
+
+From this point on, we will use “rule” to mean a scheduled action. NoC-Out 9
+
+3.2 Parallel execution but sequential reasoning 
+
+Kôika executes actions in parallel but reasoning about them remains sequential. All actions of a schedule execute in parallel and thus Kôika needs to prevent data races, i.e., two actions that access the same register. In order to resolve such concurrent accesses, the execution is transactional. That is, per-register-logs record reads and writes. The final value of a register is only committed at the end of the cycle when all actions were executed. If a data race occurred then the first action in the schedule wins and the succeeding conflicting actions are aborted, i.e., Kôika discards their effects to the registers. As such, reasoning about a program either during the implementation or in a proof is sequential: one rule at a time. For a single action, it follows the sequential control flow of its definition and at the level of a whole cycle it follows the order stated in the schedule. 
+
+3.3 Challenge 1: Lack of modular reasoning          
+
+> router 0router 1router 2up 0up 1
+> write 0read 0write 0read 0
+> write 0read 1write 0read 1
+
+Fig. 6: Kôika’s ephemeral history registers allow a throughput- and a latency-oriented NoC design. Kôika actions can exchange data even in the same cycle via ephemeral history registers (EHRs) . Such registers remember and allow access to some of their previous values, i.e. their history . In Kôika, a call to read 0(up) retrieves the initial value, i.e., the value stored in register up at the beginning of the cycle. Similarly, 
+
+> write 0(up,
+
+v) stores a new value v in up but the initial value is still retrievable (in the same action) via read 0(up) . To make the new value available to another action in the same cycle, Kôika provides the read 1(up) expression. And lastly, 
+
+> write 1(up,
+
+v′) writes the final value v′ to register up in the current cycle. As an example, we visualize the execution semantics of our NoC in Figure 6. Our current implementation of the routers uses solely read 0( · ) and write 0( · , · 
+
+> )3
+
+. As such, a message needs two cycles to arrive at router 2. An alternative implementation uses read 1( · ) to retrieve the message written by the previous router in the same cycle. Respectively, a message only takes a single cycle to arrive at router 2. There are pros and cons to each of the two NoC designs. The previous design is throughput-oriented because it routes messages in a pipeline parallel fashion, i.e., 2 messages arrive per cycle: one at router 1 and the other at 
+
+> router 2
+
+.4 The new single-cycle design favors latency because the message that           
+
+> 3write 0(·,·)denotes a write of some value to some register. read 0(·)is analogous.
+> 4This holds starting from the 2nd cycle when the channels are filled. 10 M. Kurze et al.
+
+entered the NoC at router 0 arrives at router 2 in the very same cycle. But, in the synthesized hardware, the wall-clock time of a cycle actually increases, because the shared registers serialize the execution of the routers. Formal reasoning about the execution of these two different NoC designs also differs. Kôika’s operational semantics are a big-step evaluation function, which directly computes the value of a given action. 
+
+Definition 1 (Koika Semantics for Actions). For every register environ-ment R, scheduler log L, action log l, and variable context Γ the action (i.e. expression) a big-step evaluates ↓ to a result value v, a new variable as-signment Γ’ and log l′, denoted (l, Γ, a ) ↓R,L (l′, Γ′, v ), or it aborts, denoted 
+
+(l, Γ, a ) ↓R,L abort .
+
+The register environment R stores the register values at the beginning of the cycle, while the context Γ maintains the current values of local variables. The logs track prior reads and writes of the ongoing cycle with a crucial distinction. The action log l only captures register accesses of the current action, while the scheduler log L aggregates the accesses of all preceding actions in the schedule. This distinction is necessary to discard the register accesses of the current action in case it is aborted. Note that, the evaluation only effects the action log l and the context Γ. The register environment R and scheduler log L are not altered. After every execution of an action, in case there were no conflicts, the scheduler log gets concatenated L′ := L ++ l′. Then, at the end of the cycle, the scheduler only persists the changes accumulated in L′ by committing them into the register environment R′ := update R L′.But reasoning about an action needs to take this into account. Consider this Hoare-like statement with a precondition P and a postcondition Q for reasoning about the action of router 2:          
+
+> ∀ R L Γ' l' v,
+> P(update RL) -> ([],{},router 2)↓R,L (l',Γ',v) -> Q(update R(L ++l')).
+
+Here, both P and Q reason about an already committed register environment R.This is intuitive, since the state at the end of the cycle is the only one visible to other components and thus should provide the important properties. However, reasoning about the register environment would require a schedule of a single action. Because, the update occurs only at the end of a cycle when all the actions have run and not after each individual action. Hence, this encoding only allows running a single action per cycle. This is clearly not what most of the Kôika programs look like and would prevent all parallel processing. Instead, to reason about multiple actions, the pre- and postconditions need to take the logs into account. For example, if P would test for a specific value v in register r then this translates into: 
+
+R[r] = v ∧ write 0(r, · ) /∈ L ∧ write 1(r, · ) /∈ L
+
+This condition covers the cases where the register r had the value v at the beginning of the cycle and no prior action overrode it. In other words, having this condition is enough to guarantee that a read 0(r) or a read 1(r) would return NoC-Out 11 
+
+> v
+
+. However, even this fairly explicit assumption leaves ambiguity about whether a write 0(r, · ) succeeds or fails. In case read 1(r) ∈ L it fails, otherwise it succeeds. As this example demonstrates, Kôika’s multi-log semantics result in rather complex register state descriptions. In particular, the two logs l and L in combination with the EHR operations read 0( · ), read 1( · ), write 0( · , · ), and  
+
+> write 1(
+
+· , · ) yield a total of 28 = 256 ways to describe the state of a single register. Although many of these characterizations are semantically equivalent, a subset differs 5, giving rise to two practical difficulties. First, selecting the right one as well as comprehending them is cumbersome. Second, when the selected descriptions do not match syntactically across proofs, translating them results in significant overhead.  
+
+> router nrouter n+1
+> up n
+> down n+1
+> write 0
+
+/write 0 read 0/read 1
+
+> read 0
+
+/read 1 write 0/write 0
+
+Fig. 7: Two intermediate routers of a bidirectional NoC. 
+
+3.4 Challenge 2: Kôika’s semantics foster inefficient NoC design 
+
+Increasing the communication inside the NoC leads to more concurrency and in turn to a trade-off between efficient execution and efficient verification. In Figure 7, we integrate bidirectional messaging with a dedicated channel for each direction and again depict a throughput- and a latency-favored NoC design. In both cases, either of the two router actions aborts. That is because, for a given register r, Kôika neither allows read 0(r) nor read 1(r) after a write 0(r, · 
+
+> )
+
+occurred in a different action. The log {read 0(down n+1), write 0(up n, ·
+
+> )
+
+} ++ {read 0(up n), write 0(down n+1, · )} aborts router n+1. Likewise, the log 
+
+{read 0(up n), write 0(down n+1, · )} ++ {read 0(down n+1), write 0(up n, · ), } aborts 
+
+> router n
+
+. The cases for the latency-oriented NoC design are analogous. The only way to circumvent this limitation is by splitting each router into separate actions for retrieving and sending using additional router-local registers. Then it is possible to first issue all read 0’s, save the messages into the router-local intermediate registers, and then issue all write 0’s in a final set of actions. But the additional router-local registers bloat the generated Verilog and the increased number of actions unnecessarily complicates formal reasoning. The root cause of this problem lies in the design of Kôika’s transactional register semantics. Specifically, the decision to prevent read access to the initial value ( read 0(r)) after an earlier action wrote a new value ( write p(r, · )). This 
+
+> 5
+
+This subset actually contains 7 unique states and is visualized later in Figure 10a. 12 M. Kurze et al. 
+
+makes two dependent actions in a schedule a1 |> a2 |> done , connected via 
+
+> write 0(
+
+r, · ) and read 1(r), appear as a single fused action. Action a1
+
+> let initial = read 0(r) in write 0(r, 'b110);
+
+. . . 
+
+> write 0(s, initial);
+
+Action a2 
+
+> let initial = read 0(r) in (* aborts *) let last_written = read 1(r) in assert (last_written == 'b110);
+
+. . . 
+
+Aborting a consecutive read 0(r) and thereby forcing the developer into using 
+
+> read 1(
+
+r), facilitates monotonic evolution of the registers. That is, a read access always sees the latest value written. But in a single (fused) action, it would always be possible to store the initial value from the beginning of the cycle in a local variable to access it even after updating the register (see action a1). But the monotonic semantics prevent action a2 from reading the initial value of register 
+
+> r
+
+.We argue that this restriction is not necessary and accessing the initial value from the beginning of a cycle is a typical hardware design pattern. Therefore, we make the initial value available by default to all actions in a Kôika schedule. 
+
+## 4 Kôika extensions 
+
+In this section, we describe our contributions to Kôika that help us to overcome the limitations outlined in the previous section. At first, we present the Read-After-Write semantics (RAW) for Kôika and then construct our program logic on top of that. Our Read-After-Write semantics removes some of the limitations for reading previously written values (see Section 3.4). Later, this also simplifies the design of the program logic. 
+
+4.1 Read-After-Write semantics 
+
+To make our NoC design, but also other hardware designs, more efficient in terms of the generated Verilog and the number of actions to formally reasoning about, we propose a semantics that allows for reads after writes. 
+
+Action a :: = b | x | skip | let x := a1 in a2 | abort | 
+
+> if
+
+a1 then a2 else a3 | read p(r) | write p(r,a) | f (a1,. . . ,an)
+
+:: =Ports p 0 | 1 Variables x Registers r Externals f Bitstrings b
+
+:: =Schedule s done | rule |> s
+
+Fig. 8: Syntax of Kôika actions. NoC-Out 13 
+
+Definition 2 (Syntax of Kôika). We define the syntax of Kôika in Figure 8. A Kôika programs P := (R, A, s ) consists of a set of registers R, a set of actions 
+
+A and a schedule s, which defines their order of execution. An action is an expression composed of (constant) bit strings b, variables x, conditionals, binds, reads and writes to registers r, no-ops ( skip ), calls to functions f , and explicit action-abort s. 
+
+Instead of recreating a new semantics, we integrate ours as a switch into the existing ones. We do so because other designs might in turn benefit from the more restricted original ones. Therefore, we add a Read-After-Write ( raw ) switch to Kôika’s semantics. This switch only effects the evaluation of reads, i.e., read 0( · )
+
+and read 1( · ). The semantics for all other language constructs of Kôika remain unaffected. 
+
+(write 0(r, · ) /∈ L ∧ write 1(r, · ) /∈ L) ∨ raw 
+
+(l, Γ, read 0(r)) ↓raw  
+
+> R,L
+
+(l, Γ, R[r]) Read0 raw 
+
+> write 1(
+
+r, · ) /∈ L ∨ raw 
+
+(l, Γ, read 1(r)) ↓raw  
+
+> R,L
+
+(l, Γ, v ) where v :=
+
+{R[r] if write 0(r, · ) /∈ L ++ lv0 if write 0(r,v0) ∈ L ++ l
+
+Read1 raw 
+
+(l, Γ, a ) ↓R,L (l′, Γ′, v )(l, Γ, a ) ↓raw  
+
+> R,L
+
+(l′, Γ′, v ) Original 
+
+Fig. 9: Support for reads after writes in Kôika unfolds into 4 rules. Read0 
+
+and Read1 are the original rules that place preconditions on the occurrence of writes in the log L. Our Read-After-Write Semantics adds rules Read0 raw 
+
+and Read1 raw where these preconditions are omitted. The remainder of the rules stays unchanged. 
+
+Definition 3 (Read-After-Write semantics). We define Read-After-Write semantics as ↓raw  
+
+> R,L
+
+in Figure 9. Rules Read0 raw and Read1 raw define the new semantics for reading values from registers. Rule Original reestablishes the existing semantics ↓R,L for the rest of the syntactic constructs for actions a.
+
+When raw is false then the original semantics are restored and reads are allowed only when the corresponding preconditions hold. For Rule Read0 , no previous writes from other actions to the same register are allowed (to occur in the sched-uler log L). For Rule Read1 , the final value must not have been written yet (write 1(r, · ) /∈ L), then the returned value v is either the initial value from the register environment or the current value in the logs L and l.6 When raw is 
+
+> 6
+
+There can only be one written value for a register in the log because Kôika prevents Write-After-Writes. 14 M. Kurze et al. 
+
+true then reads are allowed without any precondition, i.e., even to a previously written register. The respective rules Read0 raw Read1 raw just vacuously sat-isfy the preconditions (premises) but leave the conclusion untouched. With this Read-After-Write support, we had to adapt the compiler, the generated Ver-ilog code and respectively reestablish the compiler correctness theorem. The key property of Kôika programs, data race freedom, was not effected by our changes and remains valid. 
+
+Original vs. raw -semantics Compared to the original semantics of Kôika, our new semantics resolve both of the previously outlined challenges. They remove the unnecessary abort mentioned in Section 3.4, allowing for pipeline parallel designs. But, they also simplify the state model of registers mentioned in Sec-tion 3.3. The latter is presented in full detail in the following section. 
+
+4.2 Program logic 
+
+In order to make reasoning about Kôika programs tractable, we implement a program logic, in our case a Hoare logic . We define assertions to reason about registers and logs first and then state the structural and the term rules of the Hoare logic. We conclude this section with a proof of soundness and our initial design for the automation of proofs in our Hoare logic. 
+
+Foundations Informally, a specification in our program logic is the usual Hoare triple {P } a {Q}. Precondition P is a proposition that needs to hold before the (symbolic) execution of action a. Postcondition Q is a proposition that needs to hold after the execution of a. Both, P and Q reason about the whole state of a Kôika action. Thus, this reasoning needs access to the register environment R,the logs for the scheduler L and the current action l, and the variable context 
+
+Γ (Section 3.3). A convenient side effect of our new semantics is that the abort handling no longer depends on a distinction between scheduler and action logs. 7,8 
+
+Thus, reasoning can be simplified to a single combined log L := L ++ l. Pre- and postconditions are then assertions defined as follows. 
+
+Definition 4 (Assertions). Assertions are propositions that reason over the register environment R, the combined log L, and the variable context Γ
+
+{P } := λ R L Γ. P (R, L, Γ) 
+
+According to Definitions 2 and 3, Kôika actions are expressions that return a value. If a postcondition Q would also like to reason about this return value then we write v. Q . For a particular value v, we write Q (v). For a particular log l,we write Q (l, v ). The reasoning about the (combined) log needs to distinguish  
+
+> 7Though not necessary for the semantics, the logs are still kept separate for an easier rewind on abort.
+> 8Later in Figure 10 this can be observed as the action transitions ( ) only loop on their state instead of leading to new ones.
+
+NoC-Out 15 
+
+between values written via write 0( · , · ) and write 1( · , · ). To access a written value v at port p from a register r, we define operator L[r]p. And, since this access is partial, we also define an operator ?: for chaining accesses. 
+
+> w0
+> r1
+> w1
+> r0
+> w1
+> r0
+
+/r1
+
+> w1
+> r0
+
+/r1
+
+> r0
+
+/r1 
+
+> w1
+> r1r1
+
+(a) Original semantics 
+
+> transition to next action (concat. act. log into sched. log)
+> w0
+
+/r1
+
+> w1
+> r0
+> w1
+> r0
+
+/r1 r0/r1
+
+(b) Read-After-Write semantics 
+
+Fig. 10: Unique states of a single register which can be distinguished solely by their abort semantics. (All transitions which are left out lead to an abort , and every register is reset to the initial state at the beginning of each cycle) 
+
+L[r]p :=
+
+{Some v if write p(r,v) ∈ L  
+
+> None
+
+if write p(r, · ) /∈ L a ?: b :=
+
+{v if a = Some vb if a = None 
+
+With these operators, we define a relation that resolves some of the complexity of reasoning about the register environment R and the logs L. In Section 3.3, we calculated 28 potential states per register exist. Figure 10 shows that the 7 distinct states for the original semantics reduce to 3 distinct states for our RAW semantics. Note their difference in complexity, i.e. transitions, which directly translates into mental overhead during the design and additional proof burden during the verification of a hardware description. Next, we capture the 3 new states in a relation for concise reasoning. 
+
+P0(R[r]) read 1(r) /∈ L write 0(r, · ) /∈ L write 1(r, · ) /∈ L 
+
+r Z ⇒R,L [P0,/,/] RegEnv 
+
+P0(R[r]) P1(L[r]0 ?: R[r]) write 1(r, · ) /∈ L 
+
+r Z ⇒R,L [P0,P1,/] RegState0 
+
+P0(R[r]) P1(L[r]0 ?: R[r]) P2(L[r]1 ?: L[r]0 ?: R[r]) 
+
+r Z ⇒R,L [P0,P1,P2] RegState1 
+
+Fig. 11: The relation to reason about the values of a single register r across the register environment and the logs. 16 M. Kurze et al. 
+
+Definition 5 (Log properties). We define the relation to reason about a regis-ter r in the context of a register environment R and a combined log L in Figure 11 as r Z ⇒R,L [P0,P1,P2]. In this relation P0, P1, and P2 are propositions on the value of the register. 
+
+The notation [P0,P1,P2] refers to the three possible values that a register could have at the same time. P0 is a proposition about the initial value from the register environment R[r]. P1 and P2 reason about the values written with write 0(r, · )
+
+and write 1(r, · ), respectively. For example, to assert an initial value v0 and a written value v1, we simply write [= v0,= v1,/] . Note the use of our operators, for example rule RegState1 covers the case where there is no write 0(r, · ) in the log such that P1 needs to hold for the initial value in R. We also support a notation such as [?, P1,/] to reason exclusively about a previously written value by setting P0 := ⊤. Note how this register relation makes register conditions significantly easier to comprehend. The value of a read 0/1 (r) can directly be deduced from P0/1 and likewise the failure of a write 0/1 (r, · ) from P1/2 .
+
+Rules Many of the rules for reasoning in our program logic are standard. Hence, we focus on the ones that are unique to Kôika and define the full set of rules in the Appendix B. 
+
+{P } abort {⊥} Abort {Q (L[r]0 ?: R[r]) } read 1(r) {Q} HRead1 
+
+{P } a {v. Q (L ++ [write p(r,v)], ϵ )}{P } write p(r,a) {Q} HWrite {Q (R[r]) } read 0(r) {Q} HRead0 
+
+Fig. 12: Reasoning rules for selected Kôika actions. 
+
+Definition 6 (Action rules (excerpt)). The term rules of our program logic to read from and write to a register, and aborting an action are defined in Figure 12. 
+
+For read 0( · ), we retrieve the value v from the register environment R. And for read 1( · ), we either find write 0(r,v) in the log L or load it again from R.For a write to a register, we require that Q holds when passed the log L with the appended write p(r,v). Finally, the Abort rule maps an abort to ⊥ and thereby specifies our Hoare triples as partial. 9 For total Hoare triples denoted as [P ] a [Q], we drop this rule and thereby require that the action never aborts. If it happens in the course of a proof then the proof is simply stuck. 
+
+> 9
+
+As the language does not support any form of looping by design, the usual defini-tion of partiality would not apply to Kôika. NoC-Out 17 
+
+Soundness To prove the soundness of our program logic, we define the Hoare triples formally. Kôika’s big-step evaluation ↓R,L is partial and so is our Read-After-Write semantics. The only unevaluable (stuck) terms are the ones which result in an abort . Based on this partial evaluation, we define partial and total weakest-preconditions (WPs). 
+
+Definition 7 (Partial WPs for Kôika actions).  
+
+> WP a
+
+a {Q} := (l, Γ, a ) ↓raw  
+
+> R,L
+
+(l′, Γ′, v ) ⇒ Q (R, L ++ l′, Γ′, v )
+
+That is, if an action a aborts the precondition reduces to ⊥ and the postcondition follows vacuously. 
+
+Definition 8 (Total WPs for Kôika actions).  
+
+> WP a
+
+a [Q] : = (l, Γ, a ) ↓raw  
+
+> R,L
+
+(l′, Γ′, v ) ∧ Q (R, L ++ l′, Γ′, v )
+
+Drawing a ⊥ conclusion for a total WP is not possible. That is, for a proven total WP, the execution never aborts. From these WP definitions, we derive Hoare triples. 
+
+Definition 9 (Partial Hoare Triples for Kôika actions). 
+
+{P } a {Q} := ∀ R L l Γ. P (R, L ++ l, Γ) ⊢ WP a a {Q}
+
+Note, that both the precondition and postcondition reason over the combined log. The definition for total Hoare triples is analogous. 
+
+Definition 10 (Total Hoare Triples for Kôika actions). 
+
+[P ] a [Q] : = ∀ R L l Γ. P (R, L ++ l, Γ) ⊢ WP a a [Q]
+
+For the scheduler, we define only total WPs because a Kôika program can not fail. 
+
+Definition 11 (WPs for the schedules).  
+
+> WP s
+
+s [R] :=
+
+{R if s = done WP a a [WP s s′ [R]] if s = a |> s′
+
+This definition builds upon the WPs for actions. For the time being, we only reason about schedules where actions do not abort. It is straightforward to add reasoning support for schedules with failing actions. With these definitions in place, we can define the soundness of our program logic for Kôika. Since our Hoare Triples directly unfold to WPs, we use those to state the adequacy, first for actions and then for schedules. 
+
+Theorem 3 (Adequacy of Kôika actions). 
+
+(l, Γ, a )↓raw 
+
+> R,L
+
+(l′, Γ′, v ) WP a a {Q}
+
+Q (R, L ++ l′, Γ′, v )18 M. Kurze et al. 
+
+Proof. The proof is immediate by unfolding WP a a {Q} (Definition 7). 
+
+Theorem 4 (Adequacy of Kôika schedules). 
+
+(R, L, s ) ↓raw Sched (R, L ′, ϵ ) WP s s {Q}
+
+Q (R, L ′)
+
+Proof. The proof is by induction on s. The base case, where s = done is im-mediate because L = L′ and, by Definition 11, WP s done {Q} unfolds to Q. The induction step, where s = a |> s′ unfolds WP s a |> s′ {Q} to WP a a [WP s s′ [R]] 
+
+(Definition 11). The WP for the action follows from the adequacy for actions (Theorem 3) and then we apply the induction hypothesis to conclude the proof. 
+
+Proof automation Based on this WP-encoding, we provide the usual tactic sup-port to symbolically execute an action in the Rocq proof mode. 
+
+## 5 A parameterized NoC library in Kôika 
+
+Equipped with the Read-After-Write semantics and the program logic, we can implement a library that allows for k-dimensional NoC designs. We start with an informal overview of our design and define the input to our NoC library, i.e., the parameters that the user has to provide and that our design is parametric in. Then, we craft a specification for Network-on-Chips and implement it in Rocq. Afterwards, we use our Read-After-Write semantics to implement an efficient NoC library in Kôika. Finally, we take advantage of our program logic to prove that this implementation refines the specification.     
+
+> r0;0 r0;1 r0;2
+> r1;0 r1;1 r1;2
+
+(a) Typical 2×3 torus network  
+
+> routing arbitration down n+1
+> up n
+> rn;m;... ;z
+
+(c) Routing and arbitration  
+
+> rn;m;... ;z
+
+... ... 
+
+> rn+1; m;... ;z
+> rn;m+1; ... ;z
+> rn;m;... ;z+1
+> rn−1; m;... ;z
+> rn;m−1; ... ;z
+> rn;m;... ;z−1
+
+(b) A single router in the torus 
+
+Fig. 13: Foundations of our formal specification for k-dimensional NoCs. NoC-Out 19 
+
+5.1 Overview 
+
+Our library provides formally-verified k-dimensional NoCs. Naturally, our library and the respective specification abstracts over data_t , i.e., the payload, of a single packet that is transmitted via the network. More importantly, our development is parametric in the number of dimensions |dims |, and the length of each individual dimension.   
+
+> Context data_t : type.
+> Context dims : list nat.
+
+Based on these inputs, our library creates k-dimensional torus networks, i.e., each dimension has a wrap-around link. Figure 13a shows a [2;3] torus. Hence, the shortest path to transmit a message from router r0;0 to router r0;2 is not via  
+
+> r0;1
+
+but the direct connection that wraps around. This wrap-around simplifies our design because it removes the start and end such that every router contains the same logic. Routers only differ in their index, i.e., the location in the network, and respectively the registers they are connected to. Consequently, the whole network can be understood by examining the design of a single router. Figure 13b visualizes router rn;m;... ;z in a k-dimensional NoC. The index of the router, i.e., its location in the NoC, is n; m; ... ; z with |n; m; ... ; z| = k dimensions. The router has two neighbors per dimension, e.g., rn−1; m;... ;z and rn+1; m;... ;z for dimension 1. As in the pipeline design in Figure 7, two shared channels up and down facilitate a bidirectional channel per neighbor. Figure 13c shows the router logic that composes of two algorithms, routing 
+
+and arbitration . For each incoming channel, the routing decides which output a message should be forwarded to. In our design, we consider only channels that can store at most a single message. Hence, we send at most a single message along a channel per cycle. For each outgoing channel, the arbitration selects which message to prioritize in case of a conflict, i.e., when multiple incoming channels are routed towards the same outgoing channel.   
+
+> r0r1
+> r3r2
+
+312 0(a) Deadlock     
+
+> xpacket destined for x
+> channel inner = low outer = high channel which is never routed blocked by available hop
+> r0r1
+> r3r2
+
+312 0(b) Virtual channels 
+
+Fig. 14: Because the wrap-around creates a cycle, a deadlock might occur in which every packet is blocked by another (a). Virtual channels resolve this issue by breaking the dependency cycle (b). 20 M. Kurze et al. 
+
+5.2 Specification 
+
+Due to the generalization over the number and size of the dimensions, most internal definitions are conceptually constructed from two nested recursions. The outer recursion over all dimensions and the inner recursion over the routers in a single dimension. 
+
+Virtual Channels Our NoC architecture employs wrap-around links, which makes it vulnerable to the classic deadlock issue. Figure 14a illustrates a dead-lock scenario in a single-dimensional NoC consisting of four routers. In this arrangement every channel is occupied, forming a circular dependency that pre-vents any packet from advancing. To address the deadlock problem, we adopted the methodology of virtual channels [10]. For that, each channel is duplicated into a high and a low virtual channel. Then the routing algorithm is adapted such that packets with a des-tination higher than their current router are forwarded via the high channels. All other packets are routed via the low channels. Phrased differently, packets which need to wrap around are routed on the high channels until they wrap. Then they continue on the low channels together with the other packets. Intu-itively, this breaks the dependency cycle because low channels never depend on high channels. An application of this methodology to the previous deadlock example is shown in Figure 14b. The high channels are depicted as the outer ring while the low channels form the inner ring. Notably, two channels are grayed-out as they can never be selected by the adapted routing algorithm. In this specific example the deadlock is resolved as packet 0 does not depend on packet 3
+
+anymore. 
+
+> arb. rout. rout. arb. rout.  arb. rout. arb. down n+1
+> up n
+> down n
+> up m
+> down m
+> rn;m
+
+(a) routing through a single dimension 
+
+> arb. rout. rout. arb. rout.  arb. rout. arb. down n+1
+> up n
+> down n
+> up m
+> down m
+> rn;m
+
+(b) routing into the next dimension 
+
+Fig. 15: Multi-dimensional routing. NoC-Out 21 
+
+Routing The routing strategy of our design is a generalization of XY-routing to an arbitrary number of dimensions, called dimension-order routing [11]. At first, we route a message to its destination address within a single dimension (see Figure 15a).    
+
+> Definition routing_spec 1lcl dst : RoutingDecision := if lcl =? dst then Arrived else if dist lcl dst <? dist dst lcl then if dst <? lcl then UpHigh else UpLow else if lcl <? dst then DownHigh else DownLow.
+
+A message only has two choices, either it travels Up - or the Down -wards. Since the last router of a dimension wraps around, i.e., connects to the first, both directions would ultimately lead to the message’s destination. However, to min-imize the number of steps, we select the shorter path. Additionally, to prevent the deadlock discussed in the previous section (5.2), the routing either selects the High or the Low virtual channel based on the index. Then for multidimensional routing, we route the dimensions one after an-other.       
+
+> Fixpoint routing_spec {dims} lcl dst : vect RoutingDecision (|dims| + 1) := match dims with | [] => λ __, [Core] | dim :: dims' => λ '(l, lcl') '(d, dst'), let r1 := routing_spec 1l d in if r1 =?b Arrived then r1 :: (routing_spec lcl' dst') else r1 :: (vect_const Irrelevant) end lcl dst.
+
+We start routing at dimension 0. Once Arrived at the dimension’s destina-tion, we advance to the next dimension until we arrive at the final destination in dimension k, where the packet is directly forwarded to the connected Core . Since only a single dimension can be routed at a time, all lower-priority dimensions are considered Irrelevant . In Figure 15b, router rn;m;... ;z forwards the message from the current dimension into the next. To make sure that this routing_spec 
+
+is sensible, we prove the following progress lemma. 
+
+Lemma 1 (Routing progress). Given any local index lcl and destination index dst in the dimensional space c (of the NoC) the routing_spec either selects the local output (in case lcl = dst ) or it selects a next index nxt to route a message to, such that: 
+
+(dist man nxt dst ) + 1 = dist man lcl dst 
+
+Here dist man denotes the Manhattan Distance. Proof. The proof is by induction on c, i.e., the configuration ( dims ) of the NoC. 
+
+Base case c = [] . The conclusion holds trivially. Since the type of both 
+
+lcl and dst reduces to unit , they must be equal. Similarly, by definition  
+
+> routing_spec
+
+selects the local output ( Core ). 22 M. Kurze et al. 
+
+Induction step c = dim :: c′. Since there is at least one dimension we know that we can split the indices lcl and dst into a sub-index of the first dimension (l/d) and their remainder ( lcl ′/dst ′). We then continue by a case distinction on the routing of the first dimension routing_spec 1 l d .
+
+Case Arrived . Routing continues in the remaining dimensions, thus the conclusion follows from the induction hypothesis. 
+
+Other cases . Routing chooses the current dimension (all others are ignored). Since only a single dimension is routed either Up or Down , distance must be exactly 1 less. 01 0 010... 0 
+
+> 012345n
+
+p
+
+Fig. 16: Arbiter ring 
+
+Arbiter Due to the static nature of hardware,  
+
+> arbitration
+
+gets the same number of requests from the  
+
+> routing
+
+units each cycle. We implement round-robin arbi-tration [11] which, conceptually, orders all requests into a ring (see Figure 16). The priority pointer p determines the order in which requests are granted and thereby forwarded along the outgoing channel. For that, arbitration always selects the request that is clockwise-closest to p and has a message to forward (1). In the case of Figure 16, the next request to be forwarded is retrieved from incoming channel at arbiter ring index 
+
+4. Then, to guarantee progress for all requests, p advances to the slot after the selected one, here 5.  
+
+> Definition arbiter_spec n p reqs : option (Fin.t n) := let selected := first_idx (rotate p reqs) in option_map (λ idx, p + idx) selected.
+
+We use rotate to order the list of requests by their priority and first_idx 
+
+to select the highest-priority one. In terms of Figure 16, this rotation essentially relabels all requests s.t. p points to index 0. Then first_idx performs the actual selection. Finally, to reestablish the correct label, we add the value of p back to the calculated index. Just as with our routing specification, we also prove that our arbitration algorithm makes progress. 
+
+Lemma 2 (Arbiter progress). For any arbiter ring a of size n with priority at p, given there is a request at i then the arbiter_spec selects the message at i
+
+for transmission or p makes progress towards i.Proof. Let is be the selected index, then by case distinction: 
+
+Case is = i: Conclusion follows immediately. 
+
+Case is̸ = i: We show that pnew := is + 1 is closer to i than p (i.e. it has a smaller difference). As first_idx always picks the smallest set index we know that is − p < i − p. Then 
+
+is − p < i − p (mod n) =⇒
+
+(i − p) − (is − p + 1) < i − p (mod n) ⇐⇒ 
+
+i − (is + 1) < i − p (mod n) ⇐⇒ 
+
+i − pnew < i − pNoC-Out 23 
+
+(All comparisons modulo n are performed on the canonical residue representa-tives in {0, . . . , n − 1})
+
+NoC The overall state of the NoC is then a record that stores the contents of all channels and the priorities of all arbiters. For stating the liveness property, we define  
+
+> eventually
+
+P := λ s, ∃ n, P (ns_step n s )
+
+where ns_step n s executes the formal model of the NoC for n cycles starting from state s.
+
+Axiom 5 (Output liveness). Every core connected to the NoC must handle arriving packets immediately. 
+
+This axiom makes sure that the network cannot be blocked by a core. 
+
+Theorem 6 (Deadlock freedom). Any port pi of any router rlcl will  
+
+> eventually
+
+become available. Proof. This proof is intricate as it consists of multiple nested inductions. To ease its comprehension, we only present the underlying intuition here and refer to our artifact for more details. This intuition proceeds in reverse order of the actual proof. It starts at Axiom 5 and describes how this guarantee propagates through the whole network. From the axiom we already know that all output ports are always available. Likewise, by Arbiter progress (2) a packet whose target port is infinitely often available is guaranteed to be forwarded eventually. Thus, any packet whose next hop is an output port will always eventually take a step, thereby freeing its own port. From that we derive that all packets of the lowest dimension also release their port eventually. This follows from an induction on the position of a packet in the 
+
+channel dependency order . This order describes if a channel could be blocked by another. The base case consists of the last low virtual channel, which only ever routes to its direct output port, thus following from the argument above. The induction step instead utilizes the induction hypothesis together with Arbiter progress . Any packet could only ever be blocked by a packet within a lower-rank channel, thus its next hop must become available, and it must eventually be selected by the arbiter. Lastly, we propagate this guarantee to higher dimensions by strong induction on the number of dimensions. The base case of the lowest dimension was already described above. The induction step follows the same structure for reasoning about packets within a single dimension, except that the last virtual channel may forward either to an output or just a lower dimension, which then requires the induction hypothesis. 
+
+Theorem 7 (NoC liveness). Any message m in the NoC at any input port i
+
+of any router rlcl will eventually be delivered to its destination m.dst .24 M. Kurze et al. 
+
+Proof. Let d := dist lcl m.dst denote the number of hops between lcl and m.dst .Then by induction over d:
+
+Base case: d = 0. It follows that lcl = m.dst satisfying the conclusion trivially. 
+
+Induction step: d = 1+d′. We know that there exists a next hop nxt . Thus, we show that eventually m reaches router rnxt and conclude by the induction hypothesis. To establish the single step we do a strong induction over the priority of input i on the port that leads from src to nxt . Let p be the priority pointer at that port. 
+
+Base case: i − p = 0. As i has the highest priority, it will be forwarded immediately once the output port is available, which must happen eventually by 
+
+Deadlock freedom (6). 
+
+Induction step: i − p = 1 + prio ′. Consider the arbiter’s decision. Either the arbiter selects input i, then our goal follows just as in the base case. Or the arbiter selects a different input j. Then the packet at j will eventually be forwarded by Deadlock freedom causing the priority to get closer to i by 
+
+Arbiter progress (2). With the smaller priority the conclusion then follows from the inner induction hypothesis. 
+
+5.3 Implementation 
+
+For our Kôika implementation, we only show the key parts in our dependent hardware design. For the full details, we refer to our Rocq development. In order to implement a k-dimensional NoC, we needed to create the corre-sponding following depending on k and the length of the individual dimensions. Kôika supports such a dependent design using parameters to the registers.      
+
+> Inductive reg_t : Type := | routing_up_r : idx_t -> dim_t -> reg_t | routing_down_r : idx_t -> dim_t -> reg_t | arbiter_up_r : idx_t -> dim_t -> reg_t | arbiter_down_r : idx_t -> dim_t -> reg_t | arbiter_cpu_r : idx_t -> reg_t.
+
+Every channel has an index idx_t in its dimension dim_t . That is, every channel exists in exactly one dimension. To make sure the set of registers for a design is finite and thus can be synthesized to valid hardware, Kôika requires pa-rameters to be finite too. Hence, we worked with Fin.t , i.e., the natural numbers modulo k, for dim_t and modulo m for idx_t where m is the length of a single dimension. Respectively, we used Rocq as the meta programming language to generate Kôika functions and actions.     
+
+> Fixpoint routing {dims} (lcl : idx_t dims) : function R Sigma := <{ fun routing (dst_a : addr_t dims) : array_t (bits_t 2) (length dims) => `match dims with | [] => fun _ => <{ [ ] }> | dim :: dims' => fun lcl => <{ let r1 := {routing 1dim (fst lcl)}(addr_hd(dst_a)) in if r1 == 'b00
+
+NoC-Out 25 
+
+> then array_cons(r1, {@routing dims' (snd lcl)}(addr_tail(dst_a)) ) else array_cons(r1, $(vect_const 'b00) ) }> end lcl` }>.
+
+Note how the routing implementation enters into Kôika via <{ (Line 1), then escapes into Rocq via ` at Line 3 just to generate Kôika code again at Line 4. During our development, we found that Kôika has powerful support for meta programming that allows for very flexible hardware designs. 
+
+5.4 Refinement 
+
+The following refinements for the routing , arbitration and the overall NoC connect the execution of a single hardware cycle to the formal specification. Functions repr and is_repr lower indexes and states from the specification level into the implementation level. 
+
+Lemma 3 (Routing refinement). For any local index l and destination index 
+
+d in the dimensional space c (of the NoC), the following total Hoare triple holds: 
+
+[⊤] <{ routing s lcl (repr dst) }> [v, v = repr (routing_spec lcl dst) ]
+
+Proof. By applying our program logic for symbolic evaluation, we can reduce the goal to the following sub-goals with minimal effort.     
+
+> Hif: routing_spec 1l d = Arrived (goal 1) routing_spec (l,lcl') (d,dst') = routing_spec 1l d :: routing_spec lcl' dst' Hif: routing_spec 1l d ≠ Arrived (goal 2) routing_spec (l,lcl') (d,dst') = routing_spec 1l d :: vect_const Irrelevant
+
+These goals are then finished by manual reasoning over the definitions of the specs. 
+
+Lemma 4 (Arbiter refinement). For any arbiter ring a of size n with pri-ority at p, the following total Hoare triple holds: 
+
+[⊤] <{ arbiter n (repr p, repr a) }> [v, v = repr (arbiter_spec p a) ]
+
+Theorem 8 (NoC refinement). For any dimensional space c ( dims ), the generated schedule noc_schedule takes the NoC from state s into state s′ and satisfies the following total triple: 
+
+[ is_repr s ] noc_schedule dims [ is_repr (ns_step 1 s) ]
+
+Due to our program logic in combination with the Read-After-Write seman-tics, the proofs for these refinements are straight-forward by automated symbolic execution. 26 M. Kurze et al. 
+
+## 6 Synthesis 
+
+In this section, we evaluate NoC-Out and show that our formal verification approach is necessary to make NoCs in Kôika practical . In order to study the practicality of NoC-Out, we compile a set of NoCs to Verilog and synthesize them with the open-source toolchain from the original Kôika paper [5]. The toolchain consists of Yosys [22], for synthesis, a process development kit for 45 nm [20] and ABC [17] for technology mapping. In this synthesis flow, the high-level NoC design is mapped to concrete gates and wires, yielding estimates on circuit size and timing constraints. However, as this workflow does not include floorplanning, these estimates represent best-case bounds. In particular, for NoCs that span more than two dimensions, the actual performance is likely to degrade, since their topologies are difficult to map onto a planar 2D silicon. But this evaluation is outside the scope of this paper.     
+
+> 2816 32 64 01,000 2,000 3,000 4,000
+> 2 3 416
+> 3×34×42×2×2
+> 832 64
+> 2×2
+> # of routers delay [ps]
+
+Fig. 17: Critical path length (with transaction checks) Figure 17 shows the length of the critical path for different instantiations of one-dimensional, two-dimensional and a three-dimensional NoCs. The critical path is the maximum time that the combinational logic might take to compute the state of the next cycle. This delay is particularly important because it directly limits the achievable clock frequency and thereby the chip’s overall performance. The plot shows that the critical path length grows linearly with the number of nodes in the NoC. This scaling is undesirable; as in an ideal architecture each router operates independently and in parallel. Thus, the critical path should only cross a single router and remain essentially constant regardless of the network’s size. Surprisingly, in the case of our NoC, the scaling is not caused by the Kôika de-sign itself. Instead, it is introduced by the additional circuitry that the compiler automatically generates to enforce the transactional semantics of the language. For NoC-Out, this transactional logic is unnecessary runtime overhead because our refinement proof already uses total Hoare triples. As such, it guarantees that actions never fail (see Definition 8 and Definition 10 respectively). NoC-Out 27 
+
+Thus, we implemented a flag for the Kôika compiler to disable the generation of the transactional circuitry. The plot in Figure 18 shows that this improves the critical path length by an order of magnitude. Most importantly, it caps the delay even when increasing the NoC size thereby making NoC-Out scalable and practical.         
+
+> 2816 32 64 0200 400 600
+> 3
+> 3×32×2×2
+> 24816 32 64 2×24×4
+> # of routers delay [ps]
+
+Fig. 18: Critical path length (without transaction checks) We point out that this compiler flag side-steps the original compiler correct-ness theorem. Re-establishing this guarantee requires to strengthen the correct-ness statement of the compiler to preserve not only the semantics but also the properties, i.e., the weakest pre-conditions, of our Hoare logic, including the one for data-race freedom [1]. This requires a considerable effort, in fact a re-design of the Kôika compiler, so we have deferred this to future work. 
+
+## 7 Related and Future Work 
+
+In this paper, we contributed Read-After-Write semantics and the first program logic to formally-verify concurrent rule-based hardware designs in a modular fashion. This allowed us to design NoC-Out, a highly-parameterized library that takes a configuration for k dimensions with varying size as an input and produces a corresponding NoC (as output). All NoCs are formally-verified against a formal specification and no additional verification effort is required. We are unaware of such a library. In these concluding paragraphs, we review these contributions in the context of related work and identify interesting directions for future work. 
+
+Verification of concurrent hardware Several approaches exist to formally-verified hardware design [14,6,13]. Rule-based hardware design was pioneered by the design of Bluespec SystemVerilog [18]. The key concept of Bluespec, i.e., the 
+
+one-rule-at-a-time (ORAAT) semantics, allows designing concurrent hardware that is free of data races. All three state-of-the-art rule-based HDLs – Kôika, Kami and Fjfj – are derivatives of Bluespec (in Rocq [21]). Kôika [5] studies a formally-verified compilation with guarantees for ORAAT. Kami [9] studies the concept of (hardware) modules which export methods that 28 M. Kurze et al. 
+
+can be called by other modules as it is known for example from object-oriented programming languages. The work on Kami then investigates how to reason about modules, i.e., on one module individually and then on their composition. For that, Kami defines the semantics of their modules as a labeled transition system such that reasoning can take place on their traces. In Kami’s semantics, a race-free trace then does not contain a particular method call more than once. In contrast to Kôika, the Kami compiler derives the schedule – as a binary rela-tion – and hands it to the Bluespec SystemVerilog compiler to enforce ORAAT during parallel execution. This binary relation quickly explodes for more com-plex hardware designs where only some but not all the actions fire, i.e., execute, in a single hardware cycle. This also influences the proofs in Kami that need to rule out certain traces. Therefore, Fjfj restricts the writes that are possible to the same register in one rule. Our approach is different. Instead of restricting, we provide more freedom. This is possible because Kôika supports ephemeral history registers while Kami and Fjfj do not. Yet, the idea of our program logic would also work and benefit Kami and Fjfj while modules are yet a dearly needed concept in Kôika. 
+
+Verification of NoC designs The literature even on formally-verified NoC designs is scarce [23]. The most notably formal specification of a NoC is GeNoC [19]. GeNoC was implemented in ACL2 [7] and used formally verify NoC hardware designs. GeNoC focused primarily on the routers and their properties. In our NoC-Out design, we followed some of GeNoC’s principles, such as the separation between routing and arbitration, and left others to future work, such as the idea of delaying transmission of messages. Yet, our NoC designs are formally-verified against a formal specification, while our functional correctness propagates down to the generated Verilog. This is far beyond what GeNoC does. NoC-Out marks a starting point and leaves room for various extensions for future work, such as abstracting over the size of the channels, generalizing over different routing algorithms and performance evaluation of the generated NoC designs.   
+
+> Acknowledgments. The authors would like to thank Clément Pit-Claudel and Thomas Bourgeat for insightful discussions on the Hoare logic and the design of Kôika. This work was funded by the Agentur für Innovation in der Cybersicherheit GmbH (Cyberagentur).
+> Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article.
+
+## References  
+
+> 1. Abate, C., Elsheikh, M., Liotati, K., Farka, F., Ertel, S.: Wp-preserving compilation – preserving weakest preconditions for end-to-end verification. In: 10th Workshop on Principles of Secure Compilation. PriSC ’26 (2026) 2. Bertozzi, D., Benini, L.: Xpipes: A network-on-chip architecture for gigascale systems-on-chip. IEEE circuits and systems magazine 4(2), 18–31 (2004)
+
+NoC-Out 29 3. Bjerregaard, T., Mahadevan, S.: A survey of research and practices of network-on-chip. ACM Comput. Surv. 38 (1), 1–es (Jun 2006). https://doi.org/10.1145/ 1132952.1132953 , https://doi.org/10.1145/1132952.1132953 
+
+4. Bourgeat, T., Liu, J., Chlipala, A., Arvind: Making concurrent hardware ver-ification sequential. Proc. ACM Program. Lang. 9(PLDI) (Jun 2025). https: //doi.org/10.1145/3729331 , https://doi.org/10.1145/3729331 
+
+5. Bourgeat, T., Pit-Claudel, C., Chlipala, A., Arvind: The essence of bluespec: a core language for rule-based hardware design. In: Proceedings of the 41st ACM SIGPLAN Conference on Programming Language Design and Implemen-tation. p. 243–257. PLDI 2020, Association for Computing Machinery, New York, NY, USA (2020). https://doi.org/10.1145/3385412.3385965 , https://doi.org/ 10.1145/3385412.3385965 
+
+6. Braibant, T., Chlipala, A.: Formal verification of hardware synthesis. In: Interna-tional Conference on Computer Aided Verification. pp. 213–228. Springer (2013) 7. Chamarthi, H.R., Dillinger, P., Manolios, P., Vroon, D.: The acl2 sedan theorem proving system. In: International Conference on Tools and Algorithms for the Con-struction and Analysis of Systems. pp. 291–295. Springer (2011) 8. Charles, S., Mishra, P.: A survey of network-on-chip security attacks and coun-termeasures. ACM Comput. Surv. 54 (5) (May 2021). https://doi.org/10.1145/ 3450964 , https://doi.org/10.1145/3450964 
+
+9. Choi, J., Vijayaraghavan, M., Sherman, B., Chlipala, A., Arvind: Kami: a platform for high-level parametric hardware specification and its modular verification. Proc. ACM Program. Lang. 1(ICFP) (Aug 2017). https://doi.org/10.1145/3110268 ,
+
+> https://doi.org/10.1145/3110268
+
+10. Dally, W.J., Seitz, C.L.: Deadlock-free message routing in multiprocessor inter-connection networks. IEEE Trans. Comput. 36 (5), 547–553 (May 1987). https: //doi.org/10.1109/TC.1987.1676939 , https://doi.org/10.1109/TC.1987.1676939 
+
+11. Dally, W.J., Towles, B.P.: Principles and practices of interconnection networks. Elsevier (2004) 12. Das, S., Karfa, C., Biswas, S.: Accelerating noc verification using a complete model and active window. IEEE Access 10 , 88985–88999 (2022). https://doi.org/10. 1109/ACCESS.2022.3199671 
+
+13. Herklotz, Y., Pollard, J.D., Ramanathan, N., Wickerson, J.: Formal verification of high-level synthesis. vol. 5. Association for Computing Machinery, New York, NY, USA (11 2021). https://doi.org/10.1145/3485494 
+
+14. Kern, C., Greenstreet, M.R.: Formal verification in hardware design: a survey. ACM Trans. Des. Autom. Electron. Syst. 4(2), 123–193 (Apr 1999). https://doi. org/10.1145/307988.307989 , https://doi.org/10.1145/307988.307989 
+
+15. Kumar, S., Jantsch, A., Soininen, J.P., Forsell, M., Millberg, M., Oberg, J., Tien-syrja, K., Hemani, A.: A network on chip architecture and design methodology. In: Proceedings IEEE Computer Society Annual Symposium on VLSI. New Paradigms for VLSI Systems Design. ISVLSI 2002. pp. 117–124. IEEE (2002) 16. Mehta, A.B.: Systemverilog assertions and functional coverage. Springer (2020) 17. Mishchenko, A., et al.: ABC: System for Sequential Logic Synthesis and Formal Verification. https://github.com/berkeley-abc/abc , accessed: 2026-05-11 18. Nikhil, R.: Bluespec system verilog: efficient, correct rtl from high level speci-fications. In: Proceedings. Second ACM and IEEE International Conference on Formal Methods and Models for Co-Design, 2004. MEMOCODE ’04. pp. 69–70 (2004). https://doi.org/10.1109/MEMCOD.2004.1459818 30 M. Kurze et al. 19. Schmaltz, J., Borrione, D.: A generic network on chip model. In: Proceedings of the 18th International Conference on Theorem Proving in Higher Order Logics. p. 310–325. TPHOLs’05, Springer-Verlag, Berlin, Heidelberg (2005). https://doi. org/10.1007/11541868_20 , https://doi.org/10.1007/11541868_20 
+
+20. Silvaco: 45nm FreePDK. https://si2.org/open-cell-and-free-pdk-libraries/ ,accessed: 2026-05-11 21. Team, T.C.D.: The coq proof assistant (Sep 2024). https://doi.org/10.5281/ zenodo.14542673 , https://doi.org/10.5281/zenodo.14542673 
+
+22. Wolf, C.: Yosys Open SYnthesis Suite. http://www.clifford.at/yosys/ , accessed: 2026-05-11 23. Zerdani, A., Boutekkouk, F.: An overview of formal verification of network-on-chip (noc) methods. In: Laouar, M.R., Balas, V.E., Piuri, V., Rad, D., Touati Hamad, Z., Cheddad, A. (eds.) 13th International Conference on Information Systems and Advanced Technologies “ICISAT 2023”. pp. 26–34. Springer Nature Switzerland, Cham (2024) 
+
+## A GenAI Declaration 
+
+Neither the code nor the paper was written with any kind of support from generative AI. 
+
+## B Hoare Rules for Kôika 
+
+P → P ′ {P ′} S {Q}{P } S {Q} StrenPre {P } S {Q′} Q′ → Q
+
+{P } S {Q} WeakPost 
+
+Fig. 19: Structural rules. The rules for reasoning in our program logic classically fall into two cate-gories: structural rules and term rules. Structural rules are independent of the Kôika actions that the Hoare triples reason about. 
+
+Definition 12 (Structural rules). The structural rules to reason about Kôika actions are defined in Figure 19. 
+
+Rules StrenPre and WeakPost are standard rules for a Hoare logic and allow exchanging the pre- and postcondition respectively. The term rules state how an individual syntactic construct in a Kôika action interacts with the state, i.e., the register environment R, the log L and the variable context Γ.
+
+Definition 13 (Action rules). The term rules for Kôika actions of our pro-gram logic are defined in Figure 20. NoC-Out 31 
+
+{Q (b)} b {Q} BitStrings {Q (Γ[ x]) } x {Q} Var 
+
+{Q (R[r]) } read 0(r) {Q} HRead0 
+
+{Q (L[r]0 ?: R[r])) } read 1(r) {Q} HRead1 
+
+{P } a {v. Q (L ++ [write p(r,v)], ϵ )}{P } write p(r,a) {Q} HWrite 
+
+{P } a1 {v. Q (Γ ⊕ [x 7 → v], ϵ )} {Q} a2 {v. R (Γ \ { x}, v )} x ∈ Var 
+
+{P } let x := a1 in a2 {R} Bind 
+
+{P } ac {v. if v then Qt else Qf } {Qt} at {R} {Qf } af {R}{P } if ac then at else af {R} If 
+
+{P0} a1 {v1. P 1 (L1, (v1)) }{P1} a2 {v2. P 2 (L2, (v1, v 2)) }
+
+. . . 
+
+{Pn−1} an {vn. P n(Ln, (v1, . . . , v n)) }{Pn (v1, . . . , v n)} f {R}{P0} f (a1, . . . , a n) {R} Call 
+
+{P } abort {⊥} Abort 
+
+Fig. 20: Reasoning rules for Kôika actions. 32 M. Kurze et al. 
+
+The rules for bit strings, variables and reads of register values all follow the same principle. All of these expressions are side-effect free. As such, whatever condition Q should hold after the execution of this construct should also hold before. Note again that Q here actually means v. Q (v). For variables, we retrieve 
+
+v from the context Γ. For read 0( · ), we load v from the register environment 
+
+R. And for read 1( · ), we either find write 0(r,v) in the log L or resort to load again from R. For a write to a register, we require that Q holds when passed the log L with the appended write p(r,v). For conditionals, we formulate a join point, i.e., a postcondition R that needs to hold after execution of either of the two branches. A call requires a Hoare triple for each of its arguments. These triples are structured s.t. they accumulate their values, which are then passed to the triple for the function body. Note that these values are passed as variable context, which makes all of them available as local variables in the function body. What’s more – they even replace the context Γ – preventing f from accessing the caller’s local variables. Finally, the Abort rule maps an abort to ⊥ and thereby specifies our Hoare triples as partial. For total Hoare triples denoted as 
+
+[P ] a [Q], we drop this rule and thereby require that the action never aborts. If it happens in the course of a proof then the proof is simply stuck.
