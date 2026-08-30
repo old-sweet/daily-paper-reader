@@ -1,0 +1,338 @@
+Title: A Non-CDCL SAT Solver with Early Conflict Detection: The Watched-Literal-Based CSFLOC Solver
+
+URL Source: https://arxiv.org/pdf/2608.24255v1
+
+Published Time: Wed, 26 Aug 2026 00:49:03 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+> M. Hospodár et al. (Eds.): 17th International Conference on Automata and Formal Languages (AFL 2026) EPTCS 451, 2026, pp. 217–229, doi:10.4204/EPTCS.451.15 © G. Kusper This work is licensed under the Creative Commons Attribution License.
+
+# A Non-CDCL SAT Solver with Early Conflict Detection: The Watched-Literal-Based CSFLOC Solver 
+
+Gábor Kusper 
+
+> Eszterházy Károly Catholic University Eger, Hungary
+> kusper.gabor@uni-eszterhazy.hu
+
+CSFLOC is a non-CDCL SAT decision procedure based on counting subsumed full-length ordered clauses. The classical CSFLOC loop traverses the ordered space of full-length clauses by a mono-tone counter: if the current full-length clause is not subsumed by the input formula, its negation is a satisfying assignment; otherwise, a subsuming clause determines a counter jump. The main bot-tleneck is the repeated search for such a subsuming clause. This paper presents CSFLOC-WL, and its current implementation CSFLOC-WL3, in which this search is replaced by watched-literal prefix propagation over the negation of the current full-length clause represented by the counter. The cen-tral mechanism is early conflict detection: if propagation under a common prefix derives opposite unit consequences for the same variable, then the two reason clauses are resolved immediately and the resolvent is used as a new counter-jump cause. The resulting solver is not a CDCL solver: it has no CDCL decision tree, no restart policy, and no first-UIP backjumping loop. It remains a counter-guided full-length-clause-counting solver, but it imports the watched-literal data structure and reason clauses as engineering tools for discovering jumps. Experiments on selected UNSAT SATLIB in-stances compare CSFLOC-WL3 with CSFLOC21TU and CaDiCaL 3.0.0. The results are mixed: CSFLOC-WL3 is strong on several random 3-SAT instances near the random-3-SAT satisfiability threshold, whereas CSFLOC21TU remains faster on several structured cases, apparently because it contains a more mature cache mechanism that is not yet present in CSFLOC-WL3. 
+
+# 1 Introduction 
+
+Propositional satisfiability (SAT) is a central decision problem of computer science. Most high perfor-mance complete SAT solvers today follow the conflict-driven clause learning (CDCL) paradigm. CDCL solvers combine Boolean constraint propagation, conflict analysis, learned clauses, restarts, variable-activity heuristics, and highly optimized data structures. The two-watched-literal technique introduced in Chaff [13] became a standard implementation tool, and compact solvers such as MiniSat [3] made CDCL solver engineering accessible to a broad research community. CaDiCaL is a recent representative of this line: it is a CDCL solver with a clean library interface and a documented architecture [1], and release 3.0.0 provides a modern reference implementation for experimental comparison [4]. This paper follows a different line of SAT solving. CSFLOC is a non-CDCL solver based on counting subsumed full-length ordered clauses [10, 11, 7, 8]. For a fixed order of n variables, an ordered full-length clause contains exactly one literal over every variable. A clause D subsumes a clause C when D ⊆ C, and a CNF formula subsumes C when one of its clauses does. If a CNF formula fails to subsume some full-length clause C, then the negation of C is a satisfying assignment; conversely, if all 2 n full-length clauses are subsumed, then the formula is unsatisfiable. CSFLOC therefore decides satisfiability by traversing the ordered space of full-length clauses in a fixed variable order and by skipping intervals that are already known to be subsumed. 218 The Watched-Literal-Based CSFLOC Solver 
+
+The original CCC algorithm traversed this space naively. Optimized CCC used the observation that a clause whose last literal has variable index i subsumes a consecutive block of 2 n−i full-length clauses. CSFLOC added the last-positive-bit observation and organized clauses by the index and sign of their last literal [11]. Recent engineering work added affected clauses and length-sensitive learned-cause caches [8, 9]. These improvements reduce scanning, but the central operation is still a subsumption test: for the current full-length clause, the solver has to find a clause that is a subset of it. The solver studied here changes this operation. At each iteration, the current n-bit counter value b
+
+encodes a full-length clause C = FLC (b), and α = C is the assignment that makes every literal of C false. Instead of directly searching for a clause D ⊆ C, CSFLOC-WL assigns the variables according to α in the fixed order and uses watched-literal propagation. If the largest-index variable occurring in D is xi,then every other literal of D is false after α has been restricted to x1, . . . , xi−1. Hence D is unit when variable xi is reached. Thus the subsumption information used by CSFLOC can be recovered as a unit reason produced by prefix propagation. The main new mechanism is early conflict detection . Suppose that, under a common prefix be-fore level i, propagation has produced both unit consequences xi and ¯ xi with reason clauses P and N.CSFLOC-WL resolves P and N on xi and uses the resolvent as a new CSFLOC counter-jump cause. If the resolvent is empty, it is represented as the final counter movement to 2 n; the abstract algorithm still reports UNSAT only when the counter has reached the end of the full-length-clause space. If the resolvent is non-empty and its last variable is smaller than i, the counter may jump earlier than it would have jumped by waiting until level i.The contribution of the paper is threefold. First, it formulates CSFLOC subsumption search as watched-literal prefix propagation over the negation of the current full-length clause. Second, it states and proves the Early Conflict Detection theorem, which turns opposite unit consequences under a com-mon prefix into a sound CSFLOC jump cause. Third, it reports an experimental comparison between CSFLOC-WL3, the cache-oriented CSFLOC21TU implementation, and CaDiCaL 3.0.0 on selected UN-SAT SATLIB benchmarks. The experiments show that watched-literal propagation and early conflict detection can be effective, but also that CSFLOC21TU’s mature cache mechanism is still important on several benchmark families. The paper also documents two new CSFLOC21TU renaming strategies, T
+
+and U: T prepares two-SAT-like prefixes, while U tries to create early unit consequences. It is important to delimit the claim. CSFLOC-WL3 is not presented as a replacement for CDCL solvers. It is a step in the development of an alternative solver family whose search space is the ordered space of full-length clauses. It is not a classical lookahead solver either: although it assigns a prefix and observes propagation consequences, it does not branch on both values of a selected decision variable. The prefix is fixed by the current counter value. The purpose of propagation is not to choose a DPLL branch, but to find the next sound jump in the counter traversal. 
+
+# 2 Related Work 
+
+The standard complete SAT solver architecture is rooted in the DPLL procedure [2] and its conflict-driven extensions. GRASP introduced systematic conflict analysis and clause learning [12]. Chaff demonstrated the practical importance of engineering choices, in particular two-watched literals and the Variable State Independent Decaying Sum (VSIDS) branching heuristic [13]. MiniSat then showed that a compact CDCL implementation can serve both as a competitive solver and as a research platform [3]. CSFLOC-WL borrows the watched-literal data structure from this tradition, but not the CDCL search architecture: the global control object is the CSFLOC counter over full-length clauses. G. Kusper 219 The full-length-clause-counting line started with the idea of solving SAT by an iterative version of inclusion-exclusion [10]. The 2018 paper introduced CSFLOC as the next generation of full-length clause counting algorithms [11]. The habilitation dissertation of the author summarizes the above results and gives a detailed proof of the soundness and completeness of CSFLOC [7]. A recent engineering paper describes CSFLOC as a subsumption-driven clause-counting SAT solver [8]. The present paper continues this line, but replaces the main subsumption search by watched-literal prefix propagation. Earlier CSFLOC implementations used last-variable-indexed clause lists, affected clauses, and later bounded learned-cause caches. In CSFLOC19 the learned-cause cache kept the most recent three clauses for each last-variable/sign pair. CSFLOC20 admitted only short learned causes, and CSFLOC21 used a larger length-sensitive cache with short, medium, and long regions [9]. The CSFLOC21TU imple-mentation used in this paper belongs to this cache-oriented line. The watched-literal implementation is intentionally less mature with respect to caching because we encountered technical difficulties when migrating the cache mechanism to the new implementation. This makes the comparison informative be-cause it separates the effect of prefix propagation and early conflict detection from the effect of previous cache engineering. The experiments use instances from SATLIB, a benchmark collection for SAT research [6, 5]. SAT-LIB includes uniform random 3-SAT families such as the uf/uuf instances as well as classical benchmark families such as pigeonhole, Dubois, AIM, pret, bf, and ssa instances. All instances reported in this paper are UNSAT. The external reference solver is CaDiCaL 3.0.0. 
+
+# 3 CSFLOC Preliminaries 
+
+This section recalls preliminary results on the CSFLOC SAT solver. The original CSFLOC algorithm and its soundness and completeness proof were introduced in earlier work [11, 7]. Let V = {x1, . . . , xn} be the variables of the input formula, ordered by index. A literal is either a variable xi or its negation ¯ xi. A clause is a disjunction of literals, represented as a set, and a CNF formula is a conjunction of clauses, represented as a set of clauses. A clause is called ordered when its literals are written according to the fixed variable order; this ordering does not change its logical meaning. A clause 
+
+C over V is a full-length clause if it contains exactly one literal over every variable xi.For a non-empty clause D, define 
+
+last (D) = max {i | D contains a literal over xi}.
+
+For a full-length clause C, define 
+
+lastpos (C) = max ({i | xi ∈ C} ∪ { 1}).
+
+During an iteration, the integer count ∈ { 0, . . . , 2n −1} is identified with its n-bit binary representation 
+
+b = ( b1, . . . , bn) ∈ { 0, 1}n, including leading zeros and with b1 as the most significant bit. We call count ,or equivalently b, the current counter value . The value 2 n is the terminal counter value marking the end of the full-length-clause space. The bit vector b represents the full-length clause 
+
+FLC (b) = {xi | bi = 1} ∪ { ¯xi | bi = 0}.
+
+The candidate assignment associated with b is the complement α(b) = FLC (b). Thus ℓ ∈ FLC (b) if and only if (iff) ℓ is false under α(b).220 The Watched-Literal-Based CSFLOC Solver 
+
+For a clause set S and a clause D, the notation S |= D means that every truth assignment satisfying all clauses of S also satisfies D.
+
+Definition 1 (Subsumption and jump cause) . A clause D subsumes a clause C iff D ⊆ C. A clause set S subsumes C iff some clause E ∈ S subsumes C. Let S be the input clause set and let b be the current counter value. A clause D is a counter-jump cause for b if S |= D and D ⊆ FLC (b). If i = last (D), then D justifies the CSFLOC counter jump determined by level i. 
+
+Lemma 1 (Clear Clause Rule) . Let S be a clause set and let C be a full-length clause. Then S subsumes C iff C is not a model of S. Equivalently, S does not subsume C iff C is a model of S. Proof. If S subsumes C, then some D ∈ S satisfies D ⊆ C. Every literal of D is false under C, so C is not a model of S. Conversely, if C is not a model of S, then some D ∈ S is false under C. Hence every literal of D belongs to C, so D ⊆ C. The second equivalence is the negation of the first one. 
+
+Corollary 1 (Full-length coverage) . A clause set S over n variables is satisfiable iff it subsumes fewer than 2n full-length clauses. It is unsatisfiable iff it subsumes all 2n full-length clauses. 
+
+Lemma 2 (Consecutive block property) . Let D be a non-empty clause and let i = last (D). If D ⊆ FLC (b),then every full-length clause with the same first i literals as FLC (b) is also subsumed by D. Consequently, if the suffix bits b i+1, . . . , bn are all zero, then D subsumes the current full-length clause and the next 
+
+2n−i − 1 full-length clauses in the counter order. Proof. All literals of D have index at most i. Any full-length clause with the same first i literals as 
+
+FLC (b) contains all literals of D. There are 2 n−i possible suffixes after the first i variables. 
+
+Algorithm 1 CSFLOC( S)
+
+Require: S is a non-empty set of ordered clauses over variables x1, . . . , xn.
+
+Ensure: If S is satisfiable, return a model of S; otherwise return the empty set.  
+
+> 1:
+
+Si ← { D ∈ S | last (D) = i} for i = 1, . . . , n 
+
+> 2:
+
+count ← 0 
+
+> 3:
+
+while count < 2n do  
+
+> 4:
+
+increment ← 0 
+
+> 5:
+
+C ← FLC (count ) 
+
+> 6:
+
+for j ← lastpos (C) to n do  
+
+> 7:
+
+if there exists D ∈ S j such that D ⊆ C then  
+
+> 8:
+
+increment ← 2n− j 
+
+> 9:
+
+break  
+
+> 10:
+
+end if  
+
+> 11:
+
+end for  
+
+> 12:
+
+if increment = 0 then  
+
+> 13:
+
+return C 
+
+> 14:
+
+else  
+
+> 15:
+
+count ← count + increment  
+
+> 16:
+
+end if  
+
+> 17:
+
+end while  
+
+> 18:
+
+return {} G. Kusper 221 The only difference between Optimized CCC and CSFLOC is the starting point of the inner search. Optimized CCC starts at j = 1, while CSFLOC starts at lastpos (C). For a fixed current clause C, a smaller value of j yields a larger block of size 2 n− j. By the best available jump we mean the jump supplied by an applicable subsuming clause with the smallest possible last-variable index. Because Algorithm 1 scans 
+
+j in increasing order, it selects this largest available block. The last-positive-bit observation states that, provided earlier iterations also selected their best available jumps, no clause with last variable below 
+
+lastpos (C) can subsume the current full-length clause [11, 7]. A subsuming clause justifies its jump because Lemma 2 guarantees that every full-length clause skipped before the next block boundary is also subsumed; therefore the jump cannot skip a satisfying assignment. Algorithm 1 is consequently sound and complete: if no subsuming clause is found, Lemma 1 gives a model; if a subsuming clause is found, the block lemma validates the movement; and if the counter reaches 2 n, Corollary 1 gives unsatisfiability. 
+
+# 4 Watched-Literal Prefix Propagation 
+
+The purpose of CSFLOC-WL is to replace the explicit subsumption search in Algorithm 1 by watched-literal prefix propagation under α(b) = FLC (b). The global structure remains the CSFLOC counter loop. The solver still traverses the ordered space of full-length clauses, and the only UNSAT return is the classical CSFLOC one: the counter reaches the end of the full-length-clause space. The difference is how the next counter increment is found. 
+
+4.1 Terminology of Watched-Literal Prefix Propagation 
+
+For i ∈ { 1, . . . , n}, let α<i(b) denote the restriction of α(b) to the variables x1, . . . , xi−1. Assignments taken directly from this restriction are called prefix decisions . In an explanation clause, see the next paragraph, a prefix-decision literal is a literal falsified by one of these assignments rather than by a propagated assignment. A partial assignment assigns truth values to some of the variables. A clause D is unit under a partial assignment A with unit literal u if u ∈ D is unassigned and every literal in D \ { u} is false under A.Unit propagation then assigns u to true; u is called a propagated literal , and D is its reason clause . A 
+
+propagation conflict occurs when every literal of some clause is false. For the current full-length clause 
+
+C, a propagated literal u is relevant if u ∈ C, that is, if the counter-complement assignment C would make u false. An explanation clause for a propagated literal or a conflict is obtained by resolving reason clauses until only the relevant propagated literal, if any, and prefix-decision literals remain. The watched-literal data structure for S associates each clause with one or two watched literals and maintains, for each literal, a list of clauses that currently watch it. When a watched literal becomes false, only the clauses on its watch list need to be inspected. A clause then moves the watch to another non-false literal if possible; otherwise it is already satisfied, becomes unit and propagates its remaining literal, or becomes conflicting. 
+
+Definition 2 (Prefix-valid cause) . Let b be the current counter value and let D be a non-empty clause with S |= D. Let i = last (D) and let p i(D) be the literal of D over x i. We say that D is prefix-valid at level 
+
+i for b if D \ { pi(D)} ⊆ FLC (b).
+
+The literal p i(D) is called the pivot literal of D at level i. 
+
+A prefix-valid cause becomes an ordinary counter-jump cause exactly when its pivot literal also belongs to FLC (b). If the pivot literal does not belong to FLC (b), the clause is still useful as a reason 222 The Watched-Literal-Based CSFLOC Solver 
+
+for a forced value opposite to the current counter branch. Two prefix-valid causes at level i are called 
+
+opposite if their pivot literals are xi and ¯ xi, respectively. Here level j refers to the position of variable x j in the fixed variable order. For B = 2n− j and q =
+
+⌊count /B⌋, the level- j block containing count is the interval 
+
+{qB , . . . , (q + 1)B − 1}.
+
+Its counter values have the same first j bits. The next boundary of this block is (q + 1)B, so the distance from the current counter value to that boundary is B − (count mod B).
+
+4.2 The CSFLOC SAT Solver with Watched-Literals Data Structure 
+
+Algorithm 2 CSFLOC-WL( S)
+
+Require: S is a non-empty set of ordered clauses over variables x1, . . . , xn.
+
+Ensure: If S is satisfiable, return a model of S; otherwise return the empty set.  
+
+> 1:
+
+count ← 0 
+
+> 2:
+
+initialize the watched-literal data structure for S 
+
+> 3:
+
+while count < 2n do  
+
+> 4:
+
+increment ← 0 
+
+> 5:
+
+C ← FLC (count ) 
+
+> 6:
+
+start ← lastpos (C) 
+
+> 7:
+
+propagate C by watched literals, using start as the first ordinary CSFLOC search level, until one of the following events occurs: (a) a relevant unit u ∈ C is derived, with explanation clause D;(b) a conflict is derived, with explanation clause D;(c) opposite prefix-valid causes P and N yield a non-tautological resolvent D;(d) propagation finishes without a relevant unit, conflict, or non-tautological complementary resolvent.  
+
+> 8:
+
+if event (d) occurs then  
+
+> 9:
+
+return C 
+
+> 10:
+
+end if  
+
+> 11:
+
+if D = /0 then  
+
+> 12:
+
+increment ← 2n − count  
+
+> 13:
+
+else  
+
+> 14:
+
+j ← last (D) 
+
+> 15:
+
+B ← 2n− j 
+
+> 16:
+
+increment ← B − (count mod B) 
+
+> 17:
+
+end if  
+
+> 18:
+
+count ← count + increment  
+
+> 19:
+
+end while  
+
+> 20:
+
+return {} 
+
+The operation “propagate C by watched literals” is intentionally abstract in Algorithm 2. It denotes standard unit propagation under the counter-complement assignment. The implementation details of watched lists, trails, queues, and reason arrays are not part of the abstract algorithm. What matters G. Kusper 223 for CSFLOC-WL is only the event returned by propagation. A relevant unit is a propagated literal u
+
+such that u ∈ C. Equivalently, u is a literal that the candidate assignment C would make false. A conflict explanation is obtained from a propagation conflict by resolving reason clauses until only prefix-decision literals remain. A complementary resolvent is obtained when two opposite prefix-valid causes meet at the same variable level. Tautological complementary resolvents are ignored, because they exclude no full-length clause. The formula increment = B − (count mod B) moves the counter to the next boundary of the level- j
+
+block. In the classical CSFLOC case, where j is not below the last positive bit, this is exactly the usual increment 2 n− j. The more general form is needed because early conflict detection may produce a cause whose last variable is below the current CSFLOC start index. If D = /0, the algorithm uses the final increment 2 n − count ; thus an empty derived clause is represented as a counter movement to the end of the full-length-clause space. 
+
+Lemma 3 (Subsuming clause gives a prefix unit) . Let C = FLC (b) be the current full-length clause, and let D ⊆ C be a non-empty clause. Let i = last (D), and let u be the unique literal of D over x i. Then D is unit under α<i(b) with unit literal u. Proof. Every literal of D \ { u} has index smaller than i and belongs to FLC (b). Hence it is false under 
+
+α<i(b). The literal u is over xi, so it is not assigned by α<i(b).
+
+Lemma 4 (Relevant prefix unit gives a jump cause) . Let D be a clause entailed by S. Assume that D is unit under α<i(b) with unit literal u, where u is over x i and i = last (D). If u ∈ FLC (b), then D ⊆ FLC (b),and therefore D is a valid counter-jump cause for b. Proof. All non-unit literals of D are false under α<i(b), hence belong to FLC (b). The unit literal u
+
+belongs to FLC (b) by assumption. Thus D ⊆ FLC (b), and the entailment S |= D makes D a counter-jump cause. Explanation clauses used in events (a) and (b) are obtained from reason clauses by repeated resolu-tion. Reason clauses are original input clauses or clauses previously derived by sound resolution steps. Consequently, every non-empty explanation clause returned by event (a) or (b) is entailed by S and is a subset of FLC (b): in the relevant-unit case it contains the relevant unit and prefix-decision literals, and in the conflict case it contains only prefix-decision literals. Hence every non-empty explanation is a valid counter-jump cause. If the explanation is empty, Algorithm 2 represents it by the final increment 2n − count .
+
+Theorem 1 (Early Conflict Detection) . Let S be a CNF formula and let b be the current CSFLOC counter value. Let i ∈ { 1, . . . , n}. Assume that P and N are two prefix-valid causes at level i for b such that x i ∈ Pand ¯xi ∈ N. Define D = Res i(N, P) = ( N ∪ P) \ { ¯xi, xi},
+
+with duplicate literals removed. If D is tautological, it is ignored. If D is empty, CSFLOC-WL represents it as the final increment to 2n. If D is non-empty and non-tautological, then S |= D, D ⊆ FLC (b), and 
+
+last (D) < i; hence D is a valid counter-jump cause. Proof. Since P and N are prefix-valid causes, S |= P and S |= N. By soundness of resolution, S |= D
+
+whenever the resolvent is considered as a non-tautological clause. If D is tautological, it excludes no full-length clause and is ignored. If D is empty, it is contained in every full-length clause and is represented by the final increment. Now assume that D is non-empty and non-tautological. Prefix validity gives 224 The Watched-Literal-Based CSFLOC Solver 
+
+P \ { xi} ⊆ FLC (b) and N \ { ¯xi} ⊆ FLC (b). The resolvent contains only literals from these two non-pivot parts, so D ⊆ FLC (b). All non-pivot literals have index strictly smaller than i, hence last (D) < i.
+
+Corollary 2 (Early jump) . In the non-empty non-tautological case of Theorem 1, CSFLOC-WL may jump according to last (D). Since last (D) < i, this jump is earlier than the level at which the opposite unit consequences meet. If last (D) is also below the current CSFLOC start index, then the jump skips a larger block than the ordinary last-positive-bit search would consider in that iteration. 
+
+Theorem 2 (Soundness and completeness of CSFLOC-WL) . Assume that watched-literal propagation in Algorithm 2 implements standard unit propagation under the current prefix assignment, and that explanation clauses are built by sound resolution steps. Then Algorithm 2 is sound and complete for propositional satisfiability. Proof. Every non-zero increment is justified by a clause entailed by S and contained in the current full-length clause C, or by the empty clause represented as the final increment. For event (a), this follows from Lemma 4; for event (b), from the explanation invariant; for event (c), from Theorem 1. Thus no counter increment skips a satisfying assignment. If propagation finishes with event (d), then no input clause subsumes C: otherwise Lemma 3 would make such a clause appear as a relevant unit, or propagation would derive a conflict. By Lemma 1, C is a model of S. The only UNSAT return occurs after the loop, when the counter has covered the full-length-clause space by sound increments; Corollary 1 then gives unsatisfiability. Termination follows because every non-returning iteration increases the monotone counter by a positive amount. CSFLOC-WL uses watched literals, unit reasons, and resolution, but it does not use the CDCL search architecture. A CDCL solver would interpret an implication conflict as a reason to learn a clause and backjump in a decision tree. CSFLOC-WL uses the same local propagation information to move a monotone full-length-clause counter. The learned or derived object is therefore a CSFLOC jump cause, not primarily a first-UIP backjump clause. 
+
+# 5 Implementation Notes 
+
+The implementation evaluated in this paper is the Java prototype CSFLOC-WL3 available at https: //uni-eszterhazy.hu/fmv/tools . It has four layers: input normalization and variable renaming; ordered clause and counter representation; watched-literal prefix propagation; and the CSFLOC con-trol loop. The input is read in DIMACS CNF format. After parsing, duplicate literals are removed, tautological clauses are ignored, and clauses are sorted according to the selected variable order. The full-length-clause counter is represented as a bit vector with the same semantics as in Section 3. The propagation layer uses the standard two-watched-literal invariant. A clause is inspected only when one of its watched literals becomes false. If a replacement watched literal can be found, the clause is not processed further. If not, the other watched literal either becomes a propagated unit or yields a conflict. The solver stores a propagation trail and reason clauses for propagated variables. When the prefix state is reset for the next counter value, assignments and reasons are cleared, but the watched positions are not restored; unassigning variables cannot invalidate the watch invariant. The main loop is a hybrid. It first tries known active causes; on a miss, it runs watched-literal prefix propagation and converts relevant units, conflicts, and complementary causes into counter-jump causes. CSFLOC-WL3 stores the active positive and negative causes needed by the traversal and by early conflict detection, but it does not yet have the mature CSFLOC21TU learned-cause cache. This design decision G. Kusper 225 is important for the experiments: some regressions are expected when a solver that discovers good causes by propagation is compared with a solver that already has an efficient mechanism for remembering and reusing them. 
+
+5.1 Variable-renaming strategies T and U 
+
+CSFLOC21TU, available at https://uni-eszterhazy.hu/fmv/tools , and also CSFLOC-WL3 con-tain two additional variable-renaming strategies, denoted by T and U. They belong to the same High-LevelReader-style preprocessing mechanism as the earlier B, H,C,W, R, I, and S strategies known from CSFLOC19. A strategy string is applied from left to right: after each strategy a translation table is computed, the clauses are renamed, and the new translation is composed with the previous translations. Thus a label such as CUB denotes a sequential composition of clustering, island-oriented renaming, and unit-oriented renaming. The strategies change only the variable order; they do not change the formula. The T strategy is a two-SAT-prefix-oriented renaming strategy. Its goal is to give small indices to a greedy prefix of variables such that, after this prefix has been fixed, long clauses are reduced to clauses of length at most two on as many counter branches as possible. For 3-SAT this becomes a hitting-set-like task: the selected prefix should intersect every 3-clause. The strategy uses a waiting-list discipline: after a variable has been selected, related variables from still-uncovered long clauses are temporarily delayed, so the prefix spreads over many clauses instead of concentrating in one local region. At the moment CSFLOC has no dedicated 2-SAT watcher or integrated 2-SAT solver, so T is mainly preparation for a future extension. The U strategy uses the same waiting-list philosophy, but its target is directly connected to prop-agation. It tries to arrange the variable order so that unit clauses appear early and frequently under counter-induced prefixes. For a clause of length k, it tries to place k − 1 useful variables early, so that the remaining literal can become unit. This is especially natural for CSFLOC-WL, where jump causes are discovered through prefix units and early conflicts. In the reported experiments, the CUB strategy is used on the two ssa instances; these rows are not an ablation study of U, but they show that a combination containing U was among the selected strong CSFLOC configurations. 
+
+# 6 Experimental Evaluation 
+
+The experiments compare three solvers. CSFLOC21TU is the previous CSFLOC implementation ex-tended with the new T and U variable-renaming strategies and with the mature cache mechanism in-herited from CSFLOC21. CSFLOC-WL3 is the new watched-literal-based implementation with early conflict detection. All CSFLOC variants are available at https://uni-eszterhazy.hu/fmv/tools .CaDiCaL 3.0.0 is used as a modern CDCL reference solver. All test instances are UNSAT and were downloaded from SATLIB in DIMACS CNF format. The selected instances cover several SATLIB fam-ilies: uuf random unsatisfiable 3-SAT, pigeonhole, Dubois, pret, ssa, bf, and AIM instances, see: https: //www.cs.ubc.ca/~hoos/SATLIB/benchm.html . The goal is not a complete benchmark study over all instances of each family, but an initial engineering comparison. The experiments were executed on a laptop with a 12th Gen Intel(R) Core(TM) i7-1255U CPU at 1.70 GHz and 32 GB of memory. Each selected instance was executed three times for each solver, and the table reports the arithmetic mean of the three wall-clock running times in seconds. The notation TO means that the run did not finish within the timeout limit of 120 seconds. Because several measurements are below one tenth of a second, very small differences should not be over-interpreted. 226 The Watched-Literal-Based CSFLOC Solver                                                                                                                                                         
+
+> Instance nmStrategy C19 C21TU C21NoCache CWL3 CaDi uuf50-01 50 218 IWCR 0.017 0.031 0.018 0.004 0.03 uuf75-01 75 325 IWCR 0.053 0.054 0.061 0.012 0.05 uuf100-01 100 430 IWCR 0.135 0.146 0.191 0.025 0.05 uuf125-01 125 538 IWCR 1.099 0.436 1.746 0.071 0.09 uuf150-01 150 645 IWCR 52.156 23.929 TO 1.179 0.14 uuf175-01 175 753 CIBR TO TO TO 6.856 0.31 uuf200-01 200 860 CIBR TO TO TO 24.825 0.79 hole7 56 204 B0.053 0.063 0.087 0.289 0.03 hole8 72 297 B0.296 0.208 0.647 3.812 0.07 hole9 90 415 B3.333 2.236 6.885 65.269 0.05 dubois30 90 240 CIBR 0.475 1.187 11.346 7.009 0.02 pret60_75 60 160 NON 0.052 0.071 0.058 0.105 0.05 ssa0432-003 435 1027 CUB 0.227 0.242 3.483 0.372 0.04 ssa2670-141 986 2315 CUB 0.791 0.575 31.054 4.379 0.06 bf2670-001 1393 3434 IWCR 0.082 0.093 0.083 0.043 0.07 bf0432-007 1040 3668 IWCR 79.435 87.233 TO TO 0.06 aim-200-2_0-no-1 200 400 IWCR 0.015 0.043 0.015 0.042 0.05 aim-200-2_0-no-2 200 400 IWCR 0.018 0.038 0.021 0.034 0.05
+
+Table 1: Runtime comparison on selected UNSAT SATLIB instances. Times are arithmetic means of three runs, in seconds. C19, C21TU, CWL3, C21NoCache, and CaDi abbreviate CSFLOC19, CS-FLOC21TU, CSFLOC21TU with no cache, CSFLOC-WL3, and CaDiCaL 3.0.0, respectively. To interpret Table 1, it is useful first to clarify the strategy labels and the main differences among the CSFLOC variants. The strategy column records the variable-renaming strategy sequence used by the CSFLOC variants. The same strategy is used for CSFLOC19, CSFLOC21TU, C21NoCache, and CSFLOC-WL3 in each row; CaDiCaL does not use this CSFLOC-specific parameter. CSFLOC19 is regarded as the most stable CSFLOC version, so it serves as the baseline within the CSFLOC solver family. Compared with CSFLOC19, CSFLOC21TU includes a new learned-cause mechanism [9] and the two new variable-renaming strategies, T and U. For each last-variable/sign pair, CSFLOC19 maintains a three-entry cache containing the three most recently learned clauses with that last literal. CSFLOC21TU inherits the length-sensitive cache of CSFLOC21, which stores up to ten learned clauses for each last literal: three short clauses of length at most 5, three medium clauses of length 6–9, and four long clauses of length at least 10. Apart from these extensions, CSFLOC21TU follows the same underlying CSFLOC architecture as CSFLOC19. The rows using the CUB strategy are relevant to the new U strategy. Since CSFLOC19 does not implement U, it applies the corresponding strategy sequence without that component, namely CB. The first observation is that CSFLOC-WL3 outperforms CSFLOC21TU without caching on most instances, with the main exceptions being the pigeonhole instances and a few instances with very short running times. This suggests that the watched-literal data structure is useful not only for CDCL-based SAT solvers, but also for CSFLOC-based solvers. The first group of results is the random 3-SAT uuf family. Here CSFLOC-WL3 is consistently faster than CSFLOC21TU on the reported instances. On uuf150-01 the runtime decreases from 23.929 seconds to 1.179 seconds, and CSFLOC-WL3 solves uuf175-01 and uuf200-01 while CSFLOC21TU reaches the timeout limit. This is the clearest evidence that watched-literal prefix propagation and early conflict detection can be useful for the CSFLOC family. The second group shows the limitation of the current WL3 prototype. On hole7, hole8, hole9, dubois30, pret60_75, ssa2670-141, and bf0432-007, CSFLOC21TU is faster. These results support the engineering hypothesis that the mature cache mechanism of CSFLOC21TU is still important, or even the G. Kusper 227                                                             
+
+> Instance C21TU loops CWL3 loops Loop fac. C21TU LH CWL3 CH CWL3 below uuf100-01 164 004 1 223 134.1 47 549 852 381 uuf150-01 46 244 244 322 174 143.5 14 838 523 125 857 70 217 uuf200-01 TO 4 947 939 –TO 2 222 147 1 306 067 hole9 6 733 207 49 816 953 0.14 1 466 401 5 214 584 3 439 567 dubois30 1 218 632 14 105 280 0.09 217 918 1 124 287 562 175 ssa0432-003 689 171 5 156 235 4.41 81 286 10 184 4 422 ssa2670-141 2 646 742 1 246 814 2.12 205 027 80 405 37 572 bf2670-001 65 990 1 457 45.3 352 26 13 bf0432-007 308 005 246 TO –40 375 909 TO TO
+
+Table 2: Internal diagnostic statistics. Loop fac. is C21TU loops divided by CWL3 loops. C21TU LH de-notes CSFLOC21TU learned-clause hits. CWL3 CH denotes CSFLOC-WL3 Early-Conflict-Detection-theorem hits. CWL3 below denotes Early jumps below the current start index. least mature cache mechanism of CSFLOC19 is enough in most of the cases. CSFLOC-WL3 has early conflict detection, but it does not yet have an equally developed cache for reusing derived causes across counter states. The comparison with CaDiCaL should be interpreted as a reference point rather than as a claim of general competitiveness. CaDiCaL is faster on most of the reported instances, particularly on the struc-tured pigeonhole, Dubois, ssa, and bf0432 cases. Nevertheless, CSFLOC-WL3 is faster than CaDiCaL on several selected cases, including uuf50-01, uuf75-01, uuf100-01, uuf125-01, and bf2670-001. The two AIM rows also slightly favor CSFLOC-WL3, but the differences are too small to support a separate conclusion. Thus, the data do not show that CSFLOC-WL3 competes with state-of-the-art CDCL solvers as a general-purpose SAT solver. Rather, they show that the watched-literal CSFLOC direction is viable enough to justify further engineering. 
+
+6.1 Internal statistics explaining the runtime differences 
+
+Table 2 gives internal statistics for selected representative rows. The most important quantity is the number of main-loop iterations. Since CSFLOC is counter-guided, a large reduction in the number of main-loop iterations usually means that the solver traverses the full-length-clause space by larger jumps. Conversely, if CSFLOC-WL3 performs more main-loop iterations than CSFLOC21TU, then the cost of watched-literal propagation and explanation construction is unlikely to be compensated. The first pattern is visible on the random uuf instances. On uuf100-01 and uuf150-01, CSFLOC-WL3 reduces the number of main-loop iterations by more than two orders of magnitude. For example, uuf100-01 decreases from 164 004 iterations in CSFLOC21TU to 1 223 iterations in CSFLOC-WL3. This reduction is accompanied by 852 Early-Conflict-Detection-theorem hits, including 381 Early jumps below the current start index. These numbers support the interpretation that CSFLOC-WL3 is fast on the uuf rows because prefix propagation and early conflict detection produce lower-level jump causes and therefore skip larger blocks of the full-length-clause space. The second pattern explains the regressions. On hole9, and dubois30 CSFLOC-WL3 performs sub-stantially more main-loop iterations than CSFLOC21TU. In these cases the watched-literal mechanism does not shorten the counter traversal enough. Moreover, a WL3 iteration may include propagation, trail scanning, and explanation construction. Thus, when the number of WL3 iterations is larger, the propagation overhead becomes visible. The third pattern concerns caching. CSFLOC21TU has a mature learned-cause cache, and the di-agnostic table shows that this cache is used heavily on several structured instances. For example, CS-228 The Watched-Literal-Based CSFLOC Solver 
+
+FLOC21TU has 1 466 401 learned-clause hits on hole9 and 40 375 909 learned-clause hits on bf0432-007. The reported CSFLOC-WL3 runs, in contrast, use no learned-cause cache. They rely on active causes, watched-literal prefix propagation, and complementary resolution. This explains why WL3 can win when these mechanisms greatly shorten the traversal, but loses when CSFLOC21TU’s learned-cause cache is more effective. Overall, Tables 1 and 2 suggest that CSFLOC-WL3 wins when watched-literal prefix propagation and complementary resolution reduce the number of counter states. It loses when this reduction is absent, because propagation is more expensive than a successful cached-cause lookup. The next engineering step is therefore clear: combine the WL3 propagation and early-conflict mechanisms with a CSFLOC21TU-level learned-cause cache. 
+
+# 7 Conclusion 
+
+This paper presented CSFLOC-WL and its current implementation CSFLOC-WL3, a non-CDCL SAT solver that replaces the classical CSFLOC subsumption search by watched-literal prefix propagation. The theoretical bridge is simple: a clause subsuming the current full-length clause becomes a unit clause under the negated prefix assignment. The main new rule is early conflict detection. If opposite unit consequences are produced for the same variable under a common prefix, their reason clauses can be resolved immediately, and the resolvent is a sound CSFLOC counter-jump cause. This uses a CDCL-style propagation event, but not the CDCL control architecture. The global search remains a monotone traversal of the ordered full-length-clause space. The experiments show both promise and a clear engineering gap. CSFLOC-WL3 performs very well on several random 3-SAT instances and solves two uuf instances on which CSFLOC21TU reaches the timeout limit. On several structured benchmarks, however, CSFLOC21TU is faster, apparently because its advanced cache mechanism reuses derived causes more effectively. The current evidence supports a combined direction: add a CSFLOC21TU-style cache to the watched-literal implementation and then reevaluate the solver on a larger SATLIB subset. The new T and U variable-renaming strategies are part of the current engineering picture. Our broader experiments suggest that U can be useful, especially in CUB-like combinations, while T is mainly a preparation for future explicit 2-SAT handling. 
+
+# Acknowledgment 
+
+This project, i.e., Project no. 2024-1.2.5-TÉT-2024-00072 has been implemented with the support pro-vided by the Ministry of Culture and Innovation of Hungary from the National Research, Development and Innovation Fund, financed under the 2024-1.2.5-TÉT funding scheme. This work was also supported by the Slovak Research and Development Agency under the Contract no. SK-HU-24-0037. 
+
+# References     
+
+> [1] Armin Biere, Tobias Faller, Katalin Fazekas, Mathias Fleury, Nils Froleyks & Florian Pollitt (2024): CaDi-CaL 2.0 . In Arie Gurfinkel & Vijay Ganesh, editors: Computer Aided Verification , Springer Nature Switzer-land, Cham, pp. 133–152, doi:10.1007/978-3-031-65627-9_7. [2] Martin Davis, George Logemann & Donald Loveland (1962): A machine program for theorem-proving .
+> Commun. ACM 5(7), pp. 394–397, doi:10.1145/368273.368557.
+
+G. Kusper 229 
+
+[3] Niklas Eén & Niklas Sörensson (2004): An Extensible SAT-solver . In: Theory and Applications of Satis-fiability Testing , Lecture Notes in Computer Science 2919, Springer, pp. 502–518, doi:10.1007/978-3-540-24605-3_37. [4] Mathias Fleury, Armin Biere, Florian Pollitt, Katalin Fazekas, Tobias Faller, Ahmet Tümi¸ s, Eric Wieser, Samuel Teuber & Nils Froleyks (2025): arminbiere/cadical: Release 3.0.0 , doi:10.5281/zenodo.18038509. [5] Holger H. Hoos & Thomas Stützle: SATLIB Benchmark Problems . https://www.cs.ubc.ca/~hoos/ SATLIB/benchm.html . Accessed on 22 May 2026. [6] Holger H. Hoos & Thomas Stützle (2000): SATLIB: An Online Resource for Research on SAT . In: SAT 2000 ,IOS Press, pp. 283–292. [7] Gábor Kusper (2020): Introducing the Black-and-White SAT Problem and the CSFLOC SAT Solver . Habili-tation dissertation, University of Debrecen, Faculty of Informatics. [8] Gábor Kusper (2025): Engineering CSFLOC: A Subsumption-Driven Clause-Counting SAT Solver . In: Pro-ceedings of the 28th International Multiconference INFORMATION SOCIETY – IS 2025, Volume N , pp. 23–26. [9] Gábor Kusper (2026): LLM-Assisted SAT Solver Engineering: A Case Study on Enhancing CSFLOC .preprint submitted to CITDS 2026. Available at https://www.researchgate.net/publication/ 410600229_LLM-Assisted_SAT_Solver_Engineering_A_Case_Study_on_Enhancing_CSFLOC_-_ Preprint . Accessed on 20 July 2026. [10] Gábor Kusper & Csaba Biró (2015): Solving SAT by an Iterative Version of the Inclusion-Exclusion Principle .In: Proceedings of the 17th International Symposium on Symbolic and Numeric Algorithms for Scientific Computing (SYNASC) , pp. 189–190, doi:10.1109/SYNASC.2015.38. [11] Gábor Kusper, Csaba Biró & György B. Iszály (2018): SAT Solving by CSFLOC, the Next Generation of Full-Length Clause Counting Algorithms . In: Proceedings of the IEEE International Conference on Future IoT Technologies , pp. 1–9, doi:10.1109/FIOT.2018.8325589. [12] Joao P. Marques-Silva & Karem A. Sakallah (1999): GRASP: A Search Algorithm for Propositional Satisfi-ability . IEEE Transactions on Computers 48(5), pp. 506–521, doi:10.1109/12.769433. [13] Matthew W. Moskewicz, Conor F. Madigan, Ying Zhao, Lintao Zhang & Sharad Malik (2001): Chaff: En-gineering an Efficient SAT Solver . In: Proceedings of the 38th Annual Design Automation Conference , pp. 530–535, doi:10.1145/378239.379017.
