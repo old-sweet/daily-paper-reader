@@ -6,32 +6,26 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-30
-- 运行时间：2026-08-30 23:01:31 UTC
+- 最新运行日期：2026-08-31
+- 运行时间：2026-09-01 00:16:20 UTC
 - 运行状态：成功
-- 本次总论文数：3
+- 本次总论文数：2
 - 精读区：1
-- 速读区：2
+- 速读区：1
 
 ### 今日简报（AI）
-- 今日共生成 3 篇推荐（精读 1 篇，速读 2 篇）
-- 精读：《Lessons from the Hardware Hacking Competitions: Verification Techniques, Findings, and Insights》（9.0/10）
-- 速读：《A Non-CDCL SAT Solver with Early Conflict Detection: The Watched-Literal-Based CSFLOC Solver》（6.0/10）, 《LLM-Driven, Datasheet-Aware Automated Hardware Compatibility Verification for Early-Stage, Pre-Schematic Embedded System Design》（6.0/10）
-- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
-- 详情：[/202608/30/README](/202608/30/README)
+今日精读1篇、速读1篇，重点聚焦时序电路的可扩展性分析。最值得关注的是《Beyond Flat Netlist》，通过分层图表示学习突破扁平网表局限，获8.0高分。建议普通读者后续可留意图神经网络在电路建模中的应用，而非深入实现细节。
+- 详情：[/202608/31/README](/202608/31/README)
 
 ### 精读区论文标签
-1. [Lessons from the Hardware Hacking Competitions: Verification Techniques, Findings, and Insights](/202608/30/2608.22202v1-lessons-from-the-hardware-hacking-competitions-verification-techniques-findings-and-insights)  
-   标签：评分：9.0/10、query:fsh
-   evidence：结合仿真验证、形式验证、LLM辅助缺陷检测与覆盖引导混合模糊测试，直接对应混合验证与模糊测试需求
+1. [Beyond Flat Netlist: Hierarchical Graph Representation Learning for Scalable Analysis of Sequential Circuits](/202608/31/2608.28188v1-beyond-flat-netlist-hierarchical-graph-representation-learning-for-scalable-analysis-of-sequential-circuits)  
+   标签：评分：8.0/10、query:ml-verify
+   evidence：面向顺序电路分析的层次化图表示学习
 
 ### 速读区论文标签
-1. [A Non-CDCL SAT Solver with Early Conflict Detection: The Watched-Literal-Based CSFLOC Solver](/202608/30/2608.24255v1-a-non-cdcl-sat-solver-with-early-conflict-detection-the-watched-literal-based-csfloc-solver)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：SAT求解器，支持硬件形式验证的搜索式方法
-2. [LLM-Driven, Datasheet-Aware Automated Hardware Compatibility Verification for Early-Stage, Pre-Schematic Embedded System Design](/202608/30/2608.25217v1-llm-driven-datasheet-aware-automated-hardware-compatibility-verification-for-early-stage-pre-schematic-embedded-system-design)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：基于LLM的自动化硬件兼容性验证
+1. [The Infinite, in Finite Time](/202608/31/2608.23096v1-the-infinite-in-finite-time)  
+   标签：评分：6.0/10、query:fsh
+   evidence：基于LTL的运行期验证形式语义，是一种可迁移到硬件运行期监控的形式化验证技术
 
 
 <div class="dpr-home-promo-card">

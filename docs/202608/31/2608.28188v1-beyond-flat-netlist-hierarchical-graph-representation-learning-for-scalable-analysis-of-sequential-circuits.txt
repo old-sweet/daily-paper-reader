@@ -1,0 +1,433 @@
+Title: Beyond Flat Netlist: Hierarchical Graph Representation Learning for Scalable Analysis of Sequential Circuits
+
+URL Source: https://arxiv.org/pdf/2608.28188v1
+
+Published Time: Mon, 31 Aug 2026 00:50:24 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# Beyond Flat Netlist: Hierarchical Graph Representation Learning for Scalable Analysis of Sequential Circuits 
+
+## Jingyi Zhou 1,2, Zhengyuan Shi 1,∗, Jiaying Zhu 1, Ziyang Zheng 1, Qiang Xu 1,∗
+
+> 1
+
+The Chinese University of Hong Kong, Hong Kong, China 
+
+> 2
+
+Tsinghua University, Beijing, China zhoujy22@mails.tsinghua.edu.cn,{zyshi21,jyzhu24,zyzheng23,qxu}@cse.cuhk.edu.hk 
+
+## Abstract 
+
+Circuit Representation Learning (CRL) offers a powerful paradigm to guide and optimize core Electronic Design Automation (EDA) tasks, but its practical adoption is hindered by the immense scale of industrial netlists and a failure to explicitly model register-level temporal dynamics. To overcome these barriers, we intro-duce DeepSeq3, a novel hierarchical framework that abstracts cir-cuits into a two-level representation: fine-grained combinational subgraphs partitioned by flip-flops (FFs), and a high-level Super-Node Graph (SNG) that models the register-transfer structure. A dual Graph Neural Network (GNN) architecture learns representa-tions at both levels, capturing local Boolean logic and global state transitions. Crucially, we introduce a state-centric pre-training scheme that predicts the reachability between FF states, endowing the model with a deep understanding of temporal behavior. Demon-strated on large-scale benchmarks, DeepSeq3’s approach yields superior scalability and richer representations, reducing bounded model checking (BMC) solving time by 18% while guaranteeing correctness. 
+
+## 1 Introduction 
+
+Learning general circuit representations and deploying them across tasks has become an attractive direction in EDA domain. This par-adigm (CRL) has progressed from gate-level encoders [6, 15, 24, 25, 27] to sequential modeling[12, 13, 29]. To date, these advances show that learning on netlists can drive practical downstream tasks, including power estimation [7, 13] and Boolean reasoning [26, 31]. Despite recent progress, learning general representations for sequential circuits remains challenging for two reasons: (1) Lack of scalability on large circuit . Real industrial netlists may contain millions or billions of gates and wires. Flat, gate-centric message passing hits memory ceilings[33], suffers from over-squashing[27], and becomes inefficient on oversized neighborhoods. In practice, this restricts the maximum design scale processable end-to-end, where MOSS[29] and DeepSeq Family[12, 13] struggle to handle de-signs exceeding 10K gates. (2) Overlook of model register-level behavior . Most prior models only treat FFs as more nodes in a 
+
+> Our code is available at https://github.com/cure-lab/DeepSeq3.
+> *Corresponding authors
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> DAC ’26, Long Beach, CA, USA
+> © 2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2254-7/2026/07 https://doi.org/10.1145/3770743.3803902
+
+largely gate-centric graph, mixing state elements and combinational logic within a single undifferentiated substrate. Unfortunately, such framework weakens the inductive bias for register semantics, which represents state operator and the structure of reachable states. With-out an explicit register-level abstraction, models tend to emphasize local Boolean structure while under-representing when and how state actually transitions. To address the above limitations, we introduce DeepSeq3 , a novel hierarchical circuit representation learning framework designed to capture the register-level semantics for large-scale sequential cir-cuits. Rather than operating on a flattened circuit graph, DeepSeq3 partitions each design along FF (i.e. register) boundaries into com-binational logic subgraphs between FFs and the FFs themselves as super-nodes. Each combinational subgraph is first encoded into high-dimensional embeddings by a specialized GNN tailored to combinational reasoning. We then assemble the full design into a hybrid graph (super-node graph, SNG) and encode with another GNN on this graph, whose node features are the produced combi-national cones’ embeddings. Such register-transfer-like abstraction both compresses the local information within the combinational cones and makes state explicit. To endow the representation with temporal semantics, we introduce state-centric pretraining that predicts reachable FF states of the induced state machine. We evaluate DeepSeq3 across a wider range of downstream tasks, including gate-level dynamic power estimation and register-level BMC. Our experimental results demonstrate the improved scalability and richer register-level semantics compared with prior and pioneering approaches. By deploying DeepSeq3 as a plug-in into the BMC engine, the learning-aided solution can significantly reduce the solving time while preserving the correctness. We summarize the contribution of this work as follows: 
+
+• We construct a hierarchical representation for sequential netlist with two types of graphs: combinational logic sub-graphs and super-node graphs. We also develop DeepSeq3 framework to process the corresponding graphs hierarchi-cally, where two GNNs encode combinational logic sub-graphs and super-node graphs (SNG), respectively. 
+
+• We introduce the register-level pre-train tasks to supervise our model in register-level. The model propagates messages through integral combinational cones, encodes the FF em-beddings, and predicts the reachability and probability of successor register-level states. 
+
+• We deploy DeepSeq3 model into bounded model checking engine. With the ability of capturing register-level semantics of sequential circuits, our model speedups BMC engine by 18% on average solving time on Hardware Model Checking Competition (HWMCC) benchmarks[1, 21, 22]. arXiv:2608.28188v1 [cs.LG] 28 Aug 2026 DAC ’26, July 26–29, 2026, Long Beach, CA, USA Jingyi Zhou et al. Sequencial Cricuit Graph      
+
+> h00
+> h01
+> h02
+> h03
+> h04
+> h05
+> h10
+> h11
+> h12
+> h13
+> h14
+> h15
+> h00
+> h01
+> h02
+> h03
+> h04
+> h05
+> h10
+> h11
+> h12
+> h13
+> h14
+> h15
+> h00
+> h01
+> h02
+> h03
+> h04
+> h05
+> h10
+> h11
+> h12
+> h13
+> h14
+> h15
+> Super-node Embedding
+> Pooling Transformer
+> Gate-Level Downstream Tasks Register-Level Downstream Tasks
+> Partition Along FF Boundarues Extract
+> DQDQDQ
+> CLK
+> FF1 FF2 Out ...... ...... 010
+> Circuit State SNG Layer-Wise GNN
+> DFF DFF DFF DFF DFF DFF DFF DFF DFF
+> FF FF FF
+> Connect
+> SNG-Based GNN
+> Combinational Logic Subgraph
+> Super-node Embedding
+> h0
+> h1
+> h2
+> h3
+> h4
+> h5
+> h0
+> h1
+> h2
+> h3
+> h4
+> h5
+> h0
+> h1
+> h2
+> h3
+> h4
+> h5
+
+ACB
+
+Figure 1: Overview of DeepSeq3 framework. (A) Subgraph partition and SNG construction. (B) Combinational logic subgraph learning with layer-wise GNN. (C) SNG representation learning framework and applied to various downstream tasks. 
+
+## 2 Related Work 2.1 Circuit Representation Learning 
+
+Circuit Representation Learning (CRL) has made significant progress by capitalizing on the inherently graph-structured nature of netlists. Most existing studies, including Grannite[32], focus on combina-tional circuits, where logic gates and connections are modeled as Directed Acyclic Graphs (DAGs). By transforming the circuit struc-ture into a graph, CRL enables us to efficiently encode complex circuit information into low-dimensional vectors, thereby greatly empowering downstream EDA tasks. Extensive work has been done on learning representations for combinational circuits. For instance, DeepGate [15] introduces attention-based aggregation and skip connections to encode boolean computations among logic gates, improving downstream tasks such as test point insertion [23] and Boolean Satisfiability (SAT) [16]. DeepGate2 [25] introduces pairwise truth-table supervision and a functionality-aware loss to improve scalability and efficiency. FGNN [6] applies contrastive learning to derive graph-level repre-sentations for circuit classification and subgraph localization, while CircuitFusion [8] and NetTAG [7] also employ contrastive learning applied to multi-modal circuit data to derive invariant represen-tations. Additionally, Polargate [17] further enhances the circuit representation by employing the bipolar principle. Sequential circuit learning remains less explored. DeepSeq [12] and DeepSeq2 [13] extend CRL to sequential circuits by jointly modeling FFs and combinational logic, learning temporal dependen-cies through unrolling and sequential message passing. However, while effective, these models primarily operate on bit-level logic and lack explicit graph-level modeling of global circuit structures and connectivity, which limits their ability to capture long-range dependencies. Recently, MOSS [29] leverages a foundation large language model on post-mapping netlists as a general-purpose cir-cuit encoder trained across multiple EDA tasks, enabling cross-task knowledge transfer and improved generalization. A notable limita-tion of MOSS and the privious DeepSeq family is that they cannot handle large-scale circuits. When applied to extensive netlists, these approoaches suffer from computational overhead and excessive memory consumption. 
+
+## 2.2 Bounded Model Checking 
+
+BMC is a widely adopted formal verification technique used to detect property violations in sequential circuits [4]. BMC does not construct a complete symbolic model; instead, it unrolls the circuit over a bounded number of time frames and encodes the reachability problem into a SAT instance. This approach offers high efficiency for bug detection but can face prohibitive temporal overhead when applied to large industrial designs. Recent studies have explored various methods to accelerate BMC. For example, some approaches handle loops without unrolling by modifying the control flow graph (CFG) [20], while others inter-grated shortcuts into BMC unrolling to accelerate[10]. Machine-learning-assisted frameworks focus on SAT solving, integrating neural representations to capture the structural or functional prop-erties of circuits [34]. However, previous works on BMC relies solely on default heuristics and lacks the ability to provide prior knowl-edge regarding the circuit’s reachable states. This fundamental limitation leads to inefficient exploration of the state space. 
+
+## 3 Methodology 3.1 Overview of the Proposed Framework 
+
+Figure 1 shows the overall operation of the proposed two-stage framework for sequential AND-Inverter Graphs (AIGs). In prepro-cessing, we decouple combinational logic from sequential elements (FFs) to form multiple independent combinational subgraphs. A layer-wise GNN is then applied within each subgraph to learn node-level representations by propagating information from in-puts/predecessors. In the second stage, we abstract the entire circuit into a super-node graph (SNG), where each subgraph acts as one super-node. Another GNN is then employed on this SNG, super-vised by both the one-step transition probability matrix and the reachability matrix, to capture structural dependencies and learn the enhanced FF embeddings. The learned embeddings can be used directly for gate-level tasks or aggregated by a Transformer-based pooling module to form the final circuit-level representation. 
+
+## 3.2 Combinational Logic Subgraph Learning 
+
+To derive the representation for each super-node, we employ a tailored GNN on the corresponding partitioned combinatorial logic Beyond Flat Netlist: Hierarchical Graph Representation Learning for Scalable Analysis of Sequential Circuits DAC ’26, July 26–29, 2026, Long Beach, CA, USA 
+
+subgraph for learning. All combinational logic subgraphs are driven by FF outputs and PIs, and they terminate at the next FF or POs. In this manner, each subgraph encapsulates the complete logical signal propagation relationship from the inputs to an output. Since the functions of these subgraphs are time-independent, it serves as the minimal building block for a larger-scale sequential circuit. We use a layer-wise GNN to learn the functional representa-tion of each combinational subgraph [25]. We denote the logic-1 probability to the likelihood that a node’s value is 1, while the logic-0 probability is the probability that its value is 0. Both logic-0 and logic-1 probabilities are used as supervision signals since they equally determine circuit states [17]. We denote the embeddings learned under these two conditions as h0 and h1. The initial features 
+
+h0 
+
+> 𝑣
+
+(0) and h1 
+
+> 𝑣
+
+(0) are encoded from the gate type. For an inverter, the message for one output state comes from the opposite state of the predecessor 𝑢 :
+
+m0 
+
+> 𝑣
+
+(𝑙 ) = 𝑎𝑔𝑔𝑟 0 
+
+> 𝑁 𝑂𝑇
+
+({ h1 
+
+> 𝑢
+
+(𝑙 − 1) | 𝑢 ∈ Predecessors (𝑣 )}) (1) 
+
+m1 
+
+> 𝑣
+
+(𝑙 ) = 𝑎𝑔𝑔𝑟 1 
+
+> 𝑁 𝑂𝑇
+
+({ h0 
+
+> 𝑢
+
+(𝑙 − 1) | 𝑢 ∈ Predecessors (𝑣 )}) (2) For an AND gate, the message for an output state aggregates the corresponding state from all predecessors: 
+
+m𝑘 𝑣 (𝑙 ) = 𝑎𝑔𝑔𝑟 1 
+
+> 𝐴𝑁 𝐷
+
+({ h𝑘 𝑢 (𝑙 − 1) | 𝑢 ∈ Predecessors (𝑣 )}) , 𝑘 ∈ { 0, 1}
+
+(3) For any node 𝑣 , its l-th layer state representation h𝑘 𝑣 (𝑙 ), is updated using information m𝑘 𝑣 (𝑙 ) aggregated from its predecessors: 
+
+h𝑘 𝑣 (𝑙 ) = GRU (h𝑘 𝑣 (𝑙 − 1), m𝑘 𝑣 (𝑙 )) , 𝑘 ∈ { 0, 1} (4) 
+
+## 3.3 Hierarchical Graph Representation 
+
+To learn the global behavior of the register-level behavior, we pro-pose an efficient and robust framework for hierarchical graph learn-ing. We first construct the SNG via a proposed super-node parti-tioning method, which not only significantly reduces the number of nodes but also ensures that all information regarding signal propagation between FFs is preserved. Next, we define the circuit state and subsequently introduce transition matrices as novel su-pervision signals for the SNG’s representation learning. Finally, we design a gating mechanism and a transformer-based pooling mechanism for the model to capture its temporal semantics. 
+
+3.3.1 SNG Construction Method. After obtaining embeddings for all combinational subgraphs, we construct the SNG. The SNG serves as an abstract, register-level graph that captures high-order depen-dencies among sequential blocks. The specific construction method is as follows (Figure 2): 
+
+• Nodes: Each combinational logic subgraph is treated as a super-node, representing a "clock-domain data block" be-tween registers. 
+
+• Edges: If a logical driving relationship exists between two combination logic subgraphs (i.e., the output FF of subgraph A drives the input FF of subgraph B), a directed edge (super-edge) is added between the corresponding super-nodes. The combinational logic blocks are elevated to node modules, and the sequential flow graph is constructed using FF-to-FF edges. Each super-node represents a localized sequential domain of action and the super-edges collectively form a sequential dependency Directed Graph (DG), which approximates the state propagation DQDQDQ 
+
+> super-node
+> Q0
+> Q1
+> Q2
+> Original Graph SNG
+
+Figure 2: An example of SNG construction 
+
+map across clock cycles. This graph can then be further encoded using GNNs and RNNs to achieve a higher-level understanding of the circuit’s temporal structure. 
+
+3.3.2 Circuit Sequential Modeling. Previous works, DeepSeq and DeepSeq2, employed different forms of supervision signals to learn the circuit’s temporal characteristics [12, 13]. DeepSeq utilized the transition probability of individual FFs as a supervision signal, DeepSeq2 further introduced the state transition similarity between pairs of FFs as supervision to capture the circuit’s dynamic corre-lation. Both methods, however, suffer from a common limitation: they primarily focus on local state relationships and fail to capture the global temporal structure of the circuit. Consider a simple cyclic system with FFs 𝐿 1, 𝐿 2, and 𝐿 3:
+
+
+
+𝐿 1 (𝑡 + 1) = 𝐿 2 (𝑡 )
+
+𝐿 2 (𝑡 + 1) = 𝐿 3 (𝑡 )
+
+𝐿 3 (𝑡 + 1) = ¬𝐿 1 (𝑡 )
+
+The circuit can only cycle through a limited set of global states. Supervising only transitions of individual FFs captures local correlations (e.g., 
+
+𝐿 1 follows 𝐿 2) but fails to reflect the global cyclic dependency and long-term constraints among all FFs. To address the nuances, we consider its sequential operation as a Finite State Machine. Let the circuit comprise 𝑛 FFs and 𝑚 outputs. We formally define the system state vector at time 𝑡 (e.g., the 𝑡 -th clock rising edge) as: 
+
+s(𝑡 ) = [𝑞 1 (𝑡 ), 𝑞 2 (𝑡 ), . . . , 𝑞 𝑛 (𝑡 ), 𝑦 1 (𝑡 ), 𝑦 2 (𝑡 ), . . . , 𝑦 𝑚 (𝑡 )] T (5) where 𝑞 𝑖 (𝑡 ) ∈ { 0, 1} represents the logic value of the 𝑖 -th FF at time 
+
+𝑡 , and 𝑦 𝑗 (𝑡 ) ∈ { 0, 1} represents the logic value of the 𝑗 -th output port. Consequently, the complete state space of the circuit is given by 𝑆 = {0, 1}𝑛 +𝑚 with a cardinality of |𝑆 | = 2𝑛 +𝑚 . The temporal evolution of the circuit is formalized as a discrete-time Markov chain. Its state transitions are described by the state transition probability matrix P ∈ R|𝑆 | × | 𝑆 | , where the element 𝑃 𝑖 𝑗 is defined as the probability of transitioning from state 𝑠 𝑖 to state 𝑠 𝑗 :
+
+𝑃 𝑖 𝑗 = Pr  s(𝑡 + 1) = 𝑠 𝑗 | s(𝑡 ) = 𝑠 𝑖 
+
+, ∀𝑠 𝑖 , 𝑠 𝑗 ∈ 𝑆 (6) It characterizes the state transition distribution driven by the input stimuli and internal logic. After computing the matrix P, we define the infinite-step reach-ability matrix A∞ to describe long-term evolution.: 
+
+A∞ (𝑖, 𝑗 ) =
+
+(1, if there exists 𝑘 ≥ 1 such that 𝑃 (𝑘 ) 
+
+> 𝑖 𝑗
+
+> 00, otherwise (7) DAC ’26, July 26–29, 2026, Long Beach, CA, USA Jingyi Zhou et al. 
+
+The matrix A∞ describes whether state 𝑠 𝑗 is reachable from state 𝑠 𝑖 
+
+within any number of time steps. Formally: 
+
+A∞ (𝑖, 𝑗 ) = 1 ⇐⇒ 𝑠 𝑗 is reachable from 𝑠 𝑖 
+
+The matrix P and A∞ jointly characterize the circuit’s temporal dynamics. Incorporating both as supervision signals enhances the model’s understanding of temporal evolution, enabling it to learn not only local transitions but also the global organization of the circuit’s dynamic behavior. 
+
+3.3.3 Ground-Truth Generation. We employ a simulation-based approach for fast approximation on matrix P. For each state tran-sition 𝑆 𝑖 → 𝑆 𝑗 , multiple simulations are performed to record the frequency of transitions from state 𝑆 𝑖 to 𝑆 𝑗 . The number of valid input vectors 𝑁 𝑖 →𝑗 is counted and normalized by the total input space size |S| to compute the transition probability 𝑝 𝑖 𝑗 = 𝑁 𝑖 →𝑗  
+
+> |S|
+
+. For small- and medium-scale circuits, where the number of reachable states is limited, we compute the full transition matrix P directly to preserve accuracy. To handle large-scale circuits, we avoid enumer-ating all possible state pairs. Instead, we sample a subset of source states 𝑆 𝑖 from simulation traces and record only the transitions that actually occur among them. This yields a sparse transition matrix P
+
+that captures the dominant transition patterns while keeping both computation and memory cost manageable. The matrix A∞ is derived by applying transitive closure to the matrix P of a Markov chain. P is first converted into a Boolean adja-cency matrix A, where A𝑖 𝑗 = 1 if and only if 𝑃 𝑖 𝑗 > 0. The matrix A
+
+is then initialized to ensure self-reachability by setting all diagonal elements to 1. Similarly, for small-and medium-scale circuits, we employs the Floyd-Warshall algorithm[9, 30] with 𝑂 (𝑁 3) computa-tional complexity. The iterative update, A[𝑖, :] ← A[𝑖, :] ∨ A[𝑘, :],ensures that if state 𝑖 reaches 𝑘 , and 𝑘 reaches 𝑗 , then 𝑖 can reach 𝑗 .For large-scale circuits, we switch to Breadth-First Search (BFS) to mitigate computational complexity. Starting from the source state 
+
+𝑆 𝑖 , a queue is utilized to explore all reachable states, and the value of 
+
+A∞ [𝑖 ] [ 𝑗 ] is updated accordingly. The total complexity for travers-ing all 𝑁 states is O(N2 + NE ). In large-scale sparse scenarios where 
+
+𝐸 ≪ 𝑁 2, the effective complexity can thus be approximated O(N2).Since real verification also explores only partial reachable FF states rather than the full 2 𝑛 +𝑚 space, we naturally sample these practically relevant regions, thus avoiding global state explosion. 
+
+3.3.4 Model Pre-training. We perform global feature modeling on a SNG to enable the model to capture the circuit’s structural depen-dencies and temporal evolution patterns. The circuit is represented as 𝐺 = (𝑉 , 𝐸 ), where each super-node 𝑣 𝑖 ∈ 𝑉 represents a combi-national logic subgraph, and the edges 𝐸 represent the temporal connection relationships between FFs. The initial feature vector of each node, ℎ0 
+
+> 𝑖
+
+and ℎ1 
+
+> 𝑖
+
+, are derived from the combinational logic subgraph embeddings learned in the previous stage. At the super-node level, each super-node update form for the l-th round is defined as: 
+
+ℎ𝑘 𝑖 (𝑙 ) = aggr 𝑘 (ℎ𝑘 𝑖 (𝑙 − 1), {ℎ𝑘 𝑗 (𝑙 − 1) | 𝑗 ∈ N ( 𝑖 )}) , 𝑘 ∈ { 0, 1} (8) where 𝑁 (𝑖 ) denotes the set of temporal predecessors of node 𝑖 .To characterize the influence of the circuit state on temporal behavior, we introduce a gated selection mechanism. During the training process, the model simultaneously maintains two sets of state-dependent node embeddings: 
+
+• ℎ0 
+
+> 𝑖
+
+: The embedding when the local logical state is 0; 
+
+• ℎ1 
+
+> 𝑖
+
+: The embedding when the local logical state is 1. For a given state vector 𝑠 = [𝑠 1, 𝑠 2, . . . , 𝑠 𝑁 ] ∈ { 0, 1}𝑁 , the active representation is selected as: 
+
+ℎ𝑖 = 𝑠 𝑖 · ℎ1 
+
+> 𝑖
+
++ ( 1 − 𝑠 𝑖 ) · ℎ0 
+
+> 𝑖
+
+(9) The model computes node embeddings under both initial state 
+
+𝑠 𝑖 and target state 𝑠 𝑗 and obtained the refined gate-level repre-sentation ℎ𝑖 (𝑠 𝑖 ) and ℎ𝑖 (𝑠 𝑗 ). To capture the features of the state transition from 𝑠 𝑖 to 𝑠 𝑗 , these two representations are concate-nated at the node level and form the combined node representation 
+
+ℎ′ 
+
+> 𝑖
+
+= concat [ℎ𝑖 (𝑠 𝑖 ), ℎ 𝑖 (𝑠 𝑗 )] . These combined node representations are then aggregated through a Pooling Transformer(PT) [27], which typically uses a specialized [CLS] token to obtain the global circuit representation H:
+
+H = PT ([CLS] , {concat [ℎ𝑖 (𝑠 𝑖 ), ℎ 𝑖 (𝑠 𝑗 )] | 𝑖 ∈ 𝑉 }) (10) This global embedding H synthesizes the circuit’s structural topology and the pattern of state change associated with the transi-tion from 𝑠 𝑖 to 𝑠 𝑗 . Next, we map the global embedding to the output space using a Multi-Layer Perceptron (MLP) to predict the one-step state transition probability matrix P and the reachability matrix 
+
+A∞. These optimized embeddings serve as the input features for subsequent EDA tasks. The update function aggr 𝑘 is instantiated as a structure combin-ing the attention mechanism and Gated Recurrent Unit (GRU). ˆℎ𝑘 𝑣 (𝑙 ) =∑︁  
+
+> 𝑢 ∈ N ( 𝑣 )
+
+𝛼 𝑘 𝑢𝑣 · ℎ𝑘 𝑢 (𝑙 − 1) (11) 
+
+ℎ𝑘 𝑣 (𝑙 ) = GRU 
+
+
+
+ℎ𝑘 𝑣 (𝑙 − 1), ˆℎ𝑘 𝑣 (𝑙 )
+
+
+
+(12) 
+
+## 4 Experiments 
+
+In this section, we elaborate the model pre-training results and evaluate its scalability (see Sec. 4.2). Then, we apply DeepSeq3 framework to both gate-level tasks and register-level tasks: power estimation (Sec. 4.3) and BMC (section 4.4) to demonstrate its ability. 
+
+## 4.1 Experimental Settings 
+
+Datasets. We build a dataset of 3,568 sequential circuits from ISCAS’89[3], Opencore[19], and ITC’99[5] benchmarks. All circuits are processed into the sequential AIG format using the ABC tool [2, 18]. Each circuit contains about 100–500 nodes after optimization. 
+
+Implementation Details. All models use a hidden dimension of 128, and a 3-layer pooling transformer for global representation. For all downstream tasks, the final graph embedding is processed by a 3-layer multilayer perceptron (MLP). We use the Adam optimizer with learning rate 1 × 10 −4 and train 40 epochs. All calculations and model training are performed with 2 × NVIDIA A100 GPUs. 
+
+Evaluation Metrics. For the subgraph learning stage (Stage1), we evaluate logic-0 and logic-1 probability prediction using Mean Absolute Error (MAE) and the Coefficient of Determination (R 2
+
+Score). The total loss Ltotal is defined as the mean of the logic-1 probability loss ( L1) and the logic-0 probability loss ( L0). For the SNG stage (Stage2), we evaluate: Beyond Flat Netlist: Hierarchical Graph Representation Learning for Scalable Analysis of Sequential Circuits DAC ’26, July 26–29, 2026, Long Beach, CA, USA 
+
+Table 1: Performance comparison on model pre-training tasks. 
+
+Model Stage 1: Combinational Subgraph Stage 2: Register-Level Evaluation 
+
+L1 L0 IR OT Time (s) R2 MAE R2 MAE Recall F1 Accuracy R MAE GCN[14] 0.7996 0.0785 0.7910 0.0902 - - - - - -GAT [28] 0.6073 0.1117 0.5573 0.1156 - - - - - -GraphSAGE[11] 0.9552 0.0367 0.9565 0.0403 - - - - - - -HOGA-3 [6] 0.6066 0.1179 0.6038 0.1186 - - - - - -DeepSeq2[13] - - - - 0.2986 0.3048 0.6714 0.2922 0.3571 40,486 DeepSeq3 w/o Stage1 - - - - 0.8324 0.7752 0.9467 0.7588 0.0072 -DeepSeq3 w/o OT - - - - 0.8406 0.8249 0.9478 0.6442 0.0201 -DeepSeq3 w/o IR - - - - 0.0274 0.0341 0.8229 0.8695 0.0048 -DeepSeq3 0.9869 0.0193 0.9916 0.0168 0.8503 0.8429 0.9564 0.8413 0.0049 9,896 (3,845+6,051) 
+
+• Infinite Reachability (IR): a binary classification task, mea-sured by Recall, F1, and Accuracy; 
+
+• One-step Transition (OT): a regression task, measured by Correlation Coefficient (R) and MAE. 
+
+## 4.2 Model Pre-training Results 
+
+This section presents a detailed comparative analysis to validate the temporal semantic capture capabilities of the DeepSeq3 framework. For Stage1, as our subgraph encoder shares the layer-wise de-sign of the DeepGate family [25], we focus on generic GNNs to demonstrate the necessity of logic-aware inductive bias. Therefore, we choose GCN[14], GAT[28], GraphSAGE[11], and HOGA-3[6] as baselines. For Stage2, due to the reason that MOSS[29] mainly focuses on post-mapping netlists, we choose the current State-of-the-Art method on AIGs, DeepSeq2, as the main baseline. We also include abation settings: DeepSeq3 without combinational sub-graph learning is denoted as DeepSeq3 w/o Stage1 , DeepSeq3 without IR supervision is denoted as DeepSeq3 w/o IR , DeepSeq3 without OT supervision is denoted as DeepSeq3 w/o OT . The results are summarized in Table1. 
+
+Performance on Combinational Subgraphs. The results show that DeepSeq3’s customized GNN demontrates stronger logic rea-soning in combinational logic. For logic-1 probability prediction, DeepSeq3 achieves an 𝑅 2 of 0 .9869 and a MAE of 0 .01936. Similarly, for logic-0 probability, it reaches an 𝑅 2 of 0 .9916 and a MAE of 0.01687. In contrast, co general GNN models like GCN and GAT yield 𝑅 2 values significantly below 0 .8. Notably, the GraphSAGE model achieves a higher 𝑅 2 of approximately 0 .95 in this task. 
+
+Performance on Register-Level Representation. Our model outperforms DeepSeq2 in register-level tasks in Stage2. For the IR task, The F1 of DeepSeq3 is 0 .8429, while DeepSeq2 only achieves 0.3048. For the OT task, DeepSeq3’s R value reaches 0 .8413, signifi-cantly higher than DeepSeq2’s 0.2922. The performance of SNG rep-resentation gain confirms that our framework successfully learns a richer and more scalable register-level representation. 
+
+Ablation Study. To quantify the contribution of each compo-nent, we conduct an ablation study. The results reveal the effec-tiveness of subgraph representations and the joint supervision. DeepSeq3 w/o Stage1 results in a drop of the IR F1 Score to 0 .7752. DeepSeq3 w/o IR achieves the highest 𝑅 value (0 .8695) but its F1 Score dropped to 0 .0341. Conversely, DeepSeq3 w/o OT maintains a high F1 Score (0 .8249) but causes the 𝑅 value to decline to 0.6442. 
+
+Efficiency Comparison. Finally, DeepSeq3 improves its effi-ciency upon the previous model. The total pre-training cost of DeepSeq3 is 9896 seconds compared to DeepSeq2’s 40486 seconds, which is an approximate four-fold acceleration. This advantage is attributed to two factors: Stage 1 transforming feature extraction into a fully parallelizable task along FF boundaries, and the SNG construction achieving extreme graph compression by abstracting subgraphs into super-nodes. 
+
+## 4.3 Evaluation on Dynamic Power Prediction 
+
+This section evaluates the effectiveness of the DeepSeq3 represen-tations in estimating dynamic power to validate the versatility of the sequential circuit representation. 
+
+Problem Statement. The total power consumption of Integrated Circuits is primarily composed of two components: Static Power and Dynamic Power. Dynamic power is caused by the circuit’s switching activity, and is indispensable when the chip is operational. Therefore, developing fast and accurate dynamic power prediction techniques during the design phase is a crucial challenge for modern VLSI systems. 
+
+Dynamic Power Estimation Process. To ensure the practical utility and generality of the assessment, we employ the Nangate 45nm standard cell library as the technology mapping target and simulated through 10k clock cycles to determine the ground-true dynamic power. The task involves a MLP layer that maps the SNG node embeddings (i.e., the enhanced FFs’ representations) and logic gates’ embeddings outputted by DeepSeq3 to the dynamic power prediction. 
+
+Results. The result was shown in Table 2, and the power values are reported in milliwatts (mW). DeepSeq3 outperforms DeepSeq2 in dynamic power estimation. For example, DeepSeq3’s average MAPE is only 4 .58%. This result translates to an approximate 38 .4% improvement in relative accuracy. DeepSeq3 also shows better robustness in its results compared to DeepSeq2. The standard devi-ation ( 𝜎 ) of the error for DeepSeq3 is 6 .64%, which is significantly lower than DeepSeq2’s 7 .49%. This accuracy gain is derived from the explicit, global temporal dynamics supervision introduced in DeepSeq3, a feature not explicitly modeled in previous methods. DAC ’26, July 26–29, 2026, Long Beach, CA, USA Jingyi Zhou et al. 
+
+Table 2: Predicted Power Comparison Circuit Nodes Power DeepSeq2 DeepSeq3 Power Error Power Error 
+
+ptc 2,024 0.0677 0.0710 4.89% 0.0717 5.92% noc_router 5,246 0.2184 0.2288 4.76% 0.2196 0.55% 
+
+mem_ctrl1 10,733 0.3148 0.3800 20.70% 0.3641 15.66% 
+
+ac97_ctrl 14,004 0.5512 0.5391 2.24% 0.5517 0.09% 
+
+pll 18,208 0.7787 0.7428 4.61% 0.7735 0.67% 
+
+Avg . ± std . 7.44% ± 7.49% 4.58% ± 6.64% DQD Q DQ   
+
+> C1 C2
+> L1=1 L2=0 L3=1 O1=1
+> Original Search
+> Constraint Search
+> Input Input Output BMC
+> Solver
+
+Figure 3: Guided BMC schematic 
+
+## 4.4 Evaluation on Bounded Model Checking 
+
+This section validates the direct applicability of DeepSeq3’s learned high-level temporal representation in formal verification. 
+
+Problem Statement. BMC is a crucial formal verification tech-nique that encodes the circuit’s reachability property as a SAT problem. However, current approaches lack effective guidance for optimizing reachability search and generating high-quality initial solving assignments, which severely limits its efficiency for large-scale and deep bug detection. 
+
+Scalable Fine-Tuning for Large-Scale Circuits. Our approach addresses this via a lightweight, per-circuit fine-tuning step. When targeting a new, large circuit for BMC, we first apply the hierar-chical partitioning to generate its SNG. Critically, the SNG’s node count is one to two orders of magnitude smaller than the original gate-level graph. This graph compression is the key to scalability: even for a massive 96K-node circuit, its SNG remains manageably small. We then fine-tune the pre-trained DeepSeq3 model on this specific circuit. The ground truth is generated using sampling-based approximation of the P and A∞ matrices (Section 3.3.3). 
+
+Guided BMC Process. After fine-tuning, we integrate DeepSeq3 representations to guide the search process of an incremental BMC solver. In the standard flow, the SAT solver performs a complete and unconstrained search for the target property ¬𝑃 . Our approach, in contrast, leverages DeepSeq3’s output to predict a high-risk state set 𝑆 𝑖 for the unrolling depth 𝑖 , which is most likely to contain a counterexample satisfying the formula ¬𝑃 . As Fig 3 shows, the solver then executes a constrained search over ¬𝑃 ∧ 𝐿 𝑖 , where 𝐿 𝑖 
+
+is the logical constraint derived from the predicted set 𝑆 𝑖 . This mechanism enables the solver to prioritize the exploration of a narrow subspace 𝐿 𝑖 and effectively prune large parts of the search space irrelevant to the property violation. If this constrained search fails, the solver falls back to the original search, thereby ensuring the completeness of the method. Notably, to prevent overly precise guidance from frequently rolling back, we only predict a subset of the overall FF values. 
+
+Data. We test DeepSeq3-guided BMC (Guided BMC) against Raw BMC (using ABC’s default heuristics) on 40 randomly selected 0 2 4 6 8 10 
+
+> Raw BMC (s)
+> 0246810
+> Guided BMC (s)
+> R = 0.987 cases y = x y=0.814x+0.040
+
+Figure 4: Solving time comparison on easy instances Table 3: Solving time comparison on hard instances                                                        
+
+> Circuit Nodes Raw BMC[2] Guided BMC Time (s) SolveTime (s) InferTime (s) Total (s)
+> eijks208o 172 15.63 11.97 0.74(0.5+0.24) 12.71
+> pdtvispeterson 712 22.92 18.27 1.01(0.75+0.26) 19.28
+> pdtvisgigamax0 1,107 13.99 14.61 2.25(2.00+0.25) 16.86 float_reg_b1_1071 2,066 11.02 10.93 1.30(1+0.30) 12.23 float8 10,590 71.05 61.37 7.81(7.5+0.31) 69.18
+> bj08amba5g62 20,009 133.43 130.83 1.25(1+0.25) 132.8
+> pc_sfifo_3+token_ring.04 56,611 Timeout(1000) 946.40 6.30(6+0.30) 952.70
+> AllInterval-019 63,156 Timeout(1000) 458.72 10.12(10+0.24) 468.64
+> Problem04_label27 95,960 27.21 20.74 15.33(15+0.33) 36.07
+> Avg. 255.03 185.98 5.13 191.11
+
+BMC instances from HWMCC benchmarks with the 1000s time limitation set to 1000 seconds and the maximum unrolling depth varied between 20 and 100. Of the total instances in the dataset, 31 are solvable within 10 seconds and thus regarded as easy, while 9 are categorized as hard. 
+
+Results. The results shows that Guided BMC surpasses Raw BMC in efficiency. Fig 4 plots the solving times for 31 easy in-stances. The graph excludes the model inference time to focus on the pure speedup. It achieves an average speedup of 18 .6% (based on the regression line 𝑦 = 0.814 𝑥 + 0.040). While the inclusion of model inference may increase runtime on easy cases, we do not target such trivial instances. Our interest lies in the difficult cases where BMC is slow, and for those our method delivers clear and consistent speedup. Table 3 lists 9 difficult cases. It revelas that Guided BMC shows superior efficiency with an average total solv-ing time of 191 .11 𝑠 compared to Raw BMC’s average of 255 .03 𝑠 , and successfully solves instances that Raw BMC fails due to timeout. 
+
+## 5 Conclusion and Future Work 
+
+We present DeepSeq3 to address the two key challenges in sequen-tial CRL: limited scalability and insufficient temporal modeling. By partitioning the circuit along FF boundaries into an SNG and applying state-centric pretraining, DeepSeq3 efficiently captures register-level semantics at scale. Experiments confirm its advan-tages, establishing a strong foundation for semantic-rich sequential analysis in industrial settings. Future work may explore using its temporal representations for tasks such as retiming, state encoding, and advanced formal verification. Beyond Flat Netlist: Hierarchical Graph Representation Learning for Scalable Analysis of Sequential Circuits DAC ’26, July 26–29, 2026, Long Beach, CA, USA 
+
+## Acknowledgments 
+
+This work was supported in part by the Hong Kong Research Grants Council (RGC) under Grant No. 14202824, 14205925, C6003-24Y, and T46-415/25-R. 
+
+## References 
+
+[1] Armin Biere, Nils Froleyks, and Mathias Preiner. 2020. Hardware Model Checking Competition 2020 Benchmarks. https://fmv.jku.at/hwmcc20/ Available from the official competition website. [2] Robert Brayton and Alan Mishchenko. 2010. ABC: An academic industrial-strength verification tool. In Computer Aided Verification . Springer, 24–40. [3] Franc Brglez, David Bryan, and Krzysztof Kozminski. 1989. Notes on the ISCAS’89 Benchmark Circuits . Technical Report. North-Carolina State University. [4] Edmund M. Clarke, Thomas A. Henzinger, Helmut Veith, and Roderick Bloem (Eds.). 2018. Handbook of Model Checking . Springer. [5] Scott Davidson. 1999. Characteristics of the ITC’99 Benchmark Circuits. In 
+
+Proceedings of the International Test Conference (ITSW) .[6] Chenhui Deng, Zichao Yue, Cunxi Yu, Gokce Sarar, Ryan Carey, Rajeev Jain, and Zhiru Zhang. 2024. Less is more: Hop-wise graph attention for scalable and generalizable learning on circuits. In Proceedings of the 61st ACM/IEEE Design Automation Conference . 1–6. [7] Wenji Fang, Wenkai Li, Shang Liu, Yao Lu, Hongce Zhang, and Zhiyao Xie. 2025. NetTAG: A Multimodal RTL-and-Layout-Aligned Netlist Foundation Model via Text-Attributed Graph. arXiv preprint arXiv:2504.09260 (2025). [8] Wenji Fang, Shang Liu, Jing Wang, and Zhiyao Xie. 2025. CircuitFusion: Multi-modal Circuit Representation Learning for Agile Chip Design. In International Conference on Learning Representations (ICLR) .[9] Robert W. Floyd. 1962. Algorithm 97: Shortest path. In Communications of the ACM (CACM) .[10] Florian Frohn and Jürgen Giesl. 2024. Integrating Loop Acceleration Into Bounded Model Checking. CoRR abs/2401.09973 (2024). https://arxiv.org/abs/2401.09973 [11] William L. Hamilton, Rex Ying, and Jure Leskovec. 2017. Inductive Representation Learning on Large Graphs. In Advances in Neural Information Processing Systems (NeurIPS) .[12] Sadaf Khan, Zhengyuan Shi, Min Li, and Qiang Xu. 2023. DeepSeq: Deep Sequen-tial Circuit Learning. arXiv preprint arXiv:2302.13608 (2023). [13] Sadaf Khan, Zhengyuan Shi, Ziyang Zheng, Min Li, and Qiang Xu. 2024. DeepSeq2: Enhanced Sequential Circuit Learning with Disentangled Represen-tations. In Proceedings of the 30th Asia and South Pacific Design Automation Conference (ASP-DAC ’25) .[14] Thomas N. Kipf and Max Welling. 2017. Semi-Supervised Classification with Graph Convolutional Networks. In International Conference on Learning Repre-sentations (ICLR) .[15] Min Li, Sadaf Khan, Zhengyuan Shi, Naixing Wang, Huang Yu, and Qiang Xu. 2022. Deepgate: Learning neural representations of logic gates. In Proceedings of the 59th ACM/IEEE Design Automation Conference . 667–672. [16] Min Li, Zhengyuan Shi, Qiuxia Lai, Sadaf Khan, Shaowei Cai, and Qiang Xu. 2023. On eda-driven learning for sat solving. In Proceedings of the 60th Annual ACM/IEEE Design Automation Conference .[17] Jiawei Liu, Jianwang Zhai, Mingyu Zhao, Zhe Lin, Bei Yu, and Chuan Shi. 2024. PolarGate: Breaking the Functionality Representation Bottleneck of And-Inverter Graph Neural Network. In Proceedings of the 43rd IEEE/ACM International Con-ference on Computer-Aided Design .[18] Alan Mishchenko et al. 2007. ABC: A system for sequential synthesis and verifi-cation. URL http://www. eecs. berkeley. edu/alanmi/abc 17 (2007). [19] Opencores Team. [n. d.]. Opencores . https://opencores.org/ [20] Muhammad A. A. Pirzada, Giles Reger, Ahmed Bhayat, and Lucas C. Cordeiro. 2024. LLM-Generated Invariants for Bounded Model Checking Without Loop Unrolling. In Proceedings of the 39th IEEE/ACM International Conference on Auto-mated Software Engineering .[21] Mathias Preiner, Nils Froleyks, and Armin Biere. 2024. Hardware Model Checking Competition 2024. In Proceedings of the 24th Conference on Formal Methods in Computer-Aided Design – FMCAD 2024 .[22] Mathias Preiner, Nils Froleyks, and Armin Biere. 2024. HWMCC’24 Benchmarks and Results. doi:10.5281/zenodo.14156844 [23] Zhengyuan Shi, Min Li, Sadaf Khan, Liuzheng Wang, Naixing Wang, and Yu Huang. 2022. DeepTPI: Test Point Insertion with Deep Reinforcement Learning. In 2022 IEEE International Test Conference (ITC) .[24] Zhengyuan Shi, Chengyu Ma, Ziyang Zheng, Lingfeng Zhou, Hongyang Pan, Wentao Jiang, Fan Yang, Xiaoyan Yang, Zhufei Chu, and Qiang Xu. 2025. DeepCell: Multiview Representation Learning for Post-Mapping Netlists. arXiv preprint arXiv:2502.06816 (2025). [25] Zhengyuan Shi, Hongyang Pan, Sadaf Khan, Min Li, Yi Liu, Junhua Huang, Hui-Ling Zhen, Mingxuan Yuan, Zhufei Chu, and Qiang Xu. 2023. DeepGate2: Functionality-Aware Circuit Representation Learning. In Proceedings of the 2023 IEEE/ACM international conference on Computer-aided design .[26] Zhengyuan Shi, Tiebing Tang, Jiaying Zhu, Sadaf Khan, Hui-Ling Zhen, Mingx-uan Yuan, Zhufei Chu, and Qiang Xu. 2025. Logic Optimization Meets SAT: A Novel Framework for Circuit-SAT Solving. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) . IEEE, 1–7. [27] Zhengyuan Shi, Ziyang Zheng, Sadaf Khan, Jianyuan Zhong, Min Li, and Qiang Xu. 2024. Deepgate3: Towards scalable circuit representation learning. In Pro-ceedings of the 2024 IEEE/ACM international conference on Computer-aided design .[28] Petar Veličković, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Liò, and Yoshua Bengio. 2018. Graph Attention Networks. In International Con-ference on Learning Representations (ICLR) .[29] Mingjun Wang, Bin Sun, Jianan Mu, Feng Gu, Boyu Han, Tianmeng Yang, Xinyu Zhang, Silin Liu, Yihan Wen, Hui Wang, et al. 2025. MOSS: Multi-Modal Represen-tation Learning on Sequential Circuits. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) . IEEE, 1–7. [30] Stephen Warshall. 1962. A Theorem on Boolean Matrices. In Journal of the ACM (JACM) .[31] Nan Wu, Yingjie Li, Cong Hao, Steve Dai, Cunxi Yu, and Yuan Xie. 2023. Gamora: Graph learning based symbolic reasoning for large-scale boolean networks. In 
+
+2023 60th ACM/IEEE Design Automation Conference (DAC) . IEEE, 1–6. [32] Yanqing Zhang, Haoxing Ren, and Brucek Khailany. 2020. GRANNITE: Graph Neural Network Inference for Transferable Power Estimation. In 2020 57th ACM/IEEE Design Automation Conference (DAC) .[33] Ziyang Zheng, Shan Huang, Jianyuan Zhong, Zhengyuan Shi, Guohao Dai, Ningyi Xu, and Qiang Xu. 2025. Deepgate4: Efficient and effective representation learning for circuit design at scale. arXiv preprint arXiv:2502.01681 (2025). [34] Jiaying Zhu, Ziyang Zheng, Zhengyuan Shi, Yalun Cai, and Qiang Xu. 2025. Circuit-Aware SAT Solving: Guiding CDCL via Conditional Probabilities. arXiv preprint arXiv:2508.04235 (2025).
