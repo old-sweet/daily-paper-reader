@@ -1,0 +1,866 @@
+Title: Scalable AXI4 Transaction Monitoring for Mixed-Criticality SoCs: From Phase-Level Precision to ID-Level Efficiency
+
+URL Source: https://arxiv.org/pdf/2608.30435v1
+
+Published Time: Tue, 01 Sep 2026 02:15:16 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+This article has been accepted for publication in IEEE Transactions on Very Large Scale Integration (VLSI) Systems . 1
+
+# Scalable AXI4 Transaction Monitoring for Mixed-Criticality SoCs: From Phase-Level Precision to ID-Level Efficiency 
+
+Chaoqun Liang , Graduate Student Member, IEEE , Thomas Benz , Member, IEEE ,Alessandro Ottaviano , Member, IEEE , Michael Rogenmoser , Graduate Student Member, IEEE ,Luca Benini , Fellow, IEEE , Angelo Garofalo , Member, IEEE , and Davide Rossi , Senior Member, IEEE 
+
+Abstract —Mixed-criticality Systems-on-Chip (SoCs) with on-chip interconnects based on the AXI4 open standard protocol lack a protocol-level timeout mechanism, exposing systems to dead-locks and missed real-time deadlines when subordinate devices or managers fail or stall due to hardware faults, radiation-induced upsets, or software errors. This work presents a configurable hardware intellectual property (IP), non-intrusive in fault-free operation, that detects AXI4 protocol violations and timing faults at runtime and restores interconnect liveness through a cut-and-drain isolation mechanism. To address the fundamental trade-off between monitoring granularity and area cost, we introduce three designs at decreasing monitoring granularity: Phase-Level Track-ing (PLT), which provides cycle-accurate fault localization across individual protocol phases; Channel-Level Tracking (CLT), which coalesces per-phase monitors into channel-level supervision; and ID-Level Tracking (ILT), which achieves sub-linear area scaling by monitoring only per-ID transaction boundaries. Synthesized in GlobalFoundries 12 nm technology, CLT reduces area by 36.7% relative to PLT while preserving worst-case detection bounds at a minimal detection latency overhead, whereas ILT achieves an 89.2% area reduction suitable for tightly constrained deployments at the cost of a 3.7× higher median detection latency with coarser fault localization. Fault injection campaigns on a RISC-V SoC across 1.2 million scenarios confirm that no fault manifesting as an AXI4 protocol or liveness violation escaped detection, with observed detection latencies consistently bounded by theoretical worst-case predictions. 
+
+Index Terms —Transaction monitoring, AXI4 interconnect, mixed-criticality SoC, fault detection and recovery, deadlock prevention, hardware IP, functional safety. 
+
+I. I NTRODUCTION 
+
+Mixed-criticality System-on-Chip (SoC) architectures are increasingly adopted in automotive and aerospace embedded systems, where safety-critical functions such as vehicle con-trol, flight management, and collision avoidance coexist on the same silicon platform as non-critical workloads such as diag-nostic logging, data aggregation, and human-machine interface rendering [1], [2]. This integration demands not only high computational performance but also strict fault containment, 
+
+C. Liang, L. Benini, A. Garofalo and D. Rossi are with the Department of Electrical, Electronic, and Information Engineering (DEI), University of Bologna, Bologna, Italy. E-mail: {chaoqun.liang }@unibo.it T. Benz, M. Rogenmoser, L. Benini and A. Garofalo are with the Integrated Systems Laboratory (IIS), ETH Zurich, Switzerland. T. Benz is with lowRISC C.I.C., Cambridge, United Kingdom. A. Ottaviano is with Tenstorrent USA, Inc., Santa Clara, California. 
+
+temporal determinism, and compliance with functional safety standards such as ISO 26262 [3] in automotive [4] and DO-254 [5] in aerospace applications. Failures in these environ-ments can have catastrophic consequences, hence standards mandate comprehensive fault detection, isolation, and recovery across all architectural layers. Fault resilience at the chip level has been studied through hardware diversity and redundancy approaches [6]. A fault in the system interconnect can propagate across the entire SoC, compromising both safety-critical and non-critical subsystems and potentially requiring a full system reset. The Advanced eXtensible Interface 4 (AXI4) [7], de-fined in ARM’s AMBA specification, has emerged as the dominant interconnect standard for high-performance safety-critical SoCs, yet it defines no mandatory timeout mechanism. When a subordinate device fails or stalls, its outstanding transactions might never complete. Since AXI4 imposes no deadline on subordinate response, the protocol cannot dis-tinguish a slow subordinate from a permanently failed one. The resulting deadlock might propagate upstream, potentially causing missed real-time deadlines, which is unacceptable in safety-critical operation. Critically, this failure mode cannot be prevented by formal verification or pre-silicon checking, as it arises from device-level failures at runtime [8]. Real-time AXI scheduling [9] addresses prioritization but not runtime fault recovery. Prior work has approached AXI4’s lack of robustness when facing subordinate failure from several directions, each ad-dressing a subset of the problem: protocol checkers [10], [11] enforce compliance rules but provide no timeout supervision or fault recovery; timeout mechanisms [12], [13] can counter coarse-grained stalls but lack per-phase visibility and multi-transaction support; performance monitors [14], [15] target throughput characterization without fault detection capability; and access control solutions [16], [17] address intentional security violations rather than unintentional faults. No existing solution simultaneously covers temporal supervision, fault containment, resource efficiency, and diagnostic observability under the area constraints of mixed-criticality SoCs. Our previous work [18] introduced the Transaction Mon-itoring Unit (TMU), a drop-in hardware IP that monitors AXI4 traffic between subordinate devices and the interconnect, detecting protocol violations, timing anomalies, and trans-action stalls, and initiating recovery through AXI-compliant arXiv:2608.30435v1 [cs.AR] 31 Aug 2026 2
+
+error response fabrication and hardware reset. However, the original TMU incurred significant area overhead ensuing from per-transaction counters and metadata replication, posing de-ployment challenges for resource-constrained SoCs with deep transaction concurrency. An AXI4 TMU must address four fundamental challenges: 
+
+(C1) Temporal Supervision , detecting protocol and timing vio-lations across interleaved, out-of-order transactions; (C2) Fault Containment , restoring interconnect liveness by injecting well-formed error responses before real-time deadlines are missed; 
+
+(C3) Resource Efficiency , managing state for numerous out-standing transactions under strict area constraints; and (C4) Di-agnostic Observability , providing sufficient observability to support post-fault root-cause analysis without prohibitive over-head. This work addresses (C1)–(C4) through three TMU variants at decreasing monitoring granularity: Phase-Level Tracking (PLT), Channel-Level Tracking (CLT), and ID-Level Tracking (ILT), spanning the capability–complexity trade-off. Recovery is augmented with a cut-and-drain isolation mechanism that immediately restores interconnect liveness upon fault detec-tion. The key contributions of this paper are:  
+
+> ●
+
+An AXI4 TMU hardware IP, non-intrusive in fault-free operation, that detects protocol violations and timing faults from both managers and subordinates in bounded time, with guaranteed interconnect recovery upon fault detection.  
+
+> ●
+
+A three-tier monitoring architecture: PLT, CLT, and ILT, characterizing the trade-off between area cost, detection latency, and diagnostic capability, enabling designers to align monitoring overhead with subordinate criticality and safety certification requirements.  
+
+> ●
+
+Complete characterization of all three variants in terms of fault detection coverage and detection latency, and area scaling across various concurrency configurations in GlobalFoundries 12 nm technology.  
+
+> ●
+
+System-level fault injection campaigns on a RISC-V SoC, targeting both manager and subordinate IPs, confirming that no fault escaped detection within each variant’s detectable class (Section II-C), with empirical detection latencies consistent with theoretical WCDT bounds. The remainder of this paper is organized as follows. Sec-tion II reviews the AXI4 ordering rules underlying the design and defines the fault model. Section III presents the three TMU variants. Section IV derives the worst-case detection and liveness recovery bounds. Section V reports area, timing, power, and fault-injection results. Section VI surveys related work, and Section VII concludes. II. AXI4 P ROTOCOL OVERVIEW 
+
+A. Transactions, Phases, and Channels 
+
+A transfer is the atomic unit of AXI4 communication: a single beat of information exchanged over a VALID /READY 
+
+handshake, completing on the rising clock edge when both signals are asserted. A transaction is a sequence of transfers spanning the Write Address (AW), Write Data (W), and Write Response (B) channels for writes, or the Read Address (AR) and Read Data (R) channels for reads, with burst length given by AWLEN /ARLEN , the final beat marked by WLAST /RLAST ,and completion status returned via BRESP /RRESP . In this work, a phase denotes a distinct protocol event or transition within a transaction’s lifecycle (address issuance, data beat transfer, or response reception), used as a semantic boundary for monitoring and timing measurement; the term is not part of the formal AXI4 specification [7]. A manager may issue multiple outstanding transactions, each tagged with an identifier ( AxID ) consistent across all its transfers, so transactions with different IDs may complete out of order. Two asymmetries drive the TMU design: the W channel carries no transaction ID, so subordinates infer own-ership from AW issue order, whereas each R beat explicitly identifies its owning transaction via RID .
+
+B. Ordering Rules 
+
+AXI4 defines the following ordering requirements, which directly determine the TMU’s tracking structures and counter allocation strategy (Section III). 
+
+Write ordering: W0. W-channel data must follow the same order as the corre-sponding AW transfers. 
+
+W1. Transactions with different IDs may complete (B re-sponse) in any order. 
+
+W2. Transactions sharing the same ID must be issued and completed in order. 
+
+Read ordering: R0. Read transactions with different IDs may return data in any order. 
+
+R1. R-channel data beats may be interleaved across IDs; RID 
+
+identifies the owning transaction. 
+
+R2. Read transactions sharing the same ID must return data in issue order. 
+
+C. Fault Model and Scope 
+
+The TMU observes AXI4 traffic at the interface between the interconnect and the monitored subordinate, so its de-tection scope is limited by what a fault manifests as at that interface. Faults perturbing protocol signalling or transaction progress are detectable : stalled or absent handshakes, unex-pected or duplicate BID /RID , premature, missing or excess 
+
+WLAST /RLAST , and burst-length mismatches. Faults leaving signalling well-formed are undetectable by construction, prin-cipally silent data corruption, which requires complementary end-to-end protection such as ECC. All coverage claims in this work refer to the detectable class, whose per-variant scope is given in Table I. III. A RCHITECTURE 
+
+The TMU is a dedicated hardware IP that observes in-flight AXI4 transactions without adding arbitration, buffering, or protocol state to the AXI4 path and requires no modifi-cation to the crossbar microarchitecture. It provides real-time monitoring and time-predictable fault detection for managers and subordinates in mixed-criticality AXI4 SoCs. As shown 3
+
+TABLE I: Comparison of PLT, CLT, and ILT across monitoring granularity, area complexity, and diagnostic capability.                                                 
+
+> TMU Variant Phase-Level Tracking (PLT) Channel-Level Tracking (CLT) ID-Level Tracking (ILT) Detection Granularity Per-phase within transaction Per-channel liveness Per-ID transaction boundary
+> Timeout Counters
+> 6 write (C w0 –C w5 ) + 4 read (C r0 –C r3a )Separate address, data, and response phase thresholds + beat count validation (C w3b /C r3b )3 write (C w0 –C w2 ) + 2 read (C r0 –C r1 )One threshold per channel (AW/W/B or AR/R) + beat count validation 2 write (C w0 –C w1 ) + 2 read (C r0 –C r1 )One threshold per ID; end-to-end inter-completion boundaries
+> Area Complexity O( NID ×D)O( NID ×D)O( NID )
+> Error Detection Response Immediate (per-phase threshold) Immediate (per-channel threshold) Slow (end-to-end threshold)
+> Diagnostic Capability
+> Faulting transaction identifier ✓✓✓
+> Fault direction (write / read) ✓✓✓
+> Fault type (timeout / protocol violation) ✓✓✓
+> Fault source (manager / subordinate) ✓○(address phase) ○(address phase) Fault detection latency (cycles) ✓✓✓
+> Burst beats transferred ✓✓×
+> Faulting counter resolution ✓(C w0 –C w5 /C r0 –C r3b )○(per channel) ×
+> Protocol Violation Detection
+> Unexpected / duplicate BID or RID ✓✓✓
+> Burst-length mismatch ✓✓×
+
+NID : number of distinct outstanding AXI transaction IDs supported by the TMU. D: maximum outstanding transactions per ID (outstanding depth). 
+
+✓ = supported; ○ = partially supported; × = not supported. Manager 1 
+
+AXI4 Interconnect 
+
+Subordinate 0 
+
+Manager 0  Manager M 
+
+Subordinate 1  Subordinate N 
+
+TMU  TMU 
+
+Fig. 1: TMU placement in an AXI4-based SoC. in Figure 1, one TMU instance is placed per monitored subordinate, ensuring all managers targeting that subordinate are observed without per-manager hardware replication. The TMU examines both request and response channels to detect bidirectional protocol and timing violations, whether originat-ing in the subordinate or induced by managers. The TMU delivers four core functions: (1) Protocol Vi-olation Detection scans all five AXI4 channels to identify incomplete handshakes, unmatched response identifiers, and burst-length mismatches; if left undetected, such violations can cause unrecoverable deadlocks requiring global reset; (2) Time-bounded Fault Detection enforces user-configurable timeout thresholds on transaction progress through a set of dedicated counters, each incrementing each cycle in the ab-sence of the expected protocol event and flagging a fault upon threshold expiry. Monitoring granularity ranges from per-phase supervision in PLT to end-to-end transaction boundaries in ILT (Table I); (3) Fault Management and Recovery dis-tinguishes subordinate-induced faults from manager-induced ones and asserts a hardware interrupt to notify the processor. For subordinate-induced faults, the TMU additionally asserts a reset request to an external hardware reset controller connected to the subordinate device. Concurrently, the TMU executes 
+
+cut-and-drain isolation: the cut phase blocks all subsequent requests to the faulting subordinate, while the drain phase retires all pending transactions with synthesized error re-sponses to prevent interconnect deadlock (Section III-A); and (4) Statistics and Debug Support captures and logs diagnostic metadata for post-fault root-cause analysis (Section III-A). Implementing these functions entails a fundamental trade-SLVERR  
+
+> Resp Fabr.
+> ID Remap
+> Control
+> FSM
+> Wr Resp
+> Fabr.
+> Arbiter
+> Wr Fault
+> Aggreg.
+> Counting Logic
+> (6 phases)
+
+Write Guard   
+
+> Pre-Enqu
+> check
+> Wr LQA
+> Dequeue
+> check
+> Control
+> FSM
+> Rd Resp
+> Fabr.
+> Arbiter
+> Rd Fault
+> Aggreg.
+> Counting Logic
+> (4 phases)
+> Pre-Enqu
+> check
+> Rd LQA
+> Dequeue
+> check
+
+Read Guard  
+
+> Towards Subordinate
+> From Interconnect
+> Resp
+> Resp Mux
+> Req Mux
+> Fault
+> Manag.
+> IRQ/ Reset Reset
+> External
+> HW
+> Reset
+> Req
+> Req
+> Abort
+> Reg
+> Intf.
+> Req
+> Resp
+> Req
+> Req
+> Resp
+
+Fig. 2: TMU Phase-Level Tracking (PLT) architecture showing independent Write Guard and Read Guard paths. off between monitoring granularity and area overhead. Fine-grained monitoring requires per-transaction state, scaling with both the number of supported IDs and the maximum outstand-ing depth per ID. High-end SoCs may tolerate the TMU area overhead implied by full per-transaction tracking for deep ob-servability, but tightly resource-constrained SoCs must monitor multiple subordinates under strict area and power budgets [19]. Moreover, criticality and role vary across subordinates, mak-ing a uniform monitoring policy suboptimal. We therefore design the TMU as a family of three variants: Phase-Level Tracking (PLT) , Channel-Level Tracking (CLT) , and ID-Level Tracking (ILT) , spanning the capability-complexity trade-off (Table I). Crucially, these variants are not mutually exclusive: a single SoC design may deploy different TMU variants simultaneously across subordinates, assigning PLT to safety-critical components requiring precise fault localization, CLT to standard components balancing cost and observability, and ILT to area-constrained endpoints where lightweight liveness monitoring suffices. The three variants are presented incrementally. PLT is de-scribed in full, establishing the tracking structures and counter allocation from which the other two are derived; CLT and ILT are then described by what they retain, coalesce, or eliminate relative to PLT, with reference back to the corresponding PLT 4                                       
+
+> ID Queue (Head-Tail Buckets) Bucket 0
+> ID : 0 free :×
+> head : slot 0
+> tail : slot 4
+> Cw4 ,Cw5 :active
+> Bucket 1
+> ID : — free :√
+> head : —
+> tail : —
+> Cw4 ,Cw5 :—
+> Bucket 2
+> ID : 2 free :×
+> head : slot 2
+> tail : slot 2
+> Cw4 ,Cw5 :idle
+> Bucket 3
+> ID : 1 free :×
+> head : slot 3
+> tail : slot 5
+> Cw4 ,Cw5 :active
+> Per-ID metadata (MaxUniqIDs entries)
+> Transaction Table
+> slot 0
+> ht_idx : 0 free :×
+> next : slot 4
+> beats : 32
+> state : W RESP
+> slot 1
+> ht_idx : — free :√
+> next : —
+> beats : —
+> state : —
+> slot 2
+> ht_idx : 2 free :×
+> next : —
+> beats : 16
+> state : W DATA
+> slot 3
+> ht_idx : 3 free :×
+> next : slot 5
+> beats : 8
+> state : W RESP
+> slot 4
+> ht_idx : 0 free :×
+> next : —
+> beats : 64
+> state : W ADDR
+> slot 5
+> ht_idx : 3 free :×
+> next : —
+> beats : 4
+> state : W ADDR Flat storage pool (MaxOutstdTxns entries)
+> W-Ownership FIFO HEAD →slot 2
+> (current W owner)
+> slot 4 slot 5
+> (empty)
+> TAIL
+> W-channel serialization (MaxOutstdTxns depth)
+> next next
+> Head Tail FIFO ref Free ID = 0 ID = 1 ID = 2 Cw4 ,Cw5 : per-ID counters
+
+Fig. 3: Write Guard LQA structure. components throughout. 
+
+A. Phase-Level Tracking (PLT) 
+
+PLT offers the finest monitoring granularity by decomposing each AXI4 transaction into discrete protocol phases, each with independent timeout supervision. This decomposition en-ables precise fault localization to the address handshake, data transfer, or response completion and supports comprehensive diagnostic logging. Achieving phase-level monitoring under AXI4’s concurrent, out-of-order transaction model requires dedicated structures for ID namespace management, transac-tion tracking with ordering enforcement, and write-channel serialization. Figure 2 illustrates the resulting architecture: an 
+
+ID Remapper for ID namespace compression, independent monitoring paths where the Write Guard supervises six write transaction phases and the Read Guard supervises four read transaction phases, a shared Fault Management block for fault isolation and recovery, and a Register Interface for user-configuration and fault logging as described below. The fol-lowing subsections trace a transaction’s lifetime from ingress to completion or fault isolation. 
+
+ID Remapper : At TMU ingress, the ID Remapper compresses the external AXI4 ID. AXI4 ID widths are implementation-defined (typically 4–16 bits) and may be widened by the interconnect for routing, yet only a sparse subset of the namespace is active at any time. The remap-per maps active IDs to a dense internal space bounded by 
+
+MaxUniqIDs , reducing storage and operand width through-out the TMU. Only ID fields are compressed at ingress and decompressed at egress; all other signals pass through transparently. When active IDs reach capacity, new transac-tions are stalled by deasserting AWREADY /ARREADY until an ID is released. In practice, MaxUniqIDs is configured at design time to match the number of unique IDs the connected manager can issue, so capacity exhaustion does not occur under normal operation. TABLE II: PLT phase counters: allocation strategy and diag-nostic implication. 
+
+Cnt. Alloc. Diagnostic Implication 
+
+Write path 
+
+Cw0 Shared a AW channel subordinate unresponsiveness Cw1 Shared b Manager data path delay post-AW handshake Cw2 Shared b Subordinate contention on first W beat Cw3a Shared b W channel stall between consecutive beats Cw3b Shared b Premature, missing, or excess WLAST Cw4 Per-ID c Subordinate B response delay; unexpected or missing BID under out-of-order completion Cw5 Per-ID c Manager backpressure on B handshake 
+
+Read path 
+
+Cr0 Shared a AR channel subordinate unresponsiveness Cr1 Per-ID c Subordinate data path delay post-AR handshake Cr2 Per-ID c Manager contention on first R beat Cr3a Per-ID c R channel stall between consecutive beats; interleave-safe Cr3b Per-ID c Premature, missing, or excess RLAST 
+
+> a
+
+Pre-enqueue, shared across all IDs 
+
+> b
+
+Shared, W-FIFO head only 
+
+> c
+
+Per-ID, ID Queue bucket 
+
+Pre-Enqueue Monitoring : To prevent resource ex-haustion, the TMU employs a deferred allocation strategy. Since AW /AR handshakes may stall arbitrarily before the subordinate asserts READY , pre-allocating tracking slots at 
+
+AWVALID /ARVALID assertion would exhaust tracking capac-ity under sustained backpressure from slow or faulty subor-dinates. Pre-enqueue monitoring therefore uses a dedicated lightweight watchdog, Cw0 for writes and Cr0 for reads (Table II), that monitors address handshake latency without consuming any tracking slot. If the subordinate fails to assert 
+
+READY within the configured threshold, the TMU immediately raises a fault. The transaction tracking infrastructure presented next is engaged only after AW /AR handshake completion, ensuring that requests which may never be accepted cannot prematurely exhaust available slots. 
+
+Linked Queue Architecture : Upon successful pre-enqueue check, the transaction enters the Linked Queue Architecture (LQA). AXI4’s concurrency and ordering rules (Section II-B) impose conflicting constraints: within each ID, responses complete in issue order (Rules W2/R2), yet across IDs, completions arrive in arbitrary sequence (Rules W1/R0). Similarly, W-channel data follows a single global serialization order (Rule W0), while R-channel beats interleave freely across IDs (Rule R1). The LQA resolves these constraints through per-ID linked chains, W-channel serialization by AW-issue order, and interleave-tolerant read tracking. A static allocation reserving fixed entries per ID wastes area under asymmetric traffic, where some IDs have many outstanding transactions while others have few or none. PLT therefore introduces the LQA as depicted in Figure 3, which dynamically allocates from a shared pool of transaction slots, decoupling total capacity ( MaxOutstdTxns ) from per-ID depth ( TxnPerUniqID ) so any ID can utilize available slots on demand. The LQA tracks state at two granularities: per-5
+
+TABLE III: TMU structural capacity parameters.     
+
+> Parameter Description
+> MaxUniqIDs Number of ID Queue buckets; one per tracked ID
+> TxnPerUniqID Chain depth per ID bucket; bounds per-ID outstanding transactions
+> MaxOutstdTxns W-Ownership FIFO depth; sets total outstanding write transactions
+
+transaction (phase, beat progress, ID-chain linkage) and per-ID (ordering enforcement and timeout counters). It comprises three components: a Transaction Table , an ID Queue , and a 
+
+W-Ownership FIFO . The Read Guard uses identical Table and Queue structures but omits the W-FIFO, since R-channel beats are disambiguated by RID tags. 
+
+ID Queue (Head-Tail Buckets) holds per-ID metadata in MaxUniqIDs entries, each storing a remapped ID, 
+
+head /tail pointers to the oldest and newest Transac-tion Table slots in the chain, a free flag, and phase-specific timeout counters. Each ID maintains independent 
+
+head /tail pointers, so out-of-order responses across differ-ent IDs (Rules W1/R0) are handled naturally without cross-ID interference. In the Write Guard, each bucket stores response-phase counters Cw4/Cw5 to handle out-of-order B-completion behavior (Rule W1). In the Read Guard, buckets store data-phase counters Cr1–Cr3b per ID, enabling R-beat monitoring under arbitrary interleaving (Rule R1). 
+
+Transaction Table is a flat pool of MaxOutstdTxns 
+
+entries, where any slot may hold any outstanding transaction regardless of ID. Each slot maintains five fields: the index of its owning ID Queue bucket ( ht_idx ), a same-ID chain pointer ( next ), the expected beat count ( beats = AWLEN +1 or ARLEN +1), a free flag, and the current protocol phase (state ), which is updated by the TMU at each protocol transition as the transaction progresses through its lifecycle. Slots are allocated via parallel free-entry search on AW /AR 
+
+handshake and released on response completion or fault. As Figure 3 illustrates, per-ID chains are formed via next point-ers across physically non-adjacent slots, decoupling logical ordering from physical storage position. 
+
+W-Ownership FIFO tracks which transaction currently holds ownership of the W-data channel. Rule W0 requires W-data to follow AW -handshake order, yet the W-channel carries no ID tag; the subordinate infers ownership solely from AW issue order. The FIFO encodes this ordering: on AW handshake the new Transaction Table slot index is enqueued into the W-Ownership FIFO, and the FIFO head always identifies the current W-data owner. Subsequent transactions wait until 
+
+WLAST of the preceding transaction is observed. No analogous structure is needed in the Read Guard, where RID tags allow direct routing of each R beat to the correct ID Queue bucket without serialization. TMU capacity is parameterized at design time (Ta-ble III): MaxUniqIDs sets the number of ID Queue buckets, TxnPerUniqID the depth of each bucket, and 
+
+MaxOutstdTxns the W-Ownership FIFO depth bounding total outstanding write transactions. 
+
+Enqueue Operation. On AW /AR handshake, the TMU al-locates a free Transaction Table slot via parallel search and populates it with the transaction’s metadata. Simultaneously, an associative lookup matches AWID /ARID against occupied ID Queue buckets. If a matching bucket is found, the new slot is appended to the existing chain via the tail’s next pointer and the tail advances, thus preserving issue order within the ID. If no bucket exists, a new ID Queue entry is allocated with 
+
+head and tail both pointing to the new slot. For writes, the slot index is also enqueued into the W-Ownership FIFO. Figure 3 illustrates the resulting state: ID 0 forms the chain slot 0 →slot 4, ID 1 forms slot 3 →slot 5, and ID 2 holds a single-slot chain at slot 2. Continuing from this state, a write transaction with AWID = 1 proceeds as follows. On the AW handshake the free-entry search returns slot 1, the only free entry; the associative lookup matches bucket 3, which already holds ID 1; slot 1 is appended to that chain through the next 
+
+field of the current tail, slot 5; and slot 1 is enqueued into the W-Ownership FIFO behind slot 5. The transaction must now await the WLAST of the three transactions ahead of it in the FIFO before transferring W data, per Rule W0, while its B response may complete out of order with respect to buckets 0 and 2, per Rule W1. A read follows the same path in the Read Guard but omits the FIFO step, since RID identifies each R beat’s owner directly; its data-phase counters therefore reside in its own bucket and are immune to interleaving from other IDs, per Rule R1. 
+
+Phase Counter Organization : Once enqueued, each transaction is supervised by dedicated phase counters. Figure 4 shows monitored intervals across write and read transactions, with counter spans aligned to the corresponding signal tran-sitions. Table II maps each counter to its allocation and diagnostic implication. 
+
+Counter Allocation Strategy. PLT exploits the asymmetry between write and read ordering rules to minimize area overhead. For the W-channel, Rule W0 serialization means only one transaction holds W-data ownership at any time; PLT therefore maintains one shared set of data-phase counters 
+
+Cw1 to Cw3b assigned to the FIFO head (Shared b). When a transaction is promoted to head, counters reset and bind to its progress; after WLAST they reassign to the next FIFO en-try. This time-multiplexing enables full per-phase supervision without per-transaction counter replication. For the R-channel, Rule R1 interleaving across IDs would cause a single shared counter to be prematurely reset by beats from other IDs; each active ID therefore maintains its own independent data-phase counters (Per-ID c), instantiated in the respective ID Queue bucket. Within a given ID, Rule R2 prevents same-ID beat interleaving, so only one transaction per ID is in the data phase at a time; the same per-ID counter set is thus reused temporally for successive transactions without replication. Within the data phase, the counter pair Cw3a/Cr3a and 
+
+Cw3b/Cr3b addresses a fundamental incompatibility: liveness monitoring requires a counter that resets on every beat to catch per-beat stalls, while burst-length validation requires monotonic accumulation across all beats to detect premature, missing, or excess WLAST /RLAST . A single counter cannot 6
+
+TABLE IV: TMU register interface.                       
+
+> Register R/W Description
+> budget[i] RW Timeout threshold for phase counter i
+> prescaler div RW Prescaler divider; all counters increment on coarse tick latency[i] RO Most recently observed latency for phase i
+> fault status RO Latched first-fault metadata: fault type, transaction ID, offending counter, direction, detection latency fault clear WO Write to acknowledge fault, lift cut phase, and re-arm monitor reset req RO Asserted on subordinate-induced fault; drives external reset controller
+
+serve both roles simultaneously. The dual-counter scheme therefore assigns each role to a dedicated counter, as reflected by the segmented and continuous bars in Figure 4: the live-ness counter ( Cw3a/Cr3a) resets on every data handshake, detecting per-beat stalls regardless of burst length; the beat counter ( Cw3b/Cr3b) accumulates monotonically and is com-pared against AWLEN +1 or ARLEN +1 at WLAST /RLAST ; a mismatch indicates a premature, missing, or excess LAST and triggers fault management. The pre-enqueue watchdogs Cw0 and Cr0 are shared channel-level counters (Shared a): one per channel, reset on each new AW /AR handshake. Sharing a single instance per channel is valid because AXI4 does not permit a second AW /AR 
+
+handshake to complete before the first has been accepted. This ensures that only one request can be in the pre-enqueue phase at any time. 
+
+Prescaled Timebase. All TMU variants share a prescaled timebase from a programmable divider ( PrescalerDiv ). Counters increment only on coarse ticks; event signals are sampled with sticky logic to prevent missed transitions be-tween ticks. This reduces counter bit-width proportionally, trading detection resolution for area efficiency. 
+
+Dequeue and Protocol Validation : To enforce per-ID in-order completion (Rules W2/R2) while supporting out-of-order responses across IDs (Rules W1/R0), the TMU always dequeues from the head of each ID’s chain. On B handshake, 
+
+BID triggers a parallel associative lookup over occupied ID Queue buckets. Upon match, the head Transaction Table slot is retrieved via the head pointer, and Cw3b is checked for burst-length correctness against AWLEN +1. The slot is freed, head advances to next , and if the per-ID chain becomes empty, the bucket is released. The RLAST dequeue follows the same pattern via RID lookup, validating Cr3b against ARLEN +1. Any mismatch, including an unmatched BID/RID, triggers fault management with full diagnostic metadata. 
+
+Fault Management : The cut-and-drain mechanism in-troduced in Section III is realized in PLT through the LQA structures. The cut phase asserts sustained backpressure (AWREADY = 0, ARREADY = 0) to prevent new transactions from entering the affected subordinate path. The drain phase operates in two stages: a fabrication arbiter priority-selects pending transactions by iterating over occupied ID Queue buckets, and a response fabricator synthesizes protocol-compliant completions, one B response ( BRESP = SLVERR )clock            
+
+> awvalid
+> awready
+> wvalid
+> wready
+> wlast
+> AW Ch.  W Ch.
+> Write Channels  Read Channels
+> B Ch.  AR Ch.
+> rvalid
+> rready
+> rlast
+> R Ch.
+> bready
+> bvalid
+> arvalid
+> arready
+> AW HS AWVALID WVALID W1 HS W2 HS Wlast HS BVALID B HS
+> AR HS ARVALID RVALID R1 HS R HS R HS Rlast HS
+
+Fig. 4: Phase-level counters in PLT. per pending write and the remaining read data beats up to 
+
+ARLEN+1 with RRESP = SLVERR per pending read, each carrying the correct remapped ID. A response multiplexer selects between subordinate-generated and TMU-fabricated re-sponses, ensuring all issued requests receive valid completions to prevent deadlocks. Each LQA entry is freed as soon as its fabricated response is accepted by the manager, progressively clearing structures until all transactions are retired. In PLT and CLT, completing the burst is required rather than optional: AXI4 defines no early termination, so an error response must still return the full ARLEN+1 transfers, with 
+
+RLAST on the final beat. ILT, which stores no per-transaction burst length, instead retires each pending read with a single beat asserting RLAST . The write path carries no such obliga-tion: a single B response retires a transaction irrespective of the W beats transferred, and Rule W0 leaves at most one residual data phase for the TMU to absorb. Section IV-D bounds the resulting drain time for all three variants. The Fault Aggregation and Logging consolidates timeout and protocol-violation signals into a single first-fault latch. On the first fault, the latch captures the faulting transaction identifier, access direction (read or write), the faulty transac-tion phase, the fault detection latency (in cycles from fault onset to interrupt assertion), and fault-type indicators that distinguish timeouts from protocol violations. This latch holds until software clears the fault_clear register. Because the cut-and-drain intentionally generates error responses that may trigger secondary protocol events, the aggregator masks all subsequent faults to preserve root-cause integrity. 
+
+Programming Model : The TMU is managed via the register interface detailed in Table IV. Timeout budgets and the prescaler are runtime-configurable. The latency[i] regis-ters record the most recently observed latency for each phase counter i, capturing per-phase timing under both nominal and faulty conditions and providing a measurement baseline for 
+
+budget[i] threshold tuning. Budgets can be configured through two complementary workflows: (a) online, by in-specting latency[i] under representative traffic and setting 
+
+budget[i] margins above observed peaks to minimize false-positive rates; and (b) offline, by deriving upper latency bounds from static workload analysis of known applications and using these bounds to set budget[i] thresholds that 7clock       
+
+> awvalid
+> awready
+> w hs
+> wlast
+> AW Ch.  W Ch.
+> Write Channels  Read Channels
+> B Ch.  AR Ch.
+> r hs
+> rlast
+> R Ch.
+> b hs
+> arvalid
+> arready
+> AW HS AWVALID B HS Wlast HS W1 HS W HS W HS
+> AR HS ARVALID R1 HS R HS Rlast HS
+
+Fig. 5: Channel-level counter allocation in CLT write and read paths. guarantee fault detection within the required timing con-straints. Upon fault detection, the TMU asserts irq and, for subordinate-induced faults, reset_req to the platform reset controller, whose sequencing is device-specific. Cut-and-drain and the reset request are autonomous, so interconnect live-ness does not depend on interrupt latency. The interrupt ser-vice routine (ISR) reads fault_status (Table IV), which holds the first-fault snapshot until acknowledged, and writes 
+
+fault_clear to lift the cut phase and re-arm the monitor. Because AXI4 delegates error signalling to the originating manager via BRESP /RRESP , the TMU reports the fault but leaves the recovery policy, whether to reissue, skip, or escalate, to the manager and its driver. 
+
+B. Channel-Level Tracking (CLT) 
+
+While PLT provides maximum observability, its per-phase counter replication imposes non-negligible area overhead for less critical or lower-bandwidth subordinates in mixed-criticality SoCs. CLT trades fine-grained phase localization for substantially reduced counter complexity while preserving deadlock prevention and protocol violation detection (Table I). 
+
+Channel Counter Organization : CLT retains PLT’s foundational architecture (the ID Remapper, LQA, and pre-enqueue watchdogs of Section III-A) but coalesces per-phase counters into channel-level liveness monitors. Where PLT requires twelve counters (six timeout plus one beat counter for writes, four timeout counters plus one beat counter for reads), CLT uses only seven: three timeout counters ( Cw0, Cw1a,
+
+Cw2) plus one beat counter ( Cw1b) on the write path, and two timeout counters ( Cr0, Cr1a) plus one beat counter ( Cr1b)on the read path (Figure 5). Individual VALID /READY pairs are abstracted into unified handshake events ( W_HS , B_HS ,
+
+R_HS ) to monitor channel-level progress rather than signal-level stalls. CLT detects channel stalls, missing responses, burst-length mismatches, and BID /RID violations, but cannot localize faults to specific sub-phases within channels. A time-out on the data or response channels identifies a stalled channel without attributing manager versus subordinate responsibility; 
+
+reset_req is therefore issued on address-phase faults alone. 
+
+Write Path Monitoring : Cw0 is the pre-enqueue AW 
+
+watchdog, identical to PLT (Section III-A). Because Rule W0 serializes all W-data through a single channel, one shared liveness counter suffices: Cw1a is assigned to the W-FIFO head ID Remap 
+
+> Wr Resp
+> Fabr.
+> Wr Fault
+> Aggreg.
+> Inter-B counter
+
+Write Guard 
+
+> Pre-Enqu
+> check
+> ID queue
+> Dequeue
+> check
+> Rd Resp
+> Fabr.
+> Rd Fault
+> Aggreg.
+> Inter-Rlast
+> Counter
+> Pre-Enqu
+> check
+> ID queue
+> Dequeue
+> check
+
+Read Guard   
+
+> Towards Subordinate
+> From Interconnect
+> Resp
+> Rsp Mux
+> Req Mux
+> Fault
+> Manag.
+> IRQ/ Reset Reset
+> Req
+> Req
+> Abort
+> Reg
+> Intf.
+> Control
+> FSM
+> Control
+> FSM
+> External
+> HW
+> Reset
+> Req
+> Resp
+> Resp
+> SLVERR
+> Resp Fabr.
+> Req
+> Req
+
+Fig. 6: ILT architecture. The Transaction Table and W-Ownership FIFO are eliminated; only a simplified ID Queue tracking outstanding transaction counts per ID is retained. transaction, activates whenever a new transaction is promoted to head, increments each cycle in the absence of a W hand-shake, and resets on each W beat, jointly covering first-beat and all inter-beat stalls and replacing PLT’s separate Cw1, Cw2,and Cw3a. The paired beat counter Cw1b accumulates on each W handshake and is compared against AWLEN +1 at WLAST ;after WLAST , Cw2 activates per-ID in the corresponding ID Queue bucket to monitor B-channel response arrival; because Rule W2 guarantees in-order B completion within each ID, the same counter instance is reused temporally for subsequent transactions as they become the per-ID chain head. 
+
+Read Path Monitoring : Cr0 is the pre-enqueue AR 
+
+watchdog. Per-ID allocation for R-channel counters is manda-tory because Rule R1 interleaving would cause a shared counter to be prematurely reset by beats from other IDs. 
+
+Cr1a therefore activates per-ID in the corresponding ID Queue bucket upon address-handshake completion, resetting on each R handshake for that ID. This merges PLT’s Cr1, Cr2, and 
+
+Cr3a into a single channel liveness counter. The paired beat counter Cr1b accumulates per-ID and is compared against 
+
+ARLEN +1 at RLAST ; no separate response-phase counter is required, since RLAST serves as both the final data beat and transaction completion event. The same Cr1a/Cr1b pair is reused temporally across successive transactions within each ID per Rule R2. CLT exposes the interface of (Table IV) with budget[i] 
+
+and latency[i] reduced to seven indices, reflecting CLT’s seven-counter structure and fault_status provides coarser diagnostic statistics, reporting at channel granularity. 
+
+C. ID-Level Tracking (ILT) 
+
+Simplified Architecture : While CLT reduces timeout counters relative to PLT, both variants rely on the LQA to store per-transaction metadata such as burst lengths for beat valida-tion and linked-list pointers for ordering enforcement, resulting in O( NID × D) area scaling (Table I). For highly area-constrained subordinates with deep transaction concurrency, this depth-dependent storage remains prohibitive. ILT elim-inates this dependency entirely by replacing per-transaction 8clock      
+
+> awvalid
+> awready
+> AW Ch.
+> Write Channels  Read Channels
+> B Ch.  AR Ch.
+> r hs
+> rlast
+> R Ch.
+> b hs
+> arvalid
+> arready
+> AW1 HS AWVALID AW2 HS B1 HS B2 HS
+> AR1 HS ARVALID Rlast1 HS AR2 HS Rlast2 HS
+
+Fig. 7: Counter allocation in ILT: pre-enqueue watchdogs (Cw0 , Cr0 ) and per-ID completion timeouts ( Cw1 , Cr1 ). tracking with per-ID completion monitoring, reducing area complexity to O( NID ) at the cost of detection granularity and latency. Figure 6 shows ILT’s architecture: the Transaction Table and W-Ownership FIFO of Section III-A are eliminated, leaving only a simplified ID Queue. Each entry contains four fields: remapped transaction ID, num_txn (which dynami-cally tracks the ID’s real-time outstanding depth by increment-ing upon an address handshake ( AW /AR ) and decrementing upon a completion handshake ( B/RLAST )), a per-ID timeout counter ( Cw1 for writes, Cr1 for reads), and a free bit. This reduction to a single timeout counter per ID is enabled by two complementary arguments. First, AXI4’s in-order com-pletion guarantee within the same ID (Rules W2/R2) means that monitoring only the completion boundary is sufficient to guarantee forward progress for the entire queued chain. Sec-ond, any stall in an intermediate phase, whether at the address, data, or response channel, will propagate to the completion boundary: a manager or subordinate that stalls mid-transaction cannot issue B/RLAST , so Cw1/Cr1 will always fire regardless of where the deadlock originates. num_txn provides the minimal concurrency tracking needed to determine when an ID has outstanding transactions requiring supervision. The diagnostic consequence is that fault reporting identifies which 
+
+ID stalled but cannot isolate the specific transaction, burst beat, or protocol phase responsible. Figure 7 shows ILT’s four counters (vs. PLT’s twelve, CLT’s seven): Cw0/Cr0 pre-enqueue watchdogs and Cw1/Cr1 per-ID completion timeouts. 
+
+Write Path Monitoring : Cw0 is the pre-enqueue AW 
+
+watchdog, identical to PLT and CLT (Section III-A). Once enqueued, Cw1 acts as the per-ID completion timeout: for the first transaction of an ID it activates on AW handshake, tracking latency to the first B response; for subsequent pipelined trans-actions it operates as an Inter-B counter, resetting on each B handshake. The counter remains active while num_txn > 0.Because Cw1 is allocated strictly per-ID, concurrent progress on other IDs cannot reset a stalled ID’s timer, ensuring independent fault detection across IDs. Burst-length validation and WLAST protocol checking are not supported. 
+
+Read Path Monitoring : Read monitoring is symmetric. 
+
+Cr0 is the pre-enqueue AR watchdog. Cr1 activates on AR 
+
+handshake for the first transaction of an ID and thereafter operates as an Inter-RLAST counter, resetting on each RLAST 
+
+while num_txn > 0. Intermediate R-channel stalls are de-tected only if they delay RLAST beyond the Cr1 budget. 
+
+ARLEN validation and premature or excess RLAST detection are not supported. ILT exposes the register interface (Table IV) unchanged, with budget[i] and latency[i] reduced to four indices and fault_status reporting at ID granularity. IV. W ORST -C ASE DETECTION TIME ANALYSIS 
+
+The Worst-Case Detection Time (WCDT) characterizes the theoretical upper bound on TMU fault-detection latency. It is governed by architectural granularity (phase-level, channel-level, or ID-level) and by the configured timeout budgets through control registers at system startup or runtime. Let tfault denote the cycle at which a fault induces an error in the target manager or subordinate, tstart the cycle at which the affected transaction enters the AXI protocol domain, and 
+
+tdetect the cycle at which the TMU flags the violation and initiates recovery. Since faults may remain dormant in internal logic before manifesting at the bus interface, tfault is often unobservable to interconnect monitors. Therefore, the effective WCDT is defined as the fault exposure window: WCDT = tdetect − tstart (1) where the observable entry point tstart corresponds to trans-action initiation (AWVALID or ARVALID assertion). This window represents the maximum duration a faulty transaction remains active, potentially stalling the bus or consuming tracking resources before being suppressed by the TMU. 
+
+A. Phase-Level Tracking (PLT) 
+
+PLT monitors each protocol phase independently, so detec-tion occurs immediately upon expiration of the specific failing phase’s budget. For a fault occurring in phase i ∈ Φ, where Φ
+
+is the ordered set of write or read phases: WCDT (i) 
+
+> PLT
+
+=
+
+> i−1
+
+∑
+
+> j=0
+
+τj + Th i (2) where τj is the nominal completion time of antecedent phase 
+
+j and Th i is the timeout threshold of the failing phase i. The overall WCDT for a transaction is the maximum across all possible failing phases: WCDT PLT = max 
+
+> i∈Φ
+
+⎛⎝
+
+> i−1
+
+∑
+
+> j=0
+
+τj + Th i
+
+⎞⎠ (3) Because Th i is tightly bounded to the physical latency require-ment of phase i alone, PLT yields the lowest fault exposure window among the three architectures. 
+
+B. Channel-Level Tracking (CLT) 
+
+CLT collapses multiple fine-grained phases into unified channel-level monitors. The WCDT formula remains struc-turally similar over the reduced set of channel monitoring points K:WCDT CLT = max 
+
+> k∈K
+
+⎛⎝
+
+> k−1
+
+∑
+
+> j=0
+
+τj + Th CLT 
+
+> k
+
+⎞⎠ (4) The critical distinction lies in Th CLT  
+
+> k
+
+: because a single counter must accommodate the worst-case timing of all PLT phases collapsed into channel monitor k, the unified budget must 9
+
+satisfy Th CLT  
+
+> k
+
+≥ max i∈k Th i, where i indexes the PLT phases subsumed by k. This inflates the unified budget above any individual PLT threshold, thus increasing the WCDT relative to PLT. 
+
+C. ID-Level Tracking (ILT) 
+
+ILT monitors only address handshakes and final completion events ( B/RLAST ), with no visibility into intermediate protocol phases. The WCDT is governed by two budgets: WCDT ILT = max (Th Addr , Th ILT End ) (5) where Th Addr is the pre-enqueue address watchdog and Th ILT End is the completion timeout (Inter-B or Inter-RLAST ). When an ID transitions from idle to active, the completion counter activates at the address handshake and must span the full address-to-completion latency, covering the address, data, and response phases in a single budget. Because no intermediate phase is observable, Th ILT End is necessarily larger than any individual PLT phase threshold, yielding the largest WCDT among the three architectures: WCDT PLT ≤ WCDT CLT ≤ WCDT ILT (6) 
+
+D. Cut-and-Drain Time 
+
+The WCDT bounds detection; restoring liveness addition-ally requires draining the transactions outstanding when the cut begins. Let Nw and Nr denote the outstanding writes and reads at that instant, and Lmax = AxLEN max + 1 the maximum burst length. The cut admits no further requests, so the drain set is fixed once recovery starts, and is bounded by construction: MaxOutstdTxns per direction in PLT and CLT, and MaxUniqIDs × TxnPerUniqID in ILT, whose per-ID 
+
+num_txn counters serve the same role. The two paths drain concurrently and their costs differ. Rule W0 serializes W-data by AW-issue order, so at most one write occupies its data phase at the cut; absorbing its residual beats costs at most Lmax cycles, after which one fabricated B response with BRESP = SLVERR retires each pending write, irrespective of how many W beats were transferred. Rule R1 permits reads with distinct IDs to be mid-burst simultaneously, and each must be completed to its full ARLEN+1 beats (Section III-A). With one fabricated beat accepted per cycle on each channel, 
+
+Tdrain ≤ max (Lmax + Nw, N r ⋅ Lmax )≤ max (Lmax + M, M ⋅ Lmax ), (7) where M = MaxOutstdTxns . Beyond single-beat bursts the read term dominates, giving Tdrain ≤ M ⋅ Lmax : drain time is linear in capacity on both paths and multiplicative in burst length on the read path. ILT is the exception: storing no per-transaction burst length, it retires each pending read with a single beat asserting RLAST , giving Tdrain ≤ max (Lmax +
+
+Nw, N r ), independent of burst length. This requires managers that treat RLAST as the transaction boundary rather than counting beats against ARLEN , a deployment condition on ILT and a further consequence of the reduced state behind its O( NID ) scaling. Liveness is therefore restored within 
+
+Tliveness = WCDT + Tdrain , (8) 2×8 (16) 4×8 (32) 4×16 (64) 8×16 (128) 8×32 (256) 
+
+> Configuration (N_ID × D per channel)
+> 020 40 60 80 100 120 140 160 180
+> Area (KGE)
+> PLT CLT ILT
+> 39.5% 77.2% 36.0% 81.3% 36.7% 89.2% 34.2% 91.2% 33.1% 95.3%
+
+Fig. 8: TMU area scaling with annotated reduction percent-ages. with both terms fixed at design time. The bound is independent of the subordinate’s state, since the fabricator sources every response locally: a completely unresponsive subordinate drains no more slowly than a partially functional one. It covers the hardware path only. Software recovery, comprising interrupt delivery, the ISR, reset sequencing, and driver reinitialization before fault_clear (Section III-A), depends on the plat-form and the device and is not bounded here. V. E XPERIMENTAL RESULTS 
+
+We evaluate PLT, CLT, and ILT in terms of silicon area, tim-ing closure, power, and fault-detection coverage and latency. 
+
+A. Area Overhead and Scaling Characteristics 
+
+All TMU variants were synthesized using GlobalFoundries’ 12nm FinFET process (GF12) targeting a 1 GHz clock, repre-sentative of a typical operating frequency of mixed-criticality SoC interconnects [19], [20]. We evaluate five configurations spanning 16 to 256 total outstanding transactions per direction 
+
+(write or read), defined by NID × D, where NID denotes the number of unique AXI transaction IDs and D the maximum outstanding transactions per ID. Since AXI provides inde-pendent write and read channels, each configuration supports twice this capacity system-wide (e.g., 4 × 16 enables 128 total outstanding transactions). These cover deployment scenarios from resource-constrained embedded peripherals ( 2 × 8) to high-performance memory controllers targeting high-end au-tomotive and aerospace deployments ( 8 × 32 ), covering the practical concurrency range of state-of-the-art AXI4-based mixed-criticality platforms [20], [21]. Figure 8 illustrates the area scaling characteristics of the three architectures. PLT and CLT area grow proportionally to total monitoring capacity ( O( NID × D)) due to their per-transaction state dependencies, PLT scaling from 11.4 kGE at 2 × 8 to 167.7 kGE at 8 × 32 and CLT from 6.9 kGE to 112.3 kGE, a stable 33.1% to 39.5% reduction over PLT across all configurations. ILT achieves superior scalability ( O( NID ))by decoupling its area from D entirely, growing only 3.0×
+
+(2.6 kGE to 7.8 kGE) for the same 16 × capacity increase and saving between 77.2% ( 2 × 8) and 95.3% ( 8 × 32 ) over PLT. The cost is a 3.7× higher median detection latency at 4 × 16 
+
+(Section V-B). Figure 9 decomposes the TMU area at the 4 × 16 con-figuration, showing how architectural abstraction redistributes silicon cost across components. PLT (40.6 kGE) dedicates 10.5 kGE to write transaction storage and 7.1 kGE to read storage for per-phase coverage. CLT (25.7 kGE) achieves 10 0 5 10 15 20 25 30 35 40 
+
+> Area (kGE)
+> PLT (Reference) CLT (Component Breakdown) CLT (Actual Total) ILT (Component Breakdown) ILT (Actual Total)
+> 10.5 (26.2%) 2.6 (6.4%) 9.2 (23.0%) 7.1 (17.9%) 7.5 (18.9%)
+> 7.1 (28.7%) 6.9 (27.9%) 3.6 (14.4%) 4.1 (16.6%) 1.3 (34.6%)
+> PLT 40.6 kGE
+> CLT Total 25.7 kGE ILT Total 4.4 kGE
+> Wr Txn Storage (LQA) Wr Timeout Counters Wr Control Logic Rd Txn Storage (LQA) Rd Timeout Counters Rd Control Logic ID Remapper Config Registers
+
+Fig. 9: Component-level area breakdown for 4 × 16 configuration. 2x8 (16) 4x8 (32) 4x16 (64) 8x16 (128) 8x32 (256)           
+
+> Config. NID ×D
+> 1.2 1.4 1.6 1.8 2.0 2.2 2.4 2.6
+> Achieved  Fmax  (GHz)
+> (a) Timing closure
+> PLT CLT ILT
+> 2x8 (16) 4x8 (32) 4x16 (64) 8x16 (128) 8x32 (256)
+> Config. NID ×D
+> 10 2
+> 10 1
+> 10 0
+> 10 1
+> Power @ 1 GHz (mW)
+> (b) Power
+> PLT dyn. PLT leak. CLT dyn. CLT leak. ILT dyn. ILT leak.
+
+Fig. 10: Achieved Fmax (a), and leakage and dynamic power (b), across configurations. its 36.7% reduction by consolidating per-phase transaction state into unified channel watchers, dropping write storage to 7.1 kGE and read to 3.6 kGE. ILT (4.4 kGE) achieves its area reduction by monitoring only 8 transaction IDs (4 per direction) rather than 128 concurrent transactions, collapsing per-transaction logic to negligible area. As D grows from 8 to 32, ILT area remains dominated by the fixed NID tracking structure, directly explaining Figure 8’s sub-linear curve. Timing Closure and Power. Fig. 10 reports achieved Fmax ,leakage, and dynamic power for all configurations. All 15 configurations close the 1 GHz target with positive slack; the minimum achieved Fmax is 1.33 GHz (PLT at 8 × 32 ), so no configuration is timing-critical at the reported operating point. Power is reported at the 1 GHz iso-frequency point, with dynamic power back-annotated from the in-system iDMA traffic of Section V-B. 
+
+B. In-System Evaluation 
+
+All TMU variants were integrated into the Cheshire SoC [21], an open-source heterogeneous 64-bit RISC-V plat-form built around the CVA6 core [22], [23]. The TMU is instantiated between the main AXI4 crossbar and the Hyper-Bus controller (Figure 11), monitoring all AXI4 transactions to off-chip HyperRAM in real time. The iDMA engine performs continuous transfers between internal SRAM and external HyperRAM, emulating the double-buffering data movement patterns typical of DSP and AI computing pipelines on mixed-criticality SoCs, and generating sustained bidirectional AXI4 write and read traffic. 
+
+Fault Injection Campaign : To quantify the TMU’s di-agnostic coverage and validate the theoretical WCDT bounds (Section IV) under transient faults, we conduct fault injection campaigns using Synopsys VC Z01X [24], a fault simula-CVA6 0 
+
+> CVA6 1
+> iDMA
+> VGA
+> JTAG Debug
+> Serial Link
+> USB 1.1
+
+UART 
+
+I2C 
+
+SPI Host 
+
+GPIO 
+
+PLIC 
+
+CLINT 
+
+Boot ROM 
+
+SoC Regs 
+
+> Hyperbus
+
+TMU 
+
+AXI4 crossbar 
+
+> SRAM
+> Regbus  Demux
+> HyperRAM
+> SoC boundary
+> External
+> HW
+> Reset
+
+Fig. 11: TMU integration within the Cheshire SoC, positioned between the AXI4 crossbar and HyperBus controller to moni-tor iDMA-driven traffic between on-chip SRAM and external HyperRAM. tion platform for functional safety analysis compliant with ISO 26262 [3] and IEC 61508 [25] industrial standards, providing evidence-based diagnostic coverage measurement in conjunction with Synopsys VCS. Z01X automates fault list generation, injection scheduling, and outcome classification, providing standards-compliant diagnostic coverage metrics ap-plicable to safety integrity level assessment. Faults are injected into two IP cores separately to evaluate how each TMU architecture detects manager- and subordinate-induced violations and at what latency: the iDMA controller (AXI manager) and the HyperBus memory controller (AXI subordinate). We inject 100k faults per fault class per target IP and per TMU variant, yielding 12 independent campaigns in total, targeting sequential state elements (FLOP, modeling Single Event Upsets (SEUs)) and module port boundaries (PORT, modeling Single Event Transients (SETs)). Each scenario comprises an independent simulation with a single fault injected at a randomly selected cycle, executing 1,024 transactions (512 writes, 512 reads) as background traffic to ensure uniform temporal coverage. Fault outcomes are classified as: (1) Masked (AM) : no observable system-level effect; (2) Detectable Faults (BA) : AXI specification violations and stalls detectable by the TMU; and (3) Undetectable Faults (EA) : faults not detectable by the variant under evaluation; Section II-C bounds the maximum detectable class, and Table I 11 
+
+TABLE V: Fault Classification Results: Comparison of Detec-tion Rates.                                         
+
+> Injection Point Arch AM (%) BA (%) EA (%)
+> iDMA Flop PLT 94.92 1.65 3.43 CLT 94.92 1.65 3.43 ILT 94.92 1.62 3.46 iDMA Port PLT 80.98 3.49 15.53 CLT 80.98 3.43 15.59 ILT 80.98 3.26 15.76 Hyper Flop PLT 86.19 4.01 9.80 CLT 86.19 3.98 9.83 ILT 86.19 3.74 10.07 Hyper Port PLT 85.04 5.38 9.58 CLT 85.04 5.35 9.61 ILT 85.04 4.97 9.99
+
+the per-variant scope. Our analysis focuses on BA faults as the safety-critical class the TMU is designed to detect. 
+
+Comparative Fault Detection Coverage : Table V re-veals two key findings. First, the masked fault ratio (AM) is identical across all three architectures at every injection point, confirming that TMU granularity does not influence whether a fault manifests at the AXI interface; faults that leave bus signals unperturbed are inherently unobservable to any protocol-level monitor (Section II-C). Second, the aggregate non-masked fraction (BA + EA) is constant per injection point, but its split shifts with granularity: ILT’s endpoint-only monitoring reclassifies as undetectable (EA) a small subset that PLT and CLT catch through finer-grained supervision. The 0.41% shift at the HyperBus port represents intermediate faults such as missing data beats within a burst that do not stall the address-to-completion boundary and therefore fall outside ILT’s observability window. 
+
+Deterministic Detection Behavior : To empirically val-idate the theoretical WCDT models (Section IV), we con-figured a controlled campaign with uniform 32-beat bursts (AxLEN =0x1F ) and alternating iDMA transfers. Fixing the burst length isolates architectural detection latency from work-load variance. As a first step, we characterized per-phase transaction latencies under fault-free operation on the target HyperBus subordinate, obtaining the nominal latency measure-ments τ reported in Table VI. Timeout thresholds Th were then set by adding a margin above the observed nominal values, following the offline static characterization workflow described in Section III-A. No false detections were observed in any campaign, since by construction no fault-free interval can reach its threshold. Each threshold enters (2)–(5) additively, so margin traded for false-positive immunity inflates the detection bound by the same amount; deriving budgets that jointly meet application deadlines and bound false-positive probability is a schedulability problem outside the scope of this paper. The trade-off is local rather than system-wide: every counter resets on its protocol event and the measurement window opens only at the monitored interface (1), so neither burst length, outstanding count, nor upstream queuing enlarges a supervised interval. ILT is the exception, its completion timeouts spanning transaction boundaries and widening under cross-ID interleav-ing, as its larger budgets in Table VI reflect. Tightness rests on the endpoint: HyperBus has fixed access latency, so the τ
+
+TABLE VI: WCDT Analysis: Theoretical Models vs. Experi-mental Configuration for 32-beat Bursts.                                                
+
+> Arch Failing Phase / Interval ( i)τ(cyc) Th (cyc) WCDT
+> PLT AW/AR Handshake ( Cw0/r0)066AW-to-W1 Gap ( Cw1)1910 First W-beat ( Cw2)216 18 Data Burst Stall ( Cw3a)182 43 225 Missing B Response ( Cw4)186 128 314 AR-to-R1 Gap ( Cr1)165 66 Read Burst Stall ( Cr3a)301 48 349 CLT AW/AR Handshake 066W-Channel Liveness 182 43 225 B-Channel Liveness 186 128 314 R-Channel Liveness 301 74 375 ILT AW/AR Handshake 066Inter-Completion (Write) -962 962 Inter-Completion (Read) -712 712
+
+values are constants and the margin is a true safety margin, whereas a long-tailed endpoint such as an LPDDR controller makes it a statistical choice. Figures 12–14 validate the theoretical WCDT bounds of Table VI through fault injection. PLT (Figure 12) produces sharp latency concentrations at handshake phases, where detection is deterministic. Liveness monitoring at the data phase exhibits spread below the WCDT bound, as timeouts trigger at any inter-beat interval depending on where the fault disrupts data flow. The spread in WLAST -to-B detections arises because faults perturbing HyperBus backpressure ( WREADY )can force WLAST to arrive early, starting the B-response timer ahead of schedule; the fault is nonetheless always caught before the user-configured 314-cycle bound. CLT (Figure 13) subsumes intermediate phases into unified channel boundaries. Early data-phase faults caught by PLT at 10 and 18 cycles shift to the W-channel liveness timeout at 43 cycles, where the per-beat stall is first detected upon liveness threshold expiry. The dominant 225- and 314-cycle worst-case bounds are fully preserved, validating the 36.7% area reduction at minimal detection latency overhead. ILT (Figure 14) takes this architectural abstraction to its extreme by stripping away all intra-transaction monitoring. It collapses every intermediate fault into near-impulse distributions at the end-to-end bounds (962 cycles for consecutive writes, 712 cycles for reads). Despite incurring the highest detection latency and sacrificing precise localization, ILT always guarantees a deterministically bounded WCDT sufficient for baseline system safety. Figure 15 presents detection latency distributions through cumulative distribution function (CDF) (a) and density (b) visualizations. The CDF shows PLT and CLT overlapping closely, with median latencies of 191 and 213 cycles re-spectively, confirming that channel-level tracking preserves detection speed despite area reduction. ILT’s CDF remains near-zero until the 712-cycle read boundary, then rises sharply to 100% at the 962-cycle write boundary, yielding a median 
+
+3.7× higher than PLT. The density violin plot captures this divergence explicitly: PLT and CLT show continuous profiles distributed across all protocol phases, while ILT concentrates bimodally at the two completion-timeout boundaries. This reflects its reliance on end-to-end transaction timeouts alone. 12 0 50 100 150 200 250 300 350 
+
+Detection Time from Txn Start (Cycles) 
+
+0200 400 600 800 1000 
+
+> Fault Count
+
+(a) Write Transaction Detection 
+
+> Cw0: AW HS Cw1: AW-W1 Cw2: W1 HS Cw3: W Live Cw4: WLAST-B
+
+610 18 225 314 
+
+0 50 100 150 200 250 300 350 400 
+
+Detection Time from Txn Start (Cycles) 
+
+0500 1000 1500 2000 
+
+(b) Read Transaction Detection 
+
+> Cr0: AR HS Cr1: AR-R1 Cr2: R Live
+
+666 349 
+
+Fig. 12: PLT detection latency distributions by transaction phase. 0 50 100 150 200 250 300 350 
+
+Detection Time from Txn Start (Cycles) 
+
+0250 500 750 1000 1250 1500 
+
+> Fault Count
+
+(a) Write Transaction Detection 
+
+> Cw0: AW HS Cw1: W Ch. Cw2: B Ch.
+
+6225 314 
+
+0 50 100 150 200 250 300 350 400 
+
+Detection Time from Txn Start (Cycles) 
+
+0500 1000 1500 2000 2500 
+
+(b) Read Transaction Detection 
+
+> Cr0: AR HS Cr1: R Ch.
+
+6375 
+
+Fig. 13: CLT detection latency distributions grouped by AXI channel. 0 200 400 600 800 1000 
+
+Detection Time from Txn Start (Cycles) 
+
+01000 2000 3000 4000 5000 
+
+> Fault Count
+
+(a) Write Transaction Detection 
+
+> Cw0: AW HS Cw1: B2B
+
+6 962 
+
+0 200 400 600 800 
+
+Detection Time from Txn Start (Cycles) 
+
+02000 4000 6000 
+
+(b) Read Transaction Detection 
+
+> Cr0: AR HS Cr1: R2R
+
+6712 
+
+Fig. 14: ILT detection latency distributions grouped by transaction ID. 10 0 10 1 10 2 10 3
+
+Detection Latency (Cycles) 
+
+0.0 0.2 0.4 0.6 0.8 1.0 
+
+> Cumulative Probability
+
+(a) Cumulative Distribution 
+
+PLT CLT ILT 
+
+PLT CLT ILT 
+
+0200 400 600 800 1000 
+
+> Detection Latency (Cycles)
+
+191.0 213.0 712.0 
+
+(b) Distribution Density 
+
+Fig. 15: Detection latency comparison across TMU architectures. 0 5 10 15 20 25 30 35 40 45 
+
+> Area Overhead (KGE)
+> 100 200 300 400 500 600 700 800
+> Median Detection Latency (Cycles)
+> PLT Baseline 40.6 KGE 191 cycles CLT 36.7% area
+> 25.7 KGE 213 cycles ILT 89.2% area
+> 4.4 KGE 712 cycles
+> Low Area High Latency High Area Low Latency
+
+Fig. 16: Area-latency trade-off across TMU architectures at 4×16 configuration. 
+
+Area-Latency Design Space : Figure 16 maps area over-head against detection latency to visualize the complete TMU design space. PLT minimizes the fault exposure window (191 cycles) at maximum hardware cost, and provides the richest diagnostics: per-phase localization, fault source identification (manager versus subordinate), and detailed latency logging. CLT is the preferred point for most deployments, holding median latency to 213 cycles for a 36.7% area reduction while retaining channel-level diagnostic visibility. ILT trades a 712-cycle median for an 89.2% area reduction, suiting tightly area-constrained endpoints where transaction-level deadlock recovery without phase-level diagnostics is sufficient. 13 
+
+TABLE VII: Comparison of AXI transaction monitoring solutions.                                                                                                                                                                                                                                                                            
+
+> Reference Target Prot. HW/SW Based Timing Metrics Txn. Level Phase Level Prot. Check Perf. Metrics Fault Detect. Bounded Det. a
+> M.O Supp. bArea cArea Scale
+> AMD Perf. Mon. [14] AXI HW ✓✓××✓××✓n/r ×
+> Synopsys Smart Mon. [28] AXI SW ✓✓××✓×××n/r ×
+> Ravi et al. (Bus Mon.) [15] AXI HW ✓✓××✓×××n/r ×
+> Kyung et al. (PMU) [26] AXI HW ✓✓××✓×××n/r ×
+> Tan et al. (Perf. Eval.) [27] AXI SW ✓✓××✓×××n/r ×
+> Edelman et al. (Trans. Mon.) [29] AXI SW ×✓✓×××××n/r ×
+> AMD Prot. Checker [10] AXI HW ×✓×✓×××✓n/r ×
+> Chen et al. (AXIChecker) [11] AXI HW ×✓×✓××××70.7 kGE d×
+> Lee et al. (RecoSoC Mon.) [30] AXI HW ✓✓×✓✓×××n/r ×
+> Lazaro et al. (Firewall) [16] AXI-Lite HW ×✓××××××0.13 kLUT e×
+> Zonta et al. (XRAY) [31] AXI SW ×✓○✓×✓××0.40 kLUT f×
+> Foudhaili et al. (IMS) [17] AXI HW ×✓×✓×✓×○20.8 kLUT g×
+> Xilinx AXI Timeout [13] AXI HW ✓✓×××✓××n/r ×
+> ARM SP805 Watchdog [12] APB HW ✓××××✓××n/r ×
+> Cabo et al. (SafeSU) [32] AHB/AXI HW ✓✓××✓✓××5.0 kLUT h×
+> Benz et al. (AXI-REALM) [20] AXI HW ✓✓✓✓✓✓×✓50.0 kGE i✓
+> This work: PLT AXI HW ✓✓✓✓✓✓✓✓40.6 kGE j✓
+> This work: CLT AXI HW ✓✓✓✓✓✓✓✓25.7 kGE j✓
+> This work: ILT AXI HW ✓✓×○k✓✓✓✓4.4 kGE j✓✓= supported; ○= partially supported; ×= not supported. Italic = commercial tools. aDetection within a formally derived worst-case bound validated by fault injection. bMultiple outstanding transaction support. cAs published, not normalized; n/r = not reported or software-based. dTSMC 180 nm. eZynq.
+> fVCU118, full-mode checker. gZCU104. hKCU105. iGF12, erealm unit. jGF12, 4×16 .kResponse-ID checking only; no burst-length validation.
+
+VI. R ELATED WORK 
+
+Existing transaction monitoring solutions address four dis-tinct challenges: performance characterization, protocol com-pliance, access control and security, and runtime fault detec-tion. Each category addresses only a subset of the requirements imposed by safety-critical mixed-criticality SoCs, as summa-rized in Table VII. 
+
+Performance Monitoring. These solutions measure AXI traffic for system tuning but do not detect faults. Ravi [15] implemented a hardware bus monitor that records transfer counts, sizes, and separate read and write latency counts for post-silicon analysis. Kyung et al. [26] developed an AXI monitoring unit that gathers bandwidth statistics across user-defined address ranges. Tan et al. [27] proposed a simulation-based UVM approach measuring AXI bandwidth and la-tency. Commercial tools include the AMD AXI Performance Monitor [14], a synthesizable hardware IP, and Synopsys Smart Monitor [28], a DPI-based pre-silicon tool; both target performance characterization without runtime fault detection. Edelman [29] created a UVM transaction-monitoring frame-work, likewise pre-silicon only. 
+
+Protocol Checking. These verify AXI protocol rules but ignore timing and liveness. Chen et al. [11] developed AXI-Checker, a synthesizable checker enforcing 44 AXI compli-ance rules via on-chip assertions. The AMD AXI Protocol Checker [10] provides assertion logic for design-time verifi-cation of channel handshakes. Lee and Huang [30] proposed a reconfigurable monitor combining protocol checking with la-tency measurement, but it fails to detect critical AXI4 ordering violations such as ID mismatches or out-of-order completions within the same ID and lacks fault recovery mechanisms. 
+
+Access Control and Security. These filter traffic or detect intentional attacks but ignore timing faults. Lazaro et al. [16] implemented an AXI firewall that blocks traffic violating predefined address ranges and bandwidth limits. Zonta et al. [31] created XRAY, an offline tool that identifies architec-tural vulnerabilities by checking 13 security properties across seven AXI interconnects. Foudhaili et al. [17] developed IMS, an ML-based monitor using a quantized neural network to detect denial-of-service attacks. IMS complements the TMU: it classifies transaction headers to detect intentional security breaches, while the TMU detects unintentional liveness vi-olations throughout the entire transaction lifecycle. Pagani et al. [33], Restuccia et al. [34], and AXI HyperConnect [35] en-force bandwidth reservation, arbiter fairness, and hypervisor-level isolation respectively for AXI accelerators on FPGAs. These works address resource access control but do not detect protocol-level faults or restore interconnect liveness upon subordinate failure. 
+
+Timeout and Fault Detection. These detect stalls but lack fine-grained diagnostics. The Xilinx AXI Timeout IP [13] measures time between address handshake and response arrival but lacks visibility into data phases or support for multiple outstanding transactions. The ARM SP805 Watchdog [12] provides coarse system-level protection over APB but lacks AXI transaction awareness. Cabo et al. [32] developed SafeSU, which monitors per-master bus contention to enforce interfer-ence quotas between managers. While effective for WCET predictability and contention mitigation, SafeSU does not perform per-phase protocol checks or AXI4-specific burst validation. Benz et al. [20] introduced AXI-REALM, which monitors traffic at interconnect ingress and egress to enforce bandwidth budgets and traffic regulation; its egress monitoring builds on the preliminary TMU of [18], which this work substantially extends with formal WCDT analysis and a three-tier architecture. Table VII reports published area where available. Among the ASIC entries, AXIChecker [11] occupies 70.7 kGE in 180 nm, enforcing protocol rules without timeout supervision, multiple-outstanding support, or recovery, whereas PLT pro-vides all three in 40.6 kGE; the node difference precludes a 14 
+
+direct comparison, but AXIChecker’s functional scope is a strict subset of PLT’s. ILT provides bounded detection and interconnect recovery in 4.4 kGE, an order of magnitude below the prior ASIC entries, while the coarse timeout mechanisms in the table provide neither. 
+
+Prior Work. A preliminary work [18] introduced the TMU concept with Tiny-Counter and Full-Counter variants. This current work extends that design with the three-tier granularity framework derived from AXI4 ordering rules, and with WCDT analysis validated across 1.2 million fault-injection scenarios. PLT achieves a 62.7% area reduction at the 4×16 configuration (108.8 kGE to 40.6 kGE), CLT reduces area by 40.3% over the Tiny-Counter while providing strictly finer channel-level localization, and ILT introduces sub-linear O( NID ) scaling with no counterpart in the preliminary design. VII. C ONCLUSION 
+
+This paper presented a TMU framework for AXI4-based safety-critical SoCs, spanning the monitoring granularity and area trade-off through three variants: PLT for per-phase fault localization, CLT consolidating phase monitors into channel-level watchers at a 36.7% area reduction, and ILT eliminating per-transaction state for sub-linear scaling at an 89.2%reduc-tion. Fault injection on a RISC-V SoC confirmed that no fault manifesting as an AXI4 protocol or liveness violation escaped detection, with latencies bounded by the analytically derived Worst-Case Detection Time. Together they define a structured design space for aligning monitoring overhead with subordinate criticality and safety certification requirements. REFERENCES [1] C. B. Watkins, “Integrated modular avionics: Managing the allocation of shared intersystem resources,” in Proc. IEEE/AIAA Digit. Avion. Syst. Conf. (DASC) , 2006, pp. 1–12. [2] A. Burns and R. I. Davis, “A survey of research into mixed criticality systems,” ACM Comput. Surv. , vol. 50, no. 6, pp. 82:1–82:35, Dec. 2017, doi: 10.1145/3131347. [3] International Organization for Standardization, “Road vehicles – Func-tional safety – Part 5: Product development at the hardware level,” ISO 26262-5:2018, Dec. 2018. [4] Z. Jiang et al. , “Re-thinking mixed-criticality architecture for automotive industry,” in Proc. IEEE Int. Conf. Comput. Design (ICCD) , 2020, pp. 510–517, doi: 10.1109/ICCD50377.2020.00092. [5] RTCA SC-180, “Design assurance guidance for airborne electronic hardware,” Doc. DO-254, Apr. 2000. [6] A. T. Sheikh, A. Shoker, S. A. Fahmy, and P. Esteves-Verissimo, “ResiLogic: Leveraging composability and diversity to design fault and intrusion resilient chips,” IEEE Trans. Very Large Scale In-tegr. (VLSI) Syst. , vol. 33, no. 6, pp. 1751–1764, Jun. 2025, doi: 10.1109/TVLSI.2025.3544860. [7] ARM Ltd., AMBA AXI and ACE Protocol Specification, AXI3, AXI4, and AXI4-Lite , Doc. IHI0022H, 2021. [Online]. Available: https:// developer .arm .com/documentation/ihi0022 [8] C. De Sio, S. Azimi, and L. Sterpone, “On the analysis of radiation-induced failures in the AXI interconnect module,” Microelectron. Rel. ,vol. 114, art. 113733, 2020, doi: 10.1016/j.microrel.2020.113733. [9] Z. Jiang, K. Yang, N. Fisher, I. Gray, N. C. Audsley, and Z. Dong, “AXI-IC RT : Towards a real-time AXI-interconnect for highly integrated SoCs,” IEEE Trans. Comput. , vol. 72, no. 3, pp. 786–799, 2023, doi: 10.1109/TC.2022.3179227. [10] AMD Inc., “AXI protocol checker v2.0,” PG101, 2022. [Online]. Avail-able: https://docs .amd .com/r/en-US/pg101-axi-protocol-checker [11] C.-H. Chen, J.-C. Ju, and I.-J. Huang, “A synthesizable AXI protocol checker for SoC integration,” in Proc. Int. SoC Design Conf. (ISOCC) ,2010, pp. 103–106. [12] ARM Ltd., “About the watchdog module (SP805),” Technical Ref-erence Manual, ARM DDI 0270B, 2003. [Online]. Available: https: //developer .arm .com/documentation/ddi0270/b [13] AMD/Xilinx Inc., “AXI timeout barrier v1.0,” PG292, 2022. [Online]. Available: https://docs .amd .com/r/en-US/pg292-axi-timeout-barrier [14] AMD Inc., “AXI performance monitor v5.0,” PG037, 2017. [Online]. Available: https://docs .amd .com/v/u/en-US/pg037 axi perf mon [15] S. Ravi, K. Ezra, and H. M. Kittur, “Design of a bus monitor for performance analysis of AXI protocol based SoC systems,” Int. J. Appl. Eng. Res. , vol. 9, no. 19, pp. 6313–6324, 2014. [16] J. Lazaro et al. , “Embedded firewall for on-chip bus transac-tions,” Comput. Electr. Eng. , vol. 98, art. 107707, 2022, doi: 10.1016/j.compeleceng.2022.107707. [17] W. Foudhaili et al. , “IMS: Intelligent hardware monitoring system for secure SoCs,” in Proc. Design, Autom. Test Eur. (DATE) , 2026. [18] C. Liang et al. , “Towards reliable systems: A scalable approach to AXI4 transaction monitoring,” in Proc. Design, Autom. Test Eur. (DATE) , 2025, doi: 10.23919/DATE64628.2025.10992911. [19] F. Rehm et al. , “The road towards predictable automotive high-performance platforms,” in Proc. Design, Autom. Test Eur. (DATE) ,2021, pp. 1915–1924. [20] T. Benz et al. , “AXI-REALM: Safe, modular and lightweight traffic monitoring and regulation for heterogeneous mixed-criticality systems,” 
+
+IEEE Trans. Comput. , vol. 74, no. 9, pp. 3072–3086, Sept. 2025, doi: 10.1109/TC.2025.3584530. [21] A. Ottaviano, T. Benz, P. Scheffler, and L. Benini, “Cheshire: Alightweight, Linux-capable RISC-V host platform for domain-specific accelerator plug-in,” IEEE Trans. Circuits Syst. II, Exp. Briefs , vol. 70, no. 10, pp. 3777–3781, Oct. 2023, doi: 10.1109/TCSII.2023.3289186. [22] F. Zaruba and L. Benini, “The cost of application-class processing: Energy and performance analysis of a Linux-ready 1.7-GHz 64-bit RISC-V core in 22-nm FDSOI technology,” IEEE Trans. Very Large Scale Integr. (VLSI) Syst. , vol. 27, no. 11, pp. 2629–2640, Nov. 2019, doi: 10.1109/TVLSI.2019.2926114. [23] B. S´ a, L. Valente, J. Martins, D. Rossi, L. Benini, and S. Pinto, “CVA6 RISC-V virtualization: Architecture, microarchitecture, and design space exploration,” IEEE Trans. Very Large Scale Integr. (VLSI) Syst. , vol. 31, no. 11, pp. 1713–1726, Nov. 2023, doi: 10.1109/TVLSI.2023.3302837. [24] Synopsys Inc., “VC Z01X: Fault simulation for functional safety verification,” Datasheet, 2023. [Online]. Available: https://www .synopsys .com/verification/simulation/vc-z01x .html [25] International Electrotechnical Commission, “Functional safety of elec-trical/electronic/programmable electronic safety-related systems,” IEC 61508:2010, 2010. [26] H. Kyung et al. , “Performance monitor unit design for an AXI-based multi-core SoC platform,” in Proc. ACM Symp. Appl. Comput. (SAC) ,2007, pp. 1565–1572, doi: 10.1145/1244002.1244336. [27] T. N. Tan, P. Duong-Ngoc, T. X. Pham, and H. Lee, “Novel performance evaluation approach of AMBA AXI-based SoC design,” in Proc. Int. SoC Design Conf. (ISOCC) , 2021, pp. 403–404. [28] Synopsys Inc., “Enhancing Arm SoCs performance with smart moni-tors,” 2023. [Online]. Available: https://www .synopsys .com/blogs/chip-design/smart-monitors-improve-arm-socs-performance .html [29] R. Edelman and R. Ardeishar, “Monitors, monitors everywhere – Who is monitoring the monitors,” Mentor Graphics, White Paper, 2014. [30] P.-C. Lee and I.-J. Huang, “Reconfigurable bus monitor tool suite for on-chip SoC for performance and protocol monitoring,” in Proc. Int. Symp. Reconfigurable Commun.-Centric Syst.-on-Chip (ReCoSoC) , 2014, pp. 1–6, doi: 10.1109/ReCoSoC.2014.6861341. [31] M. Zonta-Roudes et al. , “Xray: Detecting and exploiting vulnerabilities in Arm AXI interconnects,” in Proc. Design, Autom. Test Eur. (DATE) ,2025, pp. 1–7, doi: 10.23919/DATE64628.2025.10992968. [32] G. Cabo et al. , “SafeSU: An extended statistics unit for multicore timing interference,” in Proc. IEEE Eur. Test Symp. (ETS) , 2021, pp. 1–4, doi: 10.1109/ETS50041.2021.9465444. [33] M. Pagani, E. Rossi, A. Biondi, M. Marinoni, G. Lipari, and G. Buttazzo, “A bandwidth reservation mechanism for AXI-based hardware accelerators on FPGAs,” in Proc. Euromicro Conf. Real-Time Syst. (ECRTS) , 2019, pp. 24:1–24:24, doi: 10.4230/LIPIcs.ECRTS.2019.24. [34] F. Restuccia, M. Pagani, A. Biondi, M. Marinoni, and G. Buttazzo, “Is your bus arbiter really fair? Restoring fairness in AXI interconnects for FPGA SoCs,” ACM Trans. Embedded Comput. Syst. , vol. 18, no. 5s, article 51, Oct. 2019, doi: 10.1145/3358183. [35] F. Restuccia, A. Biondi, M. Marinoni, G. Cicero, and G. Buttazzo, “AXI HyperConnect: A predictable, hypervisor-level interconnect for hard-ware accelerators in FPGA SoC,” in Proc. ACM/IEEE Design Autom. Conf. (DAC) , 2020, pp. 1–6, doi: 10.1109/DAC18072.2020.9218652.
