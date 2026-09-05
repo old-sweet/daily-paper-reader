@@ -1,0 +1,581 @@
+Title: SkillForge: Compositional Skill Synthesis with Verification-in-the-Loop for Generating Formally Verified Dafny Programs
+
+URL Source: https://arxiv.org/pdf/2608.29841v1
+
+Published Time: Tue, 01 Sep 2026 01:28:40 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# SKILLFORGE: Compositional Skill Synthesis with Verification-in-the-Loop for Generating Formally Verified Dafny Programs 
+
+## Yanming Liu 
+
+## Zhejiang University 
+
+## Xinyue Peng 
+
+## Southeast University 
+
+## Jiannan Cao 
+
+## MIT 
+
+## Xinyi Wang 
+
+## Weixin AI Lab 
+
+## Jinbo Su 
+
+## Renmin University 
+
+## oceann24@zju.edu.cn 
+
+## Abstract 
+
+Generating formally verified programs from natural language remains challenging: exist-ing approaches either produce code in a sin-gle pass without recourse when verification fails, or rely on open-ended agentic reason-ing that is non-deterministic and opaque. We introduce SKILLFORGE, a framework that decomposes formal code synthesis into a li-brary of atomic, reusable skills—each targeting a specific subtask such as specification infer-ence, body synthesis, invariant generation, er-ror diagnosis, or targeted repair—defined by a prompt template, tool binding, and decid-able success criterion. A verification-driven harness orchestrates these skills: it submits can-didates to the Dafny verifier, diagnoses fail-ures into structured categories, deterministi-cally routes to the appropriate repair skill, and iterates until formal correctness is proved or a budget is exhausted. On a curated benchmark of natural language–Dafny specification pairs, SKILLFORGE substantially outperforms both state-of-the-art agentic approaches (including ReAct-style agents, MCTS-based repair, and RL-guided verification) and traditional itera-tive baselines, while requiring fewer tokens and lower latency. Ablation studies confirm that every skill contributes measurably, and the harness converges rapidly with the majority of programs verified on the first attempt. 
+
+## 1 Introduction 
+
+Formal verification offers the strongest correct-ness guarantee available in software engineering: a proof, checked by machine, that a program meets its specification for all possible inputs (Wen et al., 2024). The Dafny language (Loughridge et al., 2024) exemplifies this paradigm by integrat-ing preconditions, postconditions, loop invariants, and termination measures directly into the source code, enabling an automated verifier backed by an SMT solver to certify correctness at compile time. However, writing verification-grade code is prohibitively difficult even for experts: one must simultaneously produce an implementation that is algorithmically correct, a specification that is tight enough for the verifier to discharge, and auxiliary annotations (loop invariants, ghost state) that bridge the gap. Recent large language models (LLMs) can generate syntactically valid Dafny (Rasheed et al., 2025), yet the verification pass rate of naive gen-eration remains low because these subtasks place fundamentally different demands on the model: • One-shot generation treats the problem as a single inference step. When verification fails, there is no mechanism for diagnosis or repair. • Naive iterative repair feeds the error mes-sage back without structured analysis, conflat-ing specification gaps, missing invariants, and logic errors into one undifferentiated retry— leading to oscillation and wasted budget. • Agent-based approaches (Yang et al., 2024; Wang et al., 2024b; Yao et al., 2023) give the LLM open-ended control over its next action. While powerful for exploratory tasks, they suffer from non-determinism, opacity, and un-bounded computation when applied to formal verification—a domain where the error space is finite and well-categorized. • Tree-search methods (Ren et al., 2024; Zhang et al., 2024) explore multiple repair candidates simultaneously but scale poorly with program complexity and lack the targeted repair strategies that formal verification errors afford. We propose a different paradigm: skill-based harness engineering . Inspired by compositional skill systems in open-ended learning (Wang et al., 2024a; Qian et al., 2024; Chen et al., 2024) and recent advances in agent-designed skill libraries arXiv:2608.29841v1 [cs.CL] 30 Aug 2026 (Zhou et al., 2026), we decompose the NL-to-verified-Dafny task into a library of atomic skills, each targeting a single well-defined subtask (spec-ification inference, body synthesis, invariant gen-eration, error diagnosis, code repair, spec strength-ening). A harness —not an agent—orchestrates their execution with deterministic routing, bounded iteration, and full observability. The key insight is that the Dafny verifier pro-vides a formal oracle : its structured error output can be parsed into categories that deterministically select the next skill to invoke. This converts the open-ended “what should I do next?” problem into a closed, auditable routing decision. Unlike agentic systems that must reason about what tool to call at each step, or tree-search methods that explore ex-ponentially many candidates, our harness exploits the structure of verification errors to make optimal routing decisions with zero reasoning overhead. Consider a concrete example: given the instruc-tion “compute the factorial of n using a loop,” a one-shot generator may produce a correct loop body but omit the loop invariant invariant r== fact(i) required by the verifier. A ReAct-style agent would reason about the error, poten-tially try multiple repair strategies, and waste turns on inapplicable fixes. SKILLFORGE instead: (1) runs the verifier, (2) diagnoses the specific fail-ure as invariant_missing via DIAGNOSEERROR ,(3) routes to the specialized GENINVARIANT skill, which synthesizes only the missing invariant. This targeted approach succeeds in 2 iterations where agentic methods require 3–5 turns with lower relia-bility. 
+
+Contributions. 
+
+1. We introduce SKILLFORGE, a skill-based harness for formally verified code synthesis, comprising six independently testable skills with decidable success criteria (§3.2). 2. We design a verification-driven orchestra-tion protocol with error-conditioned routing, bounded iteration, and formal soundness guar-antees (§3.3). 3. We present comprehensive experiments show-ing 91.6% verification rate on a 178-example benchmark, outperforming four state-of-the-art agentic baselines (ReAct-Verify, CodeAct-Dafny, MCTS-Repair, Laurel), with skill-level ablations, convergence analysis, and qualita-tive case studies (§5). 
+
+## 2 Related Work 
+
+LLM-Based Formal Code Synthesis. SpecGen (Ma et al., 2025) uses LLMs to generate specifica-tions from existing code; Enchanting (Wen et al., 2024) combines LLMs with static analysis for spec-ification synthesis. DafnyBench (Loughridge et al., 2024) provides evaluation benchmarks, and Co-pra (Thakur et al., 2024) applies in-context learn-ing to proof tactic selection. SpecSyn (Mandal et al., 2023) formulates specification synthesis as sequence-to-sequence learning. Recent work has directly targeted Dafny code generation: Misu et al. (Misu et al., 2024) explore LLM-assisted synthesis of verified Dafny methods, Clover (Sun et al., 2024) introduces a closed-loop framework combining code generation with formal annotation and consistency checking, and Laurel (Mugnier et al., 2024) generates Dafny assertions using error-guided placement. Li et al. (Li et al., 2025) propose using Dafny as a verification-aware intermediate language, Baksys et al. (Baksys et al., 2025) demon-strate LLM-guided theorem proving via Dafny’s auto-active verification, and Xu et al. (Xu et al., 2025) reveal that LLM verification success does not compose across multi-function programs—directly motivating our skill-based decomposition. Con-current benchmarking efforts including Vericod-ing (Bursuc et al., 2025) and VERINA (Ye et al., 2026) further highlight the gap between syntactic correctness and formal verification success, with top models achieving only 3.6–4.9% proof success rates on challenging tasks. These prior works op-erate in one-shot or single-round settings without iterative repair. SKILLFORGE advances beyond them by introducing structured, skill-decomposed repair with the verifier as an active oracle in the loop. 
+
+Automated Program Repair. Traditional APR uses search-based or constraint-solving methods (Le Goues et al., 2019). Neural APR leverages LLMs for patch generation (Xia et al., 2023; Wei et al., 2023). However, these rely on test suites which may be incomplete, and suffer from the patch overfitting problem—patches that pass the test suite but do not fix the underlying bug. In contrast, our repair skills operate in a formally sound setting: the Dafny verifier provides definitive pass/fail judg-ments over all inputs simultaneously, eliminating overfitting entirely. Loop Invariant Generation with LLMs. Loop invariant synthesis is a key bottleneck in automated verification. Chakraborty et al. (Chakraborty et al., 2023) propose ranking LLM-generated loop invari-ant candidates for program verification. Wu et al. (Wu et al., 2024) combine LLMs with bounded model checking in a neuro-symbolic approach (LaM4Inv) that uses BMC to filter and reassem-ble valid invariant predicates. Liu et al. (Liu et al., 2024) introduce a benchmark for invariant genera-tion on programs with memory manipulation and propose combining LLMs with symbolic execution. Our GENINVARIANT skill takes a complementary approach: rather than post-hoc ranking or symbolic filtering, it operates within a verification-driven har-ness that provides immediate verifier feedback, en-abling iterative invariant strengthening guided by specific error messages. 
+
+Agentic Code Generation. ReAct (Yao et al., 2023) interleaves reasoning and action traces, en-abling LLMs to call external tools in open-ended loops. CodeAct (Wang et al., 2024b) extends this by treating code execution itself as the action space. SWE-Agent (Yang et al., 2024) applies agentic rea-soning to repository-level bug fixing, while Agent-less (Xia et al., 2025) demonstrates that simpler, non-agentic workflows with hierarchical localiza-tion can match or exceed agent-based approaches at a fraction of the cost—a finding that directly supports our harness-over-agent philosophy. SWE-bench (Jimenez et al., 2024) provides a standard-ized evaluation benchmark. While these methods excel at exploratory tasks with ambiguous goals, formal verification presents a different challenge: the error space is finite, the oracle is perfect, and targeted repair outperforms exploration. We empir-ically demonstrate this gap in §5. 
+
+Tree-Search and Verification-Guided Synthesis. 
+
+CEGIS (Solar-Lezama et al., 2006) uses counterex-amples to guide classical synthesis. MCTS-based approaches (Zhang et al., 2024) apply Monte Carlo Tree Search to code generation with execution feed-back as reward. Cobblestone (Kasibatla et al., 2024) iteratively combines LLM-generated proof fragments for Coq. Proof2Silicon (Jha et al., 2025) uses reinforcement learning to repair verification failures in hardware generation—the closest work in spirit to our approach but targeting hardware rather than software and using RL rather than skill decomposition. Veri-Sure (Liu et al., 2026) pro-poses a contract-aware multi-agent framework with temporal tracing for RTL code generation, combin-ing formal verification with agent handoffs. Lu et al. (Lu et al., 2025) propose adaptive strategy se-lection for proof refinement via LLM-guided deci-sions. These methods explore multiple candidates but suffer from combinatorial explosion. SKILL-FORGE avoids this by deterministically selecting the single most appropriate repair skill based on structured error categorization. 
+
+Skill-Based and Compositional Systems. Voy-ager (Wang et al., 2024a) builds growing skill li-braries for Minecraft; SkillMix (Qian et al., 2024) evaluates LLMs on compositional skill combina-tions; Skills-in-Context (Chen et al., 2024) demon-strates that providing foundational skills within the prompt context enables near-perfect compo-sitional generalization. Most recently, Memento-Skills (Zhou et al., 2026) introduces a framework where agents autonomously design task-specific skills through reflective learning, growing from 5 to 235 skills and achieving 26.2% improvement on GAIA—demonstrating the power of compositional skill libraries at scale. Planning-based code genera-tion (Zhang et al., 2023) decomposes programming tasks hierarchically. Our key adaptation is that for-mal verification provides decidable success criteria for each skill—unlike open-ended tasks where skill completion is ambiguous. This decidability enables both sound termination and principled routing. 
+
+## 3 Methodology 
+
+3.1 Problem Formulation 
+
+Given a natural language instruction x describing desired program behavior, our goal is to produce a Dafny program d∗ that (1) compiles, (2) satisfies the Hoare triple {ϕpre } B {ψpost } as certified by the Dafny verifier, and (3) is semantically equiva-lent to a reference implementation. We decompose this into a sequence of skill invocations orches-trated by a harness H:
+
+d∗ = H(x) = sk n ◦ · · · ◦ sk 1(x),
+
+Verify( d∗) = ⊤ (1) 
+
+3.2 Skill Library 
+
+Each skill is a triple s = ( P, T, C ): prompt tem-plate P , tool binding T , and success criterion C.Table 1 summarizes the library. Skill Function Input Tool Binding Success Criterion                        
+
+> INFERSPEC Extract types, pre/postcon-ditions from NL NL description
+> x
+> Dafny type checker All fields parse as valid Dafny SYNTHBODY Generate executable func-tion body
+> x+ spec scaf-fold Dafny compiler Program compiles GENINVARIANT Synthesize loop invariants Program + veri-fier error Dafny verifier Program verifies with invari-ants DIAGNOSEERROR Classify verification failure Program + error output None (reasoning) Valid category + location REPAIRCODE Targeted body repair Program + diag-nosis Dafny compiler Compiles ∧differs from in-put STRENGTHENSPEC Add/strengthen pre/post-conditions Program + diag-nosis + NL Dafny verifier Program verifies with new spec
+
+Table 1: The SKILLFORGE skill library. Each skill has a well-defined input/output contract, tool binding, and decidable success criterion. 
+
+INFERSPEC: Specification Inference. Extracts structured metadata from natural language: 
+
+INFERSPEC( x) = ( τin , τ out , ϕ pre , ψ post , t )
+
+(2) where t ∈ { function , method , predicate , lemma }
+
+is the construct type. The prompt frames this as structured field extraction with explicit markers for each component (see Appendix A). The Dafny type checker validates that extracted types and conditions are syntactically well-formed. 
+
+SYNTHBODY: Code Body Synthesis. Gener-ates an executable body conditioned on the specifi-cation scaffold from INFERSPEC: 
+
+SYNTHBODY( x, spec) = B (3) A critical design choice is specification anchoring :the prompt explicitly forbids modifying the specifi-cation, preventing the common failure mode where models weaken postconditions to make verification trivial. Success requires the complete program to compile. 
+
+GENINVARIANT: Loop Invariant Generation. 
+
+Triggered when the verifier reports that a loop body cannot establish its postcondition. The skill synthesizes invariants satisfying three properties: (1) holds on entry, (2) preserved by the loop body, (3) with the negated guard, implies the postcondi-tion. Each proposed invariant is validated individu-ally for inductiveness before insertion. 
+
+DIAGNOSEERROR: Verification Error Diag-nosis. The routing mechanism of the repair loop. It classifies failures into four categories using a hybrid strategy: regex pattern matching for com-mon errors (e.g., “postcondition might not hold” 
+
+→ spec_gap ) with LLM reasoning as fallback for ambiguous cases. Output: (category, line, suggestion) .
+
+REPAIRCODE: Targeted Program Repair. 
+
+Operates surgically on the identified failure site based on DIAGNOSEERROR output. Unlike naive repair (which regenerates everything), this skill is constrained to minimal edits that preserve the overall algorithmic approach. This is critical for convergence—unconstrained regeneration often in-troduces new errors while fixing old ones. 
+
+STRENGTHENSPEC: Specification Strength-ening. Addresses specification gaps by inferring implicit domain constraints from the NL descrip-tion (e.g., “non-negative integer” → requires x >= 0 ). Operates incrementally: proposes candidate clauses, validates each individually, then composes the validated set. 
+
+3.3 Verification-Driven Harness 
+
+The harness orchestrates skill execution through four mechanisms: 
+
+(1) Initial Synthesis. Compose INFERSPEC and SYNTHBODY to produce an initial candidate: 
+
+d0 = SYNTHBODY( x, INFERSPEC( x)) (4) If Verify( d0) = ⊤, return immediately (no repair needed). 
+
+(2) Error-Conditioned Routing. When verifica-tion fails, the harness invokes DIAGNOSEERROR to classify the failure, then deterministically routes Algorithm 1 The SKILLFORGE Verification-Driven Harness 
+
+Require: NL instruction x, iteration budget N
+
+Ensure: Verified Dafny program d∗ or failure ∅ 
+
+> 1:
+
+spec ← InferSpec (x) 
+
+> 2:
+
+d ← SynthBody (x, spec ) 
+
+> 3:
+
+dbest ← d; ebest ← ∞  
+
+> 4:
+
+for i = 1 to N do  
+
+> 5:
+
+(ok , errors ) ← DafnyVerify (d) 
+
+> 6:
+
+if ok then  
+
+> 7:
+
+return d 
+
+> 8:
+
+end if  
+
+> 9:
+
+if |errors | < e best then  
+
+> 10:
+
+dbest ← d; ebest ← | errors | 
+
+> 11:
+
+end if  
+
+> 12:
+
+diag ← DiagnoseError (d, errors ) 
+
+> 13:
+
+skill ← Route (diag .category)  
+
+> 14:
+
+d′ ← skill (d, diag ) 
+
+> 15:
+
+if d′ = d then  
+
+> 16:
+
+d ← SynthBody (x, spec ) with temp=0.3  
+
+> 17:
+
+else  
+
+> 18:
+
+d ← d′ 
+
+> 19:
+
+end if  
+
+> 20:
+
+end for  
+
+> 21:
+
+return ∅
+
+to the appropriate repair skill:         
+
+> Route(cat) =
+> 
+> GENINVARIANT if invariant_missing STRENGTHENSPEC if spec_gap REPAIRCODE if body_error SYNTHBODY if type_error
+> (5)
+
+This deterministic mapping is a core distinction from agent-based systems where next-action selec-tion relies on unconstrained model reasoning. In ReAct-Verify or CodeAct-Dafny, the LLM must decide which repair strategy to employ at each turn; in SKILLFORGE, the verifier output uniquely de-termines the next skill. 
+
+(3) Iterative Composition. The full execution loop is formalized in Algo-rithm 1. The harness maintains a state 
+
+Si = (di, errors i, diag i, history i) at each iteration, enabling progress tracking and rollback. 
+
+(4) Termination and Soundness. The harness guarantees termination through: (i) hard iteration budget Nmax ; (ii) stagnation detection ( di = di−1); (iii) monotonicity check (error count increasing for two rounds triggers rollback to dbest ). Formally, soundness is unconditional: 
+
+H(x) = d∗̸ = ∅ ⇒ Verify( d∗) = ⊤ (6) This holds regardless of individual skill correctness—the harness never returns an unverified program. 
+
+3.4 Equivalence Verification 
+
+Beyond self-verification, we verify semantic equiv-alence against reference implementations. Given reference {P } S {Q} and generated { ˆP } ˆS { ˆQ},we check precondition equivalence ( P ⇔ ˆP ), post-condition equivalence ( Q ⇔ ˆQ), and behavioral equivalence ( P (x) ⇒ S(x) = ˆS(x)), encoded as Dafny lemmas and verified automatically. 
+
+## 4 Experimental Setup 
+
+4.1 Benchmark Construction 
+
+We construct a benchmark of 178 NL–Dafny pairs through careful curation: • Dafny Standard Library (Team, 2024): 42 examples from official tutorials and exercises with manually written NL descriptions. • DafnyBench (Loughridge et al., 2024): 86 examples covering mathematical reasoning, set operations, and quantified logic. • Open-source verification projects : 50 ex-amples from GitHub repositories, manually annotated by the authors. All NL descriptions are written by the authors (not LLM-generated) to ensure semantic fidelity. The benchmark is stratified into three difficulty levels: • Simple (62): Single-clause predicates, pure functions without loops or complex quanti-fiers. • Medium (71): Functions with non-trivial pre-conditions, multi-clause postconditions, or re-cursive definitions. • Hard (45): Methods with while loops requir-ing loop invariants and termination measures, or lemmas requiring auxiliary proofs. 
+
+4.2 Baselines 
+
+We compare against two categories of baselines, all using GPT-5.5 with identical iteration budgets (N =5 ) for fairness: 
+
+Traditional Baselines (Reference Points). 1. One-shot : Single-pass generation with the NL description only. 2. Structured one-shot : Adds metadata (type, pa-rameters, pre/postconditions) to the prompt— equivalent to prior structured ICL approaches. 3. Naive repair : One-shot generation + up to 5 iterations of unstructured “here is the error, please fix” prompting. 4. CoT + Repair : Chain-of-thought prompting for initial generation, followed by naive repair iterations. 
+
+Agentic Baselines (Primary Comparison). 
+
+1. ReAct-Verify (Yao et al., 2023): A ReAct-style agent with access to three tools—the Dafny verifier, compiler, and a code editor. The agent interleaves reasoning traces with tool calls in an open-ended loop for up to N =5 turns. 2. CodeAct-Dafny (Wang et al., 2024b): Based on CodeAct, the agent writes Python code that programmatically modifies Dafny source, then runs the verifier. Budget: N =5 code actions. 3. MCTS-Repair (Zhang et al., 2024): Uses Monte Carlo Tree Search over candidate repairs with verification as binary reward. UCB1 selection with c = √2, 50 rollouts per example. 4. Laurel (Ren et al., 2024): Verification-guided tree search synthesis. Programs are synthe-sized step-by-step with verification checks at each node. Budget: 50 nodes explored. 5. Clover (Sun et al., 2024): Closed-loop verifi-able code generation that co-generates code and annotations iteratively, using consistency checking to guide repair. Adapted to our Dafny benchmark with N =5 iterations. 6. Proof2Silicon (Jha et al., 2025): RL-based verification repair. We adapt the prompt-repair methodology to Dafny: the model learns from verification feedback via rejection sampling with N =5 candidate generations per example. 
+
+4.3 Metrics 
+
+• Verification Rate (VR) : Fraction of examples where the final output passes the Dafny veri-fier. • Equivalence Rate (ER) : Fraction also seman-tically equivalent to the reference implemen-tation. • Average Iterations (AI) : Mean harness iter-ations to reach verification (successful cases only). • First-Pass Rate (FPR) : Fraction verified on the first attempt without any repair. 
+
+4.4 Implementation 
+
+We use GPT-5.5 (temperature 0.0 for reproducibil-ity, 0.3 for stagnation retries) via the OpenAI API as the primary backend, with Claude Opus-4.7 and Claude Sonnet-4.5 (Anthropic) as secondary back-ends for multi-model comparison. Dafny 4.5.0 with Z3 4.12.2 serves as both the verification oracle and the type checker. The system is implemented in Python 3.11. Iteration budget Nmax = 5 ; timeout 30s per verification call. All agentic baselines use the same LLM backend (GPT-5.5) and equivalent compute budgets. Full implementation details are in Appendix B. 
+
+## 5 Results 
+
+5.1 Main Results 
+
+Table 2 presents the main results. SKILLFORGE achieves 91.6% verification rate, outperforming the strongest baseline (Proof2Silicon, 85.4%) by 6.2 percentage points and the strongest traditional baseline (CoT + Repair) by 14.1 pp. Several observations stand out. First, agentic and verification-guided methods substantially outper-form traditional baselines, confirming that iterative tool use is valuable. Proof2Silicon (85.4%) and MCTS-Repair (84.3%) lead among baselines, bene-fiting from structured verification feedback. Clover (81.5%) demonstrates the value of closed-loop an-notation but lacks targeted error routing. However, SKILLFORGE surpasses all of them by exploiting the structured nature of verification errors through skill decomposition. Second, despite achieving the highest VR, SKILLFORGE requires fewer average iterations (1.8) than all iterative baselines—ReAct-Verify needs 2.5 turns and CodeAct-Dafny needs 2.8. This demonstrates that structured diagnosis avoids the trial-and-error exploration that characterizes agen-tic repair. The deterministic routing ensures that each iteration applies the most appropriate repair, eliminating wasted turns. Third, the first-pass rate (71.3%) exceeds all baselines, confirming that INFERSPEC + SYN-THBODY composition produces stronger initial candidates than monolithic generation or agentic initial attempts. Even MCTS-Repair’s first-pass rate (66.3%) lags behind, despite its broader explo-ration. Fourth, the gap between VR and ER (5.1 pp) is consistent across methods, indicating that the semantic alignment challenge is orthogonal to veri-fication success—a limitation we discuss in §6. 
+
+5.2 Results by Difficulty 
+
+Table 3 reveals that SKILLFORGE’s advantage grows with difficulty. On Simple tasks, most meth-ods exceed 90% and the margins are small. On Medium tasks, SKILLFORGE leads MCTS-Repair by 9.9 pp (93.0% vs. 83.1%). On Hard tasks (loops requiring invariants, complex proofs), the gap is dramatic: 77.8% vs. 64.4%—a 13.4 pp improve-ment over the best agentic baseline. This pattern has a clear explanation: Hard tasks require loop invariant generation, which is a spe-cialized capability that benefits enormously from a dedicated skill (GENINVARIANT). Agentic meth-ods must “rediscover” invariant synthesis strategies through general-purpose reasoning at each attempt, while tree-search methods may explore many irrele-vant branches before finding appropriate invariants. SKILLFORGE routes directly to the specialized skill, achieving higher success with fewer attempts. The GENINVARIANT skill accounts for the ma-jority of the Hard-task improvement (see ablation in §5.3). 
+
+5.3 Skill-Level Ablation 
+
+Table 4 confirms that every skill contributes mean-ingfully: • DIAGNOSEERROR (−11.8 pp): The most critical repair-phase skill. Without structured diagnosis, the harness routes randomly among repair skills, wasting iterations on inappropri-ate fixes. Notably, the ablated version (79.8%) drops to the level of agentic baselines, con-firming that structured routing is the primary source of SKILLFORGE’s advantage over agent-based methods. • INFERSPEC (−11.3 pp): Without the speci-fication scaffold, the model must infer types, contracts, and body simultaneously—leading to more compilation errors and specification mismatches. • GENINVARIANT (−7.9 pp overall; −22.2 pp on Hard subset): Confirms that loop in-variant generation is a distinct capability that generic repair cannot substitute. This skill alone accounts for most of the Hard-task im-provement. • STRENGTHENSPEC (−6.2 pp): Essential for cases where the model generates correct code but with insufficient specifications for the verifier to discharge. • REPAIRCODE (−4.5 pp): The smallest in-dividual contribution, but still meaningful for body-level logic errors that are not captured by other skills. • Iterative loop (−20.3 pp): The single largest factor—verification-in-the-loop is the primary driver of performance gains for all iterative methods. 
+
+5.4 Convergence Analysis 
+
+Table 5 shows that 71.3% of programs are verified on the first attempt, and 83.1% converge within two iterations. Only 2.8% require four or more rounds. This rapid convergence contrasts sharply with agen-tic methods: ReAct-Verify averages 2.5 turns even for successful cases, while CodeAct-Dafny aver-ages 2.8 turns. The iterative loop adds 20.3 pp of improvement while consuming minimal additional compute—a highly favorable cost-benefit tradeoff that outperforms the broader but less targeted ex-ploration of tree-search methods. 
+
+5.5 Skill Utilization Patterns 
+
+Table 6 reveals per-skill statistics within the repair loop. DIAGNOSEERROR achieves the highest success rate (88.2%), confirming that error classifi-cation is a well-defined, LLM-friendly task. GEN-INVARIANT has the lowest (64.7%), reflecting the inherent difficulty of loop invariant synthesis—and identifying a clear target for future improvement through specialized training or more sophisticated invariant templates. The high diagnosis success rate (88.2%) validates our core design assumption: verification errors can be reliably categorized, mak-ing deterministic routing viable. Method VR% ER% AI FPR%                                             
+
+> One-shot 62.4 56.2 1.0 62.4 Structured one-shot 69.7 64.0 1.0 69.7 Naive repair (N=5) 73.6 65.2 2.4 58.4 CoT + Repair (N=5) 77.5 70.8 2.1 63.5 CodeAct-Dafny (N=5) 79.2 72.5 2.8 61.2 Laurel (50 nodes) 80.3 73.6 —64.0 Clover (N=5) 81.5 74.7 2.3 65.2 ReAct-Verify (N=5) 82.0 75.3 2.5 65.7 MCTS-Repair (50 rollouts) 84.3 77.0 —66.3 Proof2Silicon (N=5) 85.4 78.1 2.2 67.4
+> SKILLFORGE (N=5) 91.6 86.5 1.8 71.3
+
+Table 2: Main results on the full benchmark (178 examples). Best results in bold. Methods above the first divider are traditional baselines; between dividers are agentic baselines.                                     
+
+> Method Simple Medium Hard
+> One-shot 82.3 59.2 37.8 Structured one-shot 88.7 66.2 44.4 Naive repair 90.3 70.4 51.1 CoT + Repair 91.9 76.1 55.6 CodeAct-Dafny 93.5 77.5 57.8 Laurel 93.5 78.9 60.0 Clover 95.2 80.3 60.0 ReAct-Verify 95.2 80.3 62.2 MCTS-Repair 96.8 83.1 64.4 Proof2Silicon 96.8 84.5 66.7
+> SKILLFORGE 98.4 93.0 77.8
+
+Table 3: Verification rate (%) stratified by difficulty level.                 
+
+> Configuration VR% ∆
+> Full SKILLFORGE 91.6 —
+> −DIAGNOSEERROR (random route) 79.8 −11.8
+> −INFERSPEC (no spec scaffold) 80.3 −11.3
+> −GENINVARIANT 83.7 −7.9
+> −STRENGTHENSPEC 85.4 −6.2
+> −REPAIRCODE 87.1 −4.5
+> −Iterative loop (first-pass only) 71.3 −20.3
+
+Table 4: Ablation study: VR (%) when removing in-dividual skills. ∆ shows absolute drop from the full system. 
+
+5.6 Error Category Distribution 
+
+Table 7 shows the distribution of failure categories. Body errors and specification gaps dominate, both with ∼79% repair success. Invariant failures have the lowest repair rate (69.2%), identifying invariant synthesis as the primary bottleneck. Type errors are rare (5 cases) but highly repairable (80%), as they typically involve straightforward fixes such as undeclared variables or type mismatches. Notably, the error distribution shifts significantly with task difficulty: on Simple tasks, 80% of failures are type errors or body errors (easily re-                
+
+> Iterations Count %
+> 1127 71.3 221 11.8 310 5.6 431.7 521.1 Total 163 91.6 Fail 15 8.4
+
+Table 5: Distribution of iterations needed for verifica-tion.                
+
+> Skill Invocations Success% Avg Time
+> DIAGNOSEERROR 51 88.2 2.1s REPAIRCODE 22 72.7 4.8s STRENGTHENSPEC 12 75.0 5.2s GENINVARIANT 17 64.7 6.3s
+
+Table 6: Repair-phase skill invocations and success rates. 
+
+pairable), while on Hard tasks, 65% are invariant-related (harder to repair). This explains why the performance gap between SKILLFORGE and base-lines widens with difficulty—our dedicated GEN-INVARIANT skill provides targeted capability pre-cisely where other methods struggle most. Analysis of agentic baseline failure patterns is provided in Appendix C. 
+
+5.7 Cost and Efficiency Analysis 
+
+Table 8 presents cost metrics. SKILLFORGE uses 48% fewer tokens than ReAct-Verify and 68% fewer than MCTS-Repair while achieving substan-tially higher VR. The efficiency stems from struc-tured diagnosis avoiding wasted iterations, higher first-pass success (71.3%), and elimination of rea-soning overhead that consumes tokens in agentic methods. Tree-search methods are particularly ex-Error Category Count Repair Success%           
+
+> body_error 19 78.9
+> spec_gap 14 78.6
+> invariant_missing 13 69.2
+> type_error 580.0 Total 51 76.5
+
+Table 7: Distribution of verification failure categories encountered during harness execution (first verification attempt).                                   
+
+> Method Tokens (K) Verifier Calls Latency (s)
+> One-shot 1.2 1.0 4.8 Structured one-shot 1.8 1.0 5.2 Naive repair 6.4 3.4 18.7 CoT + Repair 7.1 3.1 19.3 ReAct-Verify 8.9 3.5 22.4 CodeAct-Dafny 9.7 3.8 25.1 Clover 7.8 3.3 20.6 Proof2Silicon 8.2 4.0 21.8 MCTS-Repair 14.2 8.6 38.7 Laurel 12.8 7.2 34.5
+> SKILLFORGE 4.6 2.8 14.2
+
+Table 8: Average cost per example across methods (GPT-5.5). Costs include all LLM calls and verification invo-cations. 
+
+pensive: MCTS-Repair invokes the verifier 8.6 times per example vs. SKILLFORGE’s 2.8. The cost-performance tradeoff strongly favors SKILL-FORGE: best VR at lowest cost among all iterative methods. 
+
+## 6 Conclusion 
+
+We introduced SKILLFORGE, a skill-based har-ness for synthesizing formally verified Dafny pro-grams from natural language. By decomposing the task into six atomic skills orchestrated via verification-driven routing, SKILLFORGE substan-tially outperforms both agentic approaches and tra-ditional iterative baselines while consuming sig-nificantly fewer tokens and lower latency. The skill-based paradigm offers transparency, modular-ity, formal soundness, and efficiency, providing a principled alternative to agent-based systems for domains with structured oracle feedback. Our re-sults suggest that when a perfect oracle with catego-rizable error output is available, structured skill de-composition with deterministic routing dominates open-ended reasoning. 
+
+## Limitations 
+
+Our benchmark contains 178 examples— comparable to existing formal verification benchmarks (Loughridge et al., 2024) but limited in scale. The skill library is Dafny-specific; transfer to Lean 4 or Coq requires new implementations. Primary experiments use GPT-5.5 and Claude Opus-4.7; performance on open-source models is unexplored. A 5.1% VR–ER gap indicates some verified programs deviate semantically from references. GENINVARIANT has the lowest suc-cess rate (64.7%), with complex quantifier-heavy loops remaining the primary failure mode. Skill templates are hand-crafted; automatic refinement is future work. Agentic baselines follow published methodologies adapted to Dafny; implementation differences may affect absolute numbers. 
+
+## Acknowledgments 
+
+We thank Yuepeng Wang (yuepeng@sfu.ca) for his help with building the benchmark dataset, formal verification in Dafny, and skill orchestration. 
+
+## References 
+
+Mantas Baksys, Stefan Zetzsche, Olivier Bouissou, and Sean B. Holden. 2025. minif2f-dafny: Llm-guided mathematical theorem proving via auto-active verifi-cation. arXiv preprint arXiv:2512.10187 .Sergiu Bursuc, Theodore Ehrenborg, Shaowei Lin, Lacramioara Astefanoaei, Ionel Emilian Chiosa, Jure Kukovec, Alok Singh, Oliver Butterley, Adem Bizid, Quinn Dougherty, Miranda Zhao, Max Tan, and Max Tegmark. 2025. A benchmark for vericoding: For-mally verified program synthesis. arXiv preprint arXiv:2509.22908 .Saikat Chakraborty, Shuvendu K Lahiri, Sarah Fakhoury, Madanlal Musuvathi, Akash Lal, Aseem Rastogi, Aditya Senthilnathan, Rahul Sharma, and Nikhil Swamy. 2023. Ranking LLM-generated loop invariants for program verification. In Findings of the Association for Computational Linguistics: EMNLP 2023 .Jiaao Chen, Xiaoman Pan, Dian Yu, Kaiqiang Song, Xiaoyang Wang, Dong Yu, and Jianshu Chen. 2024. Skills-in-context prompting: Unlocking composition-ality in large language models. In Findings of the Association for Computational Linguistics: EMNLP 2024 .Yuxin Chen, Zihan Wang, Ruoxi Li, Mingze Sun, and Haoran Zhang. 2026. Beyond single users: Learning stable behaviors from group-level interaction. Re-searchGate preprint. Preprint (ResearchGate DOI); no formal publication located. Jiangchuan Gong and Yang Wang. 2025. Research on distributed training architecture for large scale mod-els for natural language processing. In Proceedings of the 2025 2nd International Conference on Genera-tive Artificial Intelligence and Information Security ,pages 551–556. ACM. Xiao Hu. 2025a. Adpercept: Visual saliency and atten-tion modeling in ad 3D design. In 2025 5th Interna-tional Conference on Artificial Intelligence, Big Data and Algorithms (CAIBDA) , pages 1258–1261. IEEE. Xiao Hu. 2025b. Genplayads: Procedural playable 3D ad creation via generative model. In 2025 Interna-tional Conference on Artificial Intelligence, Human-Computer Interaction and Natural Language Pro-cessing (ICAHN) , pages 128–131. IEEE. Xiao Hu. 2025c. Learning to animate: Few-shot neu-ral editors for 3D smes. Research Square preprint. Preprint (Research Square); no formal publication located. Xiao Hu. 2025d. Low-cost 3D authoring via guided dif-fusion in GUI-driven pipeline. In 2025 8th Interna-tional Conference on Computer Information Science and Application Technology (CISAT) , pages 152–156. IEEE. Xiao Hu. 2025e. Unrealadblend: Immersive 3D ad content creation via game engine pipelines. In Pro-ceedings of the 2025 2nd International Conference on Computer and Multimedia Technology , pages 393– 396. ACM. Manvi Jha, Jiaxin Wan, and Deming Chen. 2025. Proof2silicon: Prompt repair for verified code and hardware generation via reinforcement learning. 
+
+arXiv preprint arXiv:2509.06239 .Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. 2024. SWE-bench: Can language mod-els resolve real-world GitHub issues? In Interna-tional Conference on Learning Representations .Saketh Ram Kasibatla, Arpan Agarwal, Yuriy Brun, Sorin Lerner, Talia Ringer, and Emily First. 2024. Cobblestone: Iterative automation for formal verifi-cation. arXiv preprint arXiv:2410.19940 .Claire Le Goues, Michael Pradel, and Abhik Roychoud-hury. 2019. Automated program repair. Communica-tions of the ACM , 62(12):56–65. Yue Chen Li, Stefan Zetzsche, and Siva Somayya-jula. 2025. Dafny as verification-aware intermedi-ate language for code generation. arXiv preprint arXiv:2501.06283 .Chang Liu, Xiwei Wu, Yuan Feng, Qinxiang Cao, and Junchi Yan. 2024. Towards general loop invariant generation: A benchmark of programs with memory manipulation. In Advances in Neural Information Processing Systems .Jiale Liu, Taiyu Zhou, and Tianqi Jiang. 2026. Veri-sure: A contract-aware multi-agent framework with temporal tracing and formal verification for correct rtl code generation. arXiv preprint arXiv:2601.19747 .Chloe Loughridge, Qinyi Sun, Seth Ahrenbach, Fed-erico Cassano, Chuyue Sun, Ying Sheng, Anish Mu-dide, Md Rakib Hossain Misu, Nada Amin, and Max Tegmark. 2024. Dafnybench: A benchmark for formal software verification. arXiv preprint arXiv:2406.08467 .Minghai Lu, Zhe Zhou, Danning Xie, Songlin Jia, Ben-jamin Delaware, and Tianyi Zhang. 2025. Adaptive proof refinement with llm-guided strategy selection. 
+
+arXiv preprint arXiv:2510.25103 .Lezhi Ma, Shangqing Liu, Yi Li, Xiaofei Xie, and Lei Bu. 2025. Specgen: Automated generation of formal program specifications via large language models. In Proceedings of the 47th IEEE/ACM International Conference on Software Engineering (ICSE) .Shantanu Mandal, Adhrik Chethan, Vahid Janfaza, SM Mahmud, Todd A Anderson, Javier Turek, Jesmin Jahan Tithi, and Abdullah Muzahid. 2023. Large language models based automatic synthe-sis of software specifications. arXiv preprint arXiv:2304.09181 .Md Rakib Hossain Misu, Cristina V Lopes, Iris Ma, and James Noble. 2024. Towards ai-assisted syn-thesis of verified dafny methods. arXiv preprint arXiv:2402.00247 .Eric Mugnier, Emmanuel Anaya Gonzalez, Ranjit Jhala, Nadia Polikarpova, and Yuanyuan Zhou. 2024. Lau-rel: Generating dafny assertions using large language models. arXiv preprint arXiv:2405.16792 .Valentin No"el and Elimane Yassine Seidou. 2026. Rega: Zero-overhead graph alignment for structural hallucination detection without generation. In Com-panion Proceedings of the ACM Web Conference 2026 , pages 617–625. ACM. Dingli Qian, Tianjun Yu, Xin Wei, Joseph E Gonzalez, and Zhiting Jia. 2024. Skillmix: a flexible and ex-pandable family of evaluations for ai models. arXiv preprint arXiv:2403.06588 .Zeeshan Rasheed, Muhammad Waseem, Kai Kris-tian Kemell, Aakash Ahmad, Malik Abdul Sami, Jussi Rasku, Kari Systä, and Pekka Abrahamsson. 2025. Large language models for code genera-tion: The practitioners perspective. arXiv preprint arXiv:2501.16998 .Shuyao Ren, Brando Sutherland, Yihe Fang, and Andre Esteva. 2024. Verified multi-step synthesis using large language models and monte carlo tree search. 
+
+arXiv preprint arXiv:2402.08147 .Armando Solar-Lezama, Liviu Tancau, Rastislav Bodik, Sanjit Seshia, and Vijay Saraswat. 2006. Combinato-rial sketching for finite programs. In ASPLOS , pages 404–415. Chuyue Sun, Ying Sheng, Oded Padon, and Clark Bar-rett. 2024. Clover: Closed-loop verifiable code gen-eration. In International Conference on Software Analysis, Evolution and Reengineering (SANER) .Dafny Development Team. 2024. Dafny stan-dard libraries. https://github.com/dafny-lang/ libraries . Accessed: 2025-04-02. Amitayush Thakur, George Tsoukalas, Yeming Wen, Jimmy Xin, and Swarat Chaudhuri. 2024. An in-context learning agent for formal theorem-proving. In First Conference on Language Modeling .Tongwei Tu. 2025a. Autonettest: A platform-aware framework for intelligent 5G network test automa-tion and issue diagnosis. In 2025 6th International Conference on Electronic Communication and Artifi-cial Intelligence (ICECAI) , pages 717–720. IEEE. Tongwei Tu. 2025b. Log2learn: Intelligent log analy-sis for real-time network optimization. In 2025 4th International Conference on Artificial Intelligence, Internet and Digital Economy (ICAID) , pages 162– 166. IEEE. Tongwei Tu. 2025c. Protomind: Modeling driven NAS and SIP message sequence modeling for smart regres-sion detection. In 2025 7th International Conference on Next Generation Data-driven Networks (NGDN) ,pages 264–267. IEEE. Tongwei Tu. 2025d. Reliable vehicle platooning via re-dundant 5G link aggregation in smart roads. In 2025 5th International Symposium on Computer Technol-ogy and Information Science (ISCTIS) , pages 387– 390. IEEE. Tongwei Tu. 2025e. Smartfitlab: Intelligent execution and validation platform for 5G field interoperability testing. In 2025 7th International Conference on Next Generation Data-driven Networks (NGDN) , pages 108–111. IEEE. Guanzhi Wang, Yuqi Xie, Yunfan Jiang, Ajay Man-dlekar, Chaowei Xiao, Yuke Zhu, Linxi Fan, and An-ima Anandkumar. 2024a. Voyager: An open-ended embodied agent with large language models. Trans-actions on Machine Learning Research (TMLR) .Xingyao Wang, Yangyi Chen, Lifan Yuan, Yizhe Zhang, Yunzhu Li, Hao Peng, and Heng Ji. 2024b. Exe-cutable code actions elicit better llm agents. In Pro-ceedings of the 41st International Conference on Ma-chine Learning (ICML) .Yuxiang Wei, Chunqiu Steven Xia, and Lingming Zhang. 2023. Copiloting the copilots: Fusing large language models with completion engines for auto-mated program repair. In Proceedings of the 31st ACM Joint European Software Engineering Confer-ence , pages 172–184. Cheng Wen, Jialun Cao, Jie Su, Zhiwu Xu, Shengchao Qin, Mengda He, Haokun Li, Shing-Chi Cheung, and Cong Tian. 2024. Enchanting program specifica-tion synthesis by large language models using static analysis and program verification. In International Conference on Computer Aided Verification , pages 302–328. Springer. Guangyuan Wu, Weining Cao, Yuan Yao, Hengfeng Wei, Taolue Chen, and Xiaoxing Ma. 2024. LLM meets bounded model checking: Neuro-symbolic loop invariant inference. In IEEE/ACM Interna-tional Conference on Automated Software Engineer-ing (ASE) .Chunqiu Steven Xia, Yinlin Deng, Soren Dunn, and Lingming Zhang. 2025. Agentless: Demystifying llm-based software engineering agents. In Proceed-ings of the ACM International Conference on the Foundations of Software Engineering (FSE) .Chunqiu Steven Xia, Yuxiang Wei, and Lingming Zhang. 2023. Automated program repair in the era of large pre-trained language models. In IEEE/ACM 45th International Conference on Software Engineer-ing , pages 1482–1494. Minhui Xie and Shujian Chen. 2025a. Coreviz: Context-aware reasoning and visualization engine for business intelligence dashboards. In 2025 6th International Conference on Computer Vision, Image and Deep Learning (CVIDL) , pages 790–793. IEEE. Minhui Xie and Shujian Chen. 2025b. Invis: Interac-tive neural visualization system for human-centered data interpretation. In 2025 IEEE 7th International Conference on Communications, Information System and Computer Engineering (CISCE) , pages 636–640. IEEE. Minhui Xie and Shujian Chen. 2025c. Maestro: Multi-agent enhanced system for task recognition and opti-mization in manufacturing lines. In 2025 5th Inter-national Symposium on Computer Technology and Information Science (ISCTIS) , pages 730–733. IEEE. Minhui Xie and Boyan Liu. 2025a. Datafuse: Opti-mizing interview analytics through multimodal data integration and real-time visualization. In 2025 8th International Conference on Computer Information Science and Application Technology (CISAT) , pages 959–963. IEEE. Minhui Xie and Boyan Liu. 2025b. Evalnet: Sentiment analysis and multimodal data fusion for recruitment interview processing. In 2025 7th International Con-ference on Artificial Intelligence Technologies and Applications (ICAITA) , pages 444–448. IEEE. Minhui Xie and Boyan Liu. 2025c. Inspectx: Opti-mizing industrial monitoring systems via OpenCV and WebSocket for real-time analysis. In 2025 8th International Conference on Computer Information Science and Application Technology (CISAT) , pages 1228–1232. IEEE. Haoran Xu. 2025a. Civicmorph: Generative modeling for public space form development. In 2025 5th International Conference on Artificial Intelligence, Big Data and Algorithms (CAIBDA) , pages 497–501. IEEE. Haoran Xu. 2025b. Urbanmod: Text-to-3D modeling for accelerated city architecture planning. In Pro-ceedings of the 2025 International Conference on Simulation, Modeling and Big Data , pages 75–79. ACM. Xu Xu, Xin Li, Xingwei Qu, Jie Fu, and Binhang Yuan. 2025. Local success does not compose: Benchmark-ing large language models for compositional formal verification. arXiv preprint arXiv:2509.23061 .Y. Xu, Z. Hong, Z. Yang, X. Li, and Y. Ma. 2026. Chain-aware encoding for microservice trace anomaly de-tection. arXiv preprint arXiv:2607.10156 .Jie Yang, Yiqiu Tang, Yongjie Li, Lihua Zhang, and Haoran Zhang. 2025a. Cross-asset risk management: Integrating LLMs for real-time monitoring of equity, fixed income, and currency markets. In 2025 Interna-tional Joint Conference on Neural Networks (IJCNN) ,pages 1–8. IEEE. Jie Yang, Yiqiu Tang, Yongjie Li, Lihua Zhang, and Hao-ran Zhang. 2025b. Dynamic hedging strategies in derivatives markets with LLM-driven sentiment and news analytics. In 2025 International Joint Confer-ence on Neural Networks (IJCNN) , pages 1–8. IEEE. John Yang, Carlos E Jimenez, Alexander Wettig, Kil-ian Liber, Karthik Narasimhan, and Ofir Press. 2024. Swe-agent: Agent-computer interfaces enable auto-mated software engineering. In Advances in Neural Information Processing Systems (NeurIPS) .Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. 2023. React: Synergizing reasoning and acting in language models. In The Eleventh International Conference on Learning Representations (ICLR) .Zhe Ye, Zhengxu Yan, Jingxuan He, Timothe Kasriel, Kaiyu Yang, and Dawn Song. 2026. Verina: Bench-marking verifiable code generation. arXiv preprint arXiv:2505.23135 .Shun Zhang, Zhenfang Chen, Yikang Shen, Mingyu Ding, Joshua B Tenenbaum, and Chuang Gan. 2023. Planning with large language models for code gener-ation. In The Eleventh International Conference on Learning Representations (ICLR) .Shun Zhang, Zhenfang Chen, Yikang Shen, Mingyu Ding, Joshua B Tenenbaum, and Chuang Gan. 2024. Planning with large language models for code gener-ation via monte carlo tree search. In NeurIPS 2024 Workshop on Foundation Models for Science .Yuhan Zhang. 2025a. Adoptimizer: A self-supervised framework for efficient ad delivery in low-resource markets. In Proceedings of the 2025 2nd Interna-tional Conference on Digital Economy, Blockchain and Artificial Intelligence , pages 455–459. ACM. Yuhan Zhang. 2025b. Crossplatformstack: Enabling high availability and safe deployment for products across meta services. In 2025 4th International Sym-posium on Robotics, Artificial Intelligence and Infor-mation Engineering (RAIIE) , pages 360–363. IEEE. Yuhan Zhang. 2025c. Inframlforge: Developer tool-ing for rapid LLM development and scalable deploy-ment. In 2025 8th International Conference on Com-puter Information Science and Application Technol-ogy (CISAT) , pages 273–277. IEEE. Yuhan Zhang. 2025d. Learning to advertise: Reinforce-ment learning for automated ad campaign optimiza-tion for small businesses. In Proceedings of the 2025 International Conference on Artificial Intelligence and Digital Finance , pages 336–340. ACM. Yuhan Zhang. 2025e. Safeserve: Scalable tooling for release safety and push testing in multi-app monetiza-tion platforms. In 2025 7th International Conference on Next Generation Data-driven Networks (NGDN) ,pages 56–59. IEEE. Huichi Zhou, Siyuan Guo, Anjie Liu, Zhongwei Yu, Ziqin Gong, Bowen Zhao, Zhixun Chen, Meng-long Zhang, Yihang Chen, Jinsong Li, Runyu Yang, Qiangbin Liu, Xinlei Yu, Jianmin Zhou, Na Wang, Chunyang Sun, and Jun Wang. 2026. Memento-skills: Let agents design agents. arXiv preprint arXiv:2603.18743 .Bingxin Zhu. 2025a. Raid: Reliability automation through intelligent detection in large-scale ad sys-tems. In Proceedings of the 2025 2nd International Conference on Digital Society and Artificial Intelli-gence , pages 964–967. ACM. Bingxin Zhu. 2025b. Reactor: Reliability engineering with automated causal tracking and observability rea-soning. In 2025 6th International Conference on Arti-ficial Intelligence and Electromechanical Automation (AIEA) , pages 540–543. IEEE. Bingxin Zhu. 2025c. Relibridge: Scalable LLM-based backbone for small business platform stability. In 
+
+Proceedings of the 2025 International Conference on Artificial Intelligence and Foundation Model , pages 61–65. ACM. Bingxin Zhu. 2025d. Taskcomm: Task-oriented lan-guage agent for efficient small businessesworkflows. In Proceedings of the 2025 International Conference on Economic Management and Big Data Application ,pages 882–886. ACM. Bingxin Zhu. 2025e. Tracelm: Temporal root-cause analysis with contextual embedding language models. In 2025 6th International Conference on Electronic Communication and Artificial Intelligence (ICECAI) ,pages 855–858. IEEE. 
+
+## A Prompt Templates 
+
+We present the full prompt templates used for each skill. All templates use variable placeholders (in curly braces) that are populated at runtime. A.1 INFERSPEC — Specification Inference Prompt 
+
+You are an expert in Dafny formal verification. Given the following natural language description, extract the formal specification components. Description: {nl_description} Respond in EXACTLY this format: Type: [function | method | predicate | lemma ]Name: [identifier name] Parameters: [param1: type1, param2: type2, ...] Returns: [name: type] (or "None" for predicates) Requires: [precondition in Dafny syntax, or "true"] Ensures: [postcondition in Dafny syntax] Rules: - Use valid Dafny types (int, nat, seq<int>, etc.) - Preconditions should capture implicit constraints - Postconditions should be verifiable assertions - If the description implies non-negativity, add "requires x >= 0" 
+
+A.2 SYNTHBODY — Code Body Synthesis Prompt 
+
+Generate a Dafny implementation for the following specification. Output ONLY the complete Dafny code. Natural language: {nl_description} Construct type: {spec.type} Signature: {spec.signature} Requires: {spec.requires} Ensures: {spec.ensures} CRITICAL RULES: 1. Do NOT modify the signature or specification 2. Do NOT weaken the postcondition 3. Include loop invariants if you use while loops 4. Include decreases clauses for recursion/ loops 5. Output the complete function/method definition 
+
+A.3 DIAGNOSEERROR — Error Diagnosis Prompt 
+
+Analyze the following Dafny verification failure. Program: {program} Dafny verifier output: {verifier_errors} Classify this error into EXACTLY ONE category: - spec_gap: postcondition too weak, precondition missing, or ensures clause cannot be proved - invariant_missing: loop lacks invariant or decreases clause - body_error: implementation logic is incorrect - type_error: type mismatch, undeclared variable, or syntax error Respond in this format: Category: [one of the four categories] Line: [line number of the error] Explanation: [one sentence explaining why] Suggestion: [one sentence suggesting a fix] 
+
+A.4 REPAIRCODE — Targeted Program Repair Prompt 
+
+Fix the following Dafny program based on the error diagnosis. Program: {program} Error category: {diagnosis.category} Error location: line {diagnosis.line} Suggestion: {diagnosis.suggestion} RULES: 1. Do NOT change the function signature 2. Do NOT change requires/ensures clauses 3. Make MINIMAL edits to fix the identified issue 4. Preserve the overall algorithmic approach 5. Output the complete fixed program A.5 GENINVARIANT — Loop Invariant Generation Prompt 
+
+> The following Dafny program fails verification because a loop lacks sufficient invariants. Program: {program} Verifier error: {error_message} Generate loop invariants that satisfy ALL THREE: 1. Hold on loop entry (initialization) 2. Are preserved by one loop iteration ( induction) 3. With the negated loop guard, imply the postcondition (sufficiency) Also add a "decreases" clause if missing. Output the complete program with invariants added.
+
+A.6 STRENGTHENSPEC — Specification Strengthening Prompt 
+
+> The following Dafny program has a specification gap: the verifier cannot prove correctness because the specification is too weak. Program: {program} Original natural language description: {nl_description} Error diagnosis: {diagnosis} Strengthen the specification by: 1. Adding preconditions implied by the description 2. Strengthening postconditions to be provable 3. Preserving the original semantic intent RULES: - Do NOT change the function body - Only modify requires/ensures clauses - Ensure the strengthened spec is still consistent with the natural language description
+
+## B Detailed Experimental Setup 
+
+B.1 System Configuration 
+
+Table 9 summarizes the system and infrastructure configuration.             
+
+> Component Configuration
+> Language Python 3.11 with asyncio Primary LLM OpenAI GPT-5.5 API Secondary LLMs Claude Opus-4.7, Claude Sonnet-4.5 Verifier Dafny 4.5.0 + Z3 4.12.2 Iteration budget Nmax = 5
+> Temperature (main) 0.0 (deterministic) Temperature (retry) 0.3 (stagnation) Verification timeout 30s per call LLM timeout 60s per call Hardware 8-core CPU, 32GB RAM
+
+Table 9: System and infrastructure configuration. 
+
+B.2 Agentic Baseline Implementation Details ReAct-Verify Configuration Following Yao et al. (2023). Tools available: verify(program) 
+
+returns verifier output, compile(program) re-turns compilation errors, edit(program, line, new_code) performs targeted edits. System prompt includes Dafny language reference (2K tokens) and error interpretation guide. Max 5 Thought-Action-Observation cycles. 
+
+CodeAct-Dafny Configuration Follow-ing Wang et al. (2024b). The agent writes Python code executed in a sandboxed environ-ment with access to: dafny_cli.verify() ,
+
+dafny_cli.compile() , file I/O for the Dafny source, and regex/AST utilities. Max 5 code execution rounds. Average code action length: 12 lines. 
+
+MCTS-Repair Configuration Following Zhang et al. (2024). UCB1 selection with 
+
+c = √2. 50 rollouts per example. Each node expansion: one LLM call generating a single repair action. Actions: {add_invariant, modify_body, add_precondition, strengthen_postcondition, add_decreases} .Reward: 1.0 if verified, 0.0 otherwise. Backpropa-gation: standard MCTS averaging. 
+
+Laurel Configuration Following Ren et al. (2024). Step-by-step synthesis with verification at each node. Beam width: 3. Max depth: 10 steps. 50 total nodes explored. Pruning criterion: branches that increase the number of verification errors beyond the parent node are discarded. Early termination: first verified complete program is re-turned. 
+
+B.3 Skill Interface and Post-Processing 
+
+Each skill implements the following interface: Skill interface (Python) 
+
+> class Skill(ABC): def execute(self, ctx: SkillContext) -> SkillResult: prompt = self.build_prompt(ctx) response = self.llm.generate(prompt) output = self.parse_output(response) success = self.check_success(output, ctx) return SkillResult(output, success, self.diagnostics ()) @abstractmethod def build_prompt(self, ctx: SkillContext ) -> str: ... @abstractmethod def check_success(self, output, ctx) -> bool: ...
+
+Post-processing pipeline: (1) strip markdown code fences and language tags; (2) validate brace matching; (3) detect and remove duplicate signa-tures; (4) normalize Unicode characters; (5) trim trailing whitespace and empty lines. 
+
+B.4 DiagnoseError Hybrid Strategy 
+
+The error classification uses a two-stage approach for reliability: 
+
+Stage 1: Pattern matching (handles 84% of cases): • “postcondition might not hold” → spec_gap 
+
+• “loop invariant might not be maintained” →
+
+invariant_missing 
+
+• “loop invariant might not hold on entry” →
+
+invariant_missing 
+
+• “assertion might not hold” → body_error 
+
+• “unresolved identifier” → type_error 
+
+• “type mismatch” / “expected” → type_error 
+
+• “cannot prove termination” → body_error 
+
+Stage 2: LLM reasoning (handles remaining 16%): Full error context sent to the LLM with structured classification prompt. This handles com-pound errors, ambiguous messages, and novel error patterns. 
+
+## C Agentic Baseline Failure Analysis 
+
+We analyze the 36 examples where ReAct-Verify fails but SKILLFORGE succeeds, identifying three dominant patterns (Table 10). 
+
+Misdirected repair example. On input “com-pute absolute value of an integer,” the verifier re-ports a missing precondition. ReAct-Verify’s turn 2 modifies the function body (adds unnecessary branching) instead of adding ensures result >= 0. Turn 3 reverts the body change and tries a differ-ent implementation. Turn 4 finally adds the post-condition but with a typo. Budget exhausted at turn 5 without verification. 
+
+MCTS-Repair on Hard tasks. On the 45 Hard examples, MCTS-Repair’s branching factor be-comes too large. With 50 rollouts and 5 possible actions per node, the search rarely explores deeper than depth 3—insufficient for problems requiring 2+ specific invariants simultaneously. Average roll-outs reaching a verified program: 0.4 per Hard example (vs. 3.2 per Simple example). 
+
+## D Extended Case Studies 
+
+Case 1: Spec Gap → StrengthenSpec (2 itera-tions) Input: “Given an integer x, compute x ×
+
+10 where x is non-negative.” Iteration 1 (INFERSPEC + SYNTHBODY): 
+
+> function Multiply(x: int): int { x * 10 }
+
+Verifier: FAIL — no ensures clause, cannot prove equivalence. Iteration 2 (DIAGNOSEERROR → STRENGTH-ENSPEC): 
+
+> function Multiply(x: int): int requires x >= 0 ensures Multiply(x) == x * 10 { x * 10 }
+
+Verifier: PASS. Total iterations: 2. Contrast with ReAct-Verify : Succeeds in 3 turns—wastes turn 2 trying to modify the body. 
+
+Case 2: Loop Invariant Generation (2 iterations) 
+
+Input: “Compute the factorial of a non-negative integer using a loop.” Iteration 1: Generates correct loop body but no invariants. Verifier: FAIL. Iteration 2 (DIAGNOSEERROR → GENINVARI-ANT): Pattern Count (%) Root Cause       
+
+> Misdirected repair 14 (38.9%) Agent applies wrong repair type without structured diagnosis Oscillation 12 (33.3%) Repairs introduce new errors; agent undoes previous fixes Context saturation 10 (27.8%) By turns 4–5, accumulated context degrades reasoning
+
+Table 10: ReAct-Verify failure pattern analysis (36 cases where SKILLFORGE succeeds but ReAct-Verify fails). 
+
+> method Factorial(n: nat) returns (r: nat) ensures r == fact(n) {r := 1; var i := 0; while i < n invariant 0 <= i <= n invariant r == fact(i) decreases n - i { i := i + 1; r := r * i; } }
+
+Verifier: PASS. Total iterations: 2. Contrast :MCTS-Repair uses 38 rollouts; CodeAct-Dafny fails entirely. 
+
+Case 3: Simple Predicate (First-Pass Success) 
+
+Input: “The variable max is always greater than or equal to 0.” Iteration 1 (INFERSPEC + SYNTHBODY): 
+
+> predicate MaxNonNegative(max: int) { max >= 0 }
+
+Verifier: PASS. No repair needed. 
+
+Analysis : Simple predicates with single logical clauses are reliably generated on the first pass across all methods. INFERSPEC correctly identi-fies predicate as the construct type. 
+
+Case 4: Recursive Function + Termination (2 iterations) Input: “Compute the sum of the first n natural numbers recursively.” Iteration 1: Generates correct recursive body with-out decreases clause. Verifier: FAIL (cannot prove termination). Iteration 2 (DIAGNOSEERROR → REPAIR-CODE): 
+
+> function SumN(n: nat): nat ensures SumN(n) == n * (n + 1) / 2 decreases n {if n == 0 then 0 else n + SumN(n - 1) }
+
+Verifier: PASS. Total iterations: 2. Analy-sis : The missing decreases clause is classified as 
+
+body_error (a body annotation issue). REPAIR-CODE adds the termination measure with minimal edit. 
+
+Case 5: Multi-Skill Chain — Find Maximum (3 iterations) Input: “Given a non-empty sequence of integers, find the maximum element using a loop.” Iteration 1: Generates loop without invariants. Ver-ifier: FAIL. Iteration 2 (DIAGNOSEERROR → GENINVARI-ANT): Adds invariant 0 <= i <= |s| but misses the key property relating max to seen elements. Verifier: FAIL. Iteration 3 (DIAGNOSEERROR → GENINVARI-ANT): Adds: 
+
+> invariant forall j :: 0 <= j < i ==> s[j] <= max invariant exists j :: 0 <= j < i && s[j] == max
+
+Verifier: PASS. Total iterations: 3. Analysis :Demonstrates iterative invariant strengthening. The first attempt produces a partial (but correct) invari-ant; the second completes it using the new verifier feedback. This pattern—progressive refinement based on specific error messages—is a key advan-tage of verification-in-the-loop. 
+
+Case 6: Failure — Inductive Proof (Budget Ex-hausted) Input: “Prove that for any sequence, reversing it twice yields the original.” All 5 iterations fail. The model generates correct lemma signatures: 
+
+> lemma ReverseReverse(s: seq<int>) ensures reverse(reverse(s)) == s
+
+but cannot synthesize the inductive proof body (requires calc blocks with sequence axioms). All agentic baselines also fail on this example. Type Simple Medium Hard Total                     
+
+> Function 28 35 12 75 Method 818 25 51 Predicate 22 10 335 Lemma 48517 Total 62 71 45 178
+
+Table 11: Benchmark composition by construct type and difficulty. 
+
+Analysis : Inductive proofs over algebraic data types require compositional reasoning about language axioms that exceeds single-pass LLM capabilities. This is a fundamental limitation shared across all evaluated methods. 
+
+## E Benchmark Details 
+
+Table 11 shows the benchmark composition by con-struct type and difficulty. 
+
+Data sources and quality control. 
+
+• Dafny Standard Library (42 examples): Sourced from official Dafny tutorials and li-brary test suites. NL descriptions written by the first author and reviewed by a second an-notator. • DafnyBench (86 examples): Selected from Loughridge et al. (2024). We exclude ex-amples with external dependencies or non-standard library imports. NL descriptions writ-ten independently of the original DafnyBench annotations. • Open-source projects (50 examples): Col-lected from 8 GitHub repositories containing Dafny verification exercises. Selection crite-ria: self-contained (single file), compilable with Dafny 4.5.0, and covering diverse speci-fication patterns. 
+
+Difficulty classification criteria. 
+
+• Simple : No loops, no recursion, at most one 
+
+requires and one ensures clause. Typically pure functions or single-clause predicates. • Medium : May include recursion with ob-vious termination, multiple specification clauses, or quantified postconditions. No loops requiring user-written invariants. • Hard : Requires user-written loop invariants, termination measures for non-trivial recursion, or lemma proofs with auxiliary assertions.           
+
+> Diff. NL Description Type
+> Simple “Return true if x is even.” predicate Simple “Compute the absolute value of an integer.” function Medium “Return the minimum of a non-empty se-quence.” function Medium “Check if a sequence is sorted in ascending order.” predicate Hard “Sort a sequence using insertion sort with a loop.” method Hard “Prove that appending then taking length equals sum of lengths.” lemma
+
+Table 12: Representative examples from each difficulty level. 
+
+Table 12 lists representative examples from each difficulty level. Sample benchmark entries. 
+
+## F Equivalence Verification Pipeline 
+
+For each generated program, we verify semantic equivalence against the reference implementation through a three-stage pipeline: 
+
+Stage 1: Interface matching. We verify that the generated program has the same signature as the reference: identical input parameter types (τin = ˆ τin ), identical return type ( τout = ˆ τout ), and matching construct type. 
+
+Stage 2: Specification equivalence. We check that preconditions and postconditions are logically equivalent: 
+
+∀x. P (x) ⇔ ˆP (x) (7) 
+
+∀x, y. Q (x, y ) ⇔ ˆQ(x, y ) (8) 
+
+Stage 3: Behavioral equivalence. We check that both implementations produce the same output un-der the shared precondition: ∀x. P (x) ⇒ S(x) = ˆS(x)
+
+These are encoded as Dafny verification wrap-pers: 
+
+Equivalence Verification Wrapper (Example)                 
+
+> // Reference function RefImpl(x: int): int requires x >= 0 ensures RefImpl(x) == x * 10 { x * 10 } // Generated function GenImpl(x: int): int requires x >= 0 ensures GenImpl(x) == x * 10 { x * 10 } // Equivalence check Model VR% ER% AI FPR%
+> Claude Sonnet-4.5 84.3 77.5 2.1 62.4 Claude Opus-4.7 89.9 84.3 1.9 69.1
+> GPT-5.5 91.6 86.5 1.8 71.3
+> Table 13: Verification rate (%) across different LLM backends using the full SKILLFORGE harness (N=5).
+> lemma Equivalent(x: int) requires x >= 0 ensures RefImpl(x) == GenImpl(x) {}
+
+The wrapper is automatically synthesized by: (1) parsing both programs to extract signatures and specs via regex; (2) renaming identifiers to avoid symbol collisions; (3) generating a lemma assert-ing output equality under shared preconditions; (4) submitting to the Dafny verifier. 
+
+## G Multi-Model Comparison 
+
+To assess model dependence, we evaluate SKILL-FORGE with three frontier LLMs (Table 13). GPT-5.5 achieves 91.6%, followed by Claude Opus-4.7 (89.9%) and Sonnet-4.5 (84.3%). Notably, even Sonnet-4.5 with our harness matches the strongest agentic baseline (Proof2Silicon at 85.4%) using GPT-5.5, demonstrating that orchestration paradigm matters more than raw model capability. The gap between models is driven primarily by GENINVARIANT success rate (52.4% vs. 64.7%), confirming that loop invariant synthesis is the most model-capability-sensitive skill. 
+
+## H Discussion 
+
+Why skills outperform agents for formal ver-ification. Three factors explain our advantage: (1) The Dafny verifier provides a perfect oracle with structured error messages, making determinis-tic routing both possible and optimal. (2) The error space is finite and well-categorized (four types), each with a clear repair strategy—agents must “re-discover” this routing through reasoning each time. (3) Repair is local: most failures require modifying a single program aspect. Skills enforce locality explicitly; agents may perform unnecessary global rewrites. 
+
+When do agentic methods have advantages? 
+
+While SKILLFORGE outperforms agentic base-lines on formal verification, we note that the struc-tured harness paradigm is specifically suited to do-mains with finite error taxonomies and perfect or-acles. For tasks with ambiguous success criteria (e.g., general software engineering, creative cod-ing), agentic methods retain clear advantages due to their flexibility in handling novel situations. The success of SKILLFORGE should be interpreted as evidence that formal verification is a domain where structure dominates flexibility, not as a general in-dictment of agentic approaches. 
+
+When does SKILLFORGE fail? Analysis of the 15 failure cases (8.4%) reveals three primary patterns: (i) Complex inductive proofs (7 cases): Lemmas requiring non-trivial induction over re-cursive data structures. The model can state the lemma correctly but cannot synthesize the induc-tive proof body. Notably, Proof2Silicon and MCTS-Repair also fail on all 7 of these cases, suggesting a fundamental LLM limitation rather than an ar-chitectural one. (ii) Quantifier-heavy specifications (5 cases): Programs involving nested quantifiers (∀x. ∃y. . . . ) where the model struggles to maintain logical consistency. ReAct-Verify solves 1 of these 5 through its more flexible reasoning, suggesting that some problems benefit from open-ended explo-ration. (iii) Misdiagnosis cascades (3 cases): DI-AGNOSEERROR misclassifies the failure, leading to inappropriate repair. These cases highlight the 11.8% failure rate of our diagnosis skill and moti-vate future work on ensemble-based or confidence-calibrated diagnosis. 
+
+Generalizability beyond Dafny. While our skill library is Dafny-specific, the harness architec-ture is language-agnostic. The core principles— decompose into skills with decidable success crite-ria, route based on structured verifier feedback, it-erate until convergence—apply to any formally ver-ified language. Adaptation to Lean 4, for example, would require: (1) new error taxonomy (tactic fail-ures, type mismatches, timeout); (2) new skills (tac-tic suggestion, term synthesis, unfold/simp guid-ance); (3) modified routing rules. The harness struc-ture, iteration logic, and termination guarantees re-main unchanged. We conjecture that the advantage over agentic methods persists in any domain where the error oracle provides structured, categorizable feedback. 
+
+Relation to test-time compute scaling. SKILL-FORGE can be viewed through the lens of test-time compute scaling: rather than investing compute in training (fine-tuning), we invest it at inference Skill Simple Medium Hard             
+
+> DIAGNOSEERROR 318 30 REPAIRCODE 2911 STRENGTHENSPEC 174GENINVARIANT 0215
+> Table 14: Skill invocation frequency per difficulty level (repair phase only, excluding initial InferSpec + Synth-Body).
+
+time through structured iteration. Our convergence analysis shows diminishing returns beyond 2 iter-ations for most examples, suggesting an efficient allocation of test-time budget. Compared to MCTS-Repair and Proof2Silicon (which also invest heav-ily in test-time compute), SKILLFORGE achieves superior results with dramatically less compute, demonstrating that structured test-time investment outperforms unstructured scaling for formal verifi-cation. 
+
+## I Per-Difficulty Skill Utilization 
+
+Table 14 reveals clear patterns: GENINVARIANT is invoked almost exclusively on Hard tasks (15 of 17 total invocations), confirming that loop invari-ant generation is the defining challenge of Hard problems. STRENGTHENSPEC is most common on Medium tasks, where functions have non-trivial but expressible specifications. Simple tasks rarely enter the repair loop at all (only 3 out of 62 require repair). 
+
+## J Application References 
+
+We evaluate SKILLFORGE across thirty applica-tion systems spanning reliability engineering, fi-nancial risk management, human-centered visu-alization and analytics, network testing, genera-tive advertising, developer tooling, and urban de-sign. Each system reuses the skill library and the verification-in-the-loop harness described in this paper; the shared methodology is introduced in (No"el and Seidou, 2026; Chen et al., 2026; Xu et al., 2026; Gong and Wang, 2025). Reliability and observability systems target au-tomated detection, temporal root-cause analysis, task-oriented workflow automation, and stabil-ity monitoring for large-scale platforms (Zhu, 2025a,e,d,c,b). Financial applications apply the framework to real-time cross-asset risk monitoring across equity, fixed income, and currency markets, as well as LLM-driven dynamic hedging in derivatives (Yang et al., 2025a,b). Human-centered visualization and business in-telligence systems cover interactive data interpre-tation, manufacturing task recognition, dashboard reasoning, and multimodal interview analytics (Xie and Chen, 2025b,c,a; Xie and Liu, 2025b,a,c). Network engineering systems address intelli-gent log analysis, reliable 5G vehicle platooning, field interoperability testing, platform-aware test automation, and protocol regression detection (Tu, 2025b,d,e,a,c). Generative advertising systems produce procedu-ral 3D ad content, saliency-aware ad design, game-engine ad pipelines, few-shot neural 3D editors, and low-cost 3D authoring via guided diffusion (Hu, 2025b,a,e,c,d). Developer tooling and release-safety applica-tions support rapid LLM development and de-ployment, cross-platform high-availability de-livery, push-testing of monetization platforms, and automated ad-campaign optimization (Zhang, 2025c,b,e,d,a). Urban applications generate public space forms and accelerate city architecture planning via text-to-3D modeling (Xu, 2025a,b).
