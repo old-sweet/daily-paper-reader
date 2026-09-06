@@ -1,0 +1,240 @@
+Title: Clock-Gating Insertion Strategies on an Open-Source MSP430 Core: A Reproducible PPA Study and a Gate-Level Simulation Caveat
+
+URL Source: https://arxiv.org/pdf/2608.30954v1
+
+Published Time: Tue, 01 Sep 2026 02:58:13 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Clock-Gating Insertion Strategies on an Open-Source MSP430 Core: A Reproducible PPA Study and a Gate-Level Simulation Caveat 
+
+Xingran Huang 
+
+Dept. of Computer Science and Engineering University of California, Riverside 
+
+Riverside, CA, USA xhuan230@ucr.edu 
+
+Qiming Guo 
+
+Dept. of Computing Sciences Texas A&M University–Corpus Christi 
+
+Corpus Christi, TX, USA qguo2@islander.tamucc.edu 
+
+Jinwen Tang 
+
+EECS Department University of Missouri 
+
+Columbia, MO, USA jt4cc@umsystem.edu 
+
+Wenqi Jia 
+
+Dept. of Computer Science University of Texas at Arlington 
+
+Arlington, TX, USA wenqi.jia@uta.edu 
+
+Dongzheng Wang 
+
+Dept. of Computer Science Boston University 
+
+Boston, MA, USA wdz1997@bu.edu 
+
+Abstract —Clock gating, the standard technique for cutting dynamic power, is introduced either as hand-written behavioral clock gates at the register-transfer level (RTL) or as integrated clock-gating (ICG) cells inserted automatically during synthesis; the two are widely treated as interchangeable. In this paper we show, on a real open-source 16-bit microcontroller core (openMSP430) synthesized with a 32 nm standard-cell library, that they are not equivalent in practice: behavioral latch-based RTL gating is functionally correct in ideal RTL simulation (10/10 self-checking testcases, identical to the ungated baseline) yet fails at gate level: the gated multiplier result is never captured and reads zero, while tool-inserted ICG cells pass gate-level simulation cleanly (10/10). We root-cause the failure to a hold race introduced by the late latch+AND gated clock, and show it is consistently reproducible for the discrete latch+AND implementation under the evaluated synthesis, timing, and simulation flow (it persists across eight simulation configurations including full Standard Delay Format (SDF) back-annotation), not a simulator-setting artifact. We then quantify the power/area/timing (PPA) impact of three gating strengths: RTL behavioral (Opt1), synthesis ICG (Opt2), and both (Opt3), against the ungated baseline, across four workloads and three process corners (ss/tt/ff). The benefit is corner-robust: ICG (Opt2) cuts dynamic power by 74–81% and total power by 25–30% at every corner. We also show that in this leakage-dominated 32 nm regime the total-power win comes from the area/leakage reduction that gating brings (leakage −24 
+
+to −30% ), not from the large dynamic saving, which instead dominates active-mode energy. Our recommendation for low-power design on open-source cores is to prefer tool-inserted ICG cells over hand-written behavioral clock gates. The full flow (Design Compiler synthesis, PrimeTime PX power, and self-checking verification) is released as an open artifact. 
+
+Index Terms —openMSP430, clock gating, integrated clock gating, low-power design, dynamic power, gate-level simulation, ASIC synthesis, PrimeTime. 
+
+I. I NTRODUCTION 
+
+Dynamic power dominates the active-mode energy of digital designs, and clock gating (suppressing the clock to registers that are idle) is the most widely used technique to reduce it [1], [2]. In a microcontroller such as the openMSP430, large blocks (the 16 × 16 hardware multiplier, the watchdog, peripheral timers) are idle for much of normal operation, making them natural clock-gating targets. Clock gating is introduced into a design in two principal ways. (i) Behavioral RTL clock gates: a hand-written latch-plus-AND structure in the source that the designer instantiates explicitly. (ii) Integrated clock-gating (ICG) cells: characterized standard cells that the synthesis tool inserts automatically (e.g., Design Compiler compile_ultra -gate_clock ) [3]. In teaching material and in much practice these are treated as two equivalent routes to the same result. We show they are not equivalent once the design is taken to gate level on a real library. Using the openMSP430 [4] (an open-source, MSP430-compatible 16-bit core) and a 32 nm standard-cell library (SAED32, worst-case ss corner), we implement and compare an ungated baseline and three gating strengths: RTL behavioral gating (Opt1), synthesis-inserted ICG (Opt2), and both together (Opt3). We verify each with 10 self-checking directed/corner testcases in both ideal RTL and gate-level netlist simulation, and we measure post-synthesis frequency, area, and PrimeTime PX average power. Our central finding is a reproducibility caveat: the behavioral RTL gate is functionally correct (ideal RTL passes 10/10, identical to baseline) but its netlist does not simulate cleanly at gate level : the gated result reads zero, whereas tool-inserted ICG passes 10/10 at gate level. 
+
+979-8-3195-2011-1/26/$31.00 © 2026 IEEE arXiv:2608.30954v1 [cs.AR] 31 Aug 2026 Contributions. The contributions of this paper are: 1) A reproducible, real-library PPA study of three clock-gating strengths on an open-source MCU core, reporting frequency, area, internal/dynamic power, and total power against an ungated baseline, across four workloads and three process corners (ss/tt/ff); we show the benefit is corner-robust and that, in this leakage-dominated regime, the total-power win comes from gating’s area/leakage reduction (Section V). 2) A gate-level simulatability caveat with root-cause analysis : behavioral latch clock gates are RTL-correct but not gate-level-simulatable due to a gated-clock hold race; we show the result register captures zero despite 21,926 datapath gate-enable toggles (the CPU is not frozen), and that the failure persists across eight simulation configurations and full SDF back-annotation, while ICG cells (CGLPPRX2) are clean (Section V-G). 3) A concrete design recommendation : prefer tool-inserted ICG over hand-written behavioral clock gates for gate-level-clean low-power design, and an open artifact (RTL switch, full DC/PrimeTime flow, self-checking testbench) for reproduction (see the Artifact Availability section). The rest of the paper is organized as follows. Section II positions this work within AI-driven applications that motivate energy-efficient MCUs, and reviews related work on clock gating. Section III gives background on the openMSP430 and the two gating II. R ELATED WORK 
+
+A. AI-driven applications across domains 
+
+Propelled by deep learning [5] and Transformer-based large language models [6], [7], AI has expanded rapidly into engi-neering practice. Early applications targeted building energy management: occupant-behavior-integrated air-conditioning simulation [8], regional building-load prediction [9], deep-learning thermal-load meta-modeling [10], and KNN surrogates for long-term thermal-load prediction [11]. A parallel systems-level line makes AI and scientific computing themselves efficient: learning-enhanced lossy compression of scientific data [12]–[14], cross-field prediction for compression [15], [16], dedicated compression hardware [17], and model compression and acceleration spanning mixture-of-experts pruning [18], structured sparse training [19], real-time vision transformers on mobile devices [20], Gaussian-splatting simplification and distributed training [21], [22], and ultra-light vision-language adaptation [23]. 
+
+B. AI for infrastructure, end users, and trustworthiness 
+
+AI has since been deployed on cyber-physical infrastructure itself: spatio-temporal graph neural networks model hydraulic dependencies in urban wastewater networks [24] and enable sparse-sensor forecasting and monitoring of urban water systems [25], while AquaSentinel couples an MoE ensemble with LLM agents for pipeline anomaly detection [26]. In parallel, LLM-driven human-centered systems bring AI to end users, including adaptive mental-health support and assess-ment [27], [28], custom-GPT psychological pre-screening [29], adaptive campus-climate survey chatbots [30], and integrated campus well-being tools [31]. Growing deployment raises trustworthiness concerns, motivating machine unlearning for spatio-temporal graphs [32], [33] and studies of attacks on LLMs and AI agents [34]. 
+
+C. The demand for energy-efficient embedded computing 
+
+These applications increasingly reach embedded and IoT endpoints such as sensor nodes and on-device inference platforms. Edge intelligence pushes AI from the cloud toward such endpoints [35], MCUNet runs deep-learning inference directly on microcontrollers [36], and MLPerf Tiny standardizes ML benchmarking on ultra-low-power hardware [37]. There the energy budget of MCU-class cores is decisive: near-threshold operation is combined with fine-grained gating to cut active-mode energy [38], and clock gating is the lowest-cost circuit-level lever, which we review next. 
+
+D. Clock-gating fundamentals and low-power design 
+
+Clock gating is a long-established dynamic-power tech-nique covered in low-power design texts [ ?], [1] and power-management surveys [39]; recent surveys catalog the full design space from simple gate- and latch-based gating to data-driven and look-ahead schemes [40], with comparative studies quantifying their power and area trade-offs [41]. Early automatic approaches synthesized gated clocks for finite-state machines by detecting highly probable idle conditions [42], and Wu et al. formalized clock gating of sequential circuits with a quaternary clock model, deriving a per-flip-flop gated clock that is synchronous with the master clock [2]. More recent work pushes activity-aware gating further: look-ahead clock gating computes each flip-flop’s enable one cycle ahead to relax timing while widening gating coverage [43], and circuit-level gated flip-flops cut clocking power at the cell level [44]. 
+
+E. Clock-gate placement and clock-tree power 
+
+Beyond register-level gating, the placement and merging of clock-gating cells affect clock-tree power; Teng and Soin optimize clock-gate locations during clock-tree synthesis [45]. This line of work targets the physical clock network and is complementary to our register-level RTL-vs-ICG comparison. 
+
+F. Clock gating on processors and microcontrollers 
+
+Clock gating has been applied to complete embedded controllers: Kamaraju et al. report a 33% total-power reduction on an FPGA-implemented programmable RISC controller via clock gating [46]. We study the same technique on the open-source openMSP430 core [4], a widely used MSP430-compatible soft core, and add a gate-level simulatability analysis absent from prior applied studies. openMSP430 core (RTL) 4 configs (baseline, Opt1/2/3) Synthesis (DC, SAED32 32 nm) 4 gate-level netlists Verify (VCS) 10 self-tests Power (PrimeTime PX, 4 workloads)  
+
+> Results: PPA, dyn.
+> −75 % ,GLS caveat
+> Fig. 1. Overview of the study. From the openMSP430 RTL we build four configurations (ungated baseline plus three clock-gating strengths), synthesize each with Design Compiler on a 32 nm SAED32 library into a gate-level netlist, and evaluate every netlist two ways: functional verification in VCS gate-level simulation (GLS) and average-power analysis in PrimeTime PX across four workloads. The outcome is a PPA comparison, a 75% dynamic-power reduction, and a gate-level simulatability caveat.
+
+G. RTL vs. synthesis-inserted gating 
+
+Two insertion routes are standard. Emnett and Biegel describe automatic RTL clock-gating insertion in a commercial synthesis flow (Synopsys Power Compiler), reporting up to a two-thirds power reduction on a 200k-gate ASIC while preserving scan testability [3]; more recent work measures clock-gating efficiency and its power impact directly within the synthesis flow [47]. Our Opt2 uses this tool-inserted ICG route, whereas Opt1 uses a hand-written behavioral latch gate. Prior work compares such strategies for power and area, but does not report a gate-level simulatability difference between behavioral latch gates and tool-inserted ICG cells on a real standard-cell library : the gap this paper fills. III. B ACKGROUND 
+
+A. The openMSP430 core 
+
+The openMSP430 is a compact (~8,000-gate) 16-bit micro-controller core written in synthesizable Verilog and binary-compatible with the TI MSP430 architecture [4]. It integrates an execution unit (ALU and register file R0–R15), a memory-mapped 16 × 16 hardware multiplier, a memory backbone, a basic clock module (MCLK/SMCLK/ACLK and low-power modes), a watchdog, SFRs, and a serial debug interface. The synthesized device-under-test is the top-level openMSP430 
+
+module. A generic clock-gate cell ( omsp_clock_gate.v ,a latch+AND) is available in the source. 
+
+B. Two ways to insert clock gating Behavioral gating uses a hand-written latch+AND: the enable is latched on the inactive clock edge and ANDed with the clock to produce a gated clock. The ICG route lets the synthesis tool replace this with a characterized integrated clock-gating standard cell that is designed to avoid glitches and skew. These are usually treated as equivalent; Section V-G shows they are not at gate level. IV. M ETHODOLOGY 
+
+Fig. 1 summarizes the end-to-end flow: four configurations, synthesis into four netlists, and a two-pronged evaluation (gate-level verification and PrimeTime power).  
+
+> Fig. 2. openMSP430 (simplified). Shaded blocks (multiplier, watchdog, timer/GPIO) are idle much of the time and are the clock-gating targets; red paths are gated clocks from the basic clock module.
+
+A. Baseline and three gating implementations 
+
+The upstream RTL only enables fine-grained gating inside an 
+
+‘ifdef ASIC block, and ‘ASIC is undefined, so the baseline contains no active clock gating. We define the baseline explicitly as this ungated configuration so the before/after comparison is fair; no functional edits are made to the baseline RTL. We then build three variants:  
+
+> •
+
+Opt1 – RTL gating : enable the source behavioral latch+AND gate ( omsp_clock_gate.v ) throughout the core, via a single CG_ENABLE switch.  
+
+> •
+
+Opt2 – synthesis gating : Design Compiler inserts library ICG cells via compile_ultra -gate_clock with 
+
+set_clock_gating_style ; no RTL change.  
+
+> •
+
+Opt3 – both : behavioral RTL gating and synthesis ICG together. Because each module includes openMSP430_undefines.v 
+
+(which clears command-line defines), defining CG_ENABLE 
+
+re-asserts ‘CLOCK_GATING on every per-module include; Fig. 3. Behavioral latch+AND clock gate (a) vs. an integrated clock-gating (ICG) cell (b). The hand-written latch+AND produces a late gated clock (race source); the ICG cell is characterized to avoid it. 
+
+the optimized configuration is selected by a renamed wrapper 
+
+openMSP430_defines_gated.v so switching one included file flips the whole design between baseline and optimized. 
+
+B. Synthesis flow 
+
+Synthesis uses Design Compiler with worst-case cor-ner libraries ( saed32rvt/lvt/hvt_ss0p75v125c.db ,mixed RVT/LVT/HVT). A single parameterized script synthe-sizes the baseline and each optimization separately, producing four netlists. Maximum frequency is found by a clock-period sweep: the period is reduced until worst slack would go negative, and the smallest period that still closes timing (non-negative slack) is taken as Fmax .
+
+C. Power measurement 
+
+Average power is measured in PrimeTime PX (averaged mode). For each netlist, a workload is run in gate-level simulation to produce a value change dump (VCD); PrimeTime annotates this switching activity onto the netlist and reports average power. To avoid drawing conclusions from a single hand-picked stimulus, we evaluate four workloads with dis-tinct activity profiles, generated as MSP430 program images (gen_multi_workloads.py ): mult (sustained 16 × 16 
+
+multiplies, multiplier and datapath busy), idle (watchdog held, no multiplies), wdt (free-running watchdog, exercising the watchdog block), and mix (multiply bursts separated by idle gaps, i.e. duty-cycled). The same four workloads are applied identically to all four configurations. To test corner sensitivity, we additionally re-characterize power at three corners by re-linking the corner libraries: ss (0.75 V, 125°C), tt (1.05 V, 25°C), ff (1.16 V, 25°C), on the same netlists, since switching activity is corner-independent. 
+
+D. Self-checking verification 
+
+The testbench instantiates the top openMSP430 DUT with behavioral program/data memories. Each testcase is a short MSP430 program that stores the final hardware-multiplier result (RESLO /RESHI ) into data memory; the testbench reads it back and compares against a Python golden model of the multiplier. Because the result is observed through the data-memory interface (not by hierarchical probing), the same flow works for ideal RTL and flattened netlist simulation. We wrote 10 directed/corner testcases targeting the gated blocks, including idle →active transitions, maximum-toggle operands, signed multiplies, and carry into the high word. V. R ESULTS 
+
+A. Functional verification 
+
+In ideal RTL simulation all 10 testcases pass on the baseline and on all three gated designs, with identical golden results, confirming that clock gating changes power, not function. In 
+
+netlist simulation the baseline and Opt2 (synthesis ICG) pass all 10; Opt1/Opt3 do not (Section V-G).               
+
+> TABLE I FUNCTIONAL PASS RATES (10 SELF -CHECKING TESTCASES ,REAL VCS
+> RUNS ).
+> Configuration Ideal RTL Netlist
+> Baseline (ungated) 10/10 10/10 Opt1 RTL gating 10/10 fails (Sec. V-G) Opt2 synthesis gating (ICG) 10/10 10/10 Opt3 both 10/10 fails (Sec. V-G)
+
+B. PPA comparison 
+
+Table II compares frequency, area, and power (real DC / PrimeTime data). All three gating variants reduce total power versus the baseline: −22 .2% (Opt1), −29 .2% (Opt2), and 
+
+−23 .1% (Opt3). The dynamic power, which clock gating targets, drops the most, from 49.6 μW (baseline) to 12.6 μW (Opt2). Clock gating also reduces area (shared gates replace per-register feedback multiplexers), which lowers leakage at this corner; the cost is a small Fmax reduction from the added gate in the clock path. (Opt1/Opt3 fail the gate-level functional 
+
+check, but their power figures here and in Table III remain valid: the failure is confined to the result-register capture, not the switching activity that sets average power; see Section V-G.)                                         
+
+> TABLE II PPA COMPARISON (REAL DESIGN COMPILER / P RIME TIME PX DATA ).
+> Config Freq. Area Power Dyn. vs
+> (MHz) (μm 2)(mW) (μW) base
+> Baseline 357.1 19474.0 1.484 49.64 ref Opt1 RTL 333.3 18043.2 1.155 39.30 −22 .2%
+> Opt2 synth ICG 294.1 17745.1 1.050 12.58 −29 .2%
+> Opt3 both 333.3 18468.6 1.141 31.22 −23 .1% Fig. 4. PPA across configurations (real DC/PrimeTime data): dynamic power, total power, cell area, and Fmax . Dynamic power is the gating target and drops most (49.6 →12.6 μW for Opt2).
+
+C. Multi-workload power 
+
+Table III reports dynamic power for all four configurations under the four workloads. Two effects stand out. First, the dynamic-power reduction is consistent across workloads , not an artifact of one stimulus: ICG (Opt2) cuts dynamic power by roughly 75% for every workload. Second, the ungated baseline is essentially workload-insensitive ( ≈49.6 μW for mult, idle, and mix) because every register is clocked each cycle regardless of activity; only the free-running-watchdog workload (wdt) raises it (to 60.8 μW) by adding real toggling. The wdt workload, which exercises the watchdog (a gated block), is the highest-power case for every configuration, and gating still cuts its dynamic power substantially (60.8 → 23.8 μW for Opt2), confirming the gated block is active and benefits.                         
+
+> TABLE III DYNAMIC POWER (μW) PER CONFIGURATION AND WORKLOAD
+> (P RIME TIME PX, REAL ).
+> Config mult idle wdt mix
+> Baseline 49.64 49.64 60.79 49.64 Opt1 RTL 23.01 24.01 35.01 23.01 Opt2 synth ICG 12.58 13.51 23.78 12.58 Opt3 both 31.22 30.94 45.19 31.22
+
+D. Where the saving comes from: clock-network power 
+
+To attribute the saving, Table IV breaks out the clock-network 
+
+internal power (PrimeTime power groups, mult workload). For the ungated baseline the clock-network internal power (49.63 μW) accounts for essentially the entire dynamic power (49.64 μW): in this design, dynamic power is clock toggling.  
+
+> Fig. 5. Dynamic power across four workloads (real PrimeTime PX). The gating saving is consistent across workloads; the free-running-watchdog workload (wdt) is the highest-power case for every configuration.
+> Fig. 6. Clock-network internal power (real, mult workload): the gating target. ICG (Opt2) removes the most clock toggling ( −75 .4% ).
+
+Clock gating attacks it directly, and the synthesis-inserted ICG removes the most clock toggling ( −75 .4% ), which is exactly why Opt2 has the lowest dynamic power overall.              
+
+> TABLE IV CLOCK -NETWORK INTERNAL POWER ,THE GATING TARGET (MULT WORKLOAD ,REAL ).
+> Config Clock-net power (μW) vs base
+> Baseline 49.63 ref Opt1 RTL 22.66 −54 .3%
+> Opt2 synth ICG 12.19 −75 .4%
+> Opt3 both 28.75 −42 .1%
+
+E. Corner sensitivity 
+
+Single-corner power can mislead, so we re-characterize average power at three corners on the same netlists (activity is corner-independent; only the cell power/leakage models change): worst-case ss (0.75 V, 125°C), typical tt (1.05 V, 25°C), and fast ff (1.16 V, 25°C). Fig. 7 reports the reduction versus the ungated baseline. Two facts emerge. First, the gating benefit is corner-robust : ICG (Opt2) cuts total power by 25–30% and dynamic power by 74–81% at every corner, and the ordering (Opt2 best) never changes. Second, in this 32 nm educational library leakage dominates total power at 
+
+all corners (96–99%), and rises steeply with supply voltage (1.43 → 16 .2 → 194 .9 mW for the baseline at ss/tt/ff). The total-power reduction therefore tracks a leakage reduction (Opt2: −28% / − 30% / − 24% ) that clock gating delivers through reduced area and simpler register clouds (Table II: 
+
+19474 → 17745 μm 2), rather than through the (large) dynamic saving, which is a small fraction of average total power in this leakage-heavy regime. The dynamic saving instead dominates 
+
+active-mode energy ; the result argues for pairing clock gating with leakage-reduction techniques (power gating, multi-Vt)when leakage dominates. 
+
+F. Per-block breakdown 
+
+To localize where gating acts, we re-synthesized the design with hierarchy preserved (compile_ultra -no_autoungroup ) and used PrimeTime report_power -hierarchy to attribute internal (clock +dynamic) power to each block (Fig. 8). The cut is concentrated exactly in the blocks that are idle for much of normal operation: the hardware multiplier ( −88% ) and the watchdog ( −84% ), the blocks our proposal targets. The always-active execution unit (register file + ALU) and frontend still save 67% and 42% ,because their registers are gated whenever they are not updated. This per-block view confirms the optimization removes clock power where expected rather than uniformly. 
+
+G. Gate-level simulation caveat 
+
+The behavioral RTL gate (Opt1/Opt3) is functionally correct in ideal RTL but its netlist does not simulate cleanly: the gated multiplier result is never stored and RESLO reads 0x0000 .The CPU is not frozen: we confirmed via VCD that the datapath gate-enable toggles 21,926 times over the run and the master clock toggles 100,000 times. The failure is confined to the gated-register capture and is caused by a hold race: the hand-written latch+AND produces a late gated clock, so between the gated multiplier-result domain and the ungated domain the result register samples the old/zero value. Because the CPU runs normally and only the result-register capture is wrong, the Opt1/Opt3 power measurements (Tables II and III) remain valid: average power is determined by the pipeline and gating-enable switching recorded in the VCD (21,926 enable toggles), not by the single miscaptured result value. This behavior is consistently reproducible for the dis-crete latch+AND implementation under the evaluated syn-thesis, timing, and simulation flow , not a simulator-setting artifact: we tried eight simulation configurations (zero/unit/full delay, +nospecify , +notimingcheck , sev-eral +vcs+initreg modes, and full SDF back-annotation), and all fail identically. The discrete latch+AND gated clock is not protected by the single-cell characterization and timing constraints that a tool-inserted ICG cell carries, so the skew survives in this synthesis-level flow. At the cell level, the Opt1 netlist contains 12 generic LATCHX1 cells (behavioral gate), whereas Opt2 uses 46 characterized CGLPPRX2 integrated clock-gating cells, which are designed to avoid this skew, so Opt2 passes 10/10 at gate level. This matches industry practice of using characterized ICG cells rather than hand-written behavioral clock gates.          
+
+> TABLE V CELL EVIDENCE (FROM THE SYNTHESIZED NETLISTS ).
+> Netlist Gating cell Count
+> Opt1 (behavioral) LATCHX1 (latch gate) 12 Opt2 (synthesis) CGLPPRX2 (ICG cell) 46
+
+VI. D ISCUSSION 
+
+Our results carry a practical message for low-power design on open-source cores. Behavioral latch clock gates are attractive because they are visible and controllable in RTL, and they are functionally correct, but they are not gate-level-clean on a real library, which undermines sign-off via gate-level simulation. Tool-inserted ICG cells achieve the larger power saving ( −29 .2% total, dynamic 49 .6 → 12 .6 μW) and remain gate-level-clean. The combined variant (Opt3) does not beat ICG alone, confirming that once ICG is used the hand-written gate adds risk without benefit. The cost of gating, a small 
+
+Fmax reduction, is acceptable for the dominant power saving in energy-constrained MCU/IoT use. The multi-workload mea-surements (Section V-C) show the dynamic-power saving holds across diverse activity profiles rather than for a single stimulus, and the clock-network breakdown (Section V-D) attributes it to suppressed clock toggling, the intended mechanism. The corner study (Section V-E) adds two cautions for practitioners. First, the gating benefit is corner-robust, so a single-corner evaluation does not mislead on the ranking of strategies. Second, and less obviously, in a leakage-dominated regime the headline total-power reduction is realized through the area/leakage reduction that gating brings, not its dynamic saving; the dynamic saving matters for active-mode energy. Where leakage dominates, clock gating should therefore be paired with leakage-reduction techniques (power gating, multi-Vt). Finally, the per-block breakdown (Section V-F) shows the saving is not uniform: it concentrates in the often-idle multiplier and watchdog. We also note that average power is insensitive to instruction-level duty cycle (a sweep of active/idle instruction mix left it unchanged), because the pipeline stays clocked while executing NOP s; meaningful gating savings come from whole-block idleness, which is exactly what the per-block result captures. VII. C ONCLUSION 
+
+We presented a reproducible PPA study of three clock-gating strengths on the open-source openMSP430 core with a 32 nm library, and a gate-level simulatability caveat: hand-written Fig. 7. Corner sensitivity (real PrimeTime PX, mult workload): total- and dynamic-power reduction versus the ungated baseline at the ss/tt/ff corners. The gating benefit is corner-robust; ICG (Opt2) is best at every corner. 
+
+Fig. 8. Per-block internal (clock +dynamic) power, baseline vs. ICG (Opt2), real PrimeTime hierarchy report. Gating cuts the often-idle multiplier and watchdog the most ( −88% , −84% ). 
+
+behavioral latch clock gates are RTL-correct but not gate-level-simulatable (the gated result reads zero, despite 21,926 enable toggles), whereas tool-inserted ICG cells are clean and deliver the largest power saving. The saving is corner-robust across ss/tt/ff (ICG: total −25 to −30% , dynamic −74 to 
+
+−81% ); in this leakage-dominated regime the total-power win is realized through gating’s area/leakage reduction, while the dynamic saving dominates active-mode energy. The concrete recommendation is to prefer tool-inserted ICG over behavioral gates for gate-level-clean low-power design, paired with leakage reduction where leakage dominates. ARTIFACT AVAILABILITY 
+
+The RTL switch, full Design Compiler synthesis flow, PrimeTime PX power scripts, and self-checking test-bench are available at https : / / github . com / yanyana117 / openmsp430-low-power-study-full. 
+
+Fig. 9. Root-cause schematic of the gate-level caveat (annotations are real measured data, part2_netlist_analysis.txt ). (a) The hand-written latch+AND yields a late gated clock; the result register races and keeps its stale value ( 0x0000 ) even though the CPU runs (21,926 gated-clock toggles). (b) The characterized ICG cell gates cleanly, so the result captures correctly. The same failure persists across eight simulation configurations including full SDF back-annotation. 
+
+REFERENCES [1] G. K. Yeap, Practical Low Power Digital VLSI Design . Kluwer Academic Publishers, 1998, https://link.springer.com/book/10.1007/ 978-1-4615-6065-4. [2] Q. Wu, M. Pedram, and X. Wu, “Clock-gating and its application to low power design of sequential circuits,” IEEE Transactions on Circuits and Systems I: Fundamental Theory and Applications , vol. 47, no. 3, pp. 415–420, 2000, https://ieeexplore.ieee.org/document/841927. [3] F. Emnett and M. Biegel, “Power reduction through RTL clock gating,” in 
+
+Synopsys Users Group (SNUG) San Jose , 2000, https://www.eng.auburn. edu/~agrawvd/COURSE/E6270_Fall07/PROJECT/LUO/snug2000.pdf. [4] O. Girard, “openMSP430: A synthesizable 16-bit microcontroller core,” OpenCores, 2009, https://opencores.org/projects/openmsp430. [5] Y. LeCun, Y. Bengio, and G. Hinton, “Deep learning,” Nature , vol. 521, no. 7553, pp. 436–444, 2015. [6] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,” in Advances in Neural Information Processing Systems 30 (NeurIPS) , 2017, pp. 5998– 6008. [7] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell et al. , “Language models are few-shot learners,” in Advances in Neural Information Processing Systems 33 (NeurIPS) , 2020, pp. 1877–1901. [8] J. Xie, Y. Pan, W. Jia, L. Xu, and Z. Huang, “Energy-consumption simulation of a distributed air-conditioning system integrated with occupant behavior,” Applied Energy , vol. 256, p. 113914, 2019, https: //doi.org/10.1016/j.apenergy.2019.113914. [9] Y. Zhou, W. Jia, Y. Pan, Y. Xie, and Z. Huang, “Regional building load prediction method based on the nearest neighbor search,” Building Science , vol. 37, no. 6, pp. 28–35, 41, 2021, https://scholar.google.com/ citations?user=3bXf6H0AAAAJ. [10] Y. Zhou, Y. Liang, Y. Pan, X. Yuan, Y. Xie, and W. Jia, “A deep-learning-based meta-modeling workflow for thermal load forecasting in buildings: Method and a case study,” Buildings , vol. 12, no. 2, p. 177, 2022, https://doi.org/10.3390/buildings12020177. [11] Y. Liang, Y. Pan, X. Yuan, W. Jia, and Z. Huang, “Surrogate modeling for long-term and high-resolution prediction of building thermal load with a metric-optimized KNN algorithm,” Energy and Built Environment ,2023, https://doi.org/10.1016/j.enbenv.2022.06.008. [12] W. Jia, S. Jin, J. Wang, W. Niu, D. Tao, and M. Yin, “GWLZ: A group-wise learning-based lossy compression framework for scientific data,” 2024, https://arxiv.org/abs/2404.13470. [13] W. Jia, Y. Liu, Z. Hu, J. Wang, B. Zhang, W. Niu, J. Huang, S. Kalafatis, S. Jin, and M. Yin, “NeurLZ: On enhancing lossy compression perfor-mance based on error-controlled neural learning for scientific data,” 2024, https://arxiv.org/abs/2409.05785. [14] W. Jia, Z. Hu, Y. Liu, B. Zhang, J. Wang, J. Liu, W. Niu, S. Kalafatis, J. Huang, S. Jin, D. Wang, J. Tian, and M. Yin, “NeurLZ: An online neural learning-based method to enhance scientific lossy compression,” in Proc. 2025 International Conference on Supercomputing (ICS) , 2025, https://dl.acm.org/doi/10.1145/3721145.3725763. [15] Y. Liu, W. Jia, T. Yang, M. Yin, and S. Jin, “Enhancing lossy compression through cross-field information for scientific applications,” in SC24-W: Workshops of the International Conference for High Performance Computing, Networking, Storage and Analysis , 2024, pp. 300–308, https: //doi.org/10.1109/SCW63240.2024.00046. [16] Y. Liu, W. Jia, T. Yang, B. Jiang, M. Yin, and S. Jin, “Advancing scientific data compression via cross-field prediction,” in Proc. 34th ACM International Symposium on High-Performance Parallel and Distributed Computing (HPDC) , 2025, pp. 13:1–13:12, https://doi.org/10.1145/ 3731545.3731592. [17] W. Jia, Z. Hu, B. Sun, Y. Huang, J. Tian, B. Zhang, D. Wang, S. Jin, L. Guo, S. Di, Y. Ji, and M. Yin, “FLARE: A dataflow-aware and scalable hardware architecture for neural-hybrid scientific lossy compression,” 2025, https://arxiv.org/abs/2507.01224. [18] C. Yang, Y. Sui, J. Xiao, L. Huang, Y. Gong, Y. Duan, W. Jia, M. Yin, Y. Cheng, and B. Yuan, “MoE-I 2: Compressing mixture of experts models through inter-expert pruning and intra-expert low-rank decomposition,” 2024, https://arxiv.org/abs/2411.01016. [19] J. Xiao, M. Yin, C. Yang, Y. Sui, H. Phan, X. Zang, W. Jia, H. Liu, and Z. Wang, “TranSpa: Towards efficient structured sparse training for transformers,” 2024, https://openreview.net/forum?id=9bwPESShgf. [20] Z. Shu, X. Yu, Z. Wu, W. Jia, Y. Shi, M. Yin, T. Liu, D. Zhu, and W. Niu, “Real-time core-periphery guided ViT with smart data layout selection on mobile devices,” in Advances in Neural Information Processing Systems 37 , 2024, https://proceedings.neurips.cc/paper_files/paper/2024/hash/ adb77ecc8ba1c2d3135c86a46b8f2496-Abstract-Conference.html. [21] Y. Zhang, W. Jia, W. Niu, and M. Yin, “GaussianSpa: An “optimizing-sparsifying” simplification framework for compact and high-quality 3D gaussian splatting,” in Proc. IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2025, pp. 26 673–26 682, https: //openaccess.thecvf.com/content/CVPR2025/html/Zhang_GaussianSpa_ An_Optimizing-Sparsifying_Simplification_Framework_for_Compact_ and_High-Quality_3D_CVPR_2025_paper.html. [22] W. Jia, Z. Hu, Y. Huang, Y. Gong, S. Kalafatis, Y. Wang, W. Niu, C. Zhang, A. Li, S. Di, Y. Ji, B. Fang, and M. Yin, “Splaxel: Efficient distributed training of 3d gaussian splatting for large-scale scene reconstruction via pixel-level communication,” 2026, https://arxiv.org/ abs/2606.18588. [23] Y. Huang, Y. Man, W. Jia, Z. Tu, J. Huang, and M. Yin, “AdaRing: Towards ultra-light vision-language adaptation via cross-layer tensor ring decomposition,” 2025, https://arxiv.org/abs/2508.11870. [24] Q. Guo and W. Wang, “Hydronet: A spatio-temporal graph neural network for modeling hydraulic dependencies in urban wastewater systems,” in 
+
+Proc. 32nd ACM Int’l Conf. on Advances in Geographic Information Systems (SIGSPATIAL) , 2024, pp. 717–718. [25] Q. Guo, B. Khatri, H. Zhang, and W. Wang, “Ai-driven forecasting and monitoring of urban water system,” 2025. [26] Q. Guo, B. Khatri, W. Sun, J. Tang, H. Zhang, and W. Wang, “Aquasentinel: Next-generation ai system integrating sensor networks for urban underground water pipeline anomaly detection via collaborative moe-llm agent architecture,” in Proc. AAAI Conference on Artificial Intelligence , 2026. [27] Q. Guo, J. Tang, W. Sun, H. Tang, Y. Shang, and W. Wang, “Soullmate: An adaptive llm-driven system for advanced mental health support and assessment, based on a systematic application survey,” 2024. [28] ——, “Soullmate: An application enhancing diverse mental health support with adaptive llms, prompt engineering, and rag techniques,” 2024. [29] J. Tang and Y. Shang, “Advancing mental health pre-screening: A new custom gpt for psychological distress assessment,” 2024. [30] J. Tang, S. Chen, and Y. Shang, “Tigergpt: A new ai chatbot for adaptive campus climate surveys,” 2025. [31] J. Tang, “New ai-driven tools for enhancing campus well-being: A pre-vention and intervention approach,” 2026, ph.D. dissertation, University of Missouri-Columbia. [32] Q. Guo, W. Sun, and W. Wang, “Spatio-temporal graph unlearning,” 2025. [33] Q. Guo, C. Pan, H. Zhang, and W. Wang, “Efficient unlearning for spatio-temporal graph (student abstract),” in Proc. AAAI Conference on Artificial Intelligence , vol. 39, 2025, pp. 29 382–29 384. [34] Q. Guo, J. Tang, and X. Huang, “Attacking LLMs and AI agents: Advertisement embedding attacks against large language models,” in 
+
+Proc. 2025 IEEE International Conference on Future Machine Learning and Data Science (FMLDS) , 2025, pp. 674–679, https://ieeexplore.ieee. org/document/11446535. [35] Z. Zhou, X. Chen, E. Li, L. Zeng, K. Luo, and J. Zhang, “Edge intelligence: Paving the last mile of artificial intelligence with edge computing,” Proceedings of the IEEE , vol. 107, no. 8, pp. 1738–1762, 2019. [36] J. Lin, W.-M. Chen, Y. Lin, J. Cohn, C. Gan, and S. Han, “Mcunet: Tiny deep learning on iot devices,” in Advances in Neural Information Processing Systems 33 (NeurIPS) , 2020, pp. 11 711–11 722. [37] C. Banbury, V. J. Reddi, P. Torelli, J. Holleman, N. Jeffries, C. Kiraly 
+
+et al. , “Mlperf tiny benchmark,” in Proc. NeurIPS Datasets and Benchmarks Track , 2021. [38] M. Gautschi, P. D. Schiavone, A. Traber, I. Loi, A. Pullini, D. Rossi, E. Flamand, F. K. Gürkaynak, and L. Benini, “Near-threshold RISC-V core with DSP extensions for scalable IoT endpoint devices,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 25, no. 10, pp. 2700–2713, 2017, https://ieeexplore.ieee.org/document/ 7864441. [39] L. Benini, A. Bogliolo, and G. De Micheli, “A survey of design techniques for system-level dynamic power management,” IEEE Transactions on Very Large Scale Integration (VLSI) Systems , vol. 8, no. 3, pp. 299–316, 2000. [40] D. V. N. Bharathi, B. S. Kandula, V. N. T. Kalepu, Y. Korada, T. Kammila, and M. S. Kanchi, “A comprehensive survey of clock-gating techniques for low-power VLSI design,” in Proc. 2025 9th International Conference on Electronics, Communication and Aerospace Technology (ICECA) ,2025, pp. 398–405, https://ieeexplore.ieee.org/document/11383489. [41] P. Sahu and S. K. Agrahari, “Comparative analysis of different clock gating techniques,” in Proc. 2020 5th IEEE International Conference on Recent Advances and Innovations in Engineering (ICRAIE) , 2020, https://ieeexplore.ieee.org/document/9358375. [42] L. Benini and G. D. Micheli, “Automatic synthesis of low-power gated-clock finite-state machines,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 15, no. 6, pp. 630–643, 1996, https://ieeexplore.ieee.org/document/503933. [43] S. Wimer and A. Albahari, “A look-ahead clock gating based on auto-gated flip-flops,” IEEE Transactions on Circuits and Systems I: Regular Papers , vol. 61, no. 5, pp. 1465–1472, 2014, https://ieeexplore.ieee.org/ document/6693753. [44] A. G. M. Strollo, E. Napoli, and D. D. Caro, “New clock-gating techniques for low-power flip-flops,” in Proc. Int’l Symposium on Low Power Electronics and Design (ISLPED) , 2000, pp. 114–119, https://ieeexplore.ieee.org/document/876767. [45] S. K. Teng and N. Soin, “Low power clock gates optimization for clock tree distribution,” in Proc. 11th Int’l Symposium on Quality Electronic Design (ISQED) , 2010, pp. 488–492, https://ieeexplore.ieee. org/document/5450528. [46] M. Kamaraju, K. L. Kishore, and A. V. N. Tilak, “Power optimized programmable embedded controller,” arXiv preprint arXiv:1009.1796 ,2010, https://arxiv.org/abs/1009.1796. [47] Y. Attaoui, M. Chentouf, Z. E. A. A. Ismaili, and A. E. Mourabit, “Clock gating efficiency and impact on power optimization during synthesis flow,” in Proc. 2021 International Conference on Microelectronics (ICM) ,2021, pp. 13–16, https://ieeexplore.ieee.org/document/9664896.
