@@ -1,0 +1,973 @@
+Title: GlitchLab: A Hardware-in-the-Loop Optimizer for Physical Fault Injection
+
+URL Source: https://arxiv.org/pdf/2609.00502v1
+
+Published Time: Wed, 02 Sep 2026 00:36:58 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# GlitchLab: A Hardware-in-the-Loop Optimizer for Physical Fault Injection 
+
+## Tanvir Hossain Abhinav Mahadevan Jasper Van Woudenberg Rajesh Velegalati Arindam Bhattacharyya 
+
+## Keysight Technologies, Inc. 
+
+## Abstract 
+
+Physical fault injection can turn brief hardware disturbances into security failures such as key recovery, authentication by-pass, and unintended control flow. Finding effective faults is difficult because many interacting parameters create a large search space, successful settings are sparse and target-dependent, and each hardware attempt provides limited feed-back. Under fixed testing time, efficient search is therefore critical for assessing fault sensitivity. We present G LITCH LAB , an online hardware-in-the-loop platform that treats delay as a timing gate, voltage and pulse duration as severity controls, and hardware outcomes as structured feedback. It implements RL-Q (Q-learning-based reinforcement learning), a structured bandit for discovery, and Structured-Outcome-Based Adaptive Search (SOBAS), a model-based policy for fault reproduction. Both policies find a target fault in every AES, password, and control-flow campaign. On AES and control flow, they require 2–85 × fewer attempts and 26–1 ,237 × less time than the baselines; on password, both succeed while the baselines fail within 5 ,000 attempts. After discovery, SOBAS repro-duces faults 7 .3–21 × more often, while RL-Q identifies 30% more distinct AES settings. 
+
+## 1 Introduction 
+
+Physical fault injection (FI) is a practical threat to embedded systems because a precisely timed perturbation can corrupt a security-critical computation without exploiting a software vulnerability [1, 2]. Voltage and clock tampering, electro-magnetic pulses, and laser pulses have all induced compu-tational faults in security-relevant devices [3–6]. Demon-strated consequences include cryptographic key recovery, control-flow redirection, privilege escalation, and integrity violations [7–13]. Executing an injection is straightforward once the bench is configured; finding an effective configu-ration is not. The perturbation must overlap the vulnerable operation and be strong enough to change architectural state without only resetting the device or disrupting communication. Consequently, fault injection is also an online experimental search problem. A voltage-FI campaign selects a glitch voltage v, trigger-relative delay d, and pulse duration ℓ. Exhaustive and ran-dom search allocate attempts without using the outcomes already observed [14]. Sequential model-based and Bayesian optimization instead use observations to select subsequent evaluations [15–18], but two sources of information remain underused in FI. First, a hardware attempt returns more than a binary success bit: normal execution, a malformed response, a non-target fault, reset, synchronization failure, and a target fault imply different properties of the tested configuration. Second, the search dimensions have distinct roles: coarse delay selects the operation, fine delay selects the clock phase, and voltage and pulse duration set perturbation severity (Sec-tion 4.1.2). Treating these dimensions or their outcomes as interchangeable discards useful feedback. This observation leads to a campaign-level problem formu-lation. Given bounds X , no prior fault map, and a budget of B
+
+hardware attempts, the policy must first minimize the attempt index of the first target fault. After discovery, the appropri-ate objective depends on the security question: an attacker may seek a reproducible target effect, whereas an evaluator may need to characterize the extent of the vulnerable region. These goals are related but not equivalent. A policy that re-peatedly samples one high-probability configuration can have high target-fault yield and poor region coverage; a policy that traces the fault boundary can have the opposite behavior. Our central contribution is an online, hardware-in-the-loop search method that reaches target faults using far fewer hard-ware attempts than existing baselines. It treats delay, voltage, and pulse length as physically distinct search roles and uses the full structured hardware response instead of a binary suc-cess bit, a structure that extends naturally to other FI modali-ties (e.g. EMFI). We implement it with two complementary policies. RL-Q uses a reset-based structured bandit derived from tabular Q-value estimation [19, 20]. It allocates attempts across voltage–delay regions, brackets the pulse-length transi-arXiv:2609.00502v1 [cs.CR] 1 Sep 2026 tion, and uses each outcome class to update the corresponding physical estimate. SOBAS (Structured-Outcome-Based Adap-tive Search) makes fewer geometric assumptions: random-forest classifiers [21] estimate categorical outcome proba-bilities, and the acquisition policy switches from boundary exploration to target-fault acquisition after discovery. We im-plement both policies in the commercial GlitchLab platform, which provides a closed-loop path for candidate selection, instrument execution, target recovery, outcome classification, and logging. Evaluation covers three physical units of the same Riscure Pinata model and three classes of program: cryptographic computation, authentication, and control flow. RL-Q and  
+
+> SOBAS
+
+find a target fault in every campaign, using 2–85 ×
+
+fewer hardware attempts than the faster reference config-uration, while both BO-GP (Bayesian optimization with a Gaussian-process surrogate) and BO-SMAC (SMAC, a random-forest-based configurator) exhaust the shared budget on the authentication target. After discovery the two policies sepa-rate: SOBAS reproduces the target outcome 7 .3–21 × more often, and RL-Q covers 30% more of the AES voltage–length plane at equal yield. The two policies therefore change places depending on which of these quantities a campaign chooses to report, on the same hardware and the same budget. Areport built on one metric can consequently recommend the wrong policy. Section 7 then shows that the faults located here support three attacks: AES key recovery, control-flow subversion, and authentication bypass. 
+
+Contributions. This paper makes the following contribu-tions: • An online search that exploits distinct parameter roles and structured outcomes. We treat delay as a timing gate and voltage/pulse length as severity controls rather than three equivalent black-box dimensions, and use the full five-class hardware response instead of a binary success bit, reaching target faults with 2–85 × fewer attempts than established baselines. Within this formulation, we sepa-rate first-target discovery, fault reproduction, and region characterization as distinct campaign objectives, enabling objective-specific policy design and comparison under one protocol. • Two search policies that use the full hardware response.  
+
+> RL-Q
+
+exploits FI structure through delay localization, region allocation, and pulse-length bracketing. SOBAS 
+
+instead learns categorical outcome models and requires no explicit fault-boundary geometry. Both policies run end to end in GlitchLab through common instrument, ora-cle, recovery, and logging interfaces. Although evaluated on voltage fault injection, the formulation can extend to other bounded search spaces when the platform exposes modality-specific controls and informative outcome feed-back .Time Supply voltage trigger 
+
+> Vnom
+> vd
+> ℓ
+> v
+
+Figure 1: Voltage fault-injection parameters. The trigger-relative delay d determines when the perturbation begins, the pulse duration ℓ determines how long it persists, and v denotes the glitch voltage. • Controlled hardware evidence of objective-dependent rankings. Both proposed policies find a target fault in every measured run on the three physical boards. Under matched conditions, SOBAS reproduces target faults 7 .3– 21 × more often, whereas RL-Q covers 30% more AES fault settings at equal yield. Thus, no single policy domi-nates discovery, reproduction, and characterization. • Validation on three security-relevant fault classes. The located faults produce AES ciphertext differences suitable for differential fault analysis, incorrect-password accep-tance, and premature loop termination. These outcomes connect the search objectives to concrete cryptographic, authentication, and control-flow security failures. 
+
+Ethics and Responsible Use. All experiments use labo-ratory targets owned or controlled by the researchers. The work reports no previously unknown vendor-specific vulner-ability and therefore did not trigger coordinated disclosure. We treat G LITCH LAB as dual-use infrastructure intended for authorized security evaluation. 
+
+Roadmap. Sections 2 and 3 establish the FI search problem and threat model. Section 4 presents the two policies and their GlitchLab integration. Section 5 describes the bench and experimental protocol; Section 6 evaluates the policies, Section 7 relates the faults to security outcomes, and Section 8 interprets the resulting tradeoffs. 
+
+## 2 Background and Related Work 
+
+This section summarizes FI physics, campaign feedback, and prior adaptive search methods used in Section 4. 
+
+## 2.1 Physical Fault Injection 
+
+Physical fault injection (FI) deliberately perturbs a device under test (DUT) during execution to induce a computational error [1, 2, 7, 8]. Voltage glitching disturbs a supply rail, clock glitching modifies the clock waveform, electromagnetic FI couples a transient field into the circuit, and laser FI deposits energy at a selected location. Each modality seeks a transient 2error that changes architectural state without permanently damaging the DUT [3–6]. This work focuses on voltage fault injection (VFI). A glitch-ing instrument drives a supply rail away from its nominal voltage Vnom toward a glitch voltage v, beginning at a trigger-relative delay d and persisting for a pulse duration ℓ [3, 11]. We represent one glitch configuration as 
+
+x = ( v, d, ℓ ), (1) where v determines the perturbation strength, d aligns it with the operation of interest, and ℓ determines its dura-tion (Figure 1). This is the VFI search vector; other modal-ities add controls such as EMFI probe position (Section 8). 
+
+W ⊆ [dmin , dmax ] is the sensitive delay interval, spanning the operation window and its clock-phase window. The three parameters act jointly through the DUT’s electri-cal and timing behavior. Lower supply voltage reduces tran-sistor drive strength, which can increase propagation delay along active paths. A sufficiently strong transient increases path delay beyond the available timing margin, so an incorrect or unstable state is captured at a clock edge [1,2]. The delay d
+
+determines which operation is active, while v and ℓ determine whether the disturbance is too weak to alter execution, strong enough to induce a useful fault, or severe enough to crash or reset the device. The exact vulnerable region is difficult to predict for commercial off-the-shelf devices whose physical implementation and timing information are unavailable. Find-ing an effective combination of voltage, timing, and pulse duration is therefore a search problem. 
+
+## 2.2 Fault-Injection Campaigns and Parameter Search 
+
+A practical FI campaign evaluates a sequence of configu-rations x1, x2, . . . , xN within the bounded search space X =[vmin , vmax ] × [dmin , dmax ] × [ℓmin , ℓ max ]. Each candidate re-quires one instrumented hardware attempt, including DUT execution, response classification, and, when necessary, reset and recovery. Policy computation is small relative to this experimental loop; consequently, the number of hardware attempts is the primary campaign resource. A configuration may produce normal execution, a crash or reset, a missing or invalid interaction, an incorrect but unusable result, or the desired target fault. Throughout the paper these five classes are tagged by color: Green (normal execution), Yellow (crash, reset, or synchronization timeout),  
+
+> Magenta
+
+(a non-target fault that disturbs execution without meeting the target condition), RED (target fault), and Pink 
+
+(missing trigger). In practical campaigns, target faults often occupy comparatively small and irregular regions of the ex-plored space. These regions may be narrow or disconnected, and their locations can depend on the device, firmware, op-erating condition, and trigger alignment. Blind enumeration is consequently expensive. Interpreting a response requires a program-specific outcome oracle. We write 
+
+ot = O(zt , zref , m), (2) where zt is the response, zref is an optional fault-free refer-ence, and m is the program-specific condition, such as the AES signature, password-acceptance bit, or loop count (Ap-pendix A.4). A non-target fault alters execution without meet-ing this condition. Structured outcomes can thus provide a graded search signal before the rare target fault is first ob-served. Two conventional strategies ignore this accumulating signal. Grid search discretizes each axis, so the number of attempts grows multiplicatively with resolution. Random search instead draws candidates from a fixed distribution over 
+
+X . Neither method uses observed outcomes to reallocate future experiments. This non-adaptive allocation is costly when the target region is sparse. A practical search procedure should instead use each hardware response to influence where it samples next, both to find a useful region and to continue producing useful faults after discovery. These two requirements give the two quantities we re-port. Under a budget of B hardware attempts, the first-target iteration is Ttarget = min {t ≤ B | ot = otarget }, the in-dex of the earliest attempt satisfying the target condition; it is right-censored when no such attempt occurs within the budget. It measures discovery cost in the resource that dominates a campaign. The target-fault yield is the rate at which the target outcome recurs from that point onward, 
+
+YB = ( B − Ttarget + 1)−1 ∑Bt=Ttarget 1[ot = otarget ], and is unde-fined when Ttarget is right-censored. The two are distinct objectives: a policy can reach a productive region quickly and then leave it, or find it late and exploit it well, so neither quantity alone characterizes a search procedure. 
+
+## 2.3 Adaptive Parameter Search 
+
+An online policy uses each observed outcome to focus subse-quent attempts. In a cold-start campaign it must learn entirely from attempts that consume the budget, and a binary label is sparse before the first target fault; the categorical outcome model of Section 2.2 supplies feedback beforehand. Reinforcement learning (RL) provides one formulation for using this feedback online [20]. A state summarizes the current search context, an action selects the next configuration or search region, and a reward quantifies the utility of the observed outcome. Q-learning is a model-free algorithm for estimating the long-run value of taking a given action in a given state purely from observed transitions: after each step it nudges its current estimate toward the reward just received plus a discounted estimate of the best value reachable from the next state, so the estimate improves online without ever modeling the environment’s dynamics directly. In Q-learning, these decisions are represented by an action-value function 
+
+Q(s, a) updated after each transition (st , at , rt , st+1) [19], 3Table 1: Comparison of adaptive parameter-search methods for physical fault injection. 
+
+Work description Capability Objective            
+
+> Work Mode Search method Parameters No prior map Closed-loop Multi-outcome Explore/ exploit Fault region Target rate Timing window Cross-device Cross-program Cold start This work VCC RL-Q and SOBAS v,d, ℓ
+
+✓ ✓ ✓ ✓ ✓ ✓ ✓ ▲ ✓ ✓ First-target attempts; swappable policies Boix Carpi et al. CARDIS’13 [22] VCC Monte Carlo; FastBoxing; zoom-and-bound; genetic algorithm Voltage, length; second-stage timing 
+
+✓ ✓ ✓ ▲ ✓ ▲ ✗ ✓ ▲ ✓ Successful FI; bound region of interest Maldini et al. 2019 [23] EM Genetic algorithm 5 EMFI parameters 
+
+✓ ✓ ▲ ▲ – – ✗ ▲ ✓ ✓ Successful EMFI; SHA-3 and PIN Bozzato et al. TCHES’19 [24] VCC Arbitrary-waveform design; campaign-driven Waveform shape; timing 
+
+✓ ✗ – – – – ✗ ✓ ▲ ✓ Firmware extraction Werner et al. CARDIS’21 [25] VCC SMAC (random-forest surrogate); successive halving; genetic algorithm 9 waveform parameters; timing 
+
+✓ ✓ ▲ ✓ ✗ ▲ ✗ ✓ ▲ ✓ Equipment calibration, then attack Köylü et al. ETS’24 [26] VCC, EM Conditional GAN; multilayer-perceptron classifier on the mute–pass boundary    
+
+> v, ℓ, d; EM X/Y,power, delay
+
+✗ ✓ ✗ ▲ ✓ ✓ ✗ ✗ ✗ ✗ Glitch success rate; boundary  
+
+> Legend:
+
+✓ present ▲ partial or limited ✗ absent – not stated. Column polarity is normalized so that ✓ always indicates the presence of a capability, which is why the first criterion is phrased as requiring no prior fault map. The five prior works do not share an objective, so the marks position the contributions without ranking them. 
+
+Q(st , at ) ← Q(st , at ) + α
+
+
+
+rt + γ max  
+
+> a′
+
+Q(st+1, a′) − Q(st , at )
+
+
+
+(3) where α is the learning rate and γ discounts future reward. Section 4 specializes this formulation to FI and defines the state, action, and reward used by our search policy. 
+
+## 2.4 Prior Parameter-Search Work 
+
+Reducing the attempts needed to identify useful FI parameters has motivated several alternatives to grid and random search. Boix Carpi et al. [22] introduced Monte Carlo sampling, Fast-Boxing, Adaptive Zoom and Bound, and genetic search for voltage glitching, exploiting the observation that useful faults cluster near the transition between configurations that leave execution unaffected and those that perturb it too strongly. Later work extended evolutionary search with specialized crossover, fitness, and memetic strategies [23]. These meth-ods avoid exhaustive enumeration, although their behavior can depend on the initial population and on the regions found early. Model-based methods instead learn from the configura-tions evaluated so far. Bayesian optimization uses a surrogate and acquisition function to select expensive black-box evalua-tions [15–18]. Werner et al. [25] formulated FI equipment cal-ibration as a hyperparameter-optimization problem and evalu-ated SMAC, a random-forest-based configurator [21, 27], and successive halving [28, 29] over a high-dimensional voltage-glitch space. Such surrogates are effective when observed responses reveal a learnable region, but a cold-start campaign must first obtain informative hardware outcomes from a space dominated by normal execution or failed interactions. Köylü et al. [26] modeled the relation between outcome classes and candidate configurations directly, using a conditional generative model to propose samples near class boundaries. Together these results motivate adaptive search and richer outcome representations, and none of them treats first-target discovery, post-discovery reproduction, and fault-region char-acterization as one objective. We therefore study FI search from a cold start: the policy has no representative fault map for the current device and program and must find its first target fault within a limited hardware-attempt budget. After that discovery, the campaign continues according to its objective, either reproducing the target fault reliably or characterizing the broader vulnerable region. Each attempt reports a structured outcome, such as normal execution, a non-target fault, a target fault, or a failed interaction, and these distinctions provide search feedback that a binary or scalar objective would discard. Section 4 develops two policies that use this feedback in complementary ways. 
+
+## 3 Threat Model 
+
+We consider board-level voltage fault injection against em-bedded DUTs without invasive access to the processor die. The same FI interface supports two roles: an authorized se-curity analyst evaluating device susceptibility and a physical attacker seeking a security-relevant fault. Both select a glitch configuration x = ( v, d, ℓ ), as defined in Equation 1, but may differ in target knowledge and campaign objective. 4Security analyst. The analyst measures the DUT’s fault susceptibility and produces evidence for mitigation. In ad-dition to the common capabilities defined below, the analyst may use source code, firmware analysis, debug access, GPIO triggers, or power traces to narrow the search. The campaign typically continues after the first target fault to measure re-peatability, map the vulnerable region, and identify settings that countermeasures should cover. These knowledge sources improve localization but are not required by the policies. 
+
+Physical attacker. The attacker seeks a security-relevant effect after obtaining physical board and supply access. The attacker controls the glitch parameters, repeatedly invokes and resets the target operation, and observes an external response; traces may also be used when probe access permits. The model does not require source code, debug access, a prior fault map, or a pretrained target-specific model. The attacker typically seeks the first target fault and then settings that reproduce it reliably enough to support an attack. 
+
+## 3.1 Physical Capabilities 
+
+We assume physical access to the DUT’s PCB and an accessi-ble processor supply rail through which voltage glitches can be applied. The evaluator can control glitch voltage, trigger-relative delay, and pulse duration (v, d, ℓ ); repeatedly invoke the target operation; observe its external response; and reset the device between attempts. External measurements, such as power traces, may be used for synchronization or to narrow the timing window, but are not required by the optimizer. We assume that a viable voltage-injection path has already been established; identifying or engineering this path is out-side the scope of this work. Package decapsulation, laser injection, focused-ion-beam modification, microprobing, and other die-level invasive techniques are excluded. Our focus is not the physical generation of faults, but the efficient search within an available FI parameter space. 
+
+## 3.2 Knowledge and Cold Start 
+
+Knowledge is treated independently from role, spanning white-box access to source, firmware, and cooperative triggers through to black-box access to the external interface alone. Across all settings, the search policy requires no previously characterized parameter–outcome map or pretrained target-specific model. Each campaign starts from explicit bounds on (v, d, ℓ ) and learns from observations on the current de-vice and program. Source code, firmware analysis, traces, or protocol timing may narrow the delay bounds; the measured campaigns use the localization procedures in Section 4.1.2. Thus, “cold start” means no prior fault map, not an absence of all timing information. Each hardware attempt is mapped by a program-specific oracle to a semantic outcome class: normal execution, mal-formed or missing response, non-target fault, target fault, or synchronization failure. The policy receives only the tested configuration and this class; program-specific response pars-ing remains inside the oracle. 
+
+## 3.3 Objectives and Success Criteria 
+
+The primary distinction between the two roles defined in Section 3 – the analyst and the attacker – is the stopping ob-jective. An attacker may prioritize the first security-relevant target fault, whereas an analyst typically continues to mea-sure reproducibility and characterize the vulnerable region. These objectives are the first-target iteration Ttarget and the target-fault yield YB of Section 2.2, together with occupied parameter-space cells at a controlled number of target faults. We use fault-region discovery to mean identifying a set of configurations that repeatedly produce the target outcome, and not observing one successful configuration. Accordingly, the evaluation reports discovery cost, reproduction rate, and coverage as distinct quantities. 
+
+Scope. The model does not require source code, debug access, a prior fault map, a pretrained target-specific model, or invasive die access. It requires only repeatable invocation of the target operation, an established voltage-glitch path, and an externally measurable outcome. We do not assume that every supplied search space contains a successful fault region; rather, when one exists, the problem studied here is how efficiently it can be discovered and characterized. 
+
+## 4 Proposed Search Methods and GlitchLab Framework 
+
+We present two policies that use the same semantic outcome classes but make different structural assumptions. RL-Q ex-ploits an ordered voltage–pulse-length transition and treats delay as a gated search dimension. SOBAS (Structured-Outcome-Based Adaptive Search) instead learns categorical outcome probabilities without an explicit physical threshold.  
+
+> GlitchLab
+
+executes both through the same closed-loop hard-ware interface, allowing their candidate-selection policies to be compared under a common experimental protocol. 
+
+## 4.1 RL-Q: Physics- and Timing-Guided Search  
+
+> RL-Q
+
+treats delay as a timing gate and voltage and pulse length as severity controls, rather than searching three equiva-lent coordinates. 
+
+4.1.1 Search Decomposition 
+
+A useful fault requires timing overlap and suitable severity. 
+
+W is the set of delays for which the target operation is active; thus, d ∈ W and |δ(v, ℓ )| ≤ β.5The model is deliberately approximate: delay acts primar-ily as a gate, whereas voltage and pulse length often provide ordered weak-to-severe feedback. Accordingly, RL-Q uses separate mechanisms for the three roles. It partitions delay, uses tabular values with an upper-confidence bound (UCB) to allocate attempts across amplitude–delay regions, and brack-ets pulse length within each selected region. Each semantic outcome updates only the estimates for which it provides evidence. 
+
+4.1.2 Timing-Window Localization 
+
+Searching the full trigger-to-response interval is costly. RL-Q 
+
+instead starts from D0 = [ dmin , dmax ] ⊇ W . Because host scheduling and serial latency vary, the instrument anchors on a DUT hardware edge at Tanchor and defines d = tglitch − Tanchor .This removes host latency while retaining target execution-time variation (Section 5.1). Figure 2(a) previews how RL-Q subsequently refines the resulting D0: it preserves full-range exploration, subdivides target-producing segments, and stops at the timing-resolution floor. In this figure, RED denotes the target-fault outcome that triggers subdivision. The two routes below determine D0
+
+before this online refinement begins. 
+
+Program and firmware knowledge. When the image is available, a headless disassembler [30] identifies the target instruction and a GPIO edge is placed shortly before it. The attacked instruction remains byte-identical, image size and layout remain fixed, and the command path contains one rising edge. These conditions preserve the operation and delay semantics, yielding a narrow D0. This route requires image access and evaluates an instrumented binary. This route is therefore available only to product-security analysts. 
+
+Leakage-based localization. Without an accurate program-level anchor, passive traces provide timing candidates. We randomly interleave fixed and random executions and apply non-specific Test Vector Leakage Assessment (TVLA) [31, 32]. At sample i, the Welch statistic is ti = ( ¯xF,i −
+
+¯xR,i)/
+
+q
+
+s2
+
+> F,i
+
+/nF + s2
+
+> R,i
+
+/nR, using per-sample mean ¯ x, variance 
+
+s2, and size n for the fixed ( F) and random ( R) classes [33]. Stable detections exceed a threshold with the same sign in two data halves. They indicate class-dependent execution, not fault sensitivity, so the exploration reserve in Section 4.1.4 may overrule them. A narrow support interval defines D0; for broad periodic leakage, mean-trace autocorrelation identifies repeated operations. Both routes consume measurement time but no FI attempts. This TVLA-based route applies to both analysts and attackers when repeatable traces are available. 
+
+4.1.3 RC-Informed Amplitude–Length Model 
+
+Voltage and pulse length jointly set severity: a deep, short pulse and a shallow, long one can produce similar excursions at the die, so useful faults lie near the boundary between insufficient and excessive perturbation. A single-pole rail driven from Vnom toward the commanded voltage v reaches a critical level Vc in D∗
+
+> RC
+
+(v) = τrail ln [( Vnom − v)/(Vc − v)] for 
+
+v < Vc, where τrail is the effective injection-path time constant. That relation motivates a monotone, convex strength–duration boundary, but RL-Q assumes no knowledge of τrail , Vc, or the injection network and approximates the observed trend online with 
+
+bD(v) = c2v2 + c1v + c0. (4) The quadratic is an empirical approximation, fitted by weighted least squares to a rolling window of faults per de-vice, firmware, and injection path; no fit transfers between benches. It summarizes the cross-amplitude trend but is not an exact decision boundary. Each region therefore keeps an in-dependent bracket and local estimate, preventing noisy global curvature from shifting all regions. The search coordinate is 
+
+δ(v, ℓ ) = ℓ − bD(v). (5) Negative values are below threshold, values near zero mark the fault transition, and positive values are increasingly severe. Thus, RL-Q searches one signed offset instead of unrelated voltage and pulse-length coordinates (Figure 2(b)). 
+
+4.1.4 Online Search and Allocation 
+
+Each amplitude–delay region keeps a running average of the reward it has produced so far, and every attempt is spent on the region that best balances a high average against remaining uncertainty, so the search concentrates where evidence sug-gests a fault is more likely without abandoning unexplored regions. Action at selects amplitude–delay cell ( j, k), and Q jk 
+
+records its utility. Each attempt starts from reset, so there is no next-state value to bootstrap; prior outcomes still update the value table, threshold, and bracket. Thus, setting γ = 0 in Equation 3 is a deliberate reduction to a one-step structured bandit, yielding 
+
+Njk ← Njk + 1, Q jk ← Q jk + rt − Q jk 
+
+Njk 
+
+, (6) with Robbins–Monro rate αt = 1/Njk [34]. The name RL-Q refers to this tabular action-value update; we do not claim a long-horizon Markov decision process. The table preserves the explicit region structure and supports local decay when observations drift. RL-Q is therefore a structured bandit and not a sequential decision process; the Q-value formulation is retained because the region table, its optimistic initialization, and its decay are naturally expressed in it. 6(a) Delay-window refinement                                    
+
+> uniform exploration reserve εdover the full range M⋆level 0
+> dmin dmax
+> ⋆RED
+> subdivide by κ⋆level 1
+> W
+> subdivision stops at the timing-resolution floor wd
+> (b) Pulse-length bracketing
+> ➀➁➂region j
+> pulse length ℓ(ns)
+> ➀Yellow →ℓ+
+> j➁Green →ℓ−
+> j➂fault →bDj
+> glitch voltage  v (V) 0500
+> −3.93.9
+> δ≪0: below threshold
+> δ≫0: above threshold
+> bD(v)> ℓ max : outside the searched range
+> ℓ=bD(v)±β
+
+Figure 2: The two RL-Q search mechanisms. (a) Delay-window refinement within D0: RL-Q retains uniform explo-ration over the initial window and subdivides target-producing segments; a segment producing only non-target faults (M) is not subdivided, and refinement stops at the timing floor wd .(b) Pulse-length localization within one amplitude region: the threshold locus bD(v) is monotone and convex, so at fixed volt-age the outcome classes are ordered along the signed offset 
+
+δ of Equation 5. Probes ➀ and ➁ set the bounds; bisecting between them places ➂ inside the transition, after which the region samples locally. 
+
+Amplitude allocation. The UCB table does not choose pulse length; it picks which amplitude–delay region receives the next attempt, and that region’s bracket chooses pulse length. Amplitude is partitioned into na equal-width regions and D0 into nφ delay bins, and, following UCB [35], attempt 
+
+t selects 
+
+( jt , kt ) = arg max 
+
+> j,k
+
+(
+
+Q jk + c b t
+
+s
+
+ln (t + 1)
+
+Njk + 1
+
+)
+
+, (7) Here Njk counts visits, c controls exploration, and bt in-creases it during recovery; voltage and delay are uniform within the selected cell. Optimistic Q jk ← q0, above any non-fault reward, makes an unproductive first visit trigger coverage elsewhere. Regions with thresholds above ℓmax are demoted by unperturbed responses but remain reachable. 
+
+Pulse-length localization. At fixed amplitude, outcomes are roughly ordered along pulse length, so the transition can be bracketed. Region j maintains [ℓ− 
+
+> j
+
+, ℓ + 
+
+> j
+
+], the largest pulse seen on the weak side and the smallest on the severe side.  
+
+> Green
+
+raises the lower bound, Yellow lowers the upper bound, and RED / Magenta update the local transition estimate bD j: 
+
+> Green
+
+: ℓ− 
+
+> j
+
+← max 
+
+n
+
+ℓ− 
+
+> j
+
+, min (ℓ, ℓ + 
+
+> j
+
+− wt )
+
+o
+
+, (8)  
+
+> Yellow
+
+: ℓ+ 
+
+> j
+
+← min 
+
+n
+
+ℓ+ 
+
+> j
+
+, max (ℓ, ℓ − 
+
+> j
+
++ wt )
+
+o
+
+, 
+
+> RED
+
+/ Magenta : h j ← h j + 1, bD j ← bD j + ℓ − bD j
+
+h j
+
+,
+
+A fault recentres the bracket at bD j ± wt /2; the clamps enforce a floor of wt , preventing collapse to one length. Both fault classes mark the transition and update bD j, although their rewards differ. Before localization, RL-Q bisects the bracket with dither, 
+
+ℓt = 12 (ℓ− 
+
+> j
+
++ ℓ+ 
+
+> j
+
+) + u with u ∼ U(−Wj/8, Wj/8) and Wj =
+
+ℓ+ 
+
+> j
+
+− ℓ− 
+
+> j
+
+. Under the ordering assumption, each informative probe roughly halves the interval. For L = ℓmax − ℓmin , lo-calizing width 2 β takes k⋆ = ⌈log 2(L/(2β)) ⌉ probes, versus 
+
+O(L/(2β)) random samples; opening every region gives ap-proximately na(1 + k⋆) attempts. This finite-budget result covers only pulse length, not the three-dimensional search. After localization the bracket stops at a physical floor and samples ℓt ∼ N ( bD j, σ2 
+
+> j
+
+) with σ j = σ∞ + ( σ0 − σ∞)/(1 +
+
+h j/ν). The initial width is the transition half-width β, an-nealed toward σ∞ as observations accumulate; the floor re-flects measurement and timing uncertainty. Either fault also enqueues an anisotropic Gaussian burst, wide on unlocalized axes and tight on pulse length, with a longer burst after a target fault. 
+
+Delay refinement. Pulse length gives directional feedback; delay does not, since a timing miss does not say whether 
+
+W lies earlier or later and a non-target fault is no more reli-able here. RL-Q therefore falls back on the coarse coverage, segment scoring, and subdivision shown in Figure 2(a). By default the nφ bins enter Equation 7 with widths no finer than the measured execution-time spread; for a wide D0 the table factors into marginal amplitude values Qa ∈ Rna and m delay segments scored by 
+
+Ui = Ri
+
+ni + 1
+
+| {z } 
+
+> target-fault rate
+
++ η Mi
+
+ni + 1 · ττ + ni
+
+| {z }
+
+> decaying hint
+
++cd
+
+s
+
+ln (T + 1)
+
+ni
+
+, (9) where ni, Ri, and Mi count attempts, target faults, and non-target faults. The hint decays so repeated non-target faults cannot dominate; the last term preserves exploration. A target-producing segment splits into κ children while the resulting child width exceeds the timing floor wd .Three safeguards prevent incorrect localization: an initial coarse sweep, uniform full-range reserve εd , and partition rebuilding after a fixed number of delay selections without a target fault. Counting only target faults prevents non-target segments from trapping the search. 71Candidate selection S E A R C H S PA C E Glitch voltage Trigger delay Pulse length 2Glitch execution Controller Target MCU P U L S E 3Target programs AES PIN check Finite loop Infinite loop 4Outcome classes Trigger fail Malformed output Normal Non-target fault Target fault 5Rewards Target fault Non-target fault Malformed output Normal Trigger fail P E N A LT Y · R E WA R D 6Model update Reinforcement learning Bayesian optimization SMAC Surrogate S E L E C T N E X T E X P E R I M E N T Figure 3: The GlitchLab hardware-in-the-loop campaign. The active policy proposes x = ( v, d, ℓ ), the campaign controller executes it on real hardware, the outcome oracle classifies the response, and the structured outcome returns to the policy. Only the policy block changes between the methods compared here. 
+
+4.1.5 Outcome Feedback and Adaptation 
+
+Each response updates only the model components it informs. Each outcome updates only what it is evidence for: Green and  
+
+> Yellow
+
+move the bracket bounds, RED and Magenta move the transition estimate, every valid class updates region util-ity, and Pink affects failure handling alone. Region utility combines class utility, proximity to the estimated transition, and execution latency: 
+
+rt = R(ot ) − βr min 
+
+
+
+1, |δt |
+
+wt
+
+
+
+− λ
+
+ τt
+
+τmin 
+
+− 1
+
+
+
+. (10) 
+
+R(ot ) is the class utility (Table 8) and the remaining terms penalize threshold distance and latency; we set λ = 0 because the class utility already charges for outcomes needing recov-ery. The Yellow penalty marks a crash but excludes its full reset time, which the evaluation reports separately. A non-target fault is worth more before discovery, when it locates a fault-producing transition, than after, when it consumes attempts without meeting the objective, so RL-Q 
+
+anneals Rt ( Magenta ) from r0
+
+M to r∞
+
+M over the first TM attempts. Physical drift makes old observations less representative, so every E attempts RL-Q applies Q ← ρQ and N ← ρN, giving effective memory E/(1 − ρ), and after S fault-free attempts it widens brackets. The policy therefore tracks a region in-stead of fixing one configuration, which matters when timing variation is comparable to the searched pulse-length interval. 
+
+Limitations. The bracket assumes pulse-length outcomes are roughly monotone at fixed amplitude; where that fails it can settle on the wrong pulse length, and only widening and re-exploration recover. UCB regret guarantees also assume stationary rewards [35], whereas annealing and decay make  
+
+> RL-Q
+
+non-stationary. We therefore claim the finite-budget bisection efficiency above, not asymptotic optimality of the whole algorithm. Algorithm 1 summarizes the policy; delay comes from the joint grid by default and from the partition of Equation 9 in factored mode; Appendix A.3.1 reports all values. 
+
+## 4.2 SOBAS: Structured-Outcome Surrogate Search  
+
+> RL-Q
+
+obtains efficiency from an amplitude–length ordering assumption. In contrast, SOBAS tests how far structured out-
+
+Algorithm 1 RL-Q physics- and timing-guided fault search.    
+
+> 1: input: bounds
+
+X with delay range D0; grid na ×nφ; reward table R                                                           
+
+> 2: Q←q01;N←0;w←winit ;s←0; initialize [ℓ−
+> j, ℓ +
+> j],hj
+> 3: for j=1. . . na: emit region-jmidpoint probe ▷open each bracket
+> 4: for t=1,2, . . . until attempt budget exhausted 5: if tmod E=0then ADAPT
+> 6: if local-burst queue non-empty then (v,d, ℓ )←pop 7: else
+> 8: (j,k)←arg max UCB (Eq. 7) 9: v∼
+
+U(region j); d ∼ U(bin k)       
+
+> 10: if ℓ+
+> j−ℓ−
+> j>w: bisect with
+
+U(−Wj /8, Wj /8)    
+
+> 11: else :ℓ∼
+
+N ( bD j , σ2                                                                                             
+
+> j)▷local sampling
+> 12: o←EVALUATE (v,quant (d),quant (ℓ)) ▷one hardware attempt
+> 13: update bracket, bDj,hj(Eq. 8); refit bD(v)(Eq. 4) 14: r←R(o)−βrmin (1,|δ|/w)(Eq. 10) 15: Njk ←Njk +1; Qjk ←Qjk + ( r−Qjk )/Njk
+> 16: if o∈ { RED ,Magenta }then enqueue kolocal probes; s←017: else s←s+118: procedure ADAPT
+> 19: if s>S▷no recent fault: widen and re-explore
+> 20: w←min (winit ,w/κw); widen all brackets; b←221: else w←max (wmin ,κww);b←122: Q←ρQ;N←ρN▷decay
+
+come labels can guide search without that physical model. One random forest models all outcome classes, whereas a second concentrates on the rare target event. The acquisition combines target probability, failure suppression, and empiri-cal uncertainty. 
+
+4.2.1 Structured Outcome Modeling  
+
+> BO-GP
+
+and BO-SMAC reduce outcomes to one utility, so  
+
+> Green
+
+and Yellow can receive similar scores despite giv-ing opposite evidence. SOBAS instead models the classes separately.  
+
+> SOBAS
+
+instead learns the class-conditional distribution 
+
+P(o | x) with two random-forest classifiers [21] fitted in the unit cube so no axis dominates a split. The multi-class forest predicts ˆ pk(x) = P(o = k | x) over the K observed classes and supplies the failure probabilities; the binary forest concen-trates capacity on the rare target event and predicts ˆ pt(x). Dis-agreement across an evenly spaced tree subsample B gives an uncalibrated empirical uncertainty ˆ σt(x) = sd { ˆp(b)
+
+t (x)}b∈B .Piecewise-constant forests suit the sharp, axis-dependent boundaries we observe, where the evaluated GP represents them through a smooth kernel. Algorithm 2 summarizes the policy. Unlike RL-Q , it learns the geometry without 8Algorithm 2 SOBAS structured-outcome search.                                                                           
+
+> 1: input: bounds Xwith delay range D0; warm-up size nw; batch size q
+> 2: H,Q←/0; evaluate nwSobol warm-up points into H
+> 3: for t=nw+1,nw+2, . . . until attempt budget exhausted 4: if Q=/0▷refit and propose a new batch
+> 5: fit multi-class forest ˆ pkand target forest ˆ pton capped H
+> 6: if no RED observed in Hthen α←α0S(Eq. 12) 7: else α←αS(Eq. 11) 8: P←scored uniform pool ∪Gaussian neighbors of top points; rescore 9: Q←top qof Pafter grid quantization and deduplication 10: x←pop Q;o←EVALUATE (x)▷one hardware attempt
+> 11: append (x,o)to H
+
+an explicit estimator or partition. Its complete configura-tion, including the scrambled Sobol warm-up, appears in Appendix A.3.2 [36]. 
+
+4.2.2 Acquisition Function  
+
+> SOBAS
+
+prefers candidates likely to produce the target, un-likely to crash or miss the trigger, and uncertain enough to justify exploration, scoring their product: 
+
+αS(x) = ˆpt(x)
+
+| {z } 
+
+> exploit
+
+·  1 − ˆpcrash (x)  1 − ˆpno trig (x)| {z }
+
+> constraints
+
+·   ˆσt(x) + ε| {z }
+
+> explore
+
+,
+
+(11) The multi-class factors suppress crashes and missing trig-gers; ε keeps confident points revisitable. These are opera-tional constraints, not a formal safe-optimization guarantee. 
+
+4.2.3 Cold-Start Exploration 
+
+Before the first target fault the binary model has no positive example and cannot rank candidates. SOBAS instead searches outcome boundaries by normalized multi-class entropy, keep-ing the failure suppression: 
+
+α0S(x) =  1 − ˆpcrash 
+
+  1 − ˆpno trig 
+
+ · H(x)
+
+ln K ,
+
+H(x) = −
+
+> K
+
+# ∑
+
+> k=1
+
+ˆpk(x) ln ˆ pk(x),
+
+(12) The policy switches to Equation 11 after its first target fault; before then, Equation 12 governs discovery. Expected improvement instead reduces to variance-seeking without a positive sample. 
+
+4.2.4 Candidate Selection and Online Update 
+
+Because a random-forest acquisition is piecewise constant, candidate selection uses two stages. The policy first scores a uniform global pool and then scores Gaussian perturbations around the highest-ranked candidates. It quantizes the result to the hardware grid, removes duplicates, and evaluates the top q configurations. Batching amortizes model fitting, while the capped history keeps all recent observations and subsam-ples older attempts. This is a heuristic acquisition; it does not provide an expected-improvement or regret guarantee. Table 2: Search bounds supplied to the policies. Voltage and pulse-length bounds are common to every target.             
+
+> Dimension or target Cold span Localized Voltage v−3.9 to 3 .9 V Pulse length ℓ0 to 500 ns
+> Delay d (ns)
+> AES-128 1–49 ,500 38 ,368–43 ,164 Password check 1–1 ,474 40–80 Finite loop 0–5 ,000 0–40
+
+## 4.3 GLITCH LAB Integration 
+
+For the controlled RL-Q – SOBAS comparison, GlitchLab fixes the target, bounds, instrument sequence, oracle, recovery procedure, and attempt budget. The resulting loop proposes a configuration, executes one hardware attempt, classifies the response, updates the policy, and recovers the target when necessary. 
+
+Hardware campaign. Figure 3 shows one budgeted at-tempt. Instrument completion distinguishes a missing trigger ( Pink ) from a target-link timeout ( Yellow ). 
+
+Interfaces. A policy proposes a configuration and receives its structured outcome. RL-Q consumes the class, SOBAS 
+
+models class probabilities, and regression policies receive one common scalar reduction. The instrument executes (v, d, ℓ ),obtains zref through a no-glitch path, detects a completion timeout, and recovers from crashes. Oracle O maps each program-specific response to the class and goal bit defined by Equation 2; OAES , OPIN , and OLoop encode their own success conditions, while Yellow and Pink retain fixed meanings. Retargeting changes the instrument and oracle interfaces; policies need not interpret ciphertexts or frames. We do not claim learned-policy transfer across programs. 
+
+Common evaluation. GP Bayesian optimization, SMAC, random search, and grid search use the same campaign in-terface as reference policies [14–16, 27]. The controller ap-plies an identical scalar outcome reduction to the two re-gression baselines (Appendix A.3.3). However, the current reference campaigns use the cold delay span (the full, unlo-calized D0 = [ dmin , dmax ] range listed under "Cold span" in Table 2), whereas RL-Q and SOBAS share localized delay bounds. Consequently, only the RL-Q – SOBAS comparison isolates candidate selection; comparisons with reference poli-cies evaluate complete campaign configurations. 
+
+## 5 Implementation and Experimental Setup 
+
+We describe the test bench, targets, search space, baselines, and protocol. The setup keeps hardware execution, outcome classification, and attempt accounting consistent across poli-cies, enabling a controlled comparison. 9TARGET DS1180A Glitch Pattern Generator DS1140A 1.5 A Glitch Amplifier DS1180A GlitchLab Glitch Pattern Glitch Signal Amplified Glitch Trigger 
+
+> Captured Traces
+> Power Trace Digital Oscilloscope Device Response & Communication
+
+Figure 4: Representative evaluation bench used with each of three same-model Pinata boards. The generator and amplifier drive the target rail on a hardware trigger; UART returns responses and the oscilloscope captures localization traces. 
+
+## 5.1 Test Bench and Timing Stability 
+
+Figure 4 shows the representative evaluation bench used with three separate units of the same Riscure Pinata model. A  
+
+> Keysight DS1180A
+
+glitch generator and a Keysight DS1110A glitch amplifier drive the 3 .3 V direct-to-die rail of each Pinata (STM32F407IG) running bare metal at 168 MHz [37, 38]. A Dell Latitude 5520 (Core i7-1185G7, 32 GB, Ubuntu 24.04) runs the campaign controller and policy updates. The three units test cross-unit repeatability under one injection path; Section 8 states what that does and does not establish. To remove host-scheduling jitter, each attempt uploads an instrument-side state machine that waits for the target’s rising edge and, after d, drives the rail to Vf for Tf . An atomic bit-set generates the trigger; integer-nanosecond timing quantizes d
+
+and ℓ to 1 ns. Polled-UART request–response protocols clas-sify an unexpected response length as evidence of perturbed execution, while the instrument reports a missing trigger. Ap-pendix A.4.3 gives the recovery and logging details. Across 30 ,000 AES executions, target timing within the 49 ,630 ns anchored window had a standard deviation of 146 ns; this vari-ation, and not instrument resolution, is therefore the limiting uncertainty. Table 2 gives the bounds supplied to every cam-paign. Voltage and pulse-length bounds are common to all three targets. The delay bounds are not, and the gap between the cold span and the localized interval is why Section 6 treats the reference comparison as one between campaign configurations and not between candidate-selection policies. 
+
+## 5.2 Search Space and Campaign Protocol 
+
+The target conditions are a four-byte corruption of standard-ized AES [39], with a signature motivated by byte-oriented differential fault analysis [9], acceptance of an incorrect pass-word, and an early finite-loop exit with a parseable reply. Section 7 gives their security impact. All policies use the same voltage and pulse-length bounds, oracle, reset proce-dure, timing quantization, and 5 ,000-attempt budget. For the (a) 10 010 110 210 310 4Time to first RED (s)  AES 2.7s (25) 5.2s (52) 4410s (4113) 3340s (2136) (b) >5000 Password 34s (698) 142s (3188) (c) Loop 2.2s (50) 4.1s (94) 2249s (1750) 108s (232) RL-Q SOBAS BO-GP SMAC 
+
+> Not Found
+
+Figure 5: Measured cost of the first target fault on (a) AES ,(b) password and (c) the finite loop. Bars give median wall-clock time, with the median attempt index in parentheses; whiskers give the interquartile range across campaigns. Lo-calization is excluded; > 5,000 marks no target fault within the common attempt budget. Table 3: Rank inversion across campaign objectives on the same bench, targets, and attempt budget. 
+
+Objective Reported quantity Leader Margin 
+
+Discovery Median attempts to first target RL-Q 1.9–4 .6×
+
+Reproduction Target-fault share after discovery SOBAS 7.3–21 ×
+
+Coverage New cells per target fault RL-Q 4.8×
+
+Coverage Cells at equal yield RL-Q 1.3×
+
+controlled comparison, RL-Q and SOBAS use the same lo-calized delay interval, whereas BO-GP and BO-SMAC use the corresponding cold span. Because BO-GP and BO-SMAC con-sume scalar responses, the controller applies the same scalar reduction to both and grades off-target faults by distance from the four-byte signature (Appendix A.3.3). RL-Q and SOBAS 
+
+instead retain the semantic outcome class. 
+
+## 6 Evaluation 
+
+Fault-injection search is often summarized by one number: the time or number of attempts required to obtain the first useful fault. We ask whether this measure alone is sufficient, and find that it is not. The apparent leader therefore depends on whether the campaign prioritizes discovery, reproduction, or characterization. Table 3 summarizes this result, and the following subsections examine each objective in turn. Four questions organize the section: ➀ how quickly each policy reaches its first target fault; ➁ how much inactive delay space localization removes before adaptive search; ➂ whether the measured voltage–length geometry supports the ordering assumed by RL-Q ; and ➃ how post-discovery yield trades against fault-region coverage. Each subsection then relates the result to an evaluator characterizing a device and an attacker seeking a repeatable effect. 
+
+Protocol. RL-Q and SOBAS share the target, oracle, recov-ery path, search bounds, and attempt budget; their comparison therefore isolates candidate selection. BO-GP and BO-SMAC 
+
+instead search the cold delay span in Table 2 and serve as 10 0 40000 (a) AES 0 1500 (b) Password 0 4000 (c) Loop 40000 02 
+
+> (d) AES RED Delay (ns) Localized Cold start
+
+Figure 6: Delay localization. (a)–(c) Cold spans and assisted intervals for AES, password, and the finite loop. (d) Target-fault delays from an RL-Q AES campaign initialized over the full span. reference configurations rather than matched competitors. We execute ten independent campaigns for every policy–target pair, including BO-GP and BO-SMAC , with fresh policy state. We report medians and interquartile ranges descriptively and make no inferential significance claims. 
+
+## 6.1 First-Target Discovery 
+
+Figure 5 reports search-loop time and attempt index. Ev-ery RL-Q and SOBAS campaign succeeds on all three tar-gets. On AES , their median costs are 25 attempts/2 .7 s and 52 attempts/5 .2 s. Relative to SMAC, the faster suc-cessful reference configuration, these are 1 ,237 × and 642 ×
+
+speedups. On the loop, medians of 50 attempts/2 .2 s and 94 attempts/4 .1 s give 49 × and 26 × speedups. On password,  
+
+> RL-Q
+
+and SOBAS succeed in median 698 attempts/34 s and 3,188 attempts/142 s, whereas neither reference policy finds a target within 5 ,000 attempts; therefore, no finite speedup factor applies. The proposed configurations are faster because they search a localized delay interval and use structured outcomes through lightweight updates. BO-GP and BO-SMAC search the full cold span and fit general-purpose surrogates across many in-active configurations. Consequently, the proposed methods use 2–85 × fewer hardware attempts, while model computa-tion and differing reset and recovery costs widen the post-localization wall-clock margin to 26–1 ,237 ×.The reference policies use cold-span bounds, so these fac-tors compare complete configurations; only the matched  
+
+> RL-Q
+
+– SOBAS comparison isolates candidate selection.  
+
+> RL-Q
+
+has lower medians because its bracket can guide search immediately, whereas SOBAS needs a positive warm-up ex-ample. Their distributions overlap, so we do not claim statis-tical separation. 
+
+Discovery. Both policies establish a working fault in every campaign, so an evaluator can begin characterization and an attacker can begin tuning within tens to hundreds of attempts, where the reference configurations need thousands or fail out-right. 0 200 400 Length (ns)           
+
+> −4 −2
+> 02Voltage (V)  (a)
+> −400 0400 Offset ℓ−̂ D(v)(ns) 01Density
+> 10 −2
+> (b) GREEN YELLOW MAGENTA RED ̂D(v)
+
+Figure 7: Measured AES transition: (a) fitted bD(v) and (b) outcome density by offset. The fit uses 66 ,646 targets ( R2 =
+
+0.74). 
+
+## 6.2 Effect of Delay Localization 
+
+Accurate delay localization aligns the glitch with the target operation and avoids attempts outside the relevant execu-tion interval. GlitchLab supports firmware-assisted GPIO an-choring, Grok 4.6-guided ranking of Test Vector Leakage Assessment (TVLA) intervals, and RL-Q online refinement (Section 4.1.2). Figure 6(a)–(c) shows the resulting windows for AES , password, and the finite loop; each is one to two orders of magnitude narrower than its cold span. A focused hardware study in Appendix A.1 evaluates a single fixed Grok 4.6 prompt. For two AES trace sets, Grok finds the target window in 18 and 84 attempts, compared with 129 and 205 attempts using magnitude-based TVLA ranking. This reduces the required validation attempts by 2 .4–7 .2×. 
+
+> RL-Q
+
+can localize timing from campaign feedback. Equa-tion 9 uses each segment’s target-fault rate and an exploration term, unlike uniform random sampling. In Figure 6(d), the first AES target appears after roughly six hundred attempts and later targets cluster nearby. Delay locking retains this region; disabling it restores wider exploration. 
+
+Localization. The LLM-based workflow can use GPIO or TVLA evidence to narrow the timing window, while RL-Q 
+
+can recover a target-producing interval directly from campaign feedback. 
+
+## 6.3 Fault-Region Geometry 
+
+Useful faults lie between perturbations that are too weak and too severe. Increasing voltage strength or pulse length crosses this band, as shown for all three programs in Figure 8; delay must also reach the target operation. Figure 7 makes this transition explicit by fitting a quadratic to the measured AES target outcomes. The fit explains much of the voltage–length variation, and expressing each attempt by its offset from the curve straightens the boundary: target and off-target faults concentrate near zero, while unperturbed and severe outcomes lie on opposite sides. The offset is there-fore useful as a search coordinate, but not as a deterministic classifier. Delay, noise, and device state account for meaning-ful residual spread. The amplitude–length fit is specific to the DUT rather than to AES itself; only the delay dimension is 11 −4 −2                
+
+> 0
+> 24
+> Voltage (V)
+> AES RL-Q SOBAS SMAC BO-GP Random
+> −4 −2
+> 0
+> 24
+> Voltage (V)
+> Password
+> 0250
+> Length (ns)
+> −4 −2
+> 0
+> 24
+> Voltage (V)
+> Loop
+> 0250
+> Length (ns)
+> 0250
+> Length (ns)
+> 0250
+> Length (ns)
+> 0250 500
+> Length (ns)
+> GREEN YELLOW MAGENTA PINK RED RED median
+
+Figure 8: Measured voltage–length outcome maps from hard-ware campaigns. Black curves are per-length target medians. program-specific, so the password and loop results provide only qualitative evidence of the same progression.  
+
+> RL-Q
+
+encodes this ordering in its pulse-length bracket. In contrast, SOBAS makes no such assumption and instead learns a probability for each outcome class from the random-forest classifiers of Section 4.2.1. Focused seed-matched checks in Appendix A.1 show that removing the bracket de-lays one AES discovery from 39 to 189 attempts, while re-placing SOBAS ’s structured model with a binary forest delays it from 54 to 194 attempts. These single-seed checks illustrate mechanisms, not average effects or confidence intervals. 
+
+Geometry. The ordered transition gives an evaluator a coordi-nate in which a vulnerable region can be described compactly, and gives an attacker a direction along which a working setting can be refined instead of rediscovered. 
+
+## 6.4 Repeatable Faults After Discovery 
+
+A single observation does not establish that a fault is repro-ducible. After discovery, the relevant question is therefore how often the target outcome can be obtained again. Here, the policies diverge. SOBAS concentrates on configurations that its model assigns a high target probability, whereas RL-Q 
+
+continues sampling along the transition to refine its boundary estimate. As Table 4 shows, SOBAS reproduces the target outcome roughly an order of magnitude more often on every program. This behavior is valuable when an attacker must repeat a fault despite physical variability. Conversely, RL-Q 
+
+collects more off-target evidence near the boundary. Such attempts contribute less to reproduction but more to charac-terization, as Section 6.5 quantifies. The reference columns further illustrate this metric dependence. Yield alone ranks  
+
+> BO-SMAC
+
+first on the loop but last on AES , because the loop oracle is less selective and rewards any policy that reaches a productive delay. Thus, a ranking obtained from one metric reflects both the metric and the target program; it should not be attributed to the search policy alone. 100 300 500 Length (ns) −4 04Voltage (V)  (a) RL-Q 100 300 500 Length (ns)   
+
+> (b) SOBAS RL-Q SOBAS 5th to 95th
+
+Figure 9: Distinct AES target-fault cells for representative (a)  
+
+> RL-Q
+
+and (b) SOBAS runs. Table 4: Share of attempts classified as RED (target fault) and  
+
+> Magenta
+
+(off-target fault), pooled over measured campaigns. For AES , RED is a four-byte difference on one ShiftRows-permuted MixColumns column (last-round DFA geometry); other four-byte patterns are counted with Magenta .                                   
+
+> RL-Q SOBAS SMAC BO-GP Random RED Mag. RED Mag. RED Mag. RED Mag. RED Mag. AES 6.4 17.2 60.2 10.6 0.01 58.8 0.01 1.1 0.15 4.4 Password 0.16 3.6 3.4 12.3 00.14 00.04 <0.01 0.61 Loop 3.9 3.5 28.4 2.5 50.6 0.14 0.16 0.08 0.32 0.19
+
+Reproduction. SOBAS gives an attacker a setting that repeats roughly an order of magnitude more often, while RL-Q gives an evaluator the boundary evidence needed to place a guard band instead of a single point. 
+
+## 6.5 Fault-Region Coverage 
+
+Yield treats all target faults equally, although a fault at a previ-ously unseen setting provides more characterization evidence than another observation at a known setting. We therefore use separate, longer AES campaigns to measure how much of the voltage–length plane each policy covers. Cells are coarser than the timing grid so that near-duplicate settings do not count as distinct. Delay is excluded because all runs share the same localized interval; this analysis is specific to AES .Figure 9 shows the difference directly: RL-Q follows the transition across the voltage axis, whereas SOBAS concen-trates within one pocket. Because SOBAS produces many more target faults, its larger total cell count is confounded by yield. Table 5 therefore compares coverage at equal yield. For the same number of target faults, RL-Q covers more cells, spans several times more voltage, and converts a larger share of its targets into previously unseen cells. This is the only comparison whose interquartile ranges do not overlap, and the separation appears across three coverage measures. Taken together with Section 6.1, this result completes the rank inversion in Table 3. The policy that reaches the first fault earliest is not the one that reproduces it most often, and reproduction rate does not indicate which policy characterizes the region most broadly. A campaign must therefore report the measure that corresponds to its objective; otherwise, a 12 Table 5: Diversity of AES RED settings in the voltage–length plane.               
+
+> Metric RL-Q SOBAS Unique (v, ℓ )cells 456 [416, 492] 952 [750, 989] Unique cells per RED 0.72 [0.67, 0.75] 0.15 [0.12, 0.17] Distinct voltage bins 100 [94, 103] 26 [22, 34] 90% RED voltage span (V) 4.56 [4.27, 4.65] 0.67 [0.60, 0.79] Unique cells after 400 REDs 318 [305, 327] 244 [164, 264]
+
+single ranking can obscure these distinct behaviors. 
+
+Coverage. At equal yield RL-Q maps more of the vulnerable region, which is what an evaluator needs to bound a device’s exposure, while SOBAS concentrates where an attacker’s next attempt is likeliest to succeed. 
+
+## 7 Security Impact of the Demonstrated Faults 
+
+The preceding evaluation establishes how efficiently GlitchLab 
+
+finds and characterizes target faults. We now connect those measured outcomes to their security consequences. The three targets represent distinct attack primitives: cryptographic cor-ruption, authentication bypass, and control-flow violation. They demonstrate security-relevant effects rather than com-plete end-to-end exploits. 
+
+Authentication bypass. The password oracle records a target fault only when the device accepts an incorrect pass-word. The observed outcome therefore constitutes a direct failure of the authentication decision. Both proposed policies produce this outcome in every campaign, whereas BO-GP and  
+
+> BO-SMAC
+
+do not produce it within the shared budget. Prior studies have similarly bypassed PIN-verification logic and al-tered privilege decisions in embedded systems [11, 40]. Such a fault can expose functionality protected by an access check. 
+
+Control-flow violation. The finite loop terminates be-fore completing the requested number of iterations, yet the program continues and returns a parseable response with inconsistent counters. This behavior violates the loop’s in-tended control-flow guarantee and provides a primitive for skipping a check, shortening a retry counter, or truncating a comparison. Prior work has demonstrated instruction skips and program-counter corruption on 32-bit microcontrollers, including redirection to attacker-selected paths [5, 10]. Our experiment establishes the violation and the parameters that induce it, without inferring its underlying microarchitectural mechanism. 
+
+AES key recovery. The AES oracle accepts a ciphertext only when its difference from the fault-free reference matches the geometry required for last-round differential fault analy-sis: four differing bytes confined to one ShiftRows-permuted MixColumns column. A small number of correct and faulty ciphertext pairs is sufficient to recover the last-round key and invert the AES-128 key schedule using established meth-ods [9, 41]. The practical bottleneck is acquiring suitable pairs from hardware. Table 4 shows that SOBAS produces them in a substantial fraction of its attempts. We evaluate this acquisition step and rely on the established literature for the subsequent deterministic key-recovery procedure. Showing DFA is out of scope of this paper. 
+
+## 8 Discussion and Limitations 
+
+The central contribution is an online search that reaches target faults using far fewer attempts than existing baselines by as-signing distinct roles to delay, voltage, and pulse length. The same structure can include parameters from other modalities, such as EMFI position. Table 3 also shows that RL-Q favors discovery and coverage, whereas SOBAS favors reproduction. These objectives should be reported separately. 
+
+Reporting FI campaigns. A campaign should report three complementary quantities. 
+
+Discovery cost should be reported in both hardware at-tempts and wall-clock time, which includes reset and recov-ery – unlike a normal or missing-trigger outcome, a crash or synchronization failure requires the DUT to be power-cycled and re-armed before the next attempt can begin . Figure 5 reports both as medians and interquartile ranges across ten campaigns. 
+
+Reproduction rate should be measured after the first tar-get fault, because one successful attempt does not establish repeatability. Finally, region coverage at controlled yield dis-tinguishes broad exploration from repeated sampling of one productive setting. Discovery cost without reproduction rate cannot distinguish a repeatable vulnerability from an isolated event; reproduction rate without coverage cannot distinguish a broad vulnerable region from a narrow one. 
+
+Accounting for localization. A timing miss gives no earlier-or-later information, although its class may indicate severity. Narrowing the range therefore increases the infor-mation obtained from each subsequent attempt; in our ex-periments, it removes one to two orders of magnitude of inactive delay space. GlitchLab supports firmware-assisted GPIO localization, LLM-coordinated TVLA, and RL-Q ’s on-line refinement. These routes incur different costs: firmware instrumentation, trace acquisition and analysis, or additional hardware attempts. Results obtained over different initial delay ranges therefore compare complete campaign configu-rations, not optimizers alone. 
+
+Scope and limitations. We evaluate three same-model Pinata boards, three programs, and one voltage-injection path. This establishes cross-unit repeatability, but not transfer across device models, architectures, production firmware, or injection modalities. The fitted strength–duration constants are bench-specific. Comparisons against cold-span references assess complete campaigns; only the matched RL-Q – SOBAS 
+
+experiments isolate optimizer behavior. Campaign-level re-sults support descriptive comparisons, while yield and cov-erage remain within-study measures set by oracle selectivity and cell resolution. 13 These limits concern validation breadth, not dependence on prior data. Neither policy requires a precomputed fault map or observations from another device; both learn from the current target within user-defined bounds. They can therefore be applied to new platforms and programs once the instru-ment interface, search space, and target oracle are defined. Validating such transfer remains future work. 
+
+Future modalities. Our evaluation focuses on voltage fault injection. Future work will extend GlitchLab to clock glitch-ing, electromagnetic fault injection, and laser fault injection. The same closed-loop formulation applies when a modality exposes controllable parameters and informative outcome feedback, although each extension requires modality-specific constraints and experimental validation. 
+
+## 9 Conclusions 
+
+Voltage fault injection is an online search problem: a cam-paign must align a physical perturbation with sensitive exe-cution and distinguish the target outcome from several other responses. GlitchLab closes this loop while preserving the semantic outcome classes and supports two policies with complementary structural assumptions. Across three same-model units, both policies find a target fault in every campaign. The reference configurations fail on the password target and require substantially more attempts on the other programs. After discovery, however, the ranking changes: SOBAS re-produces target faults more frequently, whereas RL-Q covers more of the vulnerable region at equal yield. The resulting faults bypass authentication, violate intended control flow, and provide the ciphertext differences required for AES dif-ferential fault analysis. Although this evaluation focuses on voltage fault injection, the closed-loop formulation is not tied to voltage parameters. It can extend to other fault-injection search spaces when modality-specific controls and informa-tive outcome feedback are available. Thus, even on identical hardware and under the same budget, the apparent policy ordering depends on the campaign objective. Fault-injection studies should preserve semantic outcomes and report discov-ery cost, reproduction rate, and coverage separately. GlitchLab 
+
+facilitates efficient, objective-aware fault search for security analysts mapping vulnerable regions and attackers identifying repeatable fault settings on devices, without treating either goal as a universal measure of search quality. 
+
+## References 
+
+[1] Alessandro Barenghi, Luca Breveglieri, Israel Koren, and David Nac-cache. Fault injection attacks on cryptographic devices: Theory, prac-tice, and countermeasures. Proceedings of the IEEE , 100(11):3056– 3076, 2012. [2] Bilgiday Yuce, Patrick Schaumont, and Marc Witteman. Fault attacks on secure embedded software: Threats, design, and evaluation. Journal of Hardware and Systems Security , 2(2):111–130, 2018. [3] Thomas Korak and Michael Hoefler. On the effects of clock and power supply tampering on two microcontroller platforms. In 2014 Workshop on Fault Diagnosis and Tolerance in Cryptography (FDTC) , pages 8–17. IEEE, 2014. [4] Amine Dehbaoui, Jean-Max Dutertre, Bruno Robisson, and Assia Tria. Electromagnetic transient faults injection on a hardware and a software implementations of AES. In 2012 Workshop on Fault Diagnosis and Tolerance in Cryptography (FDTC) , pages 7–15. IEEE, 2012. [5] Nicolas Moro, Amine Dehbaoui, Karine Heydemann, Bruno Robisson, and Emmanuelle Encrenaz. Electromagnetic fault injection: Towards a fault model on a 32-bit microcontroller. In 2013 Workshop on Fault Diagnosis and Tolerance in Cryptography (FDTC) , pages 77–88. IEEE, 2013. [6] Sergei P. Skorobogatov and Ross J. Anderson. Optical fault induction attacks. In Cryptographic Hardware and Embedded Systems—CHES 2002 , volume 2523 of Lecture Notes in Computer Science , pages 2–12. Springer, 2003. [7] Dan Boneh, Richard A. DeMillo, and Richard J. Lipton. On the importance of checking cryptographic protocols for faults. In Advances in Cryptology—EUROCRYPT ’97 , volume 1233 of Lecture Notes in Computer Science , pages 37–51. Springer, 1997. [8] Eli Biham and Adi Shamir. Differential fault analysis of secret key cryptosystems. In Advances in Cryptology—CRYPTO ’97 , volume 1294 of Lecture Notes in Computer Science , pages 513–525. Springer, 1997. [9] Gilles Piret and Jean-Jacques Quisquater. A differential fault attack technique against SPN structures, with application to the AES and KHAZAD. In Cryptographic Hardware and Embedded Systems— CHES 2003 , volume 2779 of Lecture Notes in Computer Science ,pages 77–88. Springer, 2003. [10] Niek Timmers, Albert Spruyt, and Marc Witteman. Controlling PC on ARM using fault injection. In 2016 Workshop on Fault Diagnosis and Tolerance in Cryptography (FDTC) , pages 25–35. IEEE, 2016. [11] Niek Timmers and Cristofaro Mune. Escalating privileges in Linux using voltage fault injection. In 2017 Workshop on Fault Diagnosis and Tolerance in Cryptography (FDTC) , pages 1–8. IEEE, 2017. [12] Adrian Tang, Simha Sethumadhavan, and Salvatore Stolfo. CLKSCREW: Exposing the perils of Security-Oblivious energy man-agement. In 26th USENIX Security Symposium (USENIX Security 17) ,pages 1057–1074. USENIX Association, 2017. [13] Zitai Chen, Georgios Vasilakis, Kit Murdock, Edward Dean, David Oswald, and Flavio D. Garcia. VoltPillager: Hardware-based fault injection attacks against intel SGX enclaves using the SVID voltage scaling interface. In 30th USENIX Security Symposium (USENIX Security 21) , pages 699–716. USENIX Association, 2021. [14] James Bergstra and Yoshua Bengio. Random search for hyper-parameter optimization. Journal of Machine Learning Research ,13(10):281–305, 2012. [15] Donald R. Jones, Matthias Schonlau, and William J. Welch. Efficient global optimization of expensive black-box functions. Journal of Global Optimization , 13(4):455–492, 1998. [16] Jasper Snoek, Hugo Larochelle, and Ryan P. Adams. Practical bayesian optimization of machine learning algorithms. In Advances in Neural Information Processing Systems , volume 25. Curran Associates, Inc., 2012. [17] Peter I. Frazier. Bayesian optimization. In Recent Advances in Opti-mization and Modeling of Contemporary Problems , pages 255–278. INFORMS, 2018. [18] Bobak Shahriari, Kevin Swersky, Ziyu Wang, Ryan P. Adams, and Nando de Freitas. Taking the human out of the loop: A review of bayesian optimization. Proceedings of the IEEE , 104(1):148–175, 2016. 
+
+14 [19] Christopher J. C. H. Watkins and Peter Dayan. Q-learning. Machine Learning , 8(3–4):279–292, 1992. [20] Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction . MIT Press, Cambridge, MA, 2 edition, 2018. [21] Leo Breiman. Random forests. Machine Learning , 45(1):5–32, 2001. [22] Rafael Boix Carpi, Stjepan Picek, Lejla Batina, Federico Menarini, Domagoj Jakobovic, and Marin Golub. Glitch it if you can: Parameter search strategies for successful fault injection. In Smart Card Research and Advanced Applications – 12th International Conference, CARDIS 2013 , volume 8419 of Lecture Notes in Computer Science , pages 236– 252. Springer, 2014. [23] Antun Maldini, Niels Samwel, Stjepan Picek, and Lejla Batina. Op-timizing electromagnetic fault injection with genetic algorithms. In 
+
+Automated Methods in Cryptographic Fault Analysis , pages 281–300. Springer, 2019. [24] Claudio Bozzato, Riccardo Focardi, and Francesco Palmarini. Shap-ing the glitch: Optimizing voltage fault injection attacks. IACR Transactions on Cryptographic Hardware and Embedded Systems ,2019(2):199–224, 2019. [25] Vincent Werner, Laurent Maingault, and Marie-Laure Potet. Fast cali-bration of fault injection equipment with hyperparameter optimization techniques. In Smart Card Research and Advanced Applications – 20th International Conference, CARDIS 2021 , volume 13173 of Lecture Notes in Computer Science , pages 121–138. Springer, 2022. [26] Troya Ça˘ gıl Köylü, Cornelis Christiaan Berg, and Praveen Kumar Vad-nala. CGAN-based automated fault injection. In 2024 IEEE European Test Symposium (ETS) , pages 1–6. IEEE, 2024. [27] Frank Hutter, Holger H. Hoos, and Kevin Leyton-Brown. Sequential model-based optimization for general algorithm configuration. In 
+
+Learning and Intelligent Optimization , volume 6683 of Lecture Notes in Computer Science , pages 507–523. Springer, 2011. [28] Kevin Jamieson and Ameet Talwalkar. Non-stochastic best arm identi-fication and hyperparameter optimization. In Proceedings of the 19th International Conference on Artificial Intelligence and Statistics , vol-ume 51 of Proceedings of Machine Learning Research , pages 240–248. PMLR, 2016. [29] Lisha Li, Kevin Jamieson, Giulia DeSalvo, Afshin Rostamizadeh, and Ameet Talwalkar. Hyperband: A novel bandit-based approach to hyperparameter optimization. Journal of Machine Learning Research ,18(185):1–52, 2018. [30] National Security Agency. Ghidra software reverse engineering frame-work. https://ghidra-sre.org , 2019. [31] Gilbert Goodwill, Benjamin Jun, Josh Jaffe, and Pankaj Rohatgi. A testing methodology for side-channel resistance validation. In NIST Non-Invasive Attack Testing Workshop , 2011. [32] Tobias Schneider and Amir Moradi. Leakage assessment methodology: Extended version. Journal of Cryptographic Engineering , 6(2):85–99, 2016. [33] B. L. Welch. The generalization of ‘student’s’ problem when several different population variances are involved. Biometrika , 34(1–2):28–35, 1947. [34] Herbert Robbins and Sutton Monro. A stochastic approximation method. The Annals of Mathematical Statistics , 22(3):400–407, 1951. [35] Peter Auer, Nicolò Cesa-Bianchi, and Paul Fischer. Finite-time analysis of the multiarmed bandit problem. Machine Learning , 47(2–3):235– 256, 2002. [36] I. M. Sobol’. On the distribution of points in a cube and the approxi-mate evaluation of integrals. USSR Computational Mathematics and Mathematical Physics , 7(4):86–112, 1967. [37] STMicroelectronics. STM32F405xx, STM32F407xx Datasheet . STMi-croelectronics, 2024. [38] STMicroelectronics. STM32F405/415, STM32F407/417, STM32F427/437 and STM32F429/439 Advanced Arm-Based 32-bit MCUs: Reference Manual . STMicroelectronics, 2026. [39] National Institute of Standards and Technology. Advanced encryption standard (AES). Technical Report FIPS 197-upd1, National Institute of Standards and Technology, 2023. [40] Jean-Max Dutertre, Alexandre Menu, Olivier Potin, Jean-Baptiste Rigaud, and Jean-Luc Danger. Experimental analysis of the elec-tromagnetic instruction skip fault model and consequences for software countermeasures. Microelectronics Reliability , 121:114133, 2021. [41] Pierre Dusart, Gilles Letourneux, and Olivier Vivolo. Differential fault analysis on A.E.S. In Applied Cryptography and Network Security ,volume 2846 of Lecture Notes in Computer Science , pages 293–306. Springer, 2003. 
+
+## A Reproducibility and Experimental Details 
+
+This appendix follows a campaign from its shared experi-mental definition to policy instantiation, physical execution, outcome classification, and logging. This order separates pa-rameters that must remain fixed across policies from param-eters that intentionally distinguish the search methods. The values describe measured voltage-fault-injection campaigns, not simulations, and are provided so that the reported distribu-tions can be reproduced without access to the implementation. Because every campaign starts from fresh stochastic state, the reproducibility target is the campaign-level distribution and not an identical sequence of proposed configurations. 
+
+## A.1 LLM-Assisted Delay Localization  
+
+> GlitchLab
+
+uses Grok 4.6 to turn Test Vector Leakage Assess-ment (TVLA) output into an ordered set of candidate delay windows. One temperature-zero prompt is frozen across all targets and trace sets. It receives only the measured TVLA curve, its statistical summary, and a fixed window width; it cannot inspect firmware, GPIO placement, previous FI cam-paigns, or manually selected delay intervals. Grok 4.6 pro-duced the rankings once before hardware validation, and the campaign controller then replayed the frozen rankings. This separation prevents target-fault observations from influencing window selection. Across five hardware-localization cases, Grok 4.6 ranked the target-producing interval first in both AES cases and re-duced cumulative validation from 129 and 205 attempts un-der magnitude-only TVLA ranking to 18 and 84 attempts, respectively, a 2 .4–7 .2× reduction. On password set 1, the Grok-ranked first window produced a target in 164 attempts, whereas magnitude ranking and full-span online search ex-hausted 2 ,500 and 5 ,000 attempts. Password set 2 and the loop demonstrate why GlitchLab retains online refinement:  
+
+> RL-Q
+
+found the password interval missed by both trace rank-ings, while the loop was found fastest by magnitude ranking. The three routes therefore provide complementary coverage, while Grok-guided ranking substantially reduces validation effort when broad or misleading TVLA peaks obscure the target operation. 15 Frozen Grok 4.6 prompt (verbatim).                    
+
+> You are given TVLA output for one Pinata program. Produce an ordered list of at most five candidate delay windows for a subsequent VCC glitch search. Rules: - Read only the t-curve, tvla_result.json summary, and the frozen window width. Do not use a hand-set delay window, firmware disassembly, GPIO placement, or any previous campaign result. - Every window has the same width W specified for this program. - Windows must not overlap. - If samples_over_threshold_pct is above 80 AND the capture spans a multi-round operation (AES), the |t| map is saturated and does not localize. Autocorrelate mean_a_mv, take the dominant lag as the round period, and rank the last two repeating periods first (the second-to-last period, then the last), then earlier periods. The final period is often I/O; the previous one is the better candidate for a computational fault. - Do not treat a short cropped capture that is mostly over threshold as saturated periodicity. Password and loop stay on the narrow-support rule. - Narrow support: rank the earliest strong post-trigger local maxima (|t| >
+> 4.5), not the global |t| maximum if that maximum is late relative to the first instruction-scale lobe. - Exclude t <0. On AES also exclude the trigger falling-edge crosstalk (last ~200 ns of the anchored window). - Amplitude stays -3.9 .. 3.9. Pulse length is not constrained by this ranking. Return an ordered list of windows [d_min, d_max], method name, and a short rationale.
+> Frozen configuration.
+> Model Grok 4.6 Temperature 0.0Prompt SHA-256 c9c4d58bc3608c64deeb8107ab6d118b 6f1dbe22c7cc79cb99dd7fcc4631ec71
+> Maximum windows 5, non-overlapping TVLA threshold |t|>4.5Widths AES: 4 ,796 ns password/loop: 40 ns
+
+Table 6: Frozen prompt and configuration for LLM-assisted delay localization. Candidate windows are edge-clipped at the capture boundary; therefore, a nominal 40 ns window may be shorter near t = 0. These results show that the main policy components make useful faults easier to find. For AES, RL-Q finds the first target in 39 attempts with length bracketing, but needs 189 attempts without it. SOBAS finds the first AES target in 54 at-tempts with its multiclass model, compared with 194 attempts with a binary model; without entropy-guided initialization, it finds no target within 1 ,500 attempts. Semantic outcome classes make little difference in the single AES run, but they are important for password bypass: the complete RL-Q pol-icy succeeds at attempt 115, while the binary version finds no target within 1 ,500 attempts. Overall, these checks pro-vide useful evidence that the components improve discovery, although each comparison uses only one matched campaign. Table 7: Campaign settings used for the reported hardware experiments. Policy state and fitted models are reinitialized for every campaign. 
+
+Setting Value Injection modality voltage fault injection Configuration x = ( v, d, ℓ ): voltage, delay, pulse length Physical units three same-model Pinata boards Controlled targets AES-128, password check, finite loop Discovery budget 5,000 attempts per campaign Timing quantization d and ℓ rounded to 1 ns Voltage handling continuous within the stated bounds Initial state empty history; no fitted model or value table retained Recovery fixed target reset after a fault or failed response Recorded result configuration, semantic outcome, oracle metadata, timing, reset flag, and policy state 
+
+## A.2 Campaign Protocol and Shared Search Space 
+
+The unit of reproduction is one complete campaign. First, se-lect a target and its delay interval from Table 2 in Section 5.2; second, initialize one policy with no retained history; third, execute the fixed controller and oracle for the budget in Ta-ble 7; finally, derive the relevant discovery, yield, or coverage metric from the resulting attempt log. The controlled RL-Q – 
+
+> SOBAS
+
+comparison keeps the target firmware, bounds, oracle, recovery path, and budget identical. BO-GP and SMAC use the cold delay spans, so comparisons against them evaluate complete campaign configurations and not candidate selection alone. Once the shared campaign is fixed, only candidate selection and policy state change. The following tables instantiate Algorithms 1 and 2 and define the scalar interface used by the measured reference policies. Together with the shared bounds above, they specify the complete online search procedure. Table 8: RL-Q outcome utilities and adaptation schedule. The non-target utility is annealed linearly over the first TM
+
+attempts. 
+
+Symbol Meaning Value 
+
+R( RED ) target fault 1.0
+
+r0 
+
+> M
+
+→ r∞ 
+
+> M
+
+non-target fault 0.5 → 0.2
+
+TM non-target anneal horizon 300 
+
+R( Green ) unperturbed execution −0.05 
+
+R( Yellow ) crash or reset −0.15 
+
+R( Pink ) missing trigger 0
+
+βr normalized offset penalty 0.1
+
+λ execution-latency penalty 0
+
+E attempts between adaptations 40 
+
+ρ value and count decay 0.98 
+
+16 A.3 Policy Instantiations 
+
+A.3.1 RL-Q Configuration 
+
+Tables 9 and 8 instantiate Algorithm 1. With γ = 0 and αt =
+
+1/Njk , each cell stores its running mean utility instead of a discounted return. Pulse-length settings scale with L =
+
+ℓmax − ℓmin , allowing the same bracket schedule to be applied to a different pulse-length range. The joint na × nφ table is the default; the factored parameters apply when adaptive wide-range delay refinement from Equation 9 is enabled. 
+
+A.3.2 SOBAS Configuration 
+
+Table 10 instantiates Algorithm 2. Inputs are mapped to 
+
+[0, 1]3 before fitting so voltage, delay, and pulse length en-ter the forests on comparable scales. Each refit trains one multi-class forest for the outcome landscape and one binary forest for the target event. Candidate batches are quantized and deduplicated before execution; their members are then executed sequentially so every completed hardware attempt remains observable to the campaign log. Table 9: RL-Q allocation, bracketing, and delay-partition parameters.                              
+
+> Symbol Meaning Value
+> Action-value allocation na/nφvoltage regions / delay bins 10 / 5
+> q0optimistic initial value 0.5
+> cUCB exploration scale 0.4
+> γinter-attempt discount 0
+> αtcell update rate 1/Njk
+> btnormal / recovery multiplier 1 / 2 –sampling inside selected cell uniform –initial bracket probes one per voltage region
+> Pulse-length bracket winit /wmin initial / final floor 0.30 L/ 0 .12 L
+> κwfloor contraction 0.94 –pre-localization dither
+
+U(−Wj /8,                          
+
+> Wj/8)
+> σ0/σ∞local sampling width 0.10 L/ 0 .03 L
+> νsampling-width anneal constant 4
+> kRED /
+> kMagenta
+> queued local probes 3 / 1
+> Factored delay refinement m/κcoarse segments / split factor 12 / 4
+> wdminimum child-segment width 50 ns
+> η/τnon-target hint weight / decay 0.35 / 60
+> cddelay UCB scale 0.6
+> εduniform full-range reserve 0.10
+
+The warm-up is a scrambled Sobol design [36]. At the history cap, all recent observations are retained and the older portion is sampled uniformly. The tree-wise standard devia-tion in Equation 11 is used only to rank candidates; it is not treated as a calibrated posterior interval. Table 10: SOBAS model, acquisition, candidate-generation, and history-management parameters. Width 0 .05 is in nor-malized coordinates.                        
+
+> Setting Value Models multi-class RF +target RF Trees per forest 50 Minimum samples per leaf 2Trees used for ˆ σt12 Input normalization [0,1]3
+> Sobol warm-up nw64 Proposal batch q16 Acquisition before first target normalized class entropy Acquisition after first target target probability product Exploration floor ε10 −3
+> Uniform global candidates per refit 5,000 Highest-ranked global seeds 30 Gaussian neighbors per seed 12 Local Gaussian width per axis 0.05 Local candidates before deduplication 360 Maximum training history 1,500
+
+A.3.3 Reference-Policy Configuration 
+
+BO-GP and SMAC receive the same scalar reduction below, preserving an identical controller-to-policy interface while changing only how candidates are selected: 
+
+Rs(o, c) = 
+
+
+
+1.0 o = RED ,
+
+0.6 exp 
+
+
+
+− (c − 4)2
+
+2σ2
+
+> c
+
+
+
+o = Magenta ,
+
+0.1 o = Green ,
+
+−0.2 o = Yellow ,
+
+−0.5 o = Pink ,
+
+(13) Here c is the corrupted-byte count and σc = 1.5 bytes. Only the non-target-fault row is graded: the bell centered on four corrupted bytes gives partial credit to an AES fault close to the target signature. This scalar score is used only by BO-GP and  
+
+> BO-SMAC
+
+; RL-Q and SOBAS retain the semantic outcome class. 
+
+## A.4 Physical Execution and Outcome Classifi-cation 
+
+A proposed vector becomes one hardware observation through a fixed physical interface. This subsection records that interface independently of the policy, making explicit which behavior belongs to the bench, target program, oracle, and recovery controller. 
+
+A.4.1 Instrument Signals and Timing 
+
+Table 11 defines the electrical signal directions, while Ta-ble 12 records the runtime settings held fixed across cam-paigns. The passive amplifier exposes no software-readable 17 transfer state; the voltage action is therefore the commanded generator setpoint v, not an inferred amplifier slew rate. The target anchor is asserted and cleared by one atomic write to GPIOC bit 2, avoiding a read–modify–write sequence in the timed region. Table 11: Instrument signal assignment. The amplifier re-ceives the generator output but provides no read-back chan-nel.                   
+
+> Signal Line Direction Trigger in GPIO 0 target →instrument Trigger enable GPIO 8 instrument →target Target reset GPIO 2 instrument →target Glitch out OUT1 instrument →amplifier
+
+Table 12: Fixed bench and runtime settings relevant to repro-duction.               
+
+> Setting Value Generator / amplifier DS1180A / DS1110A Target rail 3.3 V direct-to-die Target STM32F407IG, bare metal Target clock fixed 168 MHz Host Core i7-1185G7, 32 GB, Ubuntu 24.04 Controller runtime Python 3.11 Target transport polled UART; no receive ISR USB-CDC disabled by jumper FTDI latency timer 1 ms (host default: 16 ms) Instrument timing grid 1 ns SysTick 1 kHz, unmasked Completion handling instrument completion flag and host timeout Log durability flushed after every completed attempt
+
+A.4.2 Target Commands and Outcome Oracles 
+
+Table 13 connects each target command to the evidence con-sumed by its oracle. This distinction is important: a parseable but incorrect response is a program-specific fault, whereas a timeout, malformed frame, or missing trigger is classified by the common campaign controller. Table 13: Target interfaces and program-specific target condi-tions.            
+
+> Target Request Parsed response and target condition AES-128 opcode +16 B plaintext 16 B ciphertext; target is the four-byte differential signature Password check incorrect password accept/reject result; target is acceptance Finite loop opcode +16-bit trip count, MSB first 6 B: 0xA5 , residual count (2 B), iteration count (2 B), 0xA5 ; target is a premature exit with inconsistent counters
+
+The AES oracle compares the ciphertext with an unglitched reference before testing the four-byte signature. The loop firmware decrements the requested 16-bit count while incre-menting a second volatile counter, then returns both; only a framed response with counters inconsistent with the requested trip count is a target. The password oracle marks only accep-tance of the supplied incorrect password as a target. These predicates prevent crashes and malformed communication from being counted as security-relevant faults. 
+
+A.4.3 Controller State, Recovery, and Logging 
+
+The controller executes the same ordered sequence for every policy: 1. obtain the unglitched reference and request one configura-tion; 2. arm the instrument-side state machine and invoke the tar-get; 3. combine instrument completion with the parsed response to classify the outcome; 4. append the complete record and update the active policy; and 5. reset the target after a faulty or failed response. Instrument completion distinguishes a missing trigger from a target-link timeout. Fixing this sequence ensures that mea-sured policy differences arise from candidate selection and not from inconsistent recovery or classification.  
+
+> GlitchLab
+
+uses Python 3.11. RL-Q uses NumPy; SOBAS 
+
+uses NumPy, scikit-learn, and SciPy; BO-GP uses PyTorch, BoTorch, and GPyTorch; and BO-SMAC uses SMAC3 and ConfigSpace. These packages provide the numerical imple-mentations, while the behavior needed to reconstruct the ex-periments is defined by the equations, update order, bounds, and parameter tables in this appendix. Each attempt log stores (v, d, ℓ ), semantic class, corrupted-byte count, raw input and output, timing, reset status, and active policy state; RL-Q state includes the coefficients of Equation 4 and the offset of Equation 5. Flushing after ev-ery attempt preserves data after a later hardware failure and supports recomputation of the reported first-target, yield, and coverage metrics without rerunning the bench. 18
