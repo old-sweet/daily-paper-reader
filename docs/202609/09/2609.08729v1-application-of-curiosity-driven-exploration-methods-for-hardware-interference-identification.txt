@@ -1,0 +1,492 @@
+Title: Application of curiosity driven exploration methods for hardware interference identification
+
+URL Source: https://arxiv.org/pdf/2609.08729v1
+
+Published Time: Wed, 09 Sep 2026 03:47:48 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Application of curiosity driven exploration methods for hardware interference identification 
+
+Ludovic Matar 1, Cl´ ement Moulin-Frier 1,Pierre-Yves Oudeyer 1
+
+> 1
+
+Flowers AI & CogSci Lab - National Institute for Research in Digital Science and Technology, Bordeaux, France 
+
+{ludovic.matar, clement.moulin-frier,pierre-yves.oudeyer }@inria.fr 
+
+Abstract 
+
+The transition from single-core to multi-core ar-chitectures in safety-critical embedded systems intro-duces significant challenges due to inter-core inter-ference caused by contention for shared hardware re-sources. Such interference affects execution times and complicates the verification of strict temporal requirements, particularly in domains such as avion-ics where standards require comprehensive identi-fication of interference sources. Existing interfer-ence analysis approaches, whether manual or model-based, struggle to capture the full range of behaviors arising from the complex interactions among micro-architectural components. In this paper, we frame multi-core interference analysis as the exploration of a complex system behavior space. We propose the use of curiosity-driven exploration algorithms from artificial intelligence to systematically and effi-ciently cover the space of possible interference behav-iors. Using a simulator-based environment, we show that the proposed approach achieves broader and more uniform behavioral coverage within a limited experimental budget compared to traditional pseudo-random program generation methods. 
+
+Keywords: Machine learning, Real-time application, In-terference Analysis, Curiosity-Driven Learning 
+
+## 1 Introduction 
+
+The shift from single-core to multi-core architectures is essential in safety-critical embedded systems in multiple domains, such as aerospace and automotive, driven by both the need to enhance processor performance for in-creasingly demanding applications and adaptation to re-cent technology. However, this transition introduces new complexities due to tasks running in parallel competing for shared resources; particularly, hardware contention is-sues known as inter-core interference. As the occurrence of interference has a consequence on the execution time, the use of multi-core processors in critical real-time sys-tems represents a challenge. Indeed, temporal require-ments with high levels of confidence have to be met. In the avionics domain, the AMC 20-193 standard requires identifying all sources of interference that can occur when executing tasks in parallel and addressing them. Permanent Storage Main Memory L1 cache L2 cache L3 cache CPU registers Processor Static Random-Access Memory Dynamic Random-Access Memory Hard Disk Drives (HDD) Solid State Drives (SSD) Tiny Capacity Extremely Fast Low Capacity Faster Medium Capacity Fast Large Capacity Slow 
+
+Figure 1: Common computer memory hierarchy [18] Systems on chips face a general trade-off between the necessary time to access information stored in a mem-ory resource and their storage capacity. As an element is closer to the CPU, its access time and storage capacity are smaller. This principle is illustrated in Figure 1. Because they are directly on the CPU, registers typically serve in-formation almost instantly. Their storage capacity is very small, and only essential information is stored. When a core treats a memory instruction, it requests the main memory by default. However, the main memory often operates orders of magnitude slower than the CPU. Thus the cache, namely random static memory locates between the registers and the main memory. It has larger latencies than the registers, but remains considerably faster than main memory. Moreover, it has a higher storage capacity than the registers but smaller than the main memory. It stores areas of the main memory that are the most likely to be referenced. The main memory consists of DRAM cells that offer a great storage capacity. Therefore, there may be a noticeable slowdown each time the CPU needs to access the main memory. As a consequence of this organization, competition for accessing stored data and instructions within shared caches and shared memory be-tween CPU cores increases the execution time, and thus creates potential interference channels. 
+
+Definition 1 Interference is a phenomenon such that, for identical initial conditions, the execution time of an application S1 running in isolation (S1, ) on a platform differs from the execution time of S1 running with an ap-plication S2 on the platform (S1, S 2).
+
+Interference arises from contention on shared resources, e.g., when multiple cores compete to allocate information 1arXiv:2609.08729v1 [cs.AI] 8 Sep 2026 in cache or memory. Another case is the competition for accessing a shared bus, resulting in bandwidth limitations and delays in data transfer. To summarize, we can distin-guish distinct categories of interference occurring because of contention on shared resources [20]: 
+
+• Cache contention: When multiple cores compete for space in shared caches, evicting each other’s data and causing cache misses. 
+
+• Memory contention: When multiple cores access a shared memory simultaneously (such as the main memory), leading to a bottleneck due to limited memory bandwidth. 
+
+• Bus contention: When cores compete for access to a shared bus, resulting in bandwidth limitations and delays in data transfer. 
+
+• I/O Contention: When multiple processes try to perform I/O operations at the same time, leading to delays and reduced I/O performance. As there are multiple types of interference, there exist various types of interference sources to discover. In the following, we will briefly present existing methods that tackle real-time system challenges. Various methods have been proposed to identify mech-anisms that are sources of interference [14, 6, 8]. Classic interference analysis methods are either manual and em-pirical approaches or model-based approaches. The first ones involve manually analyzing the hardware documen-tation or further characterizing the hardware through ex-periments and measurements [3, 13, 22, 8, 16]. The others involve identifying interference from a model of the sys-tem through two principles: (1) capturing the hardware-level knowledge about the system to produce a model, and (2) using an analyzer tool which identifies the interference channels from the model [6, 2, 5]. Classical approaches to interference identification rely heavily on analyzing hard-ware datasheets, which are often large [17], complex, in-complete, or inconsistent. This makes the process difficult and error-prone, leading to uncertain results and possibly missed interference channels. This can lead, for example, to creating oversimplified models or test cases, resulting in missed interference scenarios or channels [7]. While existing approaches have enabled better antic-ipation of potential sources of interference, they remain limited in their ability to cover the entire space of possible behaviors of multi-core processor systems. Interference patterns arise from the complex non-linear interactions between a large number of micro-architectural compo-nents. In consequence, they are extremely sensitive to small variations in the concurrent programs that are be-ing executed, which strongly limits the ability to predict the behavior of the systems analytically. Moreover, pro-grams that are generated with pseudo-random procedures are unlikely to cover the entire space of possible behaviors. In this sense, multi-core architectures can be considered complex systems. A complex system is a system consisting of multiple entities interacting non-linearly with each other, giving rise to emergent phenomena that are difficult to predict [19]. Examples of complex systems in Nature are water molecules crystallizing into snowflakes, collective animal behavior forming complex patterns (e.g., bird flocks), or chains of amino acids forming complex 3D protein struc-tures. To study such systems, scientists often need to build a model mapping their input parameters (e.g., a sequence of amino acids) to their corresponding observed behavior (e.g., the resulting 3D shape of a protein). Com-plex systems often suffer from so-called butterfly effects ,where two slightly different initial conditions do not nec-essarily induce similar outcomes. Such systems also usu-ally exhibit attractor effects, that is, a tendency of the system to evolve towards a particular set of states. Under-standing and predicting the behavior of complex systems often requires uncovering the diversity of behaviors they can produce. This is usually a challenging problem, in particular when the parameter space is high-dimensional and when the mapping from the parameter space to the behavior space is highly non-linear. In particular, ran-dom exploration of the parameter space is usually ineffi-cient for uncovering the diversity of potential behaviors in most complex systems. Recently, contributions in AI have proposed algorithms able to efficiently cover the space of behaviors of any com-plex system [9], namely, curiosity-driven exploration algo-rithms , which belong to the family of automated discov-ery algorithms. These algorithms have proven to be very efficient at uncovering a wide diversity of behaviors in many complex systems from different scientific domains, including computer science [10], physics [12], chemistry [15] and biology [11]. In this paper, we propose, for the first time to our knowledge, to apply these algorithms to the problem of discovering interference patterns in multi-core processor systems. For this aim, we use a multi-core processor simulator, enabling us to prototype our meth-ods without having to deal with the complexity of a real hardware architecture. We show that our proposed method enables better dis-covery of the space of possible behaviors of the system with a limited experimental budget, compared to more standard methods based on the pseudo-random genera-tion of programs. 
+
+• In section section motivation, we recall general prin-ciples regarding interference. 
+
+• Then in section 2, we highlight previous related AI works on real-time systems. 
+
+• In section 4 we unfold our exploration strategy step by step. 
+
+• In section 5, we present a summary of our findings, with results of diversity measures. 22 Related works 
+
+The interest in AI techniques within the real-time com-puting community is relatively recent. Although studies tackling interference on embedded platforms using AI-based techniques exist, to our knowledge, no studies have explicitly targeted their use to identify sources of interfer-ence. Nevertheless, we will review the key works in these related areas and explore how they might be adapted or inspire solutions for our problem. Several works have focused on the use of Machine Learning to estimate Worst-Case Execution Times, whether for single-core platforms [1] or multi-core ones [4]. An interesting work closer to our objective is the Kryptonite approach [21], introducing a framework that synthesizes a maximally interfering environment for a Program Under Test (PUT) executing on a multi-core platform. In other words, the Worst-Case Program In-terference is targeted. The approach relies on a set of code snippets, called gadgets, to hammer specific shared resources in the multi-core platform and create interfer-ence. Kryptonite then arranges the gadgets in order to maximize interference in two phases: firstly, a greedy ap-proach is used to iteratively build a sequence of gadgets that increases execution times of the PUT. And secondly, a Reinforcement Learning (RL) algorithm is used to fine-tune the interfering environment. Although the objec-tive is not the same, this approach motivates the idea of using an automated discovery algorithm on a multi-core platform to explore interference as it requires many in-teractions with the system. Indeed, a complex system is exploited, and the objective of reaching an optimum in an output space by exploring a code space is fulfilled. In contrast with an optimization method that minimizes a loss function, we propose a space coverage technique to induce a large diversity of behaviors in a given complex system. In the next section, we present our basic simula-tor upon which we will perform our exploration. 
+
+## 3 Description of our dual-core model 
+
+We justify the implementation of the simulator and briefly describe components and their behaviors. A minimum of two cores with shared memory components is, by defini-tion, necessary to induce interference phenomena. Thus, our basic simulator model contains: 
+
+• two cores, 
+
+• their respective private L1 caches, 
+
+• a shared L2 cache unit and a DDR memory with its controller, 
+
+• an interconnect model that transmits instructions sent by the cache to the memory. Cache L1 Cache L1 Core 0 Core 1 Shared cache L2 DDR Memory Controller DDR Memory 
+
+Figure 2: Simulated dual-core architecture used in this paper. Each core has a private L1 cache and shares an L2 cache with the other. The L2 cache is connected to the main DDR memory via its DDR memory controller. With such a configuration, interference arises in shared components, such as the L2 cache, the DDR memory con-troller, and the interconnect. In the following, we explain the functioning of some of the basic blocks of our simula-tor. 
+
+3.1 Core model 
+
+As interference is mostly due to memory mechanisms, the simulation of cores handles exclusively memory access in-structions; that is, the instruction set is reduced to read and write operations in memory since, ultimately, only memory accesses are simulated. In the following, we de-note the ”read” operations by RD and the ”write” oper-ations by WR. In our algorithms, for each core, a simple loop models the ”fetch and execute” cycle. At each CPU cycle, the core can: 1. wait for the end of an RD operation, 2. execute an RD, 3. execute a WR, 4. execute an instruction that does not perform memory accesses, which, in the case of the simulator, amounts to doing nothing. As in real-life applications, we make use of a set of virtual addresses that maps to the set of physical ad-dresses, that is, elements of the micro-architecture mem-ory. Within our programs, virtual addresses are simply modeled as numbers. The function that associates a vir-tual address to a location in the DDR memory is given in A. Within the pairs, the programs do not exchange data to be written or read, but are to be executable and in-terpretable; moreover, this data is not modeled as it does not play any role in interference phenomena, as opposed to instructions. Programs consist of RD and 3WR at given addresses. The shipment is done via the private L1 caches, as instructions are not stored in either the cache or the memory. Thus, programs are concretized as simple dictionaries with the format 
+
+{cycle:(type,address) } as follows. For each instruction in a program, its key is the cycle at which the con-sidered instruction is sent to the simplified simulator. Listing 1: Example of simplified assembly programs.       
+
+> program_0 ={23:( ’ read ’ , 11) ,37:( ’ read ’ ,17) ,49:( ’ write ’ ,6)} program_1 ={12:( ’ write ’ , 24) ,18:( ’ read ’ ,39) ,32:( ’ write ’ ,37)}
+
+The maximum length of a program and the largest cy-cle for which an instruction is sent are fixed as parame-ters. This model is obviously very simplified compared to the actual operation of a physical target device. Waiting for the completion of a read memory access to continue code execution does not correspond to reality because the processor has various mechanisms specifically allowing it to hide these latencies. This wait is only necessary to preserve true data access dependencies (e.g., a program WR @x RD @x must be executed in this order and be preserved at run time to maintain program semantics). 
+
+3.2 Cache model 
+
+Each cache level is configurable in total size, cache line size, and associativity. By default, the behavior is of the ”write-back” type, that is, writing to lower-level memory occurs when a cache line is evicted. During the write op-eration, the line is simply marked as ”dirty” and is written to the lower-level memory during its eviction. It is also possible to employ a ”write-through” behavior in which writing to the lower-level memory is done immediately. The management of the eviction of cache lines is carried out by a PLRU whose role is to determine the line to be replaced based on the current state of the cache. Ideally, we would like to implement a behavior of the LRU (Least Recently Used) type, which would consist of eliminating the line used least recently in order to make the most of the locality principle 1. However, this strategy is expen-sive to implement and we often prefer to use a simpler mechanism called Pseudo-LRU, which relies on a binary tree. Thus, this algorithm includes a function that maintains the data structure with a binary tree and which allows choosing the next row to be evicted based on memory accesses. It also includes a function allowing the choice of the next cache row to be evicted using the information contained in the binary tree. The last level cache (L2 in figure 4) is shared by both memory hierarchies. There is no cache coherency management mechanism. IDLE Activate Bank Row Bank Row Active Writing Reading Precharging ACT WR RD RD WR WR RD PRE PRE PRE Command Transition Automatic Transition 
+
+Figure 3: Simplified state diagram assuming a single bank [14] 
+
+3.2.1 DDR model 
+
+Let’s recall that DRAM is organized in rows and columns of banks. Each bank contains an additional row called a row buffer. When information is accessed, its row is stored in the row buffer. In our model, the memory consists of several banks, each of which contains a row buffer acting as a cache. Latencies are modeled and play an important role in the interference delay in the following way: 
+
+• Access to different rows from the same bank induces significant delays because of the temporal cost of changing rows in the buffer. 
+
+• Simultaneous accesses to distinct rows from the same bank induce larger temporal costs than simultaneous accesses to distinct banks. In other words, intra-bank interference induces larger delays than inter-bank interference. Each bank is managed by a timed state machine that reproduces the one described in [14] (see figure 3). The state of the banks of the DDR determines the completion dates of operations. Requests are issued by the DDR con-troller. Let’s note PRE as the operation that deactivates an open row of a given bank; this action writes the se-lected information from the row buffer to the memory. And ACT is the operation that activates a closed row by storing the information from the given row in the buffer. Additional information on the DDR is given in A. 
+
+> 1According to the spatial locality principle, data is very likely to be accessed when one of its neighbors has recently been accessed, whereas according to the temporal locality principle, recently ac-cessed data is very likely to be accessed again.[8]
+
+43.3 DDR controller model 
+
+The memory controller is in charge of reordering mem-ory access requests to maximize the memory access rate. It implements several queues: a queue for commands, a queue for read data, and a queue for the data being writ-ten. Prioritization rules are modeled. Indeed, the RD are prioritized over the WR in order to minimize wait-ing times, while preserving memory consistency (WR @x RD @x must be executed in this order). Instructions targeting lines that are already in row buffers are priori-tized in order to avoid the penalty related to completing a PRE= >ACT sequence. RD and WR are processed in ”batches” to avoid the overhead related to the transition between RD and WR. Mechanisms of our DDR controller are described in A.1. 
+
+## 4 Overview of the exploration strategy Pairs of programs space Θ Behavior space B  
+
+> Miss core 0 Delay core 0
+> Cache L1 Cache L1 Core 0 Core 1 Shared cache L2 DDR Memory Controller DDR Memory
+
+Figure 4: Illustration of a complex system associated with multi-core hardware. On the left side of the figure, pairs of simplified assembly programs are represented in the parameter space Θ. Each of them is executed on the platform and corresponds to an outcome (behavior) on the right-hand side, representing the behavior space B.In our case, both the parameter space and the behavior space can be high-dimensional spaces, although in gen-eral, the parameter space has a larger dimension than the behavior space. The Intrinsically Motivated Goal Exploration Process is an instance of automated discovery algorithms. This diversity-driven strategy aims to maximally cover a be-havior space. During its exploration, a discovery agent iteratively samples goals uniformly in the behavior space and offers appropriate parameters to reach them by lever-aging previously found (parameters, outcome) relations. The diversity maximization is a side effect of the goal exploration process. The exploration consists of several episodes called ”experiments,” during which the agent continually improves its ability to discover new singular-ities. For interference identification, the considered complex system is the simulated hardware platform. In contrast to Kryptonite, for example, which attempts to minimize/-maximize interference delays, an IMGEP instead aims to discover a large diversity of possible interference patterns. We wish to explore a behavior space B that characterizes interference patterns within the hardware by manipulat-ing inputs from a parameter space Θ; see Figure 4. In our case, we establish a parameter space made of simplified assembly programs. It is essential, on the one hand, to formally model basic elements of the exploration, such as the parameter space Θ and the behavior space B, and on the other hand, to specify the agent’s internal models. 
+
+Definition 2 We call a ”pair of programs” a couple of two programs of code S1 and S2 allocated respectively to the C1 and C2 cores of an execution platform. S1 and S2
+
+are independent code programs. In particular, they do not exchange data. 
+
+Definition 3 We call an ”experiment” the interaction with our complex system. It involves the parallel execu-tion of the programs S1 and S2, and the execution of S1
+
+and S2 alone. All experiments are to be independent; this involves, for example, clearing the cache, DDR, and in-terconnect before every execution. 
+
+From an IMGEP perspective, an element of a behavior space is seen as a goal to achieve; thus, goals are target behaviors in the behavior space. In our experiments, a goal is a vector encoding a targeted interference pattern. The discovery agent samples goals to solve and uses its strategy to solve them. Two internal models are used for these respective aspects: one for the goal generation strategy G, and a goal strategy achievement model Π. As illustrated in Figure 5, the agent fills a database H to up-date its internal models during the exploration, and thus the acquired data is reused to extract potential solutions to solve other goals. An IMGEP is a loop algorithm that iterates online by interacting with the considered complex system. The al-gorithm starts with a warming set of Ninit iterations. This helps the exploration to escape poor knowledge re-gions. This type of architecture highlights previous indepen-dent experiments stored in the database H. Using ef-ficient sampling methods, this algorithm allows one to quickly reach a great diversity of outcomes in the behav-ior space. Moreover, its usage of the database prevents forgetting during exploration. 
+
+4.1 Parameter space 
+
+A pair of programs is required to run each experiment. As presented in Figure 5, the discovery agent generates a pair θ ∈ Θ at each iteration. Following the general program constraints discussed in part 3.1, we recall that most sources of interference are due to memory mech-anisms; therefore, we choose to produce pairs of simpli-fied assembly instructions to constitute a parameter space Θ. Indeed, as presented before, only memory instructions 51) Sample a goal g in space B
+
+using module G, and database H 2) Use goal achievement strategy model Π to generate a pair of programs θ to reach g, using database H
+
+3) Execute the pair of programs θ
+
+4) Observe and characterize outcome z
+
+5) Store tuple ( g, θ, z )
+
+in the database H
+
+6) Update models Π, G using H   
+
+> Program space ΘBehavior space B
+
+The process repeats N times          
+
+> Parameter space Θ
+> (Pairs of programs) Behavior space B
+> (Perf. counters)
+> Delay core 0 Miss core 0
+> g
+> Program space ΘBehavior space B
+> Delay core 0 Miss core 0
+> g
+> Program space ΘBehavior space B
+> Delay core 0 Miss core 0
+> gθθz
+
+Figure 5: Schematic view of an IMGEP for our case of interference identification, based on the general description of IMGEP B.RD and WR are modeled. To get closer to a real-life ap-plication, we can model two distinct sets of addresses for the cores, i.e., core 0: 0,20 and core 1: 21,40. As two distinct addresses can map to the same physical address, it will still be possible to observe interference. With the maximum program length and largest ship-ment cycle being carefully chosen, we synthesize a pa-rameter space of a reasonable cardinality to thus have a better understanding of the results. 
+
+4.2 Behavior space 
+
+All microarchitectural mechanisms are known, as the sim-ulator is a white box. We wish to identify the ones re-sponsible for interference. A set of relevant performance counters provides building blocks for the behavior space; see table 3.                       
+
+> Performance counter Category Description
+> Processor cycles General Number of executed cycles Instructions completed General Number of completed instructions Decode stalled General Number of cycles in a waiting status Cache misses Cache Number of cache misses L1/L2 Cache store allocates Cache Number of line allocations in L1/L2 Cache demand access Cache Number of requests for L1/L2 DDR store misses DDR Number of DDR stores DDR load misses DDR Number of misses DDR demand access DDR Number of requests DDR store allocates DDR Number of line allocations
+
+Table 1: Set of available performance counters in the dual-core simulator Such performance counters can be clock cycles, row misses, instruction types, branch mispredictions, and the number of stalls. Indeed, the phenomena quantified by those performance counters allow for the description of conflicts occurring in shared resources and thus are di-rectly related to interference. In general, information on the platform will always be needed in a context where interference is being addressed. If a platform is a black box, all the requirements of the certification file cannot be fulfilled. Each element of the established behavior space is per-ceived as a potential goal for the discovery agent. A goal is defined as a pair g = ( zg , Lg ) with an embedding zg ∈ B 
+
+and an evaluation function Lg = D(·, z g ). Ideally, B has ”good properties” such as being a low-dimensional met-ric space. The metric property is important for the goal achievement strategy of the discovery agent. Indeed, one wants to evaluate the distances between some previous experiment outcomes z and a goal embedding zg . For example: Lg (z) = || z − zg || 2. This aspect is essential for designing an efficient goal achievement strategy, as one wants to efficiently select previous experiment out-comes and their associated parameters that are poten-tially suited for the generation of new candidate parame-ters. Because interference arises following micro-architectural behavior conflicts, we target shared resource performance counter differences in values be-tween the executions in isolation ( iso ) and the executions 6Features Category Description                                 
+
+> Processor cycles diff core General Difference [nb of executed cycles][non-iso] −[nb of executed cycles][iso.] Processor mutual General Difference [nb of executed cycles][non-iso. core 0] −[nb of executed cycles][non-iso core 1] Cache write misses L2 Cache Difference [nb of L2 cache misses][non-iso] −[nb of L2 cache misses][iso.] Cache write hits L2 Cache Difference [nb of L2 cache hits][non-iso] −[nb of L2 cache hits][iso.] Cache read misses L2 Cache Difference [nb of L2 cache misses][non-iso] −[nb of L2 cache misses][iso.] Cache read hits L2 Cache Difference [nb of L2 cache hits][non-iso] −[nb of L2 cache hits][iso.] DDR misses DDR Difference [nb of misses][non-iso] −[nb of misses][iso.] for each pair (bank, row) DDR hits DDR Difference [nb of hits][non-iso] −[nb of hits][iso.] for each pair (bank, row)
+
+Table 2: Features constituting the behavior space B. For any performance counter C, we calculate two features FC
+
+as non-iso. vs. iso. differences FC ≡ C[non-iso] − C[iso.]. ”iso.” corresponds to an execution with only one of the two cores, 0 or 1. in non-isolation ( non-iso ). Given a pair of programs, we calculate for each selected performance counter its difference when executing in isolation on one core and in non-isolation on both cores. The features in table 2 constitute the behavior space B.With nbanks banks and nrows rows, the dimension of 
+
+B is given by n = 3 + 4 · 2 + 2 · 2 · nbanks · nrows and 
+
+B ⊂ Rn. If nrows = 3 and nbanks = 4, we then have 
+
+B ⊂ R59 . The performance of the exploration algorithm might decrease in case of a large behavior space dimen-sion as a consequence of the curse of dimensionality, where the interpretation of distances loses its sense. Therefore, working with a parsimonious set of data might imply bet-ter results in terms of diversity measures. This chosen configuration of a behavior space is an Euclidean space. Therefore, we can measure distances between the current goal embedding zg and known features z in our database. Let us remark that the performance counters associated with the features presented in table 2 are not systemati-cally available when working with a physical device. 
+
+4.3 Goal sampling Known region Sampling region 
+
+Figure 6: Schematic view of a sampling process. Yellow points represent border outcomes from the already known region and allow the determination of the sampling region for the next experiments. For the discovery agent, the concept of ”curiosity” is materialized by the sampling of goals. For the sampling of goals, the simplest case scenario is to sample them uniformly at random in a connex subregion of B including the set of already discovered points. As illustrated in Figure 6, choosing the sampling region slightly larger than a subregion including the set of already discovered points allows to target regions of G that have not been reached yet but are close to the already discovered ones. We periodically set the sampling boundaries based on the database H, and we simply sample goals with a uni-form distribution. For instance, we determine the min-ima and maxima of the discovered values for each 1-dimensional feature: 
+
+• min Bg := ( min {z1, z ∈ H} , · · · , min {zdim (B), z ∈H} )
+
+• max Bg := ( max {z1, z ∈ H} , · · · , max {zdim (B), z ∈H} )Then, to establish the slightly larger sampling region, we fix two factors, e.g., f1 = 0 .8, f 2 = 1 .2, that determine percentages of the previous minimal and maximal val-ues for the new uniform distribution that will be used to sample goals g ∈ B . Since G is a multidimensional space, the resulting distribution will be the cartesian product of several 1-dimensional uniform distributions: 
+
+zg ∼ U ([ f1 · (min Bg)1, f 2 · (min Bg)2]) ⊗ · · · · · · ⊗ U ([ f1 · (min Bg)dim (B), f 2 · (max Bg)dim (B)]) 
+
+4.4 Goal achievement strategy Selection Expansion 
+
+Achievement Strategy with a kNN model 
+
+g g
+
+Figure 7: Illustration scheme of a goal achievement strat-egy. The left hand side illustrates the selection of out-comes stored in the database that will allow expansion, that is the synthesis of a new outcome closer from g (right hand side). Here, the two closest neighbors to g in the database H are selected, and their parameters are used to obtain the new outcome closer to g.We present our population-based achievement strategy, which resembles an evolutionary algorithm, where the set of pairs of programs together with their respective out-comes is seen as a population. Thus, our algorithm im-plies the performance of mutations of the individuals. At each step during an IMGEP exploration, the pro-grams (parameters) and outcomes (( S1, S 2), z ) ∈ Θ × B 
+
+that make up the agent’s discoveries are stored in the database H. Because the exploration budget is low, we choose the agent to perform non-parametric learning, which means that the complexity of the model grows lin-early with the size of the database H.7The goal achievement strategy is typically made of two steps with two respective operators. During the selec-tion step, the discovery agent selects outcomes. The ex-pansion step consists of using their corresponding pa-rameters to produce another one, leading to an outcome close to the goal g, see figure 7. We use a kN N 2 model as a selection operator. This se-lection operator relies on an expansion operator, as kNN 
+
+selects k promising outcomes from H and expands them by producing a candidate pair of programs to achieve g.In particular, we select the k closest outcomes to the given goal g within the database H using a well-designed evalu-ation function L. We then mix the k corresponding pairs of programs together to obtain a candidate pair of pro-grams to achieve goal g.We establish a weighted evaluation function so that all features are equally considered in the selection step: 
+
+Lg (z) = X
+
+> F
+
+1max F − min F
+
+· (zF − g)2, ∀z, g ∈ B 
+
+For mixing the programs, we select contiguous parts from multiple programs, preserving timing, and ensuring the resulting program fits within the fixed maximum cy-cle. The length of each segment is chosen at random. The key parameters are the number of segments to pro-duce the output program and the number of programs to mix .To ensure more efficiency, one also apply a mutation operator following the mixing operator. The mutations performed are : 1 . randomly change existing instructions, 2. delete random instructions, 3 . add random instructions. Consequently, different patterns of the programs change, such as the number of instructions, number of memory accesses, and the set of used addresses. In the particular case of k = 1, we simply select the closest observation z of g in the database H and apply the 
+
+mutation operator to obtain the candidate parameter. The mixing and mutation operators are detailed in B and B. During the first iterations of the algorithm, IMGEP typically outputs outcomes that are not diverse. To over-come the difficulty of the agent exploring during its first iterations, a warm-up made of several random iterations is performed. The agent initially induces poor diversity, and while the population stored in the database H grows, the agent is more likely to solve its goals. Hence, on aver-age over time, goals targeted by the agent are not reached with the parameters θ outputted by IMGEP; meanwhile, it is a powerful method that leads to high-diversity dis-coveries. 
+
+> 2
+
+Let’s recall that kN N is a supervised machine learning model that predicts a label y of a given vector x, using the k closest neigh-bors of x associated labels. 
+
+## 5 Results 
+
+We run IMGEP for a total of N = 10 4 iterations, and we initialize it with a warming set of Ninit = 10 3 iterations of random program synthesis. We choose to run it with k =1, 2 and 3 as parameters for the kN N model of the goal achievement strategy Π. Each program contains between 1 and 10 instructions. The maximum cycle for the last instruction to be sent is 60. As said previously, we model two distinct sets of addresses for the cores, i.e., core 0: 0,20 and core 1: 21,40. The selection of the simulator parameters chosen to run our experiments is available in A. We first assess the diversity of the resulting datasets through diversity measures. Secondly, we explore the re-sults and attempt to infer diagnostics from the data. Fi-nally, we discuss approaches that would be more relevant for IMGEP. 
+
+5.1 Diversity evaluation b0,r0 b0,r1 b0,r2 b1,r0 b1,r1 b1,r2 b2,r0 b2,r1 b2,r2 b3,r0 b3,r1 b3,r2            
+
+> Ddr miss ratio core 0 non−iso vs iso with N=10000. b:bank, r:row 95% asymptotic C.I with n=500
+> Location 2D histogram Diversity 0 10  20  30  40  Random IMGEP k=1 IMGEP k=2 IMGEP k=3 Oper. k=1 Oper. k=2 Oper. k=3 b0,r0 b0,r1 b0,r2 b1,r0 b1,r1 b1,r2 b2,r0 b2,r1 b2,r2 b3,r0 b3,r1 b3,r2
+> Ddr miss ratio core 1 non−iso vs iso with N=10000. b:bank, r:row 95% asymptotic C.I with n=500
+> Location 2D histogram Diversity 0 5 10  15  20  25  30  35  Random IMGEP k=1 IMGEP k=2 IMGEP k=3 Oper. k=1 Oper. k=2 Oper. k=3
+
+Figure 8: Diversity of miss ratio for both cores and all bank row pairs. Orange bars represent lower and up-per confidence bounds using the Student’s t-distribution asymptotic confidence interval P( ¯X − u1− 1
+
+> α
+
+q ˆvn ≤ g(θ) ≤
+
+¯X + u1− 1
+
+> α
+
+q ˆvn ) −→ .95 with mean and unbiased standard deviation estimators. We compare our method with two simple strategies: 1. A random exploration, that is, generating pairs of pro-grams randomly. And 2. to be compared with IMGEP for 
+
+k, an algorithm that selects k pairs of programs randomly from its database H, mixes them to obtain a single pair, 8and mutates it. Indeed, we would like to ensure that a larger IMGEP diversity does not occur simply because of the design of the mixing and mutation operators. For this matter, we aim to demonstrate that mixing and mutating random selections of programs from the same warming set does not lead to a significantly higher diversity than that of IMGEP runs. The mixing and mutation operators are the same as IMGEP’s. Hence, for a fair comparison, the first Ninit iterations of the random exploration are shared by the IMGEP runs and by the operator combination ex-ploration. We quantitatively assess each exploration pro-cess by simply establishing diversity measurements of the outcomes stored in the respective database H. In partic-ular, we observe how the behavior space B is covered by the corresponding outcomes o1, · · · , o n.In the following, we denote two particular subspaces of the behavior space as the time behavior space 
+
+and hit/miss space . We construct the following measure suitable to assess diversity: The number of bins filled in a n-dimensional histogram. With n =3 + 4 · 2 + 2 · 2 · nbanks · nrows, being the dimension of each outcome we obtain after an experiment, see part 4.2. We denote the quantity corresponding to each axis 
+
+j of an outcome F by Fj ∈ R, 1 ≤ j ≤ n. The val-ues of inf( Fj ) and sup( Fj ) are carefully chosen so that 
+
+∀F, F ∈]inf( Fj ), sup( Fj )[, and that for every axis j, these values determin the smallest envelopp of possible values. 
+
+Performance counter Inf Sup 
+
+Processor cycles 0 Handmade determined upperbound Instructions completed 0 Maximal number of instructions Decode stalled 0 Maximal number of instructions Cache misses 0 Maximal number of instructions Cache store allocates 0 Maximal number of instructions Cache demand access 0 Maximal number of instructions DDR store misses 0 Maximal number of instructions DDR load misses 0 Maximal number of instructions DDR demand access 0 Maximal number of instructions DDR store allocates 0 Maximal number of instructions Table 3: Set of available performance counters in the dual-core simulator Let us denote a chosen partition of ]inf( Fj ), sup( Fj )[ by x(j), 1 ≤ j ≤ n with nj points, such that : inf( Fj ) = 
+
+x(j)1 < · · · < x (j)nj = sup( Fj ). For a family of parti-tions ( x(1) , · · · , x (n)), we define a bin as : 
+
+bin (( x(1) k1 , · · · , x (n)kn )) = [ x(1) k1 , x (1) k1+1 [×,
+
+· · · × [x(n)kn , x (n)kn+1 [,
+
+∀k1 ∈ N ∪ [1 , n 1[, · · · , ∀kn ∈ N ∪ [1 , n n[ (1) We define D(x(1) ,··· ,x (n)) , the positive measure of data clouds associated with the set of all bins with the par-titions x(j). For a set of points discovered H from H, we have: 
+
+D(x(1) ,··· ,x (n)) (H) = = X
+
+(k1,··· ,k n)
+
+1{card (bin (x(1) k1 ,··· ,x (n)kn )∩H)>0} (2) For each dimension j, we choose the length of bin lj such that |x(j)kj −x(j)kj +1 |
+
+5 = lj , ∀1 ≤ j ≤ n, ∀kj . D(x(1) ,··· ,x (n)) 
+
+is a well-defined positive measure for the associated set of non-empty bins of a data cloud H.0 2000 4000 6000 8000 10000 0 500  1000  1500  2000  2500  3000           
+
+> Time space mean diversity, 95% Asymptotic C.I with n=500
+> iterations diversity:bins filled Random IMGEP k=1 IMGEP k=2 IMGEP k=3 Operators k=1 Operators k=2 Operators k=3 02000 4000 6000 8000 10000 0 200  400  600  800  1000  1200
+> Miss and hit space diversity, 95% Asymptotic C.I with n=500
+> iterations diversity:bins filled Random IMGEP k=1 IMGEP k=2 IMGEP k=3 Operators k=1 Operators k=2 Operators k=3 02000 4000 6000 8000 10000 0 2000  4000  6000
+> Entire space mean diversity, 95% Asymptotic C.I with n=1000
+> iterations diversity:bins filled Random IMGEP k=1 IMGEP k=2 IMGEP k=3 Operators k=1 Operators k=2 Operators k=3
+
+Figure 9: On the two left plots, we visualize the diversity on the time behavior space and on hit/miss space, that is, how the number of bins filled in a multidimensional his-togram increases during exploration. On the right plot, we visualize the diversity of the entire dataset, the dimen-sion of the considered histogram is the number of features (59). Results of N = 10 4 iterations with a warming set of Ninit = 1000 iterations of random program synthesis For each value of k, which is the number of neigh-bors in the optimization policy achievement model, we show that IMGEP leads to a higher diversity than the operator combination exploration. Indeed, IMGEP finds many more distinct values of miss ratios across the dis-tinct locations—pairs (bank, row)—in the main memory; see figure 8. Note that the discoveries of ”miss” occur-rences probably help to induce more interference. Indeed, whenever requested data is missing in a DDR buffer, it has to be recharged, and this involves an additional de-lay. Moreover, figure 9 shows that the IMGEP diversity measurement increases faster on the entire behavior space than that of the operator combination exploration, and simultaneously on the distinct L2 & DDR miss/hit and execution time goal subspaces. Generating programs with IMGEP allows one to ob-serve much more interference than generating programs randomly. Interference occurs whenever the execution time in isolation differs from the execution time in non-isolation. To some extent, we consider that a pair of programs produces interference if |time[non-isolation] −
+
+time[isolation] | > 0. In the example run presented in 9figure 10, the bars with axis 0 on histograms for values of —time[non-isolation] - time[isolation]— demonstrate that exploring the simulator with randomly generated programs produces interference about 4 times out of 10, whereas it is about 7 times out of 10 for IMGEP. −88 −68 −48 −28 −7.5 12 28 42 58 72 88 110 130             
+
+> Histogram of time differences, core 0
+> time[non−isolation] − time[isolation], core 0 0 1000  2000  3000  4000  5000  6000 IMGEP Random −88 −68 −48 −28 −7.5 12 28 42 58 72 88 110 130
+> Histogram of time differences, core 1
+> time[non−isolation] − time[isolation], core 1 0 1000  2000  3000  4000  5000  6000 IMGEP Random
+
+Figure 10: Diversity for execution time behavior space. Results of N = 10 4 IMGEP iterations with k = 1 and a warming set of Ninit = 1000 iterations of random pro-gram synthesis. Information on the execution time is represented for each program in Figure 11. More precisely, we attribute to each pair of programs executed simultaneously on core 0 and core 1 two respective points on the distinct scatter plots to represent its couple (time[isolation], time[non-isolation]). This representation allows us to spot inter-ference, that is, whenever points are not located on the red identity line. Points above the red line represent pro-grams that are slowed down by the parallel execution on the other core, whereas points below the line represent programs which are accelerated, which means the exe-cution time is faster when the program is executed to-gether with another program. This is due to the absence of a coherency management mechanism. For instance, the following pair of programs results in the acceleration of both programs. One can show DDR bank and line numbers instead of addresses. Instructions of core 1 on cycles 36 , 40, and 41 are processed earlier when the pro-gram on core 0 is executed because of its instructions on cycles 20 and 30 which load the lines {bank 1 , row 1 }
+
+and {bank 0 , row 1 } into their buffer. Hence, sequences PRE= >ACT are avoided as the data is already in the buffer. Listing 2: Example of programs inducing mutual acceler-ation.                                                        
+
+> bk_rw_core0 ={20:{ ’ bk ’:1 , ’ rw ’:1} , 27:{ ’ bk ’:3 , ’rw ’:0} , 30:{ ’ bk ’:0 , ’rw ’:1} ,31: { ’ bk ’: 2 , ’rw ’: 0} , 36: { ’ bk ’: 1 , ’rw ’: 0} ,43: { ’ bk ’: 3 , ’rw ’: 0} , 46: { ’ bk ’: 0 , ’rw ’: 0}} bk_rw_core1 ={6:{ ’ bk ’:2 , ’rw ’:1} , 8:{ ’ bk ’:2 , ’rw ’:1} , 11:{ ’ bk ’:3 , ’rw ’:1} ,18:{ ’ bk ’:1 , ’rw ’:2} , 27:{ ’ bk ’:0 , ’rw ’:2} ,36:{ ’ bk ’:1 , ’rw ’:1} , 40:{ ’ bk ’:1 , ’rw ’:1} , 42:{ ’ bk ’:0 , ’rw ’:1} , 45:{ ’ bk ’:3 , ’rw ’:1} , 47:{ ’ bk ’:0 , ’rw ’:2}} core 1mutuality 78 cycles , isolation : 162 cycles core 0mutuality 108 cycles , isolation : 97 cycles 050 100 150 0 50  100  150 time[isolation], core 0 (cycle) time[non−isolation], core 0 (cycle) IMGEP Random 050 100 150 0 50  100  150  200 time[isolation], core 1 (cycle) time[non−isolation], core 1 (cycle)
+
+Figure 11: Diversity for execution time behavior space. Results of N = 10 4 IMGEP iterations with k = 1 and a warming set of Ninit = 1000 iterations of random pro-gram synthesis. In Figure 12, we represent values of couples (time[isolation, core 0] - time[non-isolation, core 0], time[isolation, core 1] - time[non-isolation, core 1]). Any point with an abscissa or ordinate different from 0 corre-sponds to a pair of programs presenting interference on core 0 or core 1, respectively. The figure clearly shows that the IMGEP cloud spreads more, indicating that our algorithm finds many more interference cases. 
+
+5.2 Analysis 
+
+The results we presented demonstrate through diversity measurements that automated exploration algorithms can cover efficiently an output space of a complex sys-tem associated with a simulated hardware model. The data from which the exploration is performed pro-vides only aggregated information and is not internal. While this implies that characterizing sources of inter-ference with such a defined behavior space is limited, we spot an emerging structure in Figure 13, suggesting that pairs of programs with many requests to the same DDR locations induce a greater variety of interference delays. Hence, the resulting pairs of programs causing interfer-ence can be further analyzed by humans, and our method may be completed to ensure that distinct points in the 10 −50 0 50 100 −50  0 50  100 
+
+Coverage illustration 
+
+time[non−isolation]− time[isolation], core0 time[non−isolation]− time[isolation], core1 IMGEP k=1 Random Figure 12: Spanning of IMGEP on time behavior space. Interference occurs on core 0 or 1 when the abscissa or or-dinate is different from zero. Results of N = 10 4 IMGEP iterations with k = 1 and a warming set of Ninit = 1000 iterations of random program synthesis. outcome space provide two distinct sources of interfer-ence. 5 10 15 20 −50  0 50  100 
+
+> Delay vs over−lap, core 0
+
+over−lap time[non−iso] − time[iso]  IMGEP Random 5 10 15 20 −50  0 50  100  150 
+
+> Delay vs over−lap, core 1
+
+over−lap time[non−iso] − time[iso]  IMGEP Random 
+
+Figure 13: (time[non-iso] - time[iso]) vs non-overlap. We call non-overlap the quantity f (p0, p 1) = P
+
+j |(nb access row j , core 0) − (nb access row j core 1) |.This graph shows the number of access occurring in the same locations for both cores in the main memory is not enough to characterize interference. We believe that creating a space that fully consists of sources of interference will allow discoveries of non-trivial access patterns. In addition, one wants to discover ac-cess patterns that are unknown and difficult to produce by specialized engineers. Furthermore, the resulting be-havior space would not necessarily be a Euclidean space, and could, for example, be a graph, a tree, or a semantic space. 
+
+## 6 Conclusion 
+
+This work deals with the problem of interacting with SoCs via automated discovery algorithms to help the discovery of singular cases. The method relies on simple machine learning models to structure an autonomous agent that fixes its own goals, and on the establishment of a behavior and a parameter space. The results demonstrate that automated discovery al-gorithms can interact successfully with a simplified sim-ulated model of dual-core architecture and encourage the idea of exploring a real SoC. Indeed, the behavior space, which consists of performance counters, is explored effi-ciently with IMGEP, as it leads to a higher diversity than exploring the simulator with programs that are randomly generated. This approach encourages the idea of exploring a be-havior space that is more suited for characterizing of mechanisms of interference in order to discover non-trivial sources of interference. In further work, we will aim to de-velop a strategy that specifically identifies distinct mecha-nisms that are responsible for interference, rather than ex-hibiting a large diversity of interferences regardless of the reasons they occur. For this, we will distinguish whether the observation of an interference relies on the activation of a new mechanism. Hence, the objective will be to max-imize the number of distinct types of interference. 
+
+# Appendices 
+
+## A Description of our dual-core model                                                         
+
+> Component Category Description Value
+> Core 0 address range address range for core 0 0-20 Core 1 address range address range for core 1 21-40 DDR bank mapping Bank mapping for an address aa%nbanks
+> DDR row mapping Row mapping for an address a, each row covers 16 addresses a// 16 DDR tRCD (cycle) Delay induced by an ACT operation, that is, the activation of a closed line, by storing its content in the buffer 15 DDR tRP (cycle) Delay induced by a PRE operation, that is, the deactivation of an open row for a given bank. 15 DDR tCAS (cycle) Delay to access data after a burst for both RD and WR insttructions. 15 DDR tFRC (cycle) Periodic time for cell refreshments. During this operation, every bank row buffer is precharged 30 DDR tWR (cycle) Minimum delay between a WR and a PRE operation 15 DDR tRTP (cycle) Minimum delay between an RD and a PRE operation 8DDR tCCD (cycle) Minimum delay between an RD and a WR operation 4DDR tRRD (cycle) Maximum delay between two ACT operations 4DDR nrows Number of rows per bank 3DDR nbanks Number of banks in the DDR 4L1,L2,L3 cache size Storage capacity of a cache (bytes) 32,512,512 L1,L2,L3 cache line size Storage capacity of a line (bytes) 4,4,4 L1,L2,L3 cache associativity Number of different cache lines each data block can be mapped to. 2,16,16
+
+Table 4: Selection of the simulator parameters for our experiments 
+
+A.1 Complementary information on the DDR and its controller 
+
+Our simplified DDR2 model implements the following op-erations and some are described in 4 
+
+• WR: Write 
+
+• RD: Read 
+
+• ACT: Activation of a closed row. 
+
+• PRE: Deactivation of an open row. 
+
+• REF: Refreshment of memory cells. The functionning of both the DDR and the memory con-troller are coupled. At each cycle: 11 • The controller determines requests that are achieved, that is, if the current date is superior than the sched-uled completion date. In that case, for an RD request, the controller calls a ”call back” function which signals to the core that this access is achieved. This callback is used by the core to allow the execu-tion of a new instruction. No callback functionality is not implemented for RD requests. 
+
+• The controller treats requests that are located in its entry queue. For each request, it determines whether it can be treated by the DDR according to its state (handled by the DDR state machine) while ensur-ing minimal delay contraints. It then determines the ”best” request to treat depending on a established ranking to prioritize request inducing ”row hits”, WR over RD requests and arrival order (FIFO pol-icy). THhe controller finally sends the ”best” request to the DDR. Memory accesses are done with burst lenght of 8 bytes. The model is inspired from mechanisms described in [14]. 
+
+A.2 Interconnect model 
+
+The interconnect model can be described as follows: 1. It consists in maintainig a queue (FIFO) of memory requests and in executing request in the arrial order and after a delay corresponding to minimale access latency. A random relay of 2 cycles in added. 2. At each clock cycle, some number of requests in pri-ority is unpiled from the queue among the ones that are executable during the current cycle. The requests are the, sent to the memory. The number of un-piled requests at each cycle is determined by the bus bandwidth and each the counting of the numberf of treated requests. 3. The requests that could not be treated are moved in the queue of requests that are to be treated in next cycles. 4. The interconnect clock cycle frequency and that of the cores are the same. One could introduce distinct clocks by calling the functions ”clock” in our codes at distinct cycles. 
+
+## B Intrinsically Motivated Goal Exploration Process 
+
+Parameters chosen for the IMGEP exploration are de-scribed on table 5. We describe below the algorithm designed to mix sequences of simplified assembly algo-rithms. As a reminder, the algorithms are dictionaries of form {cycle : ( type, adress )}.                      
+
+> IMGEP parameters Description Value
+> Ninit Number of iterations for the warming set 1000
+> N−Ninit Total number of IMGEP iterations 9000
+> kNumber of neighbors in the kN N model for the goal achievement strategy Π. 1,2,3 Number of mutations Number of mutation for each program in the model Π 5max sending cycle Maximum cycle for sending the instruction (cycle) 60 Range instructions Minimal and maximal number of instructions 1-10 core 0 Range of addresses 0-20 core 1 Range of addresses 21-40
+
+Table 5: The selection of IMGEP parameters for our ex-periments. 
+
+Algorithm 1 Random Mixing of Instruction Sequences 
+
+Require: A list of instruction programs S, number of parts P ,random seed s, maximum cycle Cmax 
+
+Ensure: A mixed instruction program M
+
+Initialize random generator with seed sChunks ← ∅ 
+
+for all program p ∈ S do 
+
+Sort instructions of p by increasing cycle Split p into P contiguous parts 
+
+for all part q of p do 
+
+Append q to Chunks 
+
+end for end for 
+
+Randomly shuffle Chunks 
+
+Concatenate all elements of Chunks into list L
+
+Randomly select |L| distinct cycle values from [1 , C max ]Sort selected cycle values in increasing order 
+
+for i ← 1 to |L| do 
+
+Assign cycle cycles [i] to instruction L[i]
+
+end for 
+
+Construct mixed program M from assigned cycles and instruc-tions 
+
+return M
+
+Algorithm 2 Mutation operator 
+
+// Mutate an instruction sequence by adding, deleting, or modifying instructions. 
+
+Require: Instructions θ, Number of mutations N , Maximal cycle c,range for adresses amin , a max ,maximal number of instructions imax 
+
+Ensure: Initialize a copy θ′
+
+of the intructions θ
+
+Ensure: Initialize set of available cycles freecycles : all cycles - used cycles for i ← 1 : N do if lenght( θ′
+
+) > 1 then 
+
+Select a mutation type : t ∼ U ([add , delete , modify]) 
+
+else 
+
+Select a mutation type : t ∼ U ([add , modify]) 
+
+end if if mutation type is add and freecycles non empty then newcycle ∼ U (freecycles )
+
+θ′
+
+(newcycle ) = {new instruction type ,a}
+
+remove freecycles (newcycle )
+
+else if mutation type is delete and lenght( θ′
+
+) > 1 then 
+
+Delete θ′
+
+(cycle to delete )set free freecycles (cycle to delete )
+
+else if Mutation type is modify and lenght( θ′
+
+) > 1 then 
+
+Pick an instruction cycle to modify told , a old = θ′
+
+(c) modify choice m ∼ U ([type , adress , both]) 
+
+if m = type then 
+
+tnew = write if told == read else read 
+
+θ′(c) = {type : tnew , address : aold }
+
+else if m address then 
+
+θ′(c) = {type : told , address : U({amin , · · · , a max })}
+
+else 
+
+//Change both type and address 
+
+tnew = write if told == read else read 
+
+θ′(c) = {type : tnew , address : U({amin , · · · , a max })}
+
+end if end if if lenght( θ′
+
+) > i max then 
+
+Uniformally sample set of distinct lenght( θ′
+
+) − imax instruc-tions to delete Delete the instructions 
+
+end if end for 
+
+12 B.1 Diversity Evaluation 
+
+Another diversity measure, but ill-defined, is the sum of the squared euclidean distances between all pairs: 
+
+D(H) = P
+
+> i
+
+P 
+
+> j≤i
+
+|| oi − oj || 2. This measure is not a well defined positive measure as D(H1∪H2)̸ = D(H1)+ D(H2), when H1 ∩H2 = ∅ in general. However, it provides a good intuition of the diversity, as a small perimeter cloud with small pairwise distances leads to a small diversity result whereas a large cloud perimeter involves larger pairwise distances and thus a larger diversity. 
+
+## References 
+
+[1] Abderaouf Nassim Amalou. “Machine learning for timing estimation”. Theses. Universit´ e de Rennes, Dec. 2023. url : https : / / hal . science / tel -04406029 .[2] Pierre Bieber et al. “A model-based certification approach for multi/many-core embedded systems”. In: 9th European Congress on Embedded Real Time Software and Systems (ERTS 2018) . 9th European Congress on Embedded Real Time Software and Systems (ERTS 2018). Toulouse, France, Jan. 2018. 
+
+url : https://hal.science/hal-01700857 .[3] Jingyi Bin et al. “Studying co-running avionic real-time applications on multi-core COTS archi-tectures”. In: ERTS 2014 proceedings . Toulouse, France, Feb. 2014. url : https://hal.science/ hal-02271379 .[4] Armelle Bonenfant et al. “Early WCET Prediction using Machine Learning”. In: Proceedings of WCET 2017 . OpenAccess Series in Informatics (OASIcs). ISBN : 978-3-95977-057-6. Dubrovnik, Croatia: OA-SICs, Dagstuhl Publishing, June 2017, 5:1–5:9. doi :
+
+10.4230/OASIcs.WCET.2017.5 . url : https:// hal.science/hal-03116285 .[5] Fr´ ed´ eric Boniol et al. “Modelling and analyzing multi-core COTS processors”. In: 11th European Congress on Embedded Real Time Software and Systems (ERTS 2022) . Toulouse, France, June 2022. url : https://hal.science/hal-03761937 .[6] Fr´ ed´ eric Boniol et al. “PHYLOG certification methodology: a sane way to embed multi-core pro-cessors”. In: 10th European Congress on Embed-ded Real Time Software and Systems (ERTS 2020) .Toulouse, France, Jan. 2020. url : https://hal. science/hal-02441323 .[7] Lorenzo Carletti et al. “Taking a closer look at memory interference effects in commercial-off-the-shelf multicore SoCs”. In: Journal of Systems Ar-chitecture 167 (2025), p. 103487. issn : 1383-7621. 
+
+doi : https://doi.org/10.1016/j.sysarc.2025. 103487 . url : https://www.sciencedirect.com/ science/article/pii/S1383762125001596 .[8] C´ edric Courtaud. “Caract´ erisation de la sensi-bilit´ e aux interf´ erences m´ emoire dans les syst` emes temps-r´ eels embarqu´ es sur des plateformes multi-coeurs”. Theses. Sorbonne Universit´ e, Jan. 2020. 
+
+url : https : / / theses . hal . science / tel -03429679 .[9] Mayalen Etcheverry. “Curiosity-driven AI for Sci-ence : Automated Discovery of Self-Organized Structures”. Theses. Universit´ e de Bordeaux, Nov. 2023. url : https://theses.hal.science/tel-04504878 .[10] Mayalen Etcheverry, Cl´ ement Moulin-Frier, and Pierre-Yves Oudeyer. “Hierarchically-Organized Latent Modules for Exploratory Search in Morpho-genetic Systems”. In: CoRR abs/2007.01195 (2020). arXiv: 2007 . 01195 . url : https : / / arxiv . org / abs/2007.01195 .[11] Mayalen Etcheverry et al. “AI-driven automated discovery tools reveal diverse behavioral competen-cies of biological networks”. In: eLife 13 (Jan. 2025). Ed. by Arvind Murugan and Aleksandra M Wal-czak, RP92683. issn : 2050-084X. doi : 10 . 7554 / eLife.92683 . url : https://doi.org/10.7554/ eLife.92683 .[12] Martin J. Falk et al. “Curiosity-driven search for novel nonequilibrium behaviors”. In: Phys. Rev. Res. 6 (3 July 2024), p. 033052. doi : 10 . 1103 / PhysRevResearch.6.033052 . url : https://link. aps . org / doi / 10 . 1103 / PhysRevResearch . 6 . 033052 .[13] Sylvain Girbal, Jimmy Le Rhun, and Hadi Saoud. “METrICS: a Measurement Environment For Multi-Core Time Critical Systems”. In: 9th Euro-pean Congress on Embedded Real Time Software and Systems (ERTS 2018) . 9th European Congress on Embedded Real Time Software and Systems (ERTS 2018). Toulouse, France, Jan. 2018. url :
+
+https://hal.science/hal-02278292 .[14] Alfonso Mascare˜ nas Gonz´ alez. “DDR SDRAM In-terference Minimization via Task and Memory Mapping in a Multi-objective Optimization con-text on Heterogeneous MPSoCs”. Theses. Toulouse, ISAE, Dec. 2022. url : https : / / hal . science / tel-05025151 .[15] Jonathan Grizou et al. “A curious formulation robot enables the discovery of a novel protocell be-havior”. In: Science Advances 6.5 (2020), eaay4237. 
+
+doi : 10 . 1126 / sciadv . aay4237 . eprint: https : //www.science.org/doi/pdf/10.1126/sciadv. aay4237 . url : https://www.science.org/doi/ abs/10.1126/sciadv.aay4237 .13 [16] Jean Guyomarc’H. “Analyse de syst` emes temps-r´ eels de sˆ uret´ e et mitigation de leurs interf´ erences temporelles”. Theses. Universit´ e Paris-Saclay, Oct. 2021. url : https://theses.hal.science/tel-03793814 .[17] Niklas Hauser and Jan Pennekamp. “Tool: Auto-matically Extracting Hardware Descriptions from PDF Technical Documentation”. In: 3.1 (2023). 
+
+issn : 2770-5501. doi : 10 . 5070 / SR33162446 .
+
+url : https : / / www . comsys . rwth - aachen . de / publication / 2023 / 2023 _ hauser _ tool -automatically - extracting - hardware / 2023 _ hauser _ tool - automatically - extracting -hardware.pdf .[18] Ray Kuldeep. “Memory Hierarchy – How does com-puter memory work ?” In: SPEAR ITN (2024). 
+
+url : https : / / spear - itn . eu / memory -hierarchy-how-does-computer-memory-work/ .[19] James Ladyman, James Lambert, and Karoline Wiesner. “What is a complex system?” In: Euro-pean Journal for Philosophy of Science 3.1 (2013), pp. 33–67. issn : 1879-4920. doi : 10.1007/s13194-012- 0056- 8 . url : https://doi.org/10.1007/ s13194-012-0056-8 .[20] Tamara Lugo et al. “A Survey of Techniques for Reducing Interference in Real-Time Applications on Multicore Platforms”. In: IEEE Access 10 (Jan. 2022), pp. 21853–21882. doi : 10 . 1109 / ACCESS . 2022.3151891 .[21] Nikhilesh Singh et al. “Kryptonite: Worst-Case Pro-gram Interference Estimation on Multi-Core Em-bedded Systems”. In: ACM Transactions on Em-bedded Computing Systems 22 (Sept. 2023), pp. 1– 23. doi : 10.1145/3609128 .[22] Steven H. Vanderleest and Samuel R. Thompson. “Measuring the Impact of Interference Channels on Multicore Avionics”. In: CoRR abs/2101.02204 (2021). arXiv: 2101.02204 . url : https://arxiv. org/abs/2101.02204 .14

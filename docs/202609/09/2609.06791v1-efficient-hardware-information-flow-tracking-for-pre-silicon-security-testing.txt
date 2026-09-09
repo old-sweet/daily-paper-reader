@@ -1,0 +1,1228 @@
+Title: Efficient Hardware Information-Flow Tracking for Pre-Silicon Security Testing
+
+URL Source: https://arxiv.org/pdf/2609.06791v1
+
+Published Time: Wed, 09 Sep 2026 01:32:59 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Efficient Hardware Information-Flow Tracking for Pre-Silicon Security Testing 
+
+Yu-Wei Fan ∗
+
+Princeton University yf9172@princeton.edu 
+
+Yuheng Yang ∗
+
+MIT CSAIL yuhengy@mit.edu 
+
+Christine Guo 
+
+Princeton University cg4302@princeton.edu 
+
+SooHyuk Cho 
+
+Princeton University soohyuk.cho@princeton.edu 
+
+Thomas Bourgeat 
+
+EPFL Thomas.bourgeat@epfl.ch 
+
+Mengjia Yan 
+
+MIT CSAIL mengjiay@mit.edu 
+
+Sharad Malik 
+
+Princeton University sharad@princeton.edu 
+
+Abstract —Register-Transfer Level (RTL) simulation is widely used to test hardware before it is fabricated. To allow test-ing for security related information flow properties, such as confidentiality and integrity, taint logic can be automatically added to the design to track how information flows through it. However, taint logic instrumented by the state-of-the-art, such as CellIFT, makes simulation-based testing prohibitively expensive: On our evaluation of Mega-BOOM (136K cells), it increases the instrumented design to 5.81 × the original cell count and causes a 143.72 × simulation slowdown. The taint logic could be simplified to improve simulation speed, but it will inevitably trade off its precision. This lightweight, imprecise taint logic will introduce false positives and may eventually result in even more overhead to check these false positives. This paper explores the research question of where pre-cision is actually needed in the design to overcome the over-head of false positives. It presents CEGAR-T, a framework that automatically synthesizes taint logic that minimizes the taint-logic instrumentation overhead while guaranteeing no false positives (relative to the precise CellIFT baseline). We have implemented CEGAR-T and evaluated it on the safe instruction set problem for timing side-channel security across open-source RISC-V cores. Over all evaluated cores, CEGAR-T reduces both instrumentation and simulation overhead, in geometric-mean, from 5.64 × to 1.42 × and from 34.65 × to 1.79 ×,respectively, without compromising the precision benefit of the CellIFT baseline. 
+
+## 1. Introduction 
+
+Modern hardware enforces security boundaries for priv-ilege separation, trusted execution, confidentiality, and in-tegrity, yet deployed attacks continue to show that subtle microarchitectural behavior can violate these boundaries [1], [2], [3], [4], [5]. Once such flaws reach silicon, they are dif-ficult or too costly to eliminate completely with post-silicon patches, because mitigations are constrained by already-fabricated and deployed hardware [6], [7], [8]. This makes  
+
+> ∗Both authors contributed equally to this research.
+
+pre-silicon hardware security testing a critical task, where at the RTL stage, internal design state is visible, security-relevant executions can be simulated, and vulnerable logic can still be fixed before fabrication [9], [10]. Hardware information-flow tracking (IFT) via taint anal-ysis [11] is a practical workhorse for simulation-based pre-silicon security testing, widely used in both academic work [6], [12], [13], [14] and industrial security-validation settings [15], [16], [17]. It represents the target hardware security requirement as a source-to-sink information flow property. The source represents secret data, untrusted input, or control state whose influence should be restricted, while a sink represents protected design states or behavior that should not be affected by that source under the target security property. Given an information flow property, taint analysis instruments the RTL with taint bits and taint logic, tracks how taint from the source propagates through the design, and flags a potential violation when taint reaches the sink. We remark that taint analysis-based IFT is com-plementary to hardware fuzzing, which excels at exploring a large number of diverse executions [10], [18], by providing a mechanism to determine whether those executions contain forbidden source-to-sink flows. Taint logic is sound : it over-approximates true informa-tion flow, whose semantics is given by the well-established non-interference (NI) semantics [19]. Its precision is deter-mined by how tightly this approximation matches the NI semantics. Prior work has shown that imprecise taint logic tends to over-taint and generate false positives, whereas more precise taint logic is often more complex, incurring prohibitively high simulation overhead [11]. In the largest design in evaluation, Mega-BOOM [20] (136K cells), the state-of-the-art taint analysis tool CellIFT [6] increases the instrumented design to 5.81 × the original design size and leads to a 143.72 × simulation slowdown. Existing work does not fully solve the central challenge of deriving taint logic that is both lightweight enough for efficient simulation and precise enough to avoid excessive false positives. For example, GLIFT [12], CellIFT [6], and RTLIFT [13] tackle this challenge by constructing precise 1arXiv:2609.06791v1 [cs.CR] 6 Sep 2026 taint logic at different abstraction levels. These approaches expose precision–cost tradeoffs by fixing the taint logic globally, i.e., across the entire circuit, at a chosen abstraction level. Another line of work explicitly searches the precision– cost space of taint logic, but is either limited in terms of scalability [21], [22] or restricted to structural optimization that does not exploit the value-dependent semantics of taint propagation [14]. A recent work, Compass [23], takes an important step forward by showing that taint-logic optimization can be cast as a counterexample-guided abstraction refinement (CE-GAR) [24] process. By refining taint logic from imprecise to more precise in response to spurious counterexamples (false positives), it demonstrates that taint-logic optimization can be property-driven and practical on processor-scale de-signs. However, the refinement step in this approach remains 
+
+heuristic-driven and manually guided : deciding where to refine relies on heuristic search, while deciding how to refine requires design knowledge and manual inspection. As a result, the approach is less systematic and harder to transfer across new designs and security properties. We address these limitations with CEGAR-T, a fully automated CEGAR-based framework for property-driven taint logic optimization. The key insight is that taint-logic precision can be formalized semantically, rather than treated as a fixed choice between an imprecise logic and a fully precise one. By defining precision with respect to NI seman-tics, CEGAR-T obtains fine-grained control over the space of candidate taint logics for each hardware primitive block, enabling automated and incremental refinement. Building on this structure, CEGAR-T introduces a novel Max-SAT [25] formulation for design-level refinement, allowing the tool to select an optimal set of local refinements to the primitive blocks sufficient to eliminate the current spurious counterex-ample. This can be used iteratively in a CEGAR-T loop to eliminate successive spurious counterexamples. Further, this can be combined with a SAT-based spuriouseness-check in our proposed two-stage CEGAR-T-based workflow to guarantee no false positives. We instantiate and implement CEGAR-T on a word-level adaptation of CellIFT [6]. We evaluate CEGAR-T in the setting of simulation-based IFT for the safe instruction set problem (SISP) [26], [27], a recently proposed processor-security problem for microarchitectural timing side-channel, using open-source RISC-V cores Ibex [28], Rocket [29], and all four variants of BOOM [20], which are widely used benchmarks for processor security evaluation. Our results show that fully automated taint-logic refinement is scalable and yields significant simulation-based IFT speedup. Our main contributions are:  
+
+> •
+
+We formalize taint-logic precision using the well-established non-interference semantics and derive alattice-like refinement structure that characterizes how 
+
+taint logic of a hardware primitive block can be refined to a more precise one.  
+
+> •
+
+We formulate where to refine as a Max-SAT optimiza-tion problem that selects a min-cost refinement set for a counterexample.  
+
+> •
+
+We develop two complementary refinement algorithms for sequential logic designs with different optimality– scalability tradeoffs: an unrolled algorithm that achieves per-counterexample min-cost refinements when tractable, and a more scalable single-frame alternative without sac-rificing much optimality in practice.  
+
+> •
+
+We implement CEGAR-T and evaluate it on simulation-based IFT of SISP. Across the evaluated cores, CEGAR-T reduces both instrumentation size and simulation time overhead, in geometric-mean, from 5.64 × to 1.42 × and from 34.65 × to 1.79 ×, respectively, without compromising the precision benefit of the CellIFT baseline. 
+
+## 2. Overview 
+
+2.1. Challenges in CEGAR-Based Optimization 
+
+Counterexample-guided abstraction refinement (CE-GAR) [24] was originally proposed as a formal verifica-tion paradigm for scaling model checking. It reasons about an abstraction of the concrete system and refines it when the abstraction admits spurious counterexamples (cex). In CEGAR-based optimization for taint logic [23], the abstrac-tion is the current taint logic. It starts with imprecise taint logic, checks if a reported cex to the target information-flow property is spurious, and refines the logic to eliminate the spurious one. The main challenge is refinement: eliminating a spurious cex while keeping taint logic lightweight requires deciding where and how to refine. The where question is intrinsically an optimization prob-lem. The objective is to eliminate the spurious cex with as few refinement sites, i.e., which hardware blocks to refine, as possible. However, refinement decisions are globally cou-pled: changing the taint logic of one block can alter which taints propagate to downstream blocks and, in sequential designs, across time-frames (i.e., clock-cycles) through state elements. As a result, identifying a minimal set of refinement sites requires reasoning globally about taint propagation and its interaction with candidate refinements. The how question is equally nontrivial. Even after a refinement site is selected, one must decide how much preci-sion to add to remove the spurious cex without unnecessarily resorting to the most precise and expensive taint logic. In recent work that has used a CEGAR-based taint-logic optimization [23], these two challenges are handled through heuristic search for where to refine and manual inspection for how to refine. While practical when guided by sufficient design knowledge and understanding of the target property, such refinement relies heavily on human effort, is less systematic, and harder to transfer across new designs and target properties. 
+
+2.2. CEGAR-T: A Fully Automated Framework for Taint-Logic Optimization 
+
+The proposed framework, CEGAR-T, tackles the how 
+
+challenge by first formalizing the well-established notion of 2precision using NI semantics. This serves as the foundation for defining a partial order over the space of taint logic with different precisions. Such semantic characterization enables systematic strengthening of imprecise taint logic toward a more precise one. Based on this notion, CEGAR-T derives a refinement lattice structure for each block, capturing the space of taint logics between the initial imprecise logic and the fully precise one. As a result, how to refine becomes a problem of navigating this refinement lattice, enabling sound, incremental, and minimal changes to local taint logic over manually chosen updates or full replacement by the most precise and expensive one. For the where challenge, CEGAR-T formulates the refinement-site selection as a constraint optimization prob-lem using Max-SAT [25]. It encodes how candidate re-finements alter taint propagation, capturing the removal of the spurious counterexample (cex) as constraints while minimizing the number of selected refinement sites. This enables global reasoning about interactions among refine-ment choices, including cases where refining one block can suppress false taints reaching downstream blocks and reduce the need for further updates. The introduced Max-SAT formulation captures how re-finement choices affect taint propagation of the combina-tional logic within a clock cycle. However, realistic RTL designs are sequential. A cex can be a multi-cycle execution trace, where false taint may propagate across clock cycles through state elements. To handle this temporal behaviour in practice, CEGAR-T provides two refinement algorithms that offer different optimality–scalability tradeoffs. The first 
+
+Unroll Approach constructs the Max-SAT instance over the whole cex trace by unrolling , which duplicates the combina-tional logic of the design for the number of cycles in the cex, allowing the solver to reason about the propagation across all cycles. As a result, it computes a minimum-cost refine-ment for a given cex, but may incur high refinement time overhead due to unrolling as the cex gets longer. The second 
+
+Single-Frame Approach , in contrast, avoids full unrolling by solving a sequence of simpler refinement problems within a single cycle. This sacrifices exact optimality for a given cex (with little empirical loss in terms of solution quality), but yields a significantly more scalable refinement procedure. 
+
+Paper Roadmap 
+
+After reviewing the required background in Section 3, Section 4 presents a sound and complete procedure for checking whether a cex is spurious. Section 5 formalizes the notion of taint-logic precision and defines the corresponding refinement lattice. Building on this foundation, Section 6 develops the Max-SAT formulation for refinement site selec-tion. Next, Section 7 elaborates how the general CEGAR-T framework is instantiated on word-level CellIFT, Section 8 describes a practical two-phase CEGAR-T-based simulation workflow, and Section 9 evaluates CEGAR-T in this setting. 
+
+## 3. Background 
+
+3.1. Notation 
+
+We use ¯𝑥 for the negation of a variable 𝑥 , ¬𝜙 for negation of an expression 𝜙 , symbols “ ·”, “ +”, “ ⇒”, and “∀”, for logical AND, logical OR, implication, and universal quantification (forall), respectively. 
+
+3.2. Information Flow Property 
+
+An information flow property specifies that sources (se-cret inputs) must not affect the sink (attacker-observable output) in a design. Intuitively, the sink should never change if we vary sources while holding other non-source inputs (public inputs) unchanged. This is formalized by the non-interference (NI) property [19]. Consider a combinational logic design 𝑦 = 𝑓 (𝑋 𝑝 , 𝑋 𝑠 ) where 𝑦 is the sink, 𝑋 𝑠 the secret inputs, and 𝑋 𝑝 the public ones. The absence of information flow from 𝑋 𝑠 to 𝑦 is captured by the NI condition below: 
+
+∀𝑋 𝑝 , ∀𝑋 𝑠 , ∀𝑋 ′ 
+
+> 𝑠
+
+. 𝑓 (𝑋 𝑝 , 𝑋 𝑠 ) = 𝑓 (𝑋 𝑝 , 𝑋 ′ 
+
+> 𝑠
+
+), (1) where 𝑋 ′ 
+
+> 𝑠
+
+corresponds to a change to the secret inputs. For a sequential design, we reason in terms of input traces and corresponding simulated executions. An input trace 𝜏 𝐾 is a time-indexed sequence of input valuations over 𝑘 ∈ [ 0..𝐾 ].We write 𝑋 𝑝 (𝑘 ) and 𝑋 𝑠 (𝑘 ) for the public and secret parts of the input valuation at time 𝑘 in 𝜏 . Evaluating the design on 𝜏 𝐾 induces a unique execution, which determines the valuations of all signals over time. We refer to this induced sequence of valuations as the full trace of the design under 
+
+𝜏 𝐾 . We denote the valuation of the sink in the full trace at time 𝑘 by 𝑦 sink (𝑘 ). NI requires that for all 𝐾 and for any two input traces (𝜏 𝐾 , 𝜏 ′ 
+
+> 𝐾
+
+) whose public inputs agree at every time step, the sinks are identical at the last time step: 
+
+∀𝐾. ∀𝜏 𝐾 , 𝜏 ′ 
+
+> 𝐾
+
+.
+
+
+
+∀𝑘. 𝑋 𝑝 (𝑘 ) = 𝑋 ′ 
+
+> 𝑝
+
+(𝑘 )
+
+
+
+⇒ ( 𝑦 sink (𝐾 ) = 𝑦 ′ 
+
+> sink
+
+(𝐾 )) ,
+
+(2) where 𝑦 sink (𝑘 ) (resp., 𝑦 ′ 
+
+> sink
+
+(𝑘 )) is obtained by evaluating the design on 𝜏 𝐾 (resp., 𝜏 ′ 
+
+> 𝐾
+
+). If Eq. (2) is violated, then there is a 𝐾 and two input traces 𝜏 𝐾 , 𝜏 ′ 
+
+> 𝐾
+
+such that 𝑋 𝑝 (𝑘 ) = 𝑋 ′ 
+
+> 𝑝
+
+(𝑘 )
+
+for all 𝑘 ≤ 𝐾 , but 𝑦 sink (𝐾 ) ≠ 𝑦 ′ 
+
+> sink
+
+(𝐾 ). The input traces serve as the cex to the property. A standard way to check NI is via self-composition [30] following Eq. (1) and Eq. (2). This approach builds a self-composed design consisting of two copies of the original design, constrain their public inputs to be equal while leav-ing their secret inputs unconstrained, and assert equality of sinks across the two copies. For combinational logic, self-composition corresponds to Eq. (1), whose violation can be checked via a SAT query over (𝑋 𝑝 , 𝑋 𝑠 , 𝑋 ′ 
+
+> 𝑠
+
+). For sequen-tial logic, self-composition yields a safety property [30] in Eq. (2), whose violation can be checked by a model checker. 33.3. Hardware IFT with Taint Analysis 
+
+Taint analysis is an alternative way to check the NI property that avoids the two-copy self-composition. Instead, it instruments a single copy of the design with additional taint bits and taint logic, and then checks whether taint from the sources can reach the taint at the sink along an execution. Taint analysis associates each signal 𝑥 with a taint bit 
+
+𝑥 𝑡 indicating if there may be a flow from sources to 𝑥 . For a combinational block 𝑦 = 𝑓 (𝑋 ), a taint logic 𝑓 𝑡 computes the output taint 𝑦 𝑡 from the input values and input taints: 
+
+𝑦 𝑡 = 𝑓 𝑡 (𝑋, 𝑋 𝑡 ). (3) For a sequential design, sequential state elements such as D-flip flops (DFFs) propagate taint across cycles (e.g., 
+
+𝑞 𝑡 (𝑘 +1) = 𝑑 𝑡 (𝑘 ), where 𝑞 and 𝑑 are the DFF output and input, respectively), and taint is propagated through combinational logic in each cycle with Eq. (3). NI of both combinational and sequential cases is soundly approximated by checking if the sink could ever be tainted assuming sources are tainted ( 𝑋 𝑡 𝑠 = 1) and non-source inputs are untainted ( 𝑋 𝑡 𝑝 = 0). Design-level taint logic is constructed compositionally :each primitive block 𝑓 is assigned a taint logic 𝑓 𝑡 (e.g., gates [12], RTL operators [13], or cells [6]), and composed according to the design connectivity. As a result, the sink taint is determined by the interaction of many local taint logics along the fanin cone of the sink and across cycles. Taint analysis is designed to be a sound overapproxima-tion with respect to the NI semantics in Eq. (1) and Eq. (2). In particular, if there exists an information-flow witness in the sense of NI, i.e., two executions that agree on all public inputs but differ at the sink—then, when we label only the sources as tainted, executing the design under any one of the two input traces must taint the sink in the taint logic. However, the converse need not hold: the sink can become tainted even when no such paired execution exists, leading to spurious information flows. 
+
+Scope of Refinement 
+
+Imprecision arises primarily from two sources. First, 
+
+local imprecision comes from using an imprecise taint logic for a primitive block 𝑓 that over-taints. For example, the taint logic 𝑎 𝑡 + 𝑏 𝑡 for a 2-input AND is imprecise since it ignores value-dependent blocking when a public input is 0 (e.g., (𝑎 𝑡 , 𝑏 𝑡 ) = (1, 0) and 𝑏 = 0 implies 𝑦 = 𝑎 · 𝑏 
+
+is independent of 𝑎 , but 𝑎 𝑡 + 𝑏 𝑡 still yields 𝑦 𝑡 = 1). The precise taint logic considering the value-dependent effect is 
+
+𝑎 𝑡 · 𝑏 𝑡 + 𝑎 𝑡 · 𝑏 + 𝑎 · 𝑏 𝑡 . Second, correlation-based imprecision 
+
+arises even if each primitive is equipped with a precise taint logic in isolation. For instance, let 𝑦 = 𝑎 · 𝑏 with 𝑎 = 𝑐 · 𝑑 
+
+and 𝑏 = ¯𝑐 · 𝑑 , and label only 𝑐 as a source ( 𝑐 𝑡 = 1, 𝑑 𝑡 = 0), assuming precise taint logic for all the AND gates. For the concrete valuation (𝑐, 𝑑 ) = (0, 1), we have (𝑎, 𝑏 ) = (0, 1)
+
+and (𝑎 𝑡 , 𝑏 𝑡 ) = (1, 1), therefore yielding 𝑦 𝑡 = 1. However, 
+
+𝑦 is constant zero for all (𝑐, 𝑑 ), so there is no actual flow from 𝑐 to 𝑦 . The spurious taint occurs since local taint logic ignores the correlation between 𝑎 and 𝑏 induced by shared inputs ( 𝑏 = 1 implies 𝑎 = 0). These two sources of impre-cision are discussed in the literature [12], [23], [31]. In this work, we focus on eliminating local imprecision by refining per-block taint logic, and leave handling correlation-based imprecision as future work. Based on our experience, the majority of the imprecision comes from local imprecision. 
+
+3.4. Maximum Satisfiability (Max-SAT) 
+
+(Weighted) maximum satisfiability [32] (Max-SAT) ex-tends SAT with an optimization objective. We use the following Max-SAT formulation (one of several equivalent ones [32]) as it aligns with our subsequent discussion and is supported by the solvers [33], [34], [35], [36], [37], [38]. Given a set of Boolean constraints Φ over variables 𝑉 ,Max-SAT searches for an assignment that satisfies Φ while minimizing (or maximizing) a user-specified cost. The cost is expressed as an objective over a subset of variables as a weighted sum. We use the following notation for a Max-SAT query with constraint set Φ and objective min Í𝑖 𝑤 𝑖 · 𝑣 𝑖 
+
+with 𝑣 𝑖 ∈ 𝑉 a Boolean variable and 𝑤 𝑖 ≥ 0 its weight (the unweighted case sets 𝑤 𝑖 = 1): 
+
+model ← MAX SAT (Φ, min ∑︁ 
+
+> 𝑖
+
+𝑤 𝑖 · 𝑣 𝑖 ) (4) There exists efficient Max-SAT solvers that scale to large instances [33], [34], [35], [36], [37]. More generally, optimization modulo theories (OMT) solvers such as Z3’s optimizing engine also support Max-SAT-style objectives with logical constraints over non-Boolean variables [38]. 
+
+## 4. Spuriousness Check 
+
+Given a cex trace 𝜏 𝐾 on the taint logic, i.e., an input trace under which the composed and possibly imprecise taint logic marks the sink as tainted, we can check whether it corresponds to an actual violation of NI in two ways. First, we can re-evaluate the same input trace 𝜏 𝐾 under a precise (or more precise) reference taint logic (e.g., using precise taint logic for each primitive). If the sink is untainted with this reference taint logic, then the cex must be spurious due to the overapproximation of taint logic. We called this first approach precise taint simulation . Second, we can use the two-trace definition in Eq. (2). Concretely, we fix one side of the self-composed construction to the concrete execution induced by 𝜏 𝐾 , leave the other side symbolic but constrain public inputs to be equal at each time step, and ask whether there exists another input trace 𝜏 ′ 
+
+> 𝐾
+
+such that the sink differs at time 𝐾 . This reduces to a SAT query on the unrolled self-composed design; if unsatisfiable, the cex is spurious. The SAT approach is complete for checking spurious-ness but more expensive than precise taint simulation in general. Precise taint simulation is sound and more efficient, but incomplete since, unlike the SAT approach, it does not account for correlation-based imprecision. In this work, we combine both approaches: given a cex, we perform precise taint simulation first, and only use the SAT approach if the precise taint simulation produces a tainted sink. 4A complete spuriousness check distinguishes real from spurious cex. Note that when a spurious cex is detected, we can either let it trigger a refinement or just report it as a spurious cex. This is explored further in Section 8. 
+
+## 5. Precision and Refinement of Taint Logic 
+
+We start by characterizing fine-grained precision for a single primary block of the design. For this block, we propose a refinement lattice to enable minimum refinement that eliminates a given spurious cex. This is in contrast to prior precise taint construction [6], [12], [13], which may lead to excessive refinement by forcing precision under all possible input values. 
+
+5.1. Formalizing Per-assignment Precision 
+
+We assume DFFs are the only sequential blocks in de-signs. Since they simply propagate taint across clock cycles and cannot be refined, we focus on combinational blocks. Let 𝑋 = (𝑥 1, . . . , 𝑥 𝑛 ) be the inputs, 𝑦 = 𝑓 (𝑋 ) the output, and 𝑦 𝑡 = 𝑓 𝑡 (𝑋, 𝑋 𝑡 ) the taint logic of a block 𝑓 .A taint assignment 𝜏 𝑡 ∈ {0, 1}𝑛 to 𝑋 𝑡 partitions the inputs into the public inputs 𝑋 𝑝 and the secret inputs 𝑋 𝑠 :
+
+𝑋 𝑝 (𝜏 𝑡 ) ≜ {𝑥 𝑖 | 𝑥 𝑖 ∈ 𝑋 ∧ 𝑥 𝑡 𝑖 = 0 in 𝜏 𝑡 },𝑋 𝑠 (𝜏 𝑡 ) ≜ {𝑥 𝑖 | 𝑥 𝑖 ∈ 𝑋 ∧ 𝑥 𝑡 𝑖 = 1 in 𝜏 𝑡 }.
+
+As a reminder, this partition may change because it depends on how the hardware block is embedded within the larger design. For the same block, we may see different partitions in different cex or time frames. We write the taint logic 𝑓 𝑡 under the taint assignment 𝜏 𝑡 as 
+
+𝑓 𝑡 𝜏 𝑡 (𝑋 𝑝 , 𝑋 𝑠 ) ≜ 𝑓 𝑡 (𝑋, 𝜏 𝑡 ).
+
+When fixing a taint assignment 𝜏 𝑡 , following the NI semantics in Section 3, a taint logic 𝑦 𝑡 = 𝑓 𝑡 𝜏 𝑡 (𝑋 𝑝 , 𝑋 𝑠 ) is 
+
+precise iff 𝑦 𝑡 = 1 exactly when there is a flow from 𝑋 𝑠 to 
+
+𝑦 . That is, there exists 𝑋 ′ 
+
+> 𝑠
+
+such that 𝑓 (𝑋 𝑝 , 𝑋 𝑠 ) ≠ 𝑓 (𝑋 𝑝 , 𝑋 ′ 
+
+> 𝑠
+
+)
+
+with 𝑋 𝑝 fixed, as captured by the predicate ˆ𝑓 𝑡 𝜏 𝑡 :
+
+ˆ𝑓 𝑡 𝜏 𝑡 (𝑋 𝑝 , 𝑋 𝑠 ) ≜ ∃𝑋 ′ 
+
+> 𝑠
+
+. 𝑓 (𝑋 𝑝 , 𝑋 𝑠 ) ≠ 𝑓 (𝑋 𝑝 , 𝑋 ′ 
+
+> 𝑠
+
+). (5) Given a taint logic 𝑓 𝑡 , we can now reason about its precision for a specific taint-assignment 𝜏 𝑡 . We say 𝑓 𝑡 is precise under 
+
+𝜏 𝑡 if 𝑓 𝑡 𝜏 𝑡 is equivalent to ˆ𝑓 𝑡 𝜏 𝑡 .The above concept of per-assignment precision guides us to make assignment-specific refinement in Section 5.2 and to further derive our refinement lattice in Section 5.3. Additionally, we give the definition of precise taint logic that is agnostic to taint assignments. 
+
+Definition 5.1 (Precise taint logic) . A taint logic 𝑓 𝑡 is 
+
+precise if it is precise under all taint assignments: 
+
+∀𝜏 𝑡 . 𝑓 𝑡 is precise under 𝜏 𝑡 (6) 
+
+Example 5.1. Let 𝑋 = (𝑎, 𝑏 ) and 𝑦 = 𝑓 (𝑎, 𝑏 ) = 𝑎 · 𝑏 . We consider two candidate taint logics 𝑓 𝑡 𝑖 with index 𝑖 ∈ { 0, 1}
+
+denoting different taint logics for the same function 𝑓 :
+
+𝑓 𝑡  
+
+> 0
+
+(𝑎, 𝑏, 𝑎 𝑡 , 𝑏 𝑡 ) = 𝑎 𝑡 + 𝑏 𝑡 ,𝑓 𝑡  
+
+> 1
+
+(𝑎, 𝑏, 𝑎 𝑡 , 𝑏 𝑡 ) = 𝑎 𝑡 + ( 𝑎 · 𝑏 𝑡 ).
+
+Case (1): 𝑎 public, 𝑏 secret. Let 𝜏 𝑡 = (0, 1), so 𝑋 𝑝 = {𝑎 }
+
+and 𝑋 𝑠 = {𝑏 }. We compute ˆ𝑓 𝑡  
+
+> (0,1)
+
+by instantiating Eq. (5): 
+
+ˆ𝑓 𝑡  
+
+> (0,1)
+
+= ∃𝑏 ′ . (𝑎 · 𝑏 ) ≠ (𝑎 · 𝑏 ′) = 𝑎. 
+
+Under 𝜏 𝑡 = (0, 1), the two taint logics simplify to: 
+
+𝑓 𝑡  
+
+> 0
+
+(𝑎, 𝑏, 0, 1) = 1, 𝑓 𝑡  
+
+> 1
+
+(𝑎, 𝑏, 0, 1) = 𝑎. 
+
+Therefore 𝑓 𝑡  
+
+> 1
+
+is precise under 𝜏 𝑡 = (0, 1) (it matches ˆ𝑓 𝑡  
+
+> (0,1)
+
+=
+
+𝑎 ), whereas 𝑓 𝑡  
+
+> 0
+
+is imprecise. Case (2): 𝑎 secret, 𝑏 public. Let 𝜏 𝑡 = (1, 0), so 𝑋 𝑝 = {𝑏 }
+
+and 𝑋 𝑠 = {𝑎 }. Here, both taint logics reduce to 1 under 𝜏 𝑡 :
+
+𝑓 𝑡  
+
+> 1
+
+(𝑎, 𝑏, 1, 0) = 1, 𝑓 𝑡  
+
+> 2
+
+(𝑎, 𝑏, 1, 0) = 1,
+
+, which are in-equivalent to ˆ𝑓 𝑡  
+
+> (1,0)
+
+= 𝑏 , and thus imprecise under 𝜏 𝑡 = (1, 0).
+
+Constructing Precise Taint Logic. In fact, with Defini-tion 5.1, we are able to construct the precise taint logic. Let the minterms over (𝑎 𝑡 , 𝑏 𝑡 ) be: 
+
+𝑚 00 ≜ ¯𝑎 𝑡 · ¯𝑏 𝑡 , 𝑚 01 ≜ ¯𝑎 𝑡 · 𝑏 𝑡 ,𝑚 10 ≜ 𝑎 𝑡 · ¯𝑏 𝑡 , 𝑚 11 ≜ 𝑎 𝑡 · 𝑏 𝑡 .
+
+A precise taint logic can be constructed by a minterm expansion over 𝜏 𝑡 = (𝑎 𝑡 , 𝑏 𝑡 ). For each taint assignment, we gate the corresponding per-assignment precision predicate 
+
+ˆ𝑓 𝑡   
+
+> (𝑖, 𝑗 )
+
+with the matching minterm 𝑚 𝑖 𝑗 of (𝑎 𝑡 , 𝑏 𝑡 ) and take the disjunction of the results, as prescribed by Definition 5.1. For the 2-input AND cell, we have ˆ𝑓 𝑡  
+
+> (0,0)
+
+= 0, ˆ𝑓 𝑡  
+
+> (0,1)
+
+= 𝑎 ,
+
+ˆ𝑓 𝑡  
+
+> (1,0)
+
+= 𝑏 , and ˆ𝑓 𝑡  
+
+> (1,1)
+
+= 1. This yields: 
+
+˜𝑓 𝑡 = (𝑚 00 · ˆ𝑓 𝑡  
+
+> (0,0)
+
+) + ( 𝑚 01 · ˆ𝑓 𝑡  
+
+> (0,1)
+
+) + (𝑚 10 · ˆ𝑓 𝑡  
+
+> (1,0)
+
+) + ( 𝑚 11 · ˆ𝑓 𝑡  
+
+> (1,1)
+
+)
+
+= ( ¯𝑎 𝑡 · 𝑏 𝑡 · 𝑎 ) + ( 𝑎 𝑡 · ¯𝑏 𝑡 · 𝑏 ) + ( 𝑎 𝑡 · 𝑏 𝑡 ),
+
+(7) which is equivalent to the precise taint logic in the litera-ture [12] for 2-input AND (𝑎 𝑡 · 𝑏 ) + ( 𝑎 · 𝑏 𝑡 ) + ( 𝑎 𝑡 · 𝑏 𝑡 ).We remark that such a precise taint logic construction is different from the canonical 𝑚 -replica architecture in CellIFT [6] but yields the functionally equivalent precise taint logic. In subsequent discussion, given a function 𝑓 ,we assume having access to the precise taint logic ˜𝑓 𝑡 .
+
+5.2. Counterexample-Guided Precision Refinement 
+
+We next explain how to refine a taint logic 𝑓 𝑡 to remove a spurious cex in which 𝑓 𝑡 over-taints .Let’s consider a motivating example of a 3-input AND cell 𝑦 = 𝑎 · 𝑏 · 𝑐 with the most imprecise taint logic 
+
+𝑓 𝑡  
+
+> 0
+
+= 𝑎 𝑡 + 𝑏 𝑡 + 𝑐 𝑡 .
+
+Suppose we observe a cex assignment with 𝜏 𝑡 = (1, 0, 0) and 
+
+𝜏 = (1, 0, 1), under which taint should not propagate to the output, but the current taint logic nevertheless sets 𝑦 𝑡 = 1.5We describe three versions of refinement to demonstrate the benefit of making assignment-specific refinements. First, a naive refinement would block exactly this single valuation by conjoining a constraint that excludes it: 
+
+𝑓 𝑡  
+
+> naive
+
+= (𝑎 𝑡 + 𝑏 𝑡 + 𝑐 𝑡 ) · ¬( 𝑎 𝑡 · ¯𝑏 𝑡 · ¯𝑐 𝑡 · 𝑎 · ¯𝑏 · 𝑐 ).
+
+However, this refinement is overly specific: it eliminates only the particular cex and may still admit many other as-signments that share the same taint assignment 𝜏 𝑡 = (1, 0, 0)
+
+and are equally spurious. For example, under the same 
+
+𝜏 𝑡 = (1, 0, 0), (𝑎, 𝑏, 𝑐 ) = (0, 0, 1) and (1, 0, 0) should also yield 𝑦 𝑡 = 0 because 𝑏 = 0 or 𝑐 = 0 blocks the secret 𝑎 , yet 
+
+𝑓 𝑡  
+
+> 0
+
+over-taints these cases as well. Second, at the other extreme, we could replace 𝑓 𝑡  
+
+> 0
+
+with 
+
+˜𝑓 𝑡 , thereby eliminating all spurious over-tainting for this cell. While effective, this can be unnecessarily expensive when ˜𝑓 𝑡 contains terms that are irrelevant under the design’s reachable behaviors, e.g., the don’t-care values in the design. Lastly, we seek a refinement that generalizes from the cex to capture the blocking condition over the public inputs, which characterizes the public input values that block the taints for 𝑓 𝑡 and the given 𝜏 𝑡 .Under 𝜏 𝑡 = (1, 0, 0), the secret is 𝑋 𝑠 = {𝑎 } and the public inputs are 𝑋 𝑝 = {𝑏, 𝑐 }. For 𝑦 = 𝑎 · 𝑏 · 𝑐 , the secret can influence 𝑦 iff 𝑏 · 𝑐 = 1; equivalently, ( ¯𝑏 + ¯𝑐 ) blocks taint propagation. Thus, a just-enough refinement , that lies in between the two ends above, strengthens 𝑓 𝑡  
+
+> 0
+
+by ruling out taint propagation whenever ( ¯𝑏 𝑡 · ¯𝑐 𝑡 · ( ¯𝑏 + ¯𝑐 )) holds: 
+
+𝑓 𝑡  
+
+> ref
+
+= (𝑎 𝑡 + 𝑏 𝑡 + 𝑐 𝑡 ) · ¬( ¯𝑏 𝑡 · ¯𝑐 𝑡 · ( ¯𝑏 + ¯𝑐 )) .
+
+As a result, this refinement eliminates a set of generalized cex, the original cex and a family of cex that share the same taint assignment 𝜏 𝑡 = (1, 0, 0), using a simpler taint logic compared with ˜𝑓 𝑡 . This potentially avoids generating cex from the same family, thus reducing the number of iterations in the CEGAR-T loop. 
+
+Refine for Arbitrary Blocks We now formalize the above intuition for an arbitrary combinational logic 𝑓 and its taint logic 𝑓 𝑡 . Let a cex provide a taint assignment 𝜏 𝑡 
+
+and concrete valuations (𝜏 𝑝 , 𝜏 𝑠 ) for (𝑋 𝑝 , 𝑋 𝑠 ). We compute a blocking condition 𝑅 𝜏 𝑡 over public inputs under 𝜏 𝑡 :
+
+𝑅 𝜏 𝑡 (𝑋 𝑝 ) ≜ ∀𝑋 𝑠 , 𝑋 ′ 
+
+> 𝑠
+
+. 𝑓 (𝑋 𝑝 , 𝑋 𝑠 ) = 𝑓 (𝑋 𝑝 , 𝑋 ′ 
+
+> 𝑠
+
+). (8) Intuitively, 𝑅 𝜏 𝑡 (𝑋 𝑝 ) = 1 means that for the given 𝑋 𝑝 , vary-ing secret inputs cannot change the output, so the secret does not propagate. Using 𝑅 𝜏 𝑡 , we refine 𝑓 𝑡 by ruling out taint propagation whenever all public inputs are untainted and the blocking condition holds. Writing (𝑋 𝑡 𝑝 = 0) ≜ Î𝑥 𝑖 ∈𝑋 𝑝 ¯𝑥 𝑡 𝑖 ,the refined taint logic is: 
+
+𝑓 𝑡  
+
+> ref
+
+= 𝑓 𝑡 · ¬  (𝑋 𝑡 𝑝 = 0) · 𝑅 𝜏 𝑡 (𝑋 𝑝 ). (9) Note that the blocking condition 𝑅 𝜏 𝑡 depends on 𝜏 𝑡 , not on the concrete assignment for the public/secret inputs 𝜏 𝑝 /𝜏 𝑠 ,i.e., we refine the taint logic w.r.t. the taint assignment 𝜏 𝑡 ,which captures a family of cex of the same 𝜏 𝑡 .
+
+5.3. Refinement Lattice 
+
+We now formalize the space of candidate taint logics by viewing each application of Eq (9) as a refinement step to a more precise taint logic. 
+
+Root node (most imprecise taint logic). In theory, the constant taint logic 𝑦 𝑡 = 1 is the most imprecise one but it is not practically useful. Following prior work [12], [21], [22], we use the disjunction of input taints as the root node. 
+
+𝑓 𝑡  
+
+> 0
+
+(𝑋, 𝑋 𝑡 ) ≜
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+𝑥 𝑡 𝑖 . (10) 
+
+Refinement operator. Let 𝜏 𝑡 ∈ { 0, 1}𝑛 be a taint as-signment inducing the partition (𝑋 𝑝 , 𝑋 𝑠 ). We define the refinement operator by directly rewriting Eq. (9) for an arbitrary current taint logic 𝑓 𝑡 :
+
+Refine ( 𝑓 𝑡 , 𝜏 𝑡 ) ≜ 𝑓 𝑡 · ¬  (𝑋 𝑡 𝑝 = 0) · 𝑅 𝜏 𝑡 (𝑋 𝑝 ). (11) We only apply Refine (· , 𝜏 𝑡 ) when 𝑓 𝑡 is imprecise under 𝜏 𝑡 .
+
+Definition 5.2 (Refinement lattice) . Given a function 𝑓 , let 
+
+T ≜ {0, 1}𝑛 be the set of all possible taint assignments. The 
+
+refinement lattice for 𝑓 is the directed graph L = (𝑉, 𝐸 ): 
+
+> •
+
+Nodes. 𝑉 is the smallest set of taint logics such that: (i) 
+
+𝑓 𝑡  
+
+> 0
+
+∈ 𝑉 , and (ii) for any 𝑓 𝑡 ∈ 𝑉 and any 𝜏 𝑡 ∈ T , if 𝑓 𝑡 is imprecise under 𝜏 𝑡 , then Refine ( 𝑓 𝑡 , 𝜏 𝑡 ) ∈ 𝑉 . 
+
+> •
+
+Edges. For any 𝑓 𝑡 ∈ 𝑉 and 𝜏 𝑡 ∈ T such that 𝑓 𝑡 is imprecise under 𝜏 𝑡 , we add a labeled edge: 
+
+𝑓 𝑡 𝜏 𝑡 
+
+−−−→ Refine ( 𝑓 𝑡 , 𝜏 𝑡 ).
+
+Each node in L is a candidate taint logic reachable from 
+
+𝑓 𝑡  
+
+> 0
+
+by repeatedly applying Refine (· , 𝜏 𝑡 ), and thus represents a different precision point in our search space. Moreover, the precise taint logic ˜𝑓 𝑡 is the sink node in L, since no refinement is applicable once a taint logic is precise under every taint assignment. Prior work [21] constructs a family of imprecise taint logics by introducing don’t-care conditions over 𝑋 , starting from a precise taint logic and simplifying it via offline precomputation. In contrast, our refinement lattice is built around taint assignments over 𝑋 𝑡 : each edge corresponds to strengthening 𝑓 𝑡 by the blocking condition, enabling implicit, on-demand traversal starting from a cheap root logic. This yields a finer-grained space, e.g., for a 3-input AND gate, their construction yields 8 variants, whereas our lattice contains 64 nodes and subsumes their variants. 
+
+Key properties. From Eq. (11), each refinement step strengthens the current taint logic by conjoining a constraint. As a result, refinement steps commute: for any 𝑓 𝑡 and 
+
+𝜏 𝑡  
+
+> 1
+
+, 𝜏 𝑡  
+
+> 2
+
+∈ T ,
+
+Refine (Refine ( 𝑓 𝑡 , 𝜏 𝑡  
+
+> 1
+
+), 𝜏 𝑡  
+
+> 2
+
+) ≡ Refine (Refine ( 𝑓 𝑡 , 𝜏 𝑡  
+
+> 2
+
+), 𝜏 𝑡  
+
+> 1
+
+),
+
+This property ensures that when a block requires multiple re-finements, which is needed later in Section 6 for multi-cycle cex, the applications of refinements are order-independent. 6Figure 1: The refinement lattice for 𝑦 = 𝑎 · 𝑏 .For a set of taint assignments 𝑇 ⊆ T from multiple cex, we define the batch-refined taint logic as: 
+
+Refine ( 𝑓 𝑡 , 𝑇 ) ≜ 𝑓 𝑡 · Î𝜏 𝑡 ∈𝑇 𝐺 𝜏 𝑡 , (12) where 𝐺 𝜏 𝑡 abbreviates the guard conjoined in Eq. (11). By commutativity of conjunction, Eq. (12) is equivalent to applying Refine (· , 𝜏 𝑡 ) sequentially for all 𝜏 𝑡 ∈ 𝑇 in any order. In sequential designs, multiple cex for the same 𝑓 𝑡 
+
+may arise at different cycles of one execution trace. Batch refinement allows us to refine multiple cex at once. 
+
+Example 5.2. Consider again the 2-input AND with root taint logic 𝑓 𝑡  
+
+> 0
+
+= 𝑎 𝑡 + 𝑏 𝑡 . There are four taint assignments 
+
+T = {( 0, 0), (0, 1), (1, 0), (1, 1)} . We have that 𝑓 𝑡  
+
+> 0
+
+is precise under (0, 0) and (1, 1), but imprecise under (0, 1) and (1, 0).By Definition 5.2, there are two outgoing edges from 𝑓 𝑡  
+
+> 0
+
+in the lattice for the two imprecise taint assignments: 
+
+Refine ( 𝑓 𝑡  
+
+> 0
+
+, (0, 1)) ≡ 𝑓 𝑡  
+
+> 1
+
+≜ 𝑎 𝑡 + ( 𝑎 · 𝑏 𝑡 ),
+
+Refine ( 𝑓 𝑡  
+
+> 0
+
+, (1, 0)) ≡ 𝑓 𝑡  
+
+> 2
+
+≜ 𝑏 𝑡 + ( 𝑎 𝑡 · 𝑏 ).
+
+Thus, the lattice contains edges 𝑓 𝑡 
+
+> 0
+> (0,1)
+
+−−−−→ 𝑓 𝑡  
+
+> 1
+
+and 𝑓 𝑡 
+
+> 0
+> (1,0)
+
+−−−−→ 𝑓 𝑡  
+
+> 2
+
+.Refining once more from either intermediate node yields the precise taint logic: 
+
+Refine ( 𝑓 𝑡  
+
+> 1
+
+, (1, 0)) ≡ Refine ( 𝑓 𝑡  
+
+> 2
+
+, (0, 1)) ≡ ˜𝑓 𝑡 = (𝑎 𝑡 · 𝑏 ) + ( 𝑎 · 𝑏 𝑡 ) + ( 𝑎 𝑡 · 𝑏 𝑡 ).
+
+The visualization of the lattice is shown in Figure 1. 
+
+## 6. Max-SAT for Optimum Refinement 
+
+In a design, sink taint is determined by the interaction of many local taint logics. Section 5 defined the search space of candidate taint logic as a refinement lattice spanned by the Refine operator. This allows us to perform cex-guided refinement for a single block . This section addresses the remaining refinement selection problem: given a spurious cex with a falsely tainted sink, which blocks in the design must be refined to eliminate the sink taint while minimizing the added instrumentation cost? We consider a cex in the current taint logic to the sink taint, i.e., a concrete execution trace under which the composed taint logic marks the sink as tainted ( 𝑦 𝑡  
+
+> sink
+
+= 1). Constructing a precise reference model (e.g. CellIFT [6]) obtained by using the precise taint logic ˜𝑓 𝑡 for each block, our goal is to refine a selected set of combinational blocks so that re-evaluating the same trace leaves the sink untainted. Among all refinements that eliminate the cex, we aim to minimally change the taint logic of the design. Concretely, we seek a refinement that minimizes the number of blocks whose taint logic is refined . While this metric does not exactly translate to the final complexity of the taint logic, it is a reasonable proxy in practice. At a high level, this optimization can be formulated as a Max-SAT problem. We associate a variable 𝑟 𝑓 with each combinational block 𝑓 ,where 𝑟 𝑓 = 1 iff we refine the taint logic 𝑓 𝑡 to a more precise one. Intuitively, we want to search for a set of blocks to refine (i.e., set some 𝑟 𝑓 to 1) such that the resulting composed taint logic makes the sink untainted on the cex (𝑦 𝑡  
+
+> sink
+
+= 0), while setting as few 𝑟 𝑓 to 1 as possible. This corresponds exactly to the Max-SAT problem for finding a satisfiable solution over 𝑟 𝑓 variables, while minimizing the number of 1’s in the solution. 
+
+6.1. Identifying Refinement Candidate Set 
+
+Not every taint observed in the current taint logic can (or should) be eliminated by refinement. In fact, any taint seen by the precise reference model must be preserved. Refine-ment should only address blocks whose output is tainted in the current model but untainted in the reference model, i.e., the output is falsely tainted . Therefore, before formulating the Max-SAT instance, we identify combinational blocks with false taints under the current taint logic. We refer to this set of blocks as a refinement candidate set .Given the cex trace, we perform two taint simulations on the unrolled design: (i) the current taint simulation using the current block taint logic 𝑓 𝑡 , and (ii) the reference taint simulation using the precise reference model. For each combinational block 𝑓 and timeframe 𝑘 , let 𝑌 𝑡 ( 𝑓 , 𝑘 ) and 
+
+˜𝑌 𝑡 ( 𝑓 , 𝑘 ) denote the taint value of 𝑓 ’s output under the two simulations, respectively. We add 𝑓 to the refinement can-didate set C if it is falsely tainted in at least one timeframe: 
+
+C ≜ { 𝑓 | ∃ 𝑘 . 𝑌 𝑡 ( 𝑓 , 𝑘 ) = 1 and ˜𝑌 𝑡 ( 𝑓 , 𝑘 ) = 0 }. (13) Only blocks in C are eligible to be refined for this cex. Conceptually, C excludes blocks whose taint outputs already agree with the reference model, so refining them would not help eliminate any over-tainting observed on this cex. 
+
+Example 6.1. Consider a design with inputs (𝑎, 𝑏, 𝑐, 𝑑 ) and an output 𝑦 . Assume that the current taint logic uses the most imprecise one for all blocks, and that we encounter a cex with 𝜏 = (1, 0, 1, 1) and 𝜏 𝑡 = (1, 0, 0, 1), as shown in Figure 2 (a) and Figure 2 (b). By simulating the precise taint logic with 𝜏 𝑡 and 𝜏 , we acquire the reference taint values ( ˜𝑥 𝑡 
+
+> 1
+
+, ˜𝑥 𝑡 
+
+> 2
+
+, ˜𝑦 𝑡 ) = (0, 1, 0) as shown in Figure 2 (c). Since the output taints in the current taint logic are inconsistent with the ones in the precise taint logic for all blocks, the refinement candidate set is C = { 𝑓 , ℎ }.
+
+6.2. Circuit Construction for Refinement Candi-dates 
+
+For each refinement candidate block 𝑓 ∈ C , we use the variable 𝑟 𝑓 indicating whether we apply refinement to 𝑓 𝑡 
+
+for the current cex. A first attempt is to gate away the false 71 
+
+> 0
+> 1
+> 1
+> 0
+> 1
+> 1
+> 1
+> 0
+> 0
+> 1
+> 1
+> 1
+> 1
+> (a) The original design (b) The current taint logic
+> 1
+> 0
+> 1
+> 0
+> 1
+> 0
+> 0
+> 1
+> 1
+> 0
+> 1
+> 1
+> 0
+> 0
+> 1
+> 0
+> 1
+> 1
+> 0
+> 0
+> 0
+> (c) The precise taint logic
+
+Figure 2: The simulation results of the cex (𝑎, 𝑏, 𝑐, 𝑑 ) =
+
+(1, 0, 1, 1) and (𝑎 𝑡 , 𝑏 𝑡 , 𝑐 𝑡 , 𝑑 𝑡 ) = (1, 0, 0, 1) on (a) original design, (b) current taint logic, and (c) precise taint logic. taint by a mux: if 𝑟 𝑓 = 1 we force the block’s output taint to 
+
+0, otherwise we keep the original output taint computed by the current taint logic 𝑓 𝑡 . However, this construction is not sound: it may suppress output taint even when the current taint logic already matches the precise reference model. The key subtlety is that the input-taint assignment seen by 𝑓 𝑡 depends on the taints of its upstream fanin logic. Since some fanin taints may be falsely tainted and eliminated by refining upstream blocks, the input taints 𝑋 𝑡 arriving at 
+
+𝑓 𝑡 can change depending on upstream refinements. Thus, whether the false taint at 𝑓 𝑡 can be eliminated by refinement must be based on the input-taint 𝜏 𝑡 assignment reaching 𝑓 𝑡 ,referred to as the incoming input-taint assignment , together with the input assignment 𝜏 from the cex. To capture this dependency, we construct an enabling condition 𝑆 𝑓 (𝑋 𝑡 ) over the input taint bits 𝑋 𝑡 . Let 𝜏 be the assignment to 𝑋 given by the cex. We define 𝑆 𝑓 to describe when 𝑓 𝑡 is falsely tainted on the cex under the incoming input-taint assignment: 
+
+𝑆 𝑓 (𝑋 𝑡 ) ≜   𝑓 𝑡 (𝜏, 𝑋 𝑡 ) ≠ ˜𝑓 𝑡 (𝜏, 𝑋 𝑡 ). (14) Intuitively, 𝑆 𝑓 (𝑋 𝑡 ) = 1 means that, under 𝜏 and the seen 𝑋 𝑡 ,the output taint produced by 𝑓 𝑡 disagrees with the precise reference model, and hence is imprecise and eligible to be fixed by refinement. When 𝑆 𝑓 (𝑋 𝑡 ) = 0, the current taint logic already matches the reference model, and we should not allow refinement to change the output taint. We then guard refinement by 𝑆 𝑓 so that the refinement is enabled only when (i) the solver chooses 𝑟 𝑓 = 1 and (ii) the incoming input-taint assignment makes 𝑓 𝑡 falsely tainted. Concretely, letting 𝑦 𝑡 be the output taint of 𝑓 , we enforce 
+
+𝑦 𝑡 = (𝑟 𝑓 · 𝑆 𝑓 (𝑋 𝑡 )) ? 0 : 𝑓 𝑡 (𝑋, 𝑋 𝑡 ). (15) This ensures that a block’s output taint can be suppressed only in cases where it is falsely tainted on the cex under the incoming input-taint assignment reaching the block. 0
+
+> 10
+> 0
+> 0
+> 1
+
+Figure 3: The circuit construction of Example 6.2 for the cex used in Example 6.1. The 𝑆 ℎ block implements ¯𝑥 𝑡  
+
+> 1
+
+·𝑥 𝑡  
+
+> 2
+
++𝑥 𝑡  
+
+> 1
+
+· ¯𝑥 𝑡 
+
+> 2
+
+.
+
+Example 6.2. Following Example 6.1, the cex is 𝜏 =
+
+(1, 0, 1, 1), 𝜏 𝑡 = (1, 0, 0, 1) (Figure 2), and the refinement candidate set is C = { 𝑓 , ℎ }. The Max-SAT circuit con-struction is shown in Figure 3. For 𝑓 , since there is no other upstream logic that could affect its input taints, its guard is effectively constant one and simplified away. For 
+
+ℎ, following Eq. (15), we derive 𝑆 ℎ (𝑥 𝑡 
+
+> 1
+
+, 𝑥 𝑡 
+
+> 2
+
+) = ¯𝑥 𝑡  
+
+> 1
+
+· 𝑥 𝑡  
+
+> 2
+
++ 𝑥 𝑡  
+
+> 1
+
+· ¯𝑥 𝑡 
+
+> 2
+
+and use 𝑆 ℎ to guard the fix variable 𝑟 ℎ. The Max-SAT problem of this circuit would be finding an assignment to (𝑟 𝑓 , 𝑟 ℎ) such that 𝑦 𝑡 becomes 0, while minimizing the number of ones in the solution. There is one optimum solution (𝑟 𝑓 , 𝑟 ℎ) = (1, 1).A Max-SAT solution not only selects which blocks to fix, but also implicitly identifies the refinement step in the lattice, by determining the input-taint assignments under which the refinement is applied for each refined block. For example, consider the solution (𝑟 𝑓 , 𝑟 ℎ) = (1, 1). For 𝑓 𝑡 ,since it sees the taint assignment (𝑐 𝑡 , 𝑑 𝑡 ) = (1, 0), the refined taint logic would be Refine ( 𝑓 𝑡 , (1, 0)) = (𝑐 𝑡 · 𝑑 ) + 𝑑 𝑡 . For 
+
+ℎ𝑡 , since its upstream taint 𝑥 𝑡  
+
+> 2
+
+from 𝑔 𝑡 is fixed, it sees the input-taint assignment (𝑥 𝑡 
+
+> 1
+
+, 𝑥 𝑡 
+
+> 2
+
+) = (0, 1). The refined taint logic is Refine (ℎ𝑡 , (0, 1)) = 𝑥 𝑡  
+
+> 1
+
++ ( ¯𝑥 1 · 𝑥 𝑡 
+
+> 2
+
+).
+
+6.3. Overall Algorithm 
+
+With (i) the refinement candidate set, (ii) the guarded mux construction for candidates, and (iii) the refinement operator, we now present the end-to-end procedures for eliminating a spurious cex on a general sequential design. 
+
+6.3.1. Unroll Approach. The pseudocode of the unroll approach is shown in Algorithm 2. Given a cex trace 𝜏 of length 𝐾 , we run two simulations on the unrolled design: one using the current taint logic 𝑓 𝑡 and one using the precise reference logic ˜𝑓 𝑡 (lines 1–2). From the mismatch between the two runs, we identify a refinement candidate set C consisting of combinational blocks that are falsely tainted in at least one timeframe (line 3). For each candi-date block 𝑓 ∈ C , we introduce the variable 𝑟 𝑓 (line 4) to indicate if 𝑓 requires refinement to eliminate spurious taint on this trace. We then construct an unrolled Max-SAT instance 𝐷 ′ over frames 𝑘 ∈ [0..𝐾 ] (lines 5—11). For each combinational block instance in frame 𝑘 , we add the corresponding taint constraint in topological order. Non-candidates are encoded using their current taint logic. For candidates, we use the guarded mux construction (Eq. (15)) via the helper function A DD TAINT CONSTRAINT shown in 8Algorithm 1 A helper function used by Algorithm 2 assum-ing we have access to the fix variable 𝑟 𝑓 for 𝑓 ∈ C . 
+
+> 1:
+
+procedure ADD TAINT CONSTRAINT (𝐷 ′, 𝑓 , 𝑘, 𝜏, C) 
+
+> 2:
+
+if 𝑓 ∉ C then  
+
+> 3:
+
+Add constraint to 𝐷 ′:
+
+𝑦 𝑡 ( 𝑓 , 𝑘 ) = 𝑓 𝑡 (𝜏 ( 𝑓 , 𝑘 ), 𝑋 𝑡 ( 𝑓 , 𝑘 ))  
+
+> 4:
+
+else  
+
+> 5:
+
+𝑠 𝑓 ,𝑘 ← 𝑆 𝑓 ,𝑘 (𝑋 𝑡 ( 𝑓 , 𝑘 )) ⊲ instantiate Eq. (14)  
+
+> 6:
+
+Add constraint to 𝐷 ′:
+
+𝑦 𝑡 ( 𝑓 , 𝑘 ) = (𝑟 𝑓 · 𝑠 𝑓 ,𝑘 ) ? 0 : 𝑓 𝑡 (𝜏 ( 𝑓 , 𝑘 ), 𝑋 𝑡 ( 𝑓 , 𝑘 )) 
+
+Algorithm 2 Unroll-based Max-SAT refinement. 
+
+Require: Design 𝐷 = (𝐷 comb , 𝐷 dff ) and its current taint logic { 𝑓 𝑡 }; precise taint logic { ˜𝑓 𝑡 }; spurious cex 𝜏 of length 𝐾 ; sink 𝑦 sink  
+
+> 1:
+
+𝑌 𝑡 ← SIM (𝐷, { 𝑓 𝑡 }, 𝜏, 𝐾 ) ⊲ full trace of (𝐷, { 𝑓 𝑡 }) on 𝜏  
+
+> 2:
+
+˜𝑌 𝑡 ← SIM (𝐷, { ˜𝑓 𝑡 }, 𝜏, 𝐾 ) ⊲ full trace of (𝐷, { ˜𝑓 𝑡 }) on 𝜏  
+
+> 3:
+
+C ← { 𝑓 ∈ 𝐷 comb | ∃ 𝑘. 𝑌 𝑡 ( 𝑓 , 𝑘 ) = 1 and ˜𝑌 𝑡 ( 𝑓 , 𝑘 ) =
+
+0 } 
+
+> 4:
+
+R ← { 𝑟 𝑓 | 𝑓 ∈ C }  
+
+> 5:
+
+𝐷 ′ ← ∅  
+
+> 6:
+
+for 𝑘 ← 0 to 𝐾 do  
+
+> 7:
+
+for all 𝑓 ∈ 𝐷 comb in topological order do  
+
+> 8:
+
+ADD TAINT CONSTRAINT (𝐷 ′, 𝑓 , 𝑘 , 𝜏 , C) 
+
+> 9:
+
+for all 𝑞 ∈ 𝐷 dff with input 𝑑 do  
+
+> 10:
+
+Add constraint to 𝐷 ′: 𝑞 𝑡 (𝑘 +1) = 𝑑 𝑡 (𝑘 ) 
+
+> 11:
+
+Add constraint to 𝐷 ′: 𝑦 𝑡  
+
+> sink
+
+(𝐾 ) = 0 
+
+> 12:
+
+model ← MAX SAT (𝐷 ′, min Í𝑟 𝑓 ∈ R 𝑟 𝑓 ) 
+
+> 13:
+
+for all 𝑓 ∈ C with model (𝑟 𝑓 ) = 1 do  
+
+> 14:
+
+Γ 𝑓 ← ∅  
+
+> 15:
+
+for 𝑘 ← 0 to 𝐾 do  
+
+> 16:
+
+if model (𝑆 𝑓 ,𝑘 (𝑋 𝑡 ( 𝑓 , 𝑘 ))) = 1 then  
+
+> 17:
+
+Γ 𝑓 ← Γ 𝑓 ∪ { model (𝑋 𝑡 ( 𝑓 , 𝑘 ))}  
+
+> 18:
+
+𝑓 𝑡 ← Refine ( 𝑓 𝑡 , Γ 𝑓 ) ⊲ batch refinement, Eq. (12) Algorithm 1 for the circuit construction. Sequential elements are handled with the identity constraint for each DFF (lines 9—10). Finally, we solve one Max-SAT problem (line 12) that enforces the sink to be untainted at the last frame (line 11), while minimizing Í𝑟 𝑓 ∈ R 𝑟 𝑓 . The resulting model determines which blocks to refine, and implicitly the frames those refinements were actually enabled. For each selected block 𝑓 with model (𝑟 𝑓 ) = 1 in the MAX-SAT solution, we collect the set Γ 𝑓 of input-taint assignments 𝑋 𝑡 ( 𝑓 , 𝑘 ) for frames where the guard was active (lines 15–17), and then update the taint logic by applying batch refinement (line 18). 
+
+6.3.2. Single-Frame Approach. The unroll approach solves a single Max-SAT instance over the entire unrolled trace, which can be expensive for large 𝐾 . The single-frame approach instead solves a sequence of much smaller Max-SAT instances, one timeframe at a time in a forward man-ner, while re-simulating the full trace after each refinement update. The core idea of the single-frame approach lies in the observation of how false taints are propagated across 
+
+Algorithm 3 Single-frame Max-SAT refinement. 
+
+Require: Design 𝐷 = (𝐷 comb , 𝐷 dff ) and its current taint logic { 𝑓 𝑡 }; precise taint logic { ˜𝑓 𝑡 }; spurious cex trace 
+
+𝜏 of length 𝐾 ; sink signal 𝑦 sink  
+
+> 1:
+
+𝑌 𝑡 ← SIM (𝐷, { 𝑓 𝑡 }, 𝜏, 𝐾 ) ⊲ full trace of (𝐷, { 𝑓 𝑡 }) on 𝜏  
+
+> 2:
+
+˜𝑌 𝑡 ← SIM (𝐷, { ˜𝑓 𝑡 }, 𝜏, 𝐾 ) ⊲ full trace of (𝐷, { ˜𝑓 𝑡 }) on 𝜏  
+
+> 3:
+
+for 𝑘 ← 0 to 𝐾 do  
+
+> 4:
+
+if 𝑦 𝑡  
+
+> sink
+
+= 0 in 𝑌 𝑡 (𝐾 ) then  
+
+> 5:
+
+break  
+
+> 6:
+
+C𝑘 ← { 𝑓 ∈ 𝐷 comb | 𝑌 𝑡 ( 𝑓 , 𝑘 ) = 1 and ˜𝑌 𝑡 ( 𝑓 , 𝑘 ) =
+
+0 } 
+
+> 7:
+
+R𝑘 ← { 𝑟 𝑓 | 𝑓 ∈ C 𝑘 } 
+
+> 8:
+
+if 𝑘 < 𝐾 then  
+
+> 9:
+
+F ← { 𝑞 ∈ 𝐷 dff | 𝑌 𝑡 (𝑞, 𝑘 +1) =
+
+1 and ˜𝑌 𝑡 (𝑞, 𝑘 +1) = 0 } 
+
+> 10:
+
+Φ𝑘 ← (F = 0) 
+
+> 11:
+
+else  
+
+> 12:
+
+Φ𝑘 ← ( 𝑦 𝑡  
+
+> sink
+
+(𝐾 ) = 0) 
+
+> 13:
+
+𝐷 ′ 
+
+> 𝑘
+
+← ∅  
+
+> 14:
+
+for all 𝑓 ∈ 𝐷 comb in topological order do  
+
+> 15:
+
+ADD TAINT CONSTRAINT (𝐷 ′ 
+
+> 𝑘
+
+, 𝑓 , 𝑘 , 𝜏 , C𝑘 ) 
+
+> 16:
+
+for all 𝑞 ∈ 𝐷 dff with data input 𝑑 do  
+
+> 17:
+
+Add constraint to 𝐷 ′ 
+
+> 𝑘
+
+: 𝑞 𝑡 (𝑘 +1) = 𝑑 𝑡 (𝑘 ) 
+
+> 18:
+
+Add constraint to 𝐷 ′ 
+
+> 𝑘
+
+: Φ𝑘  
+
+> 19:
+
+model ← MAX SAT (𝐷 ′ 
+
+> 𝑘
+
+, min Í𝑟 𝑓 ∈ R 𝑘 𝑟 𝑓 ) 
+
+> 20:
+
+for all 𝑓 ∈ C 𝑘 with model (𝑟 𝑓 ) = 1 do  
+
+> 21:
+
+if model (𝑆 𝑓 ,𝑘 (𝑋 𝑡 ( 𝑓 , 𝑘 ))) = 1 then  
+
+> 22:
+
+𝑓 𝑡 ← Refine ( 𝑓 𝑡 , model (𝑋 𝑡 ( 𝑓 , 𝑘 )))  
+
+> 23:
+
+𝑌 𝑡 ← SIM (𝐷, { 𝑓 𝑡 }, 𝜏, 𝐾 )
+
+timeframes in the design. False taints persist across time because DFF taints simply forward from one frame to the next. As a result, a false taint at frame 𝑘 can be propagated to later frames through tainted state. The single-frame approach exploits this structure: going forward, at an intermediate frame, instead of directly forcing the sink to be untainted, we force the next-state DFF outputs that are falsely tainted to be untainted. Untainting these falsely tainted DFFs prevents their taints from being propagated into future frames and maintains the invariant that at the current frame, there is no incoming false taint from the DFFs, allowing a single-frame Max-SAT reasoning. For a cex, this approach does guarantee an optimum refinement in the single frame w.r.t. the falsely tainted DFFs but not the optimum refinement to the sink taint, which might be in several timeframes later. As will be demonstrated in Section 9, with slight optimality loss on the refinement, the single-frame approach achieves significant refinement-step speed-up and scalability improvement compared to the unroll approach. The main algorithm of the single-frame approach is shown in Algorithm 3. At each frame 𝑘 , we form a per-frame candidate set C𝑘 and the corresponding fix variables 
+
+R𝑘 (lines 6–7). We then construct a per-frame Max-SAT instance 𝐷 ′ 
+
+> 𝑘
+
+using the same guarded mux encoding as in the unroll approach (via A DD TAINT CONSTRAINT in Algo-9rithm 1), but instantiated only for frame 𝑘 (lines 14–17). The key difference from unrolling is the constraint Φ𝑘 :for intermediate frames ( 𝑘 < 𝐾 ), we constrain the set of falsely tainted DFF outputs at the next frame to be cleared, i.e., Φ𝑘 ≡ (F 𝑘 +1 = 0) (lines 8–10). For the last frame (𝑘 = 𝐾 ), we follow the same constraint for the sink taint 
+
+Φ𝐾 ≡ ( 𝑦 𝑡  
+
+> sink
+
+(𝐾 ) = 0) (line 12) as in the unroll approach. After solving M AX SAT on 𝐷 ′ 
+
+> 𝑘
+
+(line 19), we refine the taint logic of the selected blocks using the input-taint assignment realized in the model at frame 𝑘 (lines 20–22), then re-simulate the full trace under the updated taint logic (line 23). The loop terminates as soon as the sink becomes un-tainted; otherwise it advances to the next frame. Compared to Algorithm 2, this approach avoids a large 𝐾 -frame Max-SAT instance and is typically more scalable, at the expense of potentially selecting a non-minimal refinement set. 
+
+## 7. Implementation 
+
+We instantiate the general CEGAR-T framework on 
+
+CellIFT-style [6] instrumentation of RTL designs, where the taint logic is instrumented for cells (adder, multiplexer, etc.). The original CellIFT constructs precise taint logic at the bit-level , where each signal bit is associated with a taint bit. In contrast, our prototype adopts a word-level variant, where each multi-bit RTL word is associated with one taint bit. We chose CellIFT as the basis of our prototype because it is a state-of-the-art hardware IFT framework and provides an open-source reference implementation. The choice of word-level taint granularity is motivated by Compass [23], which identifies taint-bit granularity as a key design dimension in RTL taint analysis. Specifically, RTL designs often declare multi-bit words, which may correspond, for example, to ar-chitectural registers or datapath input/output words. Instead of tracking information flow for each individual bit, we track the information flow of the whole word. We interpret a word as tainted when at least one of its bits is tainted. This granularity reduces the number of taint variables and the size of the instrumented taint logic. We use the following example to explain the difference between the existing bit-level CellIFT and our word-level CellIFT. 
+
+Example 7.1. Consider a 𝑊 -bit 2:1 mux 
+
+y = 𝑠 ? b : a,
+
+where 𝑠 ∈ { 0, 1} and a, b, y ∈ { 0, 1}𝑊 .
+
+Precise Bit-level CellIFT CellIFT-style bit-level tracking uses one taint bit per data bit. Let a𝑡 , b𝑡 , y𝑡 ∈ { 0, 1}𝑊 , 𝑠 𝑡 ∈{0, 1} denote the per-bit taint vectors for a, b, y, 𝑠 , respec-tively. Then the precise taint logic is 
+
+y𝑡 =  𝑠 ? b𝑡 : a𝑡  + 𝑠 𝑡 ·
+
+
+
+a𝑡 + b𝑡 + ( a ⊕ b)
+
+
+
+,
+
+where +, ·, and ⊕ on vectors are interpreted bit-wise. 
+
+Precise Word-level CellIFT We use one taint bit per word ( 𝑎 𝑡 , 𝑏 𝑡 , 𝑦 𝑡 ). The precise word-level taint logic is 
+
+𝑦 𝑡 = (𝑠 ? 𝑏 𝑡 : 𝑎 𝑡 ) + 𝑠 𝑡 ·  𝑎 𝑡 + 𝑏 𝑡 + ( a ≠ b).Simulation cex  
+
+> Spurious?
+> No
+> True Information Leakage
+> Yes
+> Refinement Simulation Spurious? True Information Leakage
+> No cex Imprecise Taint Logic lightweight & precise taint logic
+> Refinement Phase Fast-Simulation Phase
+> next test Yes next test
+
+Figure 4: Two-phase simulation-based IFT. It terminates upon detecting true leakage or after exhausting the tests. For CEGAR-T, word-level granularity is also a practi-cal sweet spot that enables scalable automated refinement and optimization. In the general framework, refinement is expressed via an operator Refine that involves existential quantification. Implementing Refine efficiently for bit-level formulas is nontrivial and often requires additional compu-tation or dedicated data structures [39], [40] to perform existential quantification. With a fixed macro-cell library, one alternative is to explicitly construct the refinement lattice for each supported cell type offline and store simplified taint logic at each lattice node, so that online refinement becomes a lightweight hot-swap between precomputed nodes. The challenge is that the lattice size grows exponentially in the number of input taint bits of the cell. Word-level taint bounds this growth by the number of input words of a cell. In our supported library, the maximum number of input words is three (e.g., a mux with two data inputs and one select word). In fact, the largest refinement lattice for the supported cell types has only eight nodes. This makes explicit lattice construction practical and keeps refinement computation lightweight. We implemented the CEGAR-T prototype in C++. We use Yosys [41] for its Verilog front-end and RTLIL IR. For each refinement step, we solve the encoded Max-SAT instances using Z3’s optimization engine [38], [42]. 
+
+## 8. CEGAR-T-based Simulation Worflow 
+
+We now explain how CEGAR-T can be used in simulation-based IFT. Given that we have an automated spuriousness check, each spurious cex does not have to result in a refinement; we could choose to just report it as being spurious and move on to the next simulation test. However, if we start with the simplest, most imprecise taint logic, almost all the initial tests will result in spurious cex and the simulation run time will be dominated by the spuriousness check time. This motivates our two-phase workflow shown in Figure 4. In the Refinement Phase, spurious cex are expected to be frequent so each detected spurious cex is used to refine the taint logic and eliminate a class of similar false positives. Once the spurious cex are relatively rare and their checking overhead is negligible, we transition to the second Fast-Simulation Phase. In this Phase, the refined taint logic is fixed and used for large-scale validation. Any remaining spurious cex are checked and reported, but they no longer 10 trigger refinement that could slow the simulation throughput. We use two different simulators in these phases: Icarus Verilog with lower compilation time for the Refinement Phase 1 and Verilator, which has higher throughput but incurs higher compilation overhead, for the Fast-Simulation Phase. 
+
+## 9. Evaluation 
+
+We consider the safe instruction set problem (SISP) [26], [27], which is proposed for specifying the constant-time execution property of a processor on a given safe instruction set that consists of constant-time instructions. Our bench-marks include two open-source RISC-V in-order cores (1) Ibex [28], and (2) Rocket [29], as well as the out-of-order one (3) BOOM [20] across its Small, Medium, Large, and Mega configurations. Following the setup in [26], [27], without modeling memory, we target ibex_top , Rocket ,and BoomCore modules for Ibex, Rocket, and BOOM vari-ants, respectively. We model SISP as an information-flow property with the register-file data as the source and the instruction-commit signal (a proxy for timing) as the sink, assuming only safe instructions are executed. We evaluate CEGAR-T for checking SISP following the workflow in Section 8. Our evaluation asks whether CEGAR-T can derive a lightweight taint logic that preserves SISP-relevant precision while reducing the cost of down-stream simulation-based IFT. We remark that, for the RTL modules considered, there is no standard benchmark suite, fuzzer, or off-the-shelf testbench tailored to safe-instruction-only validation. We therefore construct a simulation test-bench that generates safe-instruction-only random tests for each evaluated core. Specifically, the testbench runs 𝐵 tests, each consisting of 𝑁 randomly generated safe instructions. We also applied the workflow to tests that include un-safe instructions. In those cases, the spuriousness check detects true information leakage already in the Refinement Phase, causing the workflow to terminate without proceed-ing to the Fast-Simulation Phase. Since our evaluation is intended to measure the simulation-speed benefits of the Fast-Simulation Phase with the optimized taint logic, we focus the reported experiments on safe-instruction only. All experiments are conducted on a MacOS machine with a 4.5 GHz Apple M4 Max CPU and 36 GB memory. 
+
+9.1. Runtime and Taint Logic Reduction Analysis 
+
+We evaluate CEGAR-T using the random safe-instruction testbench with (𝑁, 𝐵 ) = (20 , 60 𝐾 ). The parame-ters are chosen empirically to provide sufficient opportuni-ties to expose spurious cex and drive refinement. We set a 12-hour timeout for each run. Figure 5 shows the runtime breakdown of the refinement process into cex generation (Cex-Gen), Max-SAT solving (Max-SAT), and other tasks (Others). The Unroll results of Medium, Large, and Mega BOOM time out and are omitted.    
+
+> 1. Since a refinement changes the taint logic and requires recompilation, we choose Icarus to minimize the compilation overhead. Ibex Rocket Small-BOOM Medium-BOOM Large-BOOM Mega-BOOM 10 2
+> 10 3
+> 10 4
+> 10 5
+> Runtime (seconds, log scale)
+> (6, 55) (20, 184) (6, 233) (8, 461) (16, 543) (19, 751) (6, 17) (35, 91) (22, 40)
+> Approach
+> Frame Unroll
+> Runtime Breakdown
+> Cex-Gen Max-SAT Others
+
+Figure 5: Runtime breakdown of CEGAR-T on different cores. The vertical axis uses log-scale for total runtime, while the breakdown within each bar is drawn linearly to bar length for better visualization. Ibex Rocket Small-BOOM Medium-BOOM Large-BOOM Mega-BOOM 0246   
+
+> Cell Count Ratio (vs. Original)  Approach
+> CellIFT-B CellIFT-W Frame Unroll
+
+Figure 6: Cell count overhead comparison. The geo-mean cell-count ratios for CellIFT-B , CellIFT-W , Frame , and 
+
+Unroll are 5.64, 4.99, 1.42, and 1.31, respectively. Bar labels (# iters, # fixes) denote the number of iterations and refined cells; e.g., (19, 751) for Mega-BOOM Frame .
+
+Frame scales across all evaluated cores, whereas Unroll 
+
+handles the in-order cores and Small-BOOM but fails to scale to the larger BOOM variants. This gap is due to the higher Max-SAT cost for the fully unrolled design. For 
+
+Unroll , Max-SAT grows substantially with core complex-ity and becomes a major runtime bottleneck. For Frame ,runtime is dominated by Cex-Gen and Max-SAT remains a small fraction of the total, showing its effectiveness. The (# iters, # fixes) labels further illustrate the tradeoff between the two refinement algorithms. Unroll consistently requires fewer refined cells than Frame , consistent with its global optimization over the full unrolled trace. In contrast, 
+
+Frame often needs fewer refinement iterations, likely be-cause refining falsely tainted DFFs early in the trace can suppress false taint propagation in later cycles and eliminate additional spurious counterexamples at once. Together, these results suggest that Frame is the practical scalable choice for refinement, while Unroll can provide stronger per-cex optimization for cases where it does not time out. We compare the optimized taint logic against both the original bit-level ( CellIFT-B ) and word-level ( CellIFT-W )precise CellIFT baseline. We implemented CellIFT-W as 11 Ibex Rocket Small-BOOM Medium-BOOM Large-BOOM Mega-BOOM 01234   
+
+> Gate Count Ratio (vs. Original)  Approach
+> CellIFT-B CellIFT-W Frame Unroll
+
+Figure 7: Gate count overhead comparison. The geo-mean of the gate-count ratios for CellIFT-B , CellIFT-W , Frame ,and Unroll are 3.77, 1.80, 1.04, and 1.03, respectively. the corresponding precise word-level taint logic without CEGAR-T optimization to enable a fair-comparison with CEGAR-T which introduces taint logic at the word level. To quantify the taint logic reduction achieved, we measure both cell count and gate count after lowering the taint-instrumented design to gate level. Cell count reflects design complexity and correlates with RTL simulation overhead, whereas gate count approximates the cost of physical im-plementation of the taint logic (e.g., in hardware emulation). Figure 6 reports the cell-count overhead normalized to the original design without taint logic. The gate-count results are similar and are shown in Figure 7. Across both metrics, 
+
+Unroll and Frame yield substantially smaller taint-logic overhead than both CellIFT-B and CellIFT-W .
+
+9.2. Downstream Simulation-based IFT 
+
+We next evaluate the end-to-end simulation runtime of the taint logic produced by the Refinement Phase. In the Fast-Simulation Phase, we use the same workload with 
+
+(𝑁, 𝐵 ) = (50 , 200 𝐾 ) to stress the taint logic under substan-tially larger validation runs. In addition to CellIFT-B and 
+
+CellIFT-W , we include a baseline ( No-Refine ) that directly uses the initial imprecise taint logic without refinement. The CellIFT-W baseline isolates the effect of optimized taint logic on raw simulation runtime, whereas No-Refine 
+
+isolates the cost of low precision in end-to-end validation, where tainted traces incur spuriousness-check overhead. Figure 8 shows the simulation slowdown normalized to the original design. As the state-of-the-art precise base-line, CellIFT-B incurs huge slowdown across the evaluated cores, especially on the larger BOOM configurations. The precise word-level baseline CellIFT-W reduces this cost, but still remains substantially slower than the original design. At the other extreme, No-Refine directly uses the initial imprecise taint logic and is slower than CellIFT-W on every evaluated core, suggesting that the low raw simulation cost of No-Refine can be outweighed by frequent spuriousness checks, which account for over 70% of the total runtime. This shows that improving precision is also necessary for Ibex Rocket Small-BOOM Medium-BOOM Large-BOOM Mega-BOOM 10 0    
+
+> 10 1
+> 10 2
+> Sim. Slowdown (vs. Original)
+> Approach
+> No-Refine CellIFT-B CellIFT-W Frame Unroll
+
+Figure 8: Simulation slowdown with different taint logics. The geo-mean slowdown ratio for No-Refine , CellIFT-B ,
+
+CellIFT-W , Frame , and Unroll are 67.17, 34.65, 6.16, 1.79, and 1.60, respectively. efficient simulation-based IFT. In contrast, Frame achieves much lower slowdown by improving both sides of the trade-off. It uses a more lightweight taint logic than the precise CellIFT baselines and avoids the large spuriousness-check overhead of No-Refine . Unroll shows results on the cores for which the Refinement Phase completes. We also measure empirical precision by counting the number of spurious cex. Both CellIFT-B and CellIFT-W 
+
+report zero spurious cex on all evaluated cores. Frame 
+
+remains very close to these baselines, reporting at most two tainted cex, while Unroll reports at most three on the cores. Detailed per-core counts are given in Appendix A. Across all the tests, there is no true cex, and therefore all the evaluated cores satisfy the SISP for these tests. Although our evaluation focuses on SISP for processors, the same two-phase workflow applies to other information-flow properties and hardware designs. Most security proper-ties have a small attacker-observable sink relative to the full design. Even when the source can influence many internal signals, validation only requires sufficient taint precision along the logic relevant to the sink to avoid false positives. CEGAR-T exploits this structure by refining only the rela-vant local taint logic to the propagation of taint reaching sink, rather than committing to fully precise ones upfront. Although the specific refinements may differ across designs and properties, we expect similar reductions in instrumen-tation size and simulation time overhead. 
+
+9.3. Refinement Analysis: A Case Study 
+
+We analyze the refinements performed by CEGAR-T on Small-BOOM as a case study. Across the run, refinements primarily tighten how taint propagates through selection logic: the vast majority of refinements target MUX (mul-tiplexer), with only a small number applied to other cells. This indicates that, in Small-BOOM, the main source of imprecision is the overly imprecise taint logic of MUXes, which can propagate taint from values on paths not selected by the selecting signal in the MUXes. 12 Primary refined targets In Small-BOOM, the dominant refined blocks fall into three categories: (i) register-read and bypass logic , where operands are selected among regfile read ports, bypass paths, and the constant-zero behavior of rf[0] ,(ii) control/datapath selection cascades , where downstream control decisions are formed by selecting among multiple candidate conditions and outcomes, and (iii) selection logic around data arrays , where an address-based read is realized as a MUX tree. In each case, refinements make the taint logic path-sensitive, i.e., a tainted value that is not chosen by a MUX should not taint the output. This prevents false taints from propagating through tainted state into unrelated control signals and ultimately the sink. In our run, refinements for categories (i) and (ii) are typically local: each cex triggers a small amount of MUX fixes near the corresponding select logic. In contrast, re-finements for category (iii) can trigger a substantially larger refinement. In Small-BOOM, this appears in later iterations with hundreds of MUX fixes. With an imprecise taint logic in a MUX tree, taint from any leaf can taint internal MUX signals even when that leaf is not selected. Repeating this across levels can make the tree output tainted whenever any leaf is tainted, regardless of it being selected or not. Con-sequently, correcting this behavior requires refining many MUXes in the tree, since spurious taint can be introduced locally at many internal MUX outputs. 
+
+Limitations of the Frame approach. A limitation of the 
+
+Frame approach is that refinements are driven by removing falsely tainted DFFs in the next frame, which can induce extra refinements that are unneeded to remove sink taint. E.g., Small-BOOM includes debug-related states and mem-ories whose outputs do not functionally affect the instruction commit signal. Nevertheless, those DFFs can still become falsely tainted due to imprecise taint logic and thus be targeted by refinement. This can be mitigated by making 
+
+Frame refinements more property-directed, e.g., by applying cone-of-influence reduction on the unrolled design so that refinements target DFFs that structurally influence the sink. 
+
+## 10. Discussion 
+
+Optimality of CEGAR-T Refinements The CEGAR-T Unroll and Frame approaches compute optimal refinements only within their respective scopes. The Unroll approach minimizes the number of blocks refined for a given cex trace, while the Frame approach minimizes refinements for each time frame within the counterexample. As discussed in Section 9.1, Unrolled typically achieves fewer total re-finements than Frame, though at greater computational cost for large bounds 𝐾 . Neither approach guarantees a global, minimal refinement across all counterexamples. Determin-ing such a global optimum would require solving a single Max-SAT instance encoding all observed counterexamples. However, this may be computationally prohibitive as it com-pounds the existing scalability challenges already present in individual unrolled traces for large 𝐾 .
+
+Limitations from word-level taint tracking Our instan-tiation optimizes word-level taint logic, which is a delib-erate design point for managing both taint-logic size and optimization-time. However, word-level analysis introduces irreducible imprecision. If any bit within a word is influ-enced by secrets, the entire word is treated as tainted for word-level taint method. This can yield spurious propagation in common patterns such as packed fields, masking, bit-slicing, etc. As a result, while not encountered in our evalu-ation, some spurious cex exist only due to word-level coarse granularity. Also, the learned refinements may compensate for word-level over-approximation rather than capturing the bit-precise flow. Despite this, our word-level approach re-mains valuable as it systematically removes spurious taint for a given security property while preserving scalability. 
+
+## 11. Related Work 
+
+Hardware Information Flow Tracking Prior work on hardware IFT has explored self-composition, taint analysis, as well as hybrid approaches that combine both methods. The self-composition [30] and, taint analysis approaches at different abstraction levels [6], [12], [13], and their opti-mization [14], [21], [22], [23] are discussed in Section 1. 
+
+Secure Processor Verification Frameworks 
+
+Prior work on secure processor verification has largely been developed in self-composition-based formal verifica-tion settings. One line of work studies secure speculation through hardware–software contracts [43] using frameworks such as [44], [45], [46]. These contract-based properties are outside the scope of our evaluation because they cannot be expressed directly as a single source-to-sink information-flow property. Another line of work studies constant-time processor verification through the safe instruction set prob-lem (SISP) [26], [27] with self-composition and invariant synthesis. In contrast, our work also targets processor ver-ification under SISP, but focuses on simulation-based IFT rather than self-composition-based formal verification. 
+
+Max-SAT for Design Debugging and Diagnosis. 
+
+Max-SAT has been used extensively in VLSI debug-ging/diagnosis to explain failing traces by selecting a mini-mum set of suspect fault sites [47], [48], [49]. We use Max-SAT inside a CEGAR loop to select a minimum-cost taint-logic refinements that eliminate spurious information-flow counterexamples, rather than to localize functional bugs. 
+
+## 12. Conclusion 
+
+We presented CEGAR-T , a fully automated framework for property-driven taint-logic optimization. The core con-tribution of CEGAR-T is a principled and automated refine-ment step that turns taint-logic optimization from a heuris-tic, human-driven process into a systematic optimization framework. To this end, we formalized taint-logic precision using non-interference semantics, characterized the refine-ment space through a lattice-like structure, and developed 13 an automated refinement procedure that optimizes both how 
+
+to refine, via the refinement lattice, and where to refine, via Max-SAT. We further introduced two complementary refinement algorithms, the Unroll and the Single-Frame approaches, that offer different optimality–scalability trade-offs. Our evaluation demonstrates that CEGAR-T reduces taint logic overhead by 91.32%/89.88% compared to bit-level CellIFT and its word-level variant, and achieves up to 19.35 ×/3.44 × corresponding speedups in simulation-based IFT. By significantly reducing the simulation overhead, CEGAR-T advances the scalability of taint-based security verification, opening the door for full industrial adoption. 
+
+## References 
+
+[1] P. Kocher, J. Horn, A. Fogh, D. Genkin, D. Gruss, W. Haas, M. Ham-burg, M. Lipp, S. Mangard, T. Prescher, M. Schwarz, and Y. Yarom, “Spectre attacks: Exploiting speculative execution,” in Proceedings of the IEEE Symposium on Security and Privacy (SP) , 2019. [2] M. Lipp, M. Schwarz, D. Gruss, T. Prescher, W. Haas, A. Fogh, J. Horn, S. Mangard, P. Kocher, D. Genkin, Y. Yarom, and M. Ham-burg, “Meltdown: Reading kernel memory from user space,” in 
+
+Proceedings of the ACM USENIX Security Symposium . USENIX Association, 2018. [3] J. V. Bulck, M. Minkin, O. Weisse, D. Genkin, B. Kasikci, F. Piessens, M. Silberstein, T. F. Wenisch, Y. Yarom, and R. Strackx, “Fore-shadow: Extracting the Keys to the Intel SGX Kingdom with Tran-sient Out-of-Order Execution,” in Proceedings of the USENIX Secu-rity Symposium (USENIX Security) , 2018, pp. 991–1008. [4] M. Schwarz, M. Lipp, D. Moghimi, J. V. Bulck, J. Stecklina, T. Prescher, and D. Gruss, “ZombieLoad: Cross-Privilege-Boundary Data Sampling,” in Proceedings of the ACM SIGSAC Conference on Computer and Communications Security (CCS) , 2019, pp. 753–768. [5] H. Ragab, A. Milburn, K. Razavi, H. Bos, and C. Giuffrida, “CrossTalk: Speculative Data Leaks Across Cores Are Real,” in 
+
+Proceedings of the IEEE Symposium on Security and Privacy (SP) ,2021, pp. 1852–1867. [6] F. Solt, B. Gras, and K. Razavi, “CellIFT: Leveraging cells for scalable and precise dynamic information flow tracking in RTL,” in Proceedings of the ACM USENIX Security Symposium (USENIX Security) , 2022, pp. 2549–2566. [7] R. Kibria, F. Farahmandi, and M. Tehranipoor, “A Survey on SoC Security Verification Methods at the Pre-silicon Stage,” Cryptology ePrint Archive, Paper 2024/1280, 2024. [Online]. Available: https://eprint.iacr.org/2024/1280 [8] T. Rahman, S. Saha, A. Y. Alhurubi, S. K. Saha, F. Farahmandi, and M. Tehranipoor, “Emulation-based System-on-Chip Security Verification: Challenges and Opportunities,” 2026. [Online]. Available: https://arxiv.org/abs/2604.15073 [9] M. Ghaniyoun, K. Barber, Y. Zhang, and R. Teodorescu, “IN-TROSPECTRE: A Pre-Silicon Framework for Discovery and Anal-ysis of Transient Execution Vulnerabilities,” in Proceedings of the ACM/IEEE International Symposium on Computer Architecture (ISCA) , 2021, pp. 874–887. [10] J. Hur, S. Song, S. Kim, and B. Lee, “SpecDoctor: Differential Fuzz Testing to Find Transient Execution Vulnerabilities,” in Proceedings of the ACM SIGSAC Conference on Computer and Communications Security (CCS) , 2022, pp. 1473–1487. [11] W. Hu, A. Ardeshiricham, and R. Kastner, “Hardware information flow tracking,” ACM Computing Surveys (CSUR) , 2021. [12] M. Tiwari, H. M. Wassel, B. Mazloom, S. Mysore, F. T. Chong, and T. Sherwood, “Complete information flow tracking from the gates up,” in Proceedings of the ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , 2009, p. 109–120. [13] A. Ardeshiricham, W. Hu, J. Marxen, and R. Kastner, “Register transfer level information flow tracking for provably secure hardware design,” in Design, Automation & Test in Europe Conference & Exhibition (DATE) , 2017, pp. 1691–1696. [14] W. Hu, A. Ardeshiricham, M. S. Gobulukoglu, X. Wang, and R. Kast-ner, “Property specific information flow analysis for hardware secu-rity verification,” in Proceedings of the International Conference on Computer-Aided Design (ICCAD) , 2018, pp. 1–8. [15] A. Meza, F. Restuccia, J. Oberg, D. Rizzo, and R. Kastner, “Security Verification of the OpenTitan Hardware Root of Trust,” IEEE Security & Privacy , vol. 21, no. 4, pp. 27–35, 2023. [16] Cycuity Team, “Information flow analysis: Tracking information through hardware designs,” Cycuity Blog, Mar. 2021, accessed: 2026-01-04. [Online]. Available: https://cycuity.com/type/blog/ information-flow-analysis-tracking-information-through-hardware-designs/ [17] Cycuity, Inc., “RADIX automated security verification: Overview,” Data sheet, 2022, copyright 2022. Accessed: 2026-01-04. [Online]. Available: https://cycuity.com/wp-content/uploads/2022/06/ Cycuity-Radix-Datasheet.pdf [18] J. Xu, Y. Zhou, X. Zhang, Y. Li, Q. Tan, Y. Zhang, Y. Zhou, R. Chang, and W. Shen, “DejaVuzz: Disclosing Transient Execution Bugs with Dynamic Swappable Memory and Differential Information Flow Tracking Assisted Processor Fuzzing,” in Proceedings of the 30th ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , 2025, pp. 64–80. [19] M. R. Clarkson and F. B. Schneider, “Hyperproperties,” Journal of Computer Security , 2010. [20] J. Zhao, B. Korpan, A. Gonzalez, and K. Asanovic, “Sonicboom: The 3rd generation berkeley out-of-order machine,” in Fourth Workshop on Computer Architecture Research with RISC-V , 2020. [21] W. Hu, A. Becker, A. Ardeshiricham, Y. Tai, P. Ienne, D. Mu, and R. Kastner, “Imprecise security: Quality and complexity tradeoffs for hardware information flow tracking,” in Proceedings of the Interna-tional Conference on Computer-Aided Design (ICCAD) , 2016, pp. 1–8. [22] A. Becker, W. Hu, Y. Tai, P. Brisk, R. Kastner, and P. Ienne, “Ar-bitrary precision and complexity tradeoffs for gate-level information flow tracking,” in Proceedings of the Design Automation Conference (DAC) , 2017, pp. 1–6. [23] Y. Yang, Q. Tan, T. Bourgeat, S. Malik, and M. Yan, “Compass: Navigating the design space of taint schemes for rtl security veri-fication,” in Proceedings of the ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , 2026, p. 442–458. [24] E. Clarke, O. Grumberg, S. Jha, Y. Lu, and H. Veith, “Counterexample-guided abstraction refinement,” in Proceedings of the International Conference on Computer Aided Verification (CAV) ,2000. [25] C. M. Li and F. Manyà, “MaxSAT, Hard and Soft Constraints,” in 
+
+Handbook of Satisfiability , A. Biere, M. Heule, H. van Maaren, and T. Walsh, Eds. IOS Press, 2021, chapter preprint of the 2nd edition. [26] S. Dinesh, M. Parthasarathy, and C. W. Fletcher, “ConjunCT: Learn-ing inductive invariants to prove unbounded instruction safety against microarchitectural timing attacks,” in Proceedings of the IEEE Sym-posium on Security and Privacy (SP) , 2024, pp. 3735–3753. [27] S. Dinesh, Y. Zhu, and C. W. Fletcher, “H-houdini: Scalable invariant learning,” in Proceedings of the ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , 2025, p. 603–618. [28] “Ibex: An embedded 32 bit risc-v cpu core.” https://github.com/ lowRISC/ibex. 
+
+14 [29] K. Asanovi´ c, R. Avizienis, J. Bachrach, S. Beamer, D. Biancolin, C. Celio, H. Cook, D. Dabbelt, J. Hauser, A. Izraelevitz, S. Karandikar, B. Keller, D. Kim, J. Koenig, Y. Lee, E. Love, M. Maas, A. Magyar, H. Mao, M. Moreto, A. Ou, D. A. Patterson, B. Richards, C. Schmidt, S. Twigg, H. Vo, and A. Waterman, “The rocket chip generator,” EECS Department, University of California, Berkeley, Tech. Rep. UCB/EECS-2016-17, 2016. [Online]. Available: http://www2.eecs.berkeley.edu/Pubs/ TechRpts/2016/EECS-2016-17.html [30] G. Barthe, P. R. D’argenio, and T. Rezk, “Secure information flow by self-composition,” Mathematical Structures in Computer Science ,vol. 21, no. 6, pp. 1207–1252, 2011. [31] W. Hu, J. Oberg, A. Irturk, M. Tiwari, T. Sherwood, D. Mu, and R. Kastner, “Theoretical fundamentals of gate level information flow tracking,” IEEE Transactions on Computer-Aided Design of Inte-grated Circuits and Systems , 2011. [32] F. Bacchus, M. Järvisalo, and R. Martins, “Maximum satisfiability,” in Handbook of satisfiability . IOS Press, 2021, pp. 929–991. [33] C. Ansótegui, M. L. Bonet, and J. Levy, “Sat-based maxsat algo-rithms,” Artificial Intelligence , vol. 196, pp. 77–105, 2013. [34] R. Martins, V. Manquinho, and I. Lynce, “Open-wbo: A modular MaxSAT solver,” in Proceedings of the International Conference on Theory and Applications of Satisfiability Testing (SAT) , 2014, pp. 438–445. [35] A. Ignatiev, A. Morgado, and J. Marques-Silva, “RC2: An efficient MaxSAT solver,” Journal on Satisfiability, Boolean Modeling and Computation , vol. 11, no. 1, pp. 53–64, 2019. [36] J. Davies and F. Bacchus, “Solving MAXSAT by solving a sequence of simpler SAT instances,” in Proceedings of the International Con-ference on Principles and Practice of Constraint Programming (CP) ,2011, pp. 225–239. [37] Z. Fu and S. Malik, “On solving the partial max-sat problem,” in 
+
+Proceedings of the International Conference on Theory and Applica-tions of Satisfiability Testing (SAT) , A. Biere and C. P. Gomes, Eds., 2006, pp. 252–265. [38] N. Bjørner, A.-D. Phan, and L. Fleckenstein, “ 𝜈 z-an optimizing smt solver,” in Proceedings of the International conference on Tools and Algorithms for the Construction and Analysis of Systems (TACAS) .Springer, 2015, pp. 194–199. [39] R. E. Bryant, “Symbolic boolean manipulation with ordered binary-decision diagrams,” ACM Computing Surveys (CSUR) , vol. 24, no. 3, pp. 293–318, 1992. [40] J.-H. R. Jiang, “Quantifier elimination via functional composition,” in Proceedings of the International Conference on Computer Aided Verification (CAV) , 2009, pp. 383–397. [41] C. Wolf, J. Glaser, and J. Kepler, “Yosys-a free verilog synthesis suite,” in Proceedings of the Austrian Workshop on Microelectronics (Austrochip) , 2013. [42] L. De Moura and N. Bjørner, “Z3: An efficient smt solver,” in 
+
+Proceedings of the International conference on Tools and Algorithms for the Construction and Analysis of Systems (TACAS) , 2008, pp. 337–340. [43] M. Guarnieri, B. Köpf, J. Reineke, and P. Vila, “Hardware-software contracts for secure speculation,” in Proceedings of the IEEE Sym-posium on Security and Privacy (SP) , 2021. [44] M. R. Fadiheh, A. Wezel, J. Muller, J. Bormann, S. Ray, J. M. Fung, S. Mitra, D. Stoffel, and W. Kunz, “An exhaustive approach to de-tecting transient execution side channels in rtl designs of processors,” 
+
+IEEE Transactions on Computers , vol. 72, no. 1, p. 222–235, 2023. [45] Z. Wang, G. Mohr, K. von Gleissenthall, J. Reineke, and M. Guarnieri, “Specification and verification of side-channel security for open-source processors via leakage contracts,” in Proceedings of the ACM SIGSAC Conference on Computer and Communications Security (CCS) , 2023, p. 2128–2142. [46] Q. Tan, Y. Yang, T. Bourgeat, S. Malik, and M. Yan, “Rtl verification for secure speculation using contract shadow logic,” in Proceedings of the ACM International Conference on Architectural Support for Programming Languages and Operating Systems (ASPLOS) , 2025, p. 970–986. [47] S. Safarpour, H. Mangassarian, A. G. Veneris, M. H. Liffiton, and K. A. Sakallah, “Improved design debugging using maximum satis-fiability,” in Proceedings of the Formal Methods in Computer-Aided Design (FMCAD) , 2007, pp. 13–19. [48] Y. Chen, S. Safarpour, A. Veneris, and J. Marques-Silva, “Spatial and temporal design debug using partial maxsat,” in Proceedings of the ACM Great Lakes Symposium on VLSI (GLSVLSI) , 2009, pp. 345– 350. [49] Y. Chen, S. Safarpour, J. Marques-Silva, and A. G. Veneris, “Auto-mated design debugging with maximum satisfiability,” IEEE Transac-tions on Computer-Aided Design of Integrated Circuits and Systems ,vol. 29, no. 11, pp. 1804–1817, 2010. 
+
+15 Appendix A. Additional Figures and Tables for Evaluation 
+
+Table 1 shows the number of spurious cex out of 200K. 
+
+Frame reports at most two tainted cex, while Unroll reports at most three on the evaluated cores. This suggests high em-pirical precision of the synthesized lightweight taint logic. TABLE 1: Number of spurious cex out of 200K validation tests.               
+
+> Core Frame Unroll
+> Ibex 00Rocket 22Small-BOOM 03Medium-BOOM 1–Large-BOOM 2–Mega-BOOM 2–
+
+Figure 9 reports the number of refinements in each 3000-test bucket for three representative large BOOM con-figurations: Medium, Large, and Mega. Across all three designs, refinements are strongly front-loaded, with the first bucket containing the majority of refinements. After this initial burst, the number of refinements drops sharply, but a sparse long tail remains, with occasional later buckets still triggering additional updates. This pattern indicates that the Refinement Phase quickly removes many easy-to-expose sources of imprecision, while some spurious counterexam-ples continue to arise later in the test sequence. We observe similar behavior on the other evaluated cores. Overall, this front-loaded refinement pattern matches the intended two-phase workflow. Early traces primarily drive refinement, while later traces trigger far fewer updates and motivate freezing the resulting taint logic for the Fast-Simulation. 024
+
+> Medium-BOOM
+> 0612
+> Large-BOOM
+> 03000 6000 9000 12000 15000 18000 21000 24000 27000 30000 33000 36000 39000 42000 45000 48000 51000 54000 57000 60000 0510
+> Mega-BOOM
+> Test ID Refinements
+
+Figure 9: Number of refinements per 3000-test bucket during Phase I for three representative BOOM variants. The ID is indexed in the sequence of when the test is sequentially simulated. 16
