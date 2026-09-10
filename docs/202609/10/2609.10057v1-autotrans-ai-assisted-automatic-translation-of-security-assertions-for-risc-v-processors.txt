@@ -1,0 +1,310 @@
+Title: AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors
+
+URL Source: https://arxiv.org/pdf/2609.10057v1
+
+Published Time: Thu, 10 Sep 2026 01:17:04 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+Notice 
+
+© 2026 IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other uses, in any current or future media, including reprinting/republishing this material for advertising or promotional purposes, creating new collective works, for resale or redistribution to servers or lists, or reuse of any copyrighted component of this work in other works. This is the author’s accepted manuscript version of the following paper: 
+
+AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors 
+
+Sharjeel Imtiaz, Uljana Reinsalu, Tara Ghasempouri Accepted at IEEE Baltic Electronics Conference (BEC) 2026. The final published version will be available on IEEE Xplore. arXiv:2609.10057v1 [cs.CR] 9 Sep 2026 AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors 
+
+Sharjeel Imtiaz, Uljana Reinsalu, Tara Ghasempouri 
+
+Department of Computer Systems, Tallinn University of Technology, Tallinn, Estonia 
+
+{sharjeel.imtiaz, uljana.reinsalu, tara.ghasempouri }@taltech.ee 
+
+Abstract —Reusing a set of verified security assertions across RISC-V processor targets remains one of the most expensive bottlenecks in hardware security verification. Manual translation takes hours per assertion. Raw LLM translation is fast but unreliable, introducing signal hallucination, where the model invents port names absent from the target RTL and produces outputs that may vary across model updates or even within the same model version. This paper presents AutoTrans, an automated framework that addresses the above shortcomings. First, a new lightweight Regular Expression-based System Verilog signal extractor is proposed to identify the signals for generating security assertions. This step is necessary to prevent signal hallucination. Second, a template is introduced to create prompt and pinned inference parameters that guarantee a byte-identical prompt assembly on every run, making the pipeline output resilient to model updates. Moreover, the introduced template for LLM prompting is capable of generating security assertions from English-only security descriptions of RISC-V processors, with no manual authoring. Third, a formal verification process (Jasper-Gold FPV) is integrated, which guarantees that the generated security assertions verify the security of the RISC-V processor rather than silently entering the result set. The workflow is applied on Deepseek V4 to translate security assertions from one RISC-V to another (e.g., for IBEX from NS31A RISC-V). The experiment shows that AutoTrans achieves 78% Auto Translation Acceptance Rate (TAR) automatically and without human intervention and 100% Final TAR after refinement by humans. 
+
+Index Terms —RISC-V, security assertion translation, Sys-temVerilog assertions (SVA), large language models (LLMs) 
+
+I. I NTRODUCTION 
+
+Security assertion development is one of the most time-intensive and expertise-demanding tasks in hardware security verification; encoding a single privilege violation, invariant, or memory protection rule [1], [2] requires hours of RTL analysis per assertion, and a complete processor corpus runs to weeks of effort. Yet when a new processor target is adopted, this investment is discarded. RISC-V has accelerated this problem; the ISA has produced dozens of implementations sharing the same instruction set but diverging significantly in microarchi-tecture [3], [4], and security knowledge should travel with the ISA, but currently does not. For instance, the NS31A [5] corpus of 1146 security property instances, grouped into 68 distinct assertion groups across nine categories, was manually authored for a reference RISC-V processor with significant RTL expertise per assertion, and must be entirely reworked to port to a structurally different target such as lowRISC Ibex [6]: every signal name, bit width, addressing mode, and clocking convention must be matched to the new RTL, a process measured in hours per assertion and weeks per corpus. 
+
+> This work is supported by the Estonian Research Council grant PSG837, the Estonian– French PARROT program, and the EU Horizon Europe Grant Agreement No. 101160182 TAICHIP.
+
+Three classes of prior work address parts of this problem, but none solve it. All three share the same fundamental limitation: they cannot bridge semantic gaps between architec-turally heterogeneous designs while guaranteeing formal cor-rectness. The first class, NLP-based approaches [7], use depen-dency parsing and handcrafted templates to translate natural-language specifications into formal properties. They perform well within a single design family, but break down when signal semantics differ fundamentally across architectures. The second class, structural translation tools, is represented by Transys [8], which automates security assertion translation using Program Dependence Graphs and achieves strong results on syntactically similar designs. However, when no structural counterpart exists in the target RTL, the dependency graph has nothing to match. For example, the source processor corpus assumes unconditional debug-mode bypass while Ibex restricts it to a specific Debug Module address range a semantic gap that structural graph matching cannot resolve. The third class, LLM-based generation approaches [9]–[13], produce new assertions from RTL or natural language. They target a fundamentally different problem: creating new claims rather than porting verified ones. Their outputs are evaluated with BLEU, a text similarity score, or coverage metrics, neither of which confirms formal correctness. These approaches ad-ditionally require GPU clusters for fine-tuning or inference, making them inaccessible for standard verification workflows. Raw LLM translation introduces two failure modes that prior work does not address. Without knowledge of the target RTL interface, the LLM hallucinates signal names absent from the RTL and wraps output in Markdown fences, both causing immediate QuestaSim compilation failure (Section IV-E). And even with correct output, cloud providers may silently update model weights, producing structurally different bind files from identical inputs with no warning. Solving both requires three things simultaneously: deterministic signal grounding to pre-vent hallucination, a fixed prompt structure for reproducible assembly, and a formal FPV gate to catch any remaining variation before it enters the result set. AutoTrans addresses this gap directly. Prior work [14] demonstrated semi-automated SVA-to-SVA translation on five modules; this paper delivers a fully automated pipeline across all nine Ibex security modules with a formal verification gate at every step. The contributions of this work are:  
+
+> •
+
+Formally verified security assertions authored for one RISC-V processor are automatically translated to a struc-turally different target through the AutoTrans pipeline, in which every assertion must pass the QuestaSim com-pilation and JasperGold FPV, preserving security intent without manual re-authoring, GPU, or fine-tuning. • A lightweight Regular Expression-based signal extractor is proposed that parses the target RTL interface and grounds every LLM prompt in the exact available signals, addressing hallucination without requiring EDA infras-tructure or licenses.  
+
+> •
+
+A fixed prompt template combined with pinned inference parameters enforce byte-identical prompt assembly on every run, enabling fully automated and reproducible translation with no GPU and no fine-tuning required.  
+
+> •
+
+The Translation Acceptance Rate (TAR) is introduced as a per-module metric that counts only assertions formally proven correct and non-vacuous on the target RTL by industry-grade verification tools. Applied to 68 security property groups from a refer-ence RISC-V processor across nine Ibex modules, AutoTrans achieves 78% Auto TAR and 100% Final TAR .The remainder of this paper is organized as follows. Sec-tion II surveys related work. Section III describes the Au-toTrans framework. Section IV presents experimental results. Section V concludes. II. R ELATED WORK 
+
+A. Assertion-Based Security Verification 
+
+A corpus of 1146 security properties across nine categories was manually authored for a reference RISC-V processor, requiring significant RTL expertise per assertion [5]. Hardware Trojans represent a critical threat class in a modern processor designs [15]; security properties for open-source RISC-V designs have been shown to detect them alongside privilege violations and illegal memory accesses [14], [16], [17]. All of these works depend on correct, target-specific assertions being available. AutoTrans removes this bottleneck by delivering formally verified, automatically translated assertions without manual porting or ground-up generation. 
+
+B. Non-LLM Assertion Translation 
+
+Early work applied NLP dependency parsing and hand-crafted templates to convert natural-language specifications into formal properties [7]. This approach works within a single design family where assertion patterns are uniform but does not scale to architecturally heterogeneous targets where signal semantics differ fundamentally between source and destination. Transys [8] is the only prior system that automates se-curity assertion translation across hardware designs without an LLM. It extracts Program Dependence Graphs (PDG) from the source and target RTL and applies statistical feature matching and structural transformations to produce translated properties. Transys achieves strong results on syntactically similar designs, but requires EDA tools to build the PDG and struggles when the source assertion encodes a security model with no structural counterpart in the target RTL. AutoTrans addresses precisely this class of semantic gap by using LLM reasoning grounded in the exact target RTL interface. 
+
+C. LLM-Based Assertion Generation 
+
+Recent LLM work targets assertion generation from RTL or natural language rather than the translation of a verified corpus. Fine-tuned approaches [9], [10] train on RTL corpora and evaluate output with BLEU/ROUGE requires GPU clusters  
+
+> Fig. 1. AutoTrans two-stage framework overview.
+
+for training. Prompt-based approaches [11]–[13] use general-purpose LLMs with iterative feedback or structured templates, reporting accuracy on internal tests without a formal verifica-tion gate. Template-mask instantiation [18] confirms that fixed structural templates are central to syntactically valid assertion synthesis. None of these works port an existing verified corpus to a new target. BLEU and coverage metrics measure syntactic proximity, not formal correctness on the target RTL. Auto-Trans requires every assertion to be formally proven and non-vacuous on clean RTL as a hard acceptance gate; model drift can only cause FPV failure and retry, never a wrong assertion entering the result. III. A UTO TRANS FRAMEWORK 
+
+A. Overview 
+
+The AutoTrans framework operates in two stages as shown in Fig. 1. Stage 1 (Security SVA Translation) takes the target RISC-V RTL and security properties from the source proces-sor [5] as input and produces translated SVA bind files. Stage 2 (Security SVA Validation) takes those bind files and produces formally validated assertions alongside a TAR report (defined in Section III-D). Algorithms 1 and 2 formalize Step 1A and Step 1B; Section III-C covers validation. 
+
+B. Stage 1: Security SVA Translation 
+
+Stage 1 comprises three steps shown in Fig. 2. Step 1A extracts signals from the target RTL as formalized in Algo-rithm 1, Step 1B assembles the final prompt from those signals and the source processor security properties as formalized in Algorithm 2, and Step 1C calls DeepSeek V4-Flash to produce a bind file, a separate SystemVerilog module containing the translated assertions, attached to the target RTL at elaboration time without modifying it.    
+
+> Fig. 2. Stage 1: signal extraction to json file (Step 1A), grounded prompt assembly (Step 1B), and DeepSeek V4-Flash SVA translation (Step 1C).
+
+1) Step 1A: RTL Signal Extraction: The signal extractor, formalized in Algorithm 1 and illustrated in Fig. 2, is a custom Regular Expression-based SystemVerilog parser implemented in Python. Existing tools were not designed for this task, PyVerilog [19] targets Verilog-era syntax, Slang [20] and Verilator [21] are C++ tools with no Python signal extraction interface, and hdlparse [22] does not resolve package-qualified types. None produces structured JSON for a direct LLM prompt injection, which this pipeline requires. Algorithm 1 proceeds in four stages. If a package file is provided, it is parsed first (lines 1–8): typedef enums yield symbolic constants and values (lines 2–4); typedef structs yield field names and types (lines 5–7). For each SV file (lines 9– 23), the source is read and stripped of comments and compiler directives (line 10); module type is determined immediately from always_ff presence (lines 11–15); parameters are extracted (line 16); ANSI port declarations are parsed with width resolved from explicit bounds, package-qualified types, or scalar default (lines 17–19); and internal signal declara-tions are extracted, excluding port names and SV keywords (lines 20–22). If multiple files are provided, ports, internals, and parameters are merged with deduplication (lines 24–26). Clock ( clk_i ) and reset ( rst_ni ) are detected from port name conventions for sequential modules (lines 27–29). Pack-age types are filtered to those referenced in port and internal widths (line 30), and all data is serialized to signals.json 
+
+(line 31), the sole input to downstream prompt assembly. 
+
+Algorithm 1 RTL Signal Extraction (Step 1A)    
+
+> Input: SV file(s), optional ibex_pkg.sv
+> Output: signals.json
+
+1: if pkg file provided then 
+
+2: for all typedef enum in pkg do 
+
+3: Extract symbolic constants and values 
+
+4: end for 
+
+5: for all typedef struct packed in pkg do 
+
+6: Extract field names and types 
+
+7: end for 
+
+8: end if 
+
+9: for all SV file(s) do 
+
+10: Read file; strip comments and compiler directives ( ‘ifdef , ‘include )
+
+11: if always_ff found then 
+
+12: type ← sequential 
+
+13: else 
+
+14: type ← combinational 
+
+15: end if 
+
+16: Extract parameter names ( parameter / localparam )
+
+17: for all port declarations in ANSI port list do 
+
+18: Extract direction, name; resolve width from [N-1:0] ,package-qualified type, or scalar default (1 bit) 
+
+19: end for 
+
+20: for all internal declarations ( logic /wire /reg /typedef) do 
+
+21: Extract name and width; skip port names and SV keywords 
+
+22: end for 
+
+23: end for 
+
+24: if multiple files then 
+
+25: Merge ports, internals, parameters with deduplication 
+
+26: end if 
+
+27: if sequential then 
+
+28: Detect clock ( clk_i ) and reset ( rst_ni ) from port names 
+
+29: end if 
+
+30: Filter pkg types to those referenced in port/internal widths 
+
+31: Serialize all to signals.json 
+
+2) Step 1B: Prompt Assembly: Formalized in Algorithm 2 and shown in Fig. 2, this step assembles the final prompt from four components: the signals.json output from Step 1A, the NS31A security properties from the CSV file, the SVA template selected by module type (sequential or combinational), and the LLM prompt template, which together produce the final assembled prompt passed to Step 1C. Algorithm 2 proceeds in three stages. First, inputs are loaded (lines 1–2): signals.json provides module type, ports, internals, and package types; the source processor CSV provides the source assertion groups; the SVA tem-plate and the LLM prompt template are selected in the following stage. The template is then selected by mod-ule type (lines 3–7): sequential modules load the clocked template, mandating @(posedge clk_i) disable iff (!rst_ni) , ##N , and $past() ; the PMP module loads the combinational template which forbids all clocking con-structs. Finally, all placeholders are filled in a single pass (lines 8–10): module name and shared-RTL logical suffix for DO/ETI/CF/MT, clock and reset signals, port and internal signal lists, package types formatted as SV typedef text, port declarations with all DUT ports declared as input , and targeted RISC-V assertion groups formatted from CSV rows. The filled prompt is saved to prompts/final/ (line 10) for reproducibility auditing. 
+
+Algorithm 2 Prompt Assembly (Step 1B)   
+
+> Input: signals.json , NS31A CSV, SVA template, LLM prompt template
+> Output: prompts/final/ MODULE _final_prompt.txt
+
+1: Load signals.json ; read module type, ports, internals, pkg types 
+
+2: Load NS31A CSV rows 
+
+3: if module type = sequential then 
+
+4: Load sequential template (clocked, disable iff )
+
+5: else 
+
+6: Load combinational template (clock-free) 
+
+7: end if 
+
+8: Derive assertion module name; for shared-RTL modules (DO/ETI/CF/MT) append logical suffix (e.g. ibex_controller_do )
+
+9: Fill all {{ PLACEHOLDERS }} in one pass:              
+
+> {{ MODULE_NAME }} ,{{ MODULE_SHORT }} ,{{ CLOCK }} ,{{ RESET }} ,
+> {{ PARAMETERS }} {{ INPUT_PORTS }} ,{{ OUTPUT_PORTS }} ,{{ INTERNAL_SIGNALS }} {{ PKG_TYPES }} : pkg types formatted as SV typedef text (already resolved by Step 1A)
+> {{ PORT_DECLARATIONS }} : all DUT ports as input ; clock/reset excluded for sequential modules
+> {{ NS31A_ASSERTIONS }} formatted from CSV rows;
+> {{ NS31A_TOTAL_GROUPS }} = CSV row count
+
+10: Save filled prompt to prompts/final/ MODULE _final_prompt.txt 
+
+3) Step 1C: DeepSeek Translation: As shown in Fig. 2, the translation step is implemented in Python. The filled prompt is submitted to the NVIDIA NIM API [23], calling DeepSeek V4-Flash (DeepSeek-ai/DeepSeek-v4-flash ) with 
+
+temperature=0.0 and seed=42 , which minimize sam-pling variance through greedy decoding. The two-tier strat-egy is a deliberate cost-efficiency decision: V4-Flash han-dles initial translation at lower inference cost, while V4-Pro is reserved for retry calls where QuestaSim or JasperGold has identified a specific failure, concentrating the higher-cost model only where deeper RTL reasoning is needed. No GPU is required; NVIDIA NIM provides 1,000 free developer credits, sufficient to cover all nine modules. No fine-tuning is performed. The <think> reasoning trace is stripped before pars-ing; the remaining response yields a JSON mapping log and a complete SVA bind file. The four modules sharing 
+
+ibex_controller.sv (DO, ETI, CF, MT) have their 
+
+bind target rewritten to the correct RTL module name. Every assertion group is translated without exception; when an source RISC-V processor signal has no direct targeted processor equivalent, the template instructs the model to pre-serve security intent using the nearest available Ibex signals. Translation coverage is always 100% at Step 1C; TAR is computed only after FPV acceptance at Step 2B. 
+
+C. Stage 2: Security SVA Validation 
+
+Stage 2 comprises two steps shown in Fig. 3. Step 2A compiles the translated bind files through QuestaSim to catch syntax errors; Step 2B runs JasperGold FPV to verify that every assertion is formally proven and non-vacuous on clean RTL. This two-gate design is deliberate: syntax errors require deep RTL reasoning to fix, while FPV failures require under-standing assertion intent at the semantic level. V4-Pro handles all retries at both steps with a maximum of three before the module is locked.  
+
+> Fig. 3. Stage 2: QuestaSim syntax validation (Step 2A) and JasperGold FPV verification (Step 2B) with V4-Pro retries.
+
+1) Step 2A: Syntax Validation: The translated bind file is compiled together with the Ibex RTL source files using QuestaSim via: vlog -sv12compat +incdir+rtl/ <module>.sv bind.sv . On success, execution proceeds directly to Step 2B. On failure, the error log is archived and a retry prompt combining the original prompt, the error log, and the current bind file is sent to DeepSeek V4-Pro with explicit fix-syntax-only instructions, preserving assertion logic unchanged. After three failed retries, the module is marked locked and flagged for manual inspection. 
+
+2) Step 2B: Formal Property Verification: A per-module TCL script is generated that runs analyze ,
+
+elaborate , clock and reset setup, prove -all , and 
+
+report -vacuity in JasperGold batch mode. Both 
+
+fpv_baseline.txt and vacuity.txt are parsed to identify failing assertions. If all assertions are Proven and non-vacuous on clean RTL, TAR is computed and the module passes. A counter-example indicates a translation logic error and triggers a V4-Pro retry with logic rewriting instructions; a vacuous result indicates an unreachable antecedent and triggers antecedent rewriting. After three failed retries the module is locked. TAR is computed only after a successful FPV pass. 
+
+D. TAR Metric 
+
+TAR (Translation Acceptance Rate), defined in (1), is a per-module metric computed at the end of Step 2B, where: TAR = Nproven, non-vac 
+
+Nsource groups 
+
+× 100% (1) 
+
+Nproven, non-vac counts assertion groups both Proven and non-vacuous on clean RTL, and NNS31A groups is the total source groups per module. Auto TAR counts groups proven by the                                                                   
+
+> TABLE I SIGNAL EXTRACTION RESULTS — I BEX SECURITY MODULES
+> Module RTL File Type In Out Int Pkg
+> PMP ibex pmp C7112 4CSR ibex cs reg. S44 27 109 9DO ibex ctrl. S38 27 39 7ETI ibex ctrl. S38 27 39 7CF ibex ctrl. S38 27 39 7MT ibex ctrl. S38 27 39 7MA ibex lsu S13 18 20 0IE ibex id+ex S64 77 89 15 RU ibex wb S15 15 18 1
+> Tp.: C = combinational, S = sequential. Int = internal signals; Pkg = package types. DO/ETI/CF/MT share ibex_controller.sv ; IE merges id stage + ex block.
+
+automated framework without human intervention; Final TAR 
+
+additionally counts groups proven after targeted manual reso-lution of JasperGold FPV structural constraints, with security intent preserved unchanged. TAR is deliberately conservative: it counts only what is accepted independently by Ques-taSim [24] and JasperGold [25]. IV. E XPERIMENTS 
+
+A. Experimental Setup 
+
+Experiments target lowRISC Ibex [6] (commit bd25993 ,retrieved May 2026), with assertions inserted as SVA bind files without modifying RTL. The source corpus is NS31A [5], comprising 68 assertion groups across nine security categories. Translation uses DeepSeek V4-Flash (DeepSeek-ai/DeepSeek-v4-flash ) via NVIDIA NIM [23] at temperature=0.0 , seed=42 ,
+
+max_tokens=16384 ; retries use V4-Pro with identical parameters. Compilation uses QuestaSim Questa Core-Prime 2023.4 [24]; FPV uses JasperGold 2024.06 [25]. 
+
+B. Signal Extraction Results (Step 1A) 
+
+Table I reports extraction statistics for all nine Ibex security modules. The Module column gives the logical module key used throughout the framework; RTL File is the source file (abbreviated); Type is C (combinational) or S (sequential); In 
+
+and Out are input and output port counts; Int is the number of internal signals; and Pkg is the number of resolved package types from ibex_pkg.sv .The extractor parsed all nine modules with zero manual intervention. CSR is the most complex with 44 inputs, 27 out-puts, 109 internals, and 9 package types. IE merges two RTL files; PMP is the only combinational module; DO/ETI/CF/MT share ibex_controller.sv . Reproducibility confirmed by empty git diff results/signals/ on every re-run. 
+
+C. Translation and FPV Results (Steps 1C–2B) 
+
+Table II breaks down the 68 NS31A assertion groups by in-put type. SVA Examples are NS31A entries that include formal SystemVerilog code in the source paper [5]; the framework adapts this code to Ibex signals. NL Properties are NS31A entries with a natural language description only; no SVA code was provided in the source paper. For these 22 groups, the framework generates formal SVA entirely from natural language using the same prompt template, with no additional TABLE II NS31A S OURCE GROUP TYPES PER MODULE                                  
+
+> Module SVA Examples NL Properties Our work
+> PMP 8210 CSR 7310 DO 404ETI 611 17 CF 909MT 5510 MA 213IE 303RU 202
+> Total 46 22 68
+> SVA Examples: formal SVA code and NL Properties: natural lan-guage in [5]. Our work: framework output, no manual authoring before verification.
+
+tooling or human intervention. ETI alone contributes 11 such NL Properties (65% of its 17 groups), all formally verified. Table III reports per-module results across both measure-ment points: Auto TAR (automated framework only, V4-Flash and V4-Pro retries, no human intervention) and Final TAR 
+
+(after targeted manual resolution of JasperGold FPV structural constraints). 
+
+Step 1C translation coverage. Every NS31A entry pro-duces at least one SVA property in the bind file (100% coverage across all 68 groups). 
+
+Automated TAR, V4-Flash direct pass (2 modules). PMP and CSR (20 of 68 groups, 29%) passed JasperGold FPV directly from Flash output with zero retries and zero manual intervention. 
+
+Automated TAR, V4-Pro retries (6 modules). DO, ETI, CF, MT, MA, and IE required V4-Pro retry analysis. The overall automated TAR (V4-Flash and V4-Pro, no human intervention) is 78% (53/68 groups). 
+
+Final TAR, manual RTL resolution: For the 16 groups across 7 modules not resolved automatically, JasperGold and QuestaSim error output directly identified the struc-tural root cause in each case. Fixes fell into three cate-gories: timing and temporal operator corrections ( PC_JUMP ,
+
+$past , Debug FSM), antecedent scope and reachability rewrites (MRET/DRET guard, tbranch, lsu_type free-variable), and signal substitution and port declaration fixes (csr_save_wb_o , FENCE.I, RTL mux equation). These are Ibex-specific microarchitectural constraints that no auto-mated tool can resolve without target RTL knowledge; writing equivalent assertions from scratch would require days of RTL expertise per module, while AutoTrans reduces this to targeted fixes guided directly by JasperGold error output. In every case the fix adjusted how the property is expressed, never what 
+
+security property it checks. Final TAR reaches 100% across all nine modules (68/68 groups). 
+
+D. Reproducibility 
+
+AutoTrans reproducibility rests on two deterministic pil-lars. Signal extraction and prompt assembly are both fully deterministic: identical RTL and inputs always produce byte-identical signals.json and prompts/final/ , con-firmed by empty git diff on every re-run. LLM out-put determinism is governed by temperature=0.0 and 
+
+seed=42 ; where cloud providers update model weights silently, the JasperGold FPV gate acts as the safety net by design; any output variation that affects assertion correct-ness fails verification and triggers a retry, ensuring that only formally proven, non-vacuous assertions enter the result set regardless of the model version. 
+
+E. Signal Grounding Ablation 
+
+Without signal grounding, LLMs consistently invent signal names absent from the target RTL and wrap output in Mark-down fences, causing immediate compilation failure. Both failure modes were observed across modules during early development. To isolate and quantify this contribution, we ran a controlled experiment on PMP as the only combina-tional module, addressing sequential timing constructs as a confounding variable. Table IV reports four metrics across both conditions. Without grounding, the LLM hallucinates 15 invalid signal names and wraps output in a Markdown fence, blocking QuestaSim at line 1 with 3 cascading errors and making JasperGold unreachable. With grounding, all signals are valid, compilation passes, and TAR reaches 100%, con-firming that signal grounding is the mechanism responsible for compile-clean translation across all modules.                 
+
+> TABLE IV SIGNAL GROUNDING ABLATION ON NS31A [5] PMP.
+> Metric With Grounding Without Grounding
+> Signals in bind file 8 (all valid) 17 (15 invented †)QuestaSim compile PASS FAIL (3 errors ‡)JasperGold TAR 100% N/A (blocked at line 1) Prompt assembly diff Empty (determinis-tic) Empty (deterministic)
+> †15 invented names absent from ibex_pmp.sv .‡Markdown fence causes 3 cascading QuestaSim errors.
+
+F. Comparison with Related Approaches 
+
+Table V compares AutoTrans against existing approaches. AutoTrans is the only approach that simultaneously operates without a GPU, uses a parser-grounded prompt, guarantees reproducibility at the pipeline output level, and applies FPV as a hard formal verification gate.                                        
+
+> TABLE V COMPARISON WITH RELATED APPROACHES
+> Approach Task GPU Signal Ground. Repro-ducible FPV Required Metric
+> Transys [8] Trans. (rule) No Structural Yes Optional Trans. rate AutoAssert [9] Gen. Yes No No No BLEU AssertLLM [10]Gen. Yes No No No BLEU LASSO [11] Gen. Yes Vector DB No Coverage Cov.% Prior work [14] Trans. (semi) No No No No Trans. rate
+> AutoTrans Trans. No Regex Prompt FPV TAR
+> Trans. = cross-architecture translation. Gen. = new assertion genera-tion. Structural = Program Dependence Graph. ∗Prompt assembly byte-identical ( git diff ); LLM output pinned within frozen model version; JasperGold gate handles drift. BLEU = text similarity; not formal correct-ness. TAR = Translation Acceptance Rate.
+
+G. Comparison with Prior Work 
+
+Table VI compares AutoTrans directly against the prior semi-automated translation work [14] on which this paper builds. The improvements span every dimension: module TABLE III PER -M ODULE TAR R ESULTS : A UTO TAR ( NO HUMAN INTERVENTION ) AND FINAL TAR ( MANUAL STRUCTURAL FIXES ).                                                                      
+
+> Module SVA Groups V4-Flash (Step 1C) V4-Pro Retries Auto TAR Manual RTL Fix Final TAR
+> PMP 10 Direct PASS Not attempted 100% None 100% CSR 10 Direct PASS Not attempted 100% None 100% DO 41/4 (3 CEX) 3 retries: do_SEC_1 fixed; 2 remain 50% Debug FSM temporal fix 100% ETI 17 13/17 (4 vacuous) 3 retries: 4 vacuous remain 76% csr_save_wb_o R11 substitution 100% CF 97/9 (2 CEX) 3 retries: 2 CEX remain 78% PC_JUMP timing; tbranch antecedent 100% MT 10 7/10 (3 CEX) 3 retries: 3 CEX remain 70% MRET/DRET guard; state exclusion 100% MA 32/3 (1 CEX) 3 retries: 1 CEX remain 67% lsu_type free-variable fix 100% IE 3Bind-scope fail ∗3 retries: _assert_2 fixed; 2 others remain 33% Port scope; $past tim-ing; FENCE.I 100% RU 21/2 (1 CEX) Not attempted 50% Exact RTL mux equation 100%
+> Total 68 20/68 direct (29%) 6 modules used Pro 78% Structural only 100%
+
+Auto TAR = V4-Flash and V4-Pro, no human intervention. Final TAR = after manual JasperGold structural fixes. CEX = counter-example on clean RTL. 
+
+> ∗
+
+IE: assertion ports not visible to DUT at elaboration; Pro retry 1 resolved 1 of 3 groups; remainder manually fixed. Security intent was never changed. 
+
+coverage, assertion count, automation level, English-property handling, formal verification, and translation time. 
+
+TABLE VI AUTO TRANS VS . P RIOR WORK [14]               
+
+> Feature Prior work [14] AutoTrans
+> Modules covered 59Assertion groups 33 68 Automation Semi-manual Fully automated English-only SVA No Yes (22 SVA) Formal verif. gate No QuestaSim + FPV Translation time Weeks/module Minutes/module
+
+V. C ONCLUSION 
+
+This paper presented AutoTrans , an automated framework for cross-architecture translation of RISC-V security asser-tions. A regex-based signal extractor grounds every LLM prompt in the exact target RTL interface without EDA in-frastructure or a GPU. A fixed SVA template and pinned parameters enforce byte-identical prompt assembly; the two-tier V4-Flash and V4-Pro strategy on NVIDIA NIM free-tier inference keeps cost near zero. QuestaSim and JasperGold FPV ensure every accepted assertion is formally proven and non-vacuous, with model drift handled by retry rather than silent failure. Applied to 68 NS31A groups across nine Ibex modules, AutoTrans achieves 78% Auto TAR with zero hu-man intervention and 100% Final TAR overall. These results demonstrate that formally verified assertion translation across architecturally heterogeneous processors is achievable at near-zero cost, opening a path toward scalable security knowledge reuse across the growing RISC-V ecosystem; the framework is released open source [26] to support this direction. REFERENCES [1] RISC-V Foundation, “RISC-V isa manual vol. II: Privileged architec-ture,” https://riscv.org/technical/specifications/, 2019. [2] ——, “RISC-V isa manual vol. I: User-level isa,” https://riscv.org/ technical/specifications/, 2019. [3] J. Anders et al. , “A survey of testability, safety, and security of RISC-V processors,” in Proc. IEEE ETS , 2023. [4] T. Lu, “A survey on RISC-V security: Hardware and architecture,” 2021. [5] C.-S. Chuah, C. Appold, and T. Leinmueller, “Formal verification of security properties on RISC-V processors,” in Proc. MEMOCODE ,2023. [6] lowRISC Contributors, “Ibex RISC-V core,” https://github.com/ lowRISC/ibex, 2023, commit bd25993 , retrieved May 2026. [7] M. Soeken et al. , “Automating the translation of assertions using NLP techniques,” in Proc. FDL , 2014. [8] R. Zhang and C. Sturton, “Transys: Leveraging common security prop-erties across hardware designs,” in Proc. IEEE S&P , 2020. [9] Q. Zhai et al. , “Towards trustworthy LLM-based assertion generation,” in Proc. DATE , 2026. [Online]. Available: https://baichen318.github.io/ misc/c21-paper.pdf [10] Z. Yan et al. , “AssertLLM: Generating hardware verification assertions via multi-LLMs,” in Proc. ASP-DAC , 2025. [11] D. R. Ankireddy et al. , “LASSO: LLM-aided security property genera-tion for SoC verification,” in Proc. MLCAD , 2025. [12] S. Paria, A. Dasgupta, and S. Bhunia, “DIVAS: LLM-based framework for SoC security analysis,” 2023. [13] A. Chauhan, “Automatic translation of natural language to SVA,” in 
+
+Proc. DVCon , 2023. [Online]. Available: https://dvcon-proceedings.org [14] S. Imtiaz, U. Reinsalu, and T. Ghasempouri, “Translating common security assertions across processor designs: A RISC-V case study,” in 
+
+Proc. IEEE ISCAS , 2025. [15] S. Bhunia et al. , “Hardware Trojan attacks: Threat analysis and coun-termeasures,” Proc. IEEE , vol. 102, no. 8, 2014. [16] M. R. Heidari Iman et al. , “Special session: Functional verification techniques in hardware trust,” in Proc. IEEE DFT , 2025. [17] M. R. Heidari Iman, S. Ahmadi-Pour, R. Drechsler, and T. Ghasempouri, “Processor vulnerability detection with assertions: RISC-V case study,” in Proc. IEEE NorCAS , 2024. [18] A. Sabry et al. , “Template-mask data generation for SVA translation,” in Proc. IEEE IMCET , 2026. [19] S. Takamaeda-Yamazaki, “PyVerilog: A Python-based hardware design processing toolkit for Verilog HDL,” in Proc. ARC , 2015. [20] M. Baugh, “Slang: SystemVerilog language services,” https://sv-lang. com, 2023. [21] W. Snyder, “Verilator: Verilog/SystemVerilog simulator,” https://www. veripool.org/verilator, 2023. [22] K. Thibedeau, “hdlparse: A hardware description language parser,” https: //kevinpt.github.io/hdlparse/, 2017. [23] NVIDIA, “NVIDIA NIM microservices,” https://build.nvidia.com, 2024. [24] Siemens EDA, “QuestaSim advanced simulator,” https://eda.sw.siemens. com, 2024. [25] Cadence Design Systems, “JasperGold formal property verification,” https://www.cadence.com, 2024. [26] S. Imtiaz, U. Reinsalu, and T. Ghasempouri, “AutoTrans-RV: Automated security assertion translation for RISC-V processors,” https://github.com/ Sharjeelimtiaz27/autotrans-rv, 2026.

@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-10 <!--dpr-date:20260910-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/10/2609.10057v1-autotrans-ai-assisted-automatic-translation-of-security-assertions-for-risc-v-processors" data-sidebar-item="{&quot;title&quot;: &quot;AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.10057v1-autotrans-ai-assisted-automatic-translation-of-security-assertions-for-risc-v-processors&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;用大语言模型自动翻译RISC-V安全断言以服务RTL验证&quot;}">AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors</a>
   * 2026-09-09 <!--dpr-date:20260909-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/09/2609.05658v1-robustness-of-llm-generated-systemverilog-assertions-to-semantics-preserving-rtl-transformations" data-sidebar-item="{&quot;title&quot;: &quot;Robustness of LLM-Generated SystemVerilog Assertions to Semantics-Preserving RTL Transformations&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.05658v1-robustness-of-llm-generated-systemverilog-assertions-to-semantics-preserving-rtl-transformations&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;利用LLM生成SystemVerilog断言并在保持语义的RTL变换下评测其鲁棒性&quot;}">Robustness of LLM-Generated SystemVerilog Assertions to Semantics-Preserving RTL Transformations</a>

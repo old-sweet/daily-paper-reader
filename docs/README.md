@@ -6,31 +6,24 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-09
-- 运行时间：2026-09-09 22:15:26 UTC
+- 最新运行日期：2026-09-10
+- 运行时间：2026-09-10 21:44:46 UTC
 - 运行状态：成功
-- 本次总论文数：3
-- 精读区：2
+- 本次总论文数：1
+- 精读区：0
 - 速读区：1
 
 ### 今日简报（AI）
-今日共读3篇硬件安全与验证论文，精读LLM生成断言与硅前安全测试，另速读一篇干扰识别探索方法。  
-最值得看：LLM生成的SystemVerilog断言在语义保留RTL变换下稳健性评分最高（9.0/10），信息流追踪的硅前安全测试也达8.0分。  
-建议普通读者先从“断言鲁棒性”切入，理解LLM辅助验证的可靠性，再延伸至预硅安全测试与自动化探索的结合方向。
-- 详情：[/202609/09/README](/202609/09/README)
+今日速读 1 篇，聚焦 RISC-V 处理器安全断言翻译的 AI 自动化方案。AutoTrans 以 7.0 分值得一读，方向是借助 AI 自动生成/翻译安全断言，降低 RISC-V 处理器验证门槛。普通读者可先看它如何用 AI 减少人工编写安全断言的工作量。
+- 详情：[/202609/10/README](/202609/10/README)
 
 ### 精读区论文标签
-1. [Robustness of LLM-Generated SystemVerilog Assertions to Semantics-Preserving RTL Transformations](/202609/09/2609.05658v1-robustness-of-llm-generated-systemverilog-assertions-to-semantics-preserving-rtl-transformations)  
-   标签：评分：9.0/10、query:llm-hw-fv
-   evidence：利用LLM生成SystemVerilog断言并在保持语义的RTL变换下评测其鲁棒性
-2. [Efficient Hardware Information-Flow Tracking for Pre-Silicon Security Testing](/202609/09/2609.06791v1-efficient-hardware-information-flow-tracking-for-pre-silicon-security-testing)  
-   标签：评分：8.0/10、query:fsh
-   evidence：面向预硅安全测试的基于RTL仿真的硬件信息流追踪方法
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Application of curiosity driven exploration methods for hardware interference identification](/202609/09/2609.08729v1-application-of-curiosity-driven-exploration-methods-for-hardware-interference-identification)  
-   标签：评分：7.0/10、query:ml-verify
-   evidence：好奇心驱动探索用于硬件干扰识别，辅助多核时间属性验证
+1. [AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors](/202609/10/2609.10057v1-autotrans-ai-assisted-automatic-translation-of-security-assertions-for-risc-v-processors)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：用大语言模型自动翻译RISC-V安全断言以服务RTL验证
 
 
 <div class="dpr-home-promo-card">
