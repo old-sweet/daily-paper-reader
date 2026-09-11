@@ -6,24 +6,22 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-10
-- 运行时间：2026-09-10 21:44:46 UTC
+- 最新运行日期：2026-09-11
+- 运行时间：2026-09-11 21:57:40 UTC
 - 运行状态：成功
-- 本次总论文数：1
+- 本次总论文数：0
 - 精读区：0
-- 速读区：1
+- 速读区：0
 
 ### 今日简报（AI）
-今日速读 1 篇，聚焦 RISC-V 处理器安全断言翻译的 AI 自动化方案。AutoTrans 以 7.0 分值得一读，方向是借助 AI 自动生成/翻译安全断言，降低 RISC-V 处理器验证门槛。普通读者可先看它如何用 AI 减少人工编写安全断言的工作量。
-- 详情：[/202609/10/README](/202609/10/README)
+> 今日无新推荐，系统未产出可展示论文。
+- 详情：[/202609/11/README](/202609/11/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [AutoTrans: AI-Assisted Automatic Translation of Security Assertions for RISC-V Processors](/202609/10/2609.10057v1-autotrans-ai-assisted-automatic-translation-of-security-assertions-for-risc-v-processors)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：用大语言模型自动翻译RISC-V安全断言以服务RTL验证
+- 本次无速读推荐。
 
 
 <div class="dpr-home-promo-card">
