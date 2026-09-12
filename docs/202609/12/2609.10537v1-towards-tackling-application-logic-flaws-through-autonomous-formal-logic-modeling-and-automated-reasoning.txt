@@ -1,0 +1,632 @@
+Title: Towards Tackling Application Logic Flaws through Autonomous Formal-Logic Modeling and Automated Reasoning
+
+URL Source: https://arxiv.org/pdf/2609.10537v1
+
+Published Time: Thu, 10 Sep 2026 01:31:09 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Towards Tackling Application Logic Flaws through Autonomous Formal-Logic Modeling and Automated Reasoning 
+
+Yiwei Fang ∗, Yichen Liu †, Ze Jin ∗, Haoqiang Wang ∗, Qixu Liu ∗, Luyi Xing †,
+
+> ∗
+
+Institute of Information Engineering, Chinese Academy of Sciences ph4ng0t@rustysnow.org, jinze@iie.ac.cn, wanghaoqiang@iie.ac.cn, liuqixu@iie.ac.cn 
+
+> †
+
+University of Illinois Urbana-Champaign yichen59@illinois.edu, lxing2@illinois.edu 
+
+Abstract —Logic flaws pose significant challenges in the design and implementation of modern, semantically rich systems and applications, impacting security, privacy, and trust. These flaws are inherently tied to business-specific semantics and threat models, making their discovery and reasoning difficult and hard to scale. Real-world systems often exhibit diverse application features, complex protocol logic, and domain-specific threat models, necessitating substantial human effort and domain expertise for effective security analysis. In this paper, we introduce LL-Verifier, a novel, automated framework for identifying logic vulnerabilities built on (1) large language models for autonomous modeling, and (2) logic model checkers for rigorous reasoning. LL-Verifier processes natural language inputs, in particular protocol descriptions and security goals, to automatically generate formal logic models and properties expressed in a new logic language built on a generic logic language Maude, optimized for modeling arbitrary application-level semantics. These formal models are then converted into logical state machines, enabling exhaustive, rigorous verifi-cation through logic level model checking. This approach streamlines the analysis of diverse, application-level protocols deployed in real-world scenarios, offering automated, exhaus-tive, and precise reasoning within their logical constraints. We evaluated the high effectiveness, efficiency, and practicality of LL-Verifier by applying it to 27 access control protocols of widely used IoT devices, which come with vendor-specific logic flows and semantics. While LL-verifier tackles a hard problem in application security, i.e., automatic logic flaws discovery, our analysis uncovers a range of sophisticated logic vulnerabilities in IoT protocols and devices with serious security and privacy implications. 
+
+## 1. Introduction 
+
+Logic vulnerabilities, known as logic flaws or business logic errors [1], [2], represent a critical challenge in de-signing and implementing modern semantic-rich systems, affecting security, privacy, and safety. Unlike programming bugs, these vulnerabilities arise from design-level weak-nesses, such as flawed reasoning or incorrect assumptions in specific semantic contexts, targeting contextual logic rather than code-level errors [3]. Consequently, they often evade traditional detection techniques like static analysis, dynamic analysis, and fuzzing [3]–[9]. These flaws have severe impli-cations in domains like communication protocols, military systems, and financial infrastructure, leading to unauthorized access, data corruption, and operational disruptions. For ex-ample, a 2023 logic vulnerability in Newag trains in Poland caused disruptions when third-party service providers un-intentionally triggered manufacturer-enforced logic con-trols [10], [11]. This case, uncovered by the ethical hacking group Dragon Sector, underscores the operational and finan-cial risks posed by logic vulnerabilities in critical systems. 
+
+Challenges for detecting flaws in application-level logic . Given an application or application-level protocol which usually comes with context-specific, domain-specific semantics, prior formal methods based techniques including model checking [12]–[17] and logic reasoning [18]–[25] struggle to scale and adapt to this diversity, leaving many logic vulnerabilities undetected in complex, real-world applications, software, and cyber-physical systems. These limitations emphasize the need for novel approaches that can systematically reason about logic vulnerabilities across varied semantic contexts. Our research focuses on flaws at the “application level” (application logic, application-level protocols), in contrast to the “cryptography level.” In those prior works, modeling a specific system, application or underlying protocols involves identifying domain-specific, context-specific semantic elements that should be modeled, and deciding how to model these semantic elements (e.g., defining data structures and operations using the syntax supported by a modeling language) [26]–[30]. Existing formal modeling approaches struggle with automation, generality, and scalability. The prior modeling process has generally (1) relied heavily on manual effort or domain experts for individual systems and protocols, and (2) been highly tailored to specific systems or domains to identify the necessary semantics for modeling. As a result, the resulting model is essentially a domain-specific model (DSM) and prior approaches have been largely unscalable across different applications and semantic domains. 
+
+Research goals . To address both this fundamental gap in formal methods and critical security risks in system and pro-arXiv:2609.10537v1 [cs.CR] 9 Sep 2026 tocol designs, this paper introduces a formal logic analysis framework, namely LL-Verifier , a novel LLM-assisted ap-proach for autonomous formal logic modeling and logic flaw reasoning. Given an application-layer protocol design and a customized security goal, LL-Verifier aims to autonomously generate domain-specific models in formal logic, and use logic model checkers to automatically verify the specified goals against the target. Notably, it is not uncommon for pro-tocol implementations to deviate from protocol design due to intentional customization or specification ambiguity [31]– [33]. However, it is critically important to directly analyze protocol designs to identify logic flaws in the system and protocol design itself to elevate design-level security (this research does not focus on flaws in protocol implementa-tions). 
+
+Research questions . For the above goals, we summarize specific research questions and their challenges as follows. 
+
+RQ1: What formal modeling approach can generally enable autonomous modeling of diverse application-level protocols with diverse and potentially arbitrary semantics? 
+
+There are two categories of formal logic-based languages: generic logic languages (such as Maude [34], Tamarin [35], Twelf [24], and Prolog [36]) and domain-specific logic language (DSL) [37]. DSL cannot easily adapt to diverse application-layer protocols, thus being highly limited in scope of usage. Generic, foundational logic languages like Maude are highly flexible in syntax and provide capabilities to flexibly define data structures and types used in modeling. However, it is difficult for LLM to accurately generate semantic domain-specific models using highly generic logic languages featuring highly customizable data structures and types, while ensuring that the generated models are ready to or can be verified, in particular, based on state-of-the-art formal model checkers. This is because it is up to LLM to (1) define data structures and types for complex semantic elements (e.g., non-monotonic mutable states) and (2) implement mutual operations and relations between semantic elements, and consequently the generated models come with low accuracy and effectiveness to feed to state-of-the-art model checkers. Specifically, modeling a protocol is essentially to implement the protocol’s core semantics (semantics of interest) using the chosen modeling language. While pure semantic or functionality-level automatic implementation may become practical based on trending code LLM techniques [38], [39], downstream tasks specifically model checking, how-ever, require the modeling in specific paradigms, for in-stance, as a logically, formally defined state machine with conceptually defined states and transitions. Without such definitions and regulations, model checking with respect to customized or semantic properties (e.g., linear temporal logic or LTL properties) cannot be rigorously defined and verified. To address the problems, this paper designs and implements a novel approach to enable LLM and its agentic systems to autonomously generate DSMs for applications and application-level protocols of various semantics, while ensuring that the models are directly ready to verify for context-specific security goals. RQ2: How to design a formal logic language and modeling mechanism that can effectively find logic flaws by capturing customized application-level threat models? 
+
+Security flaws are dependent on assumptions made for the protocol actors, including both benign and threat actors. We dub such assumptions as “threat models,” which define the possible behaviors of benign actors and attackers. Model checking is known to exhaustively traverse the entire state space, in which process a transitioning to the next state is triggered by a possible event (e.g., a user action) — this process is known to be non-efficient (sometimes cannot stop) and not truly scalable (e.g., state explosion [40]). When the enumerated user action is unrealistic or outside the scope of a threat model of interest, the model checking process is non-efficient mixed with unuseful results (e.g., out of scope of the given assumption of interest). Based on the reality of diverse, often domain-specific, semantic-dependent threat models that fundamentally devi-ate from traditional Dolev-Yao assumptions [3], [27], [29], [41]–[61], the novel challenge and our goal are: (1) design-ing a generalized logic modeling framework that natively supports domain-specific, custom threat models by easily, explicitly distinguishing deterministic protocol executions from non-deterministic attacker events, and (2) ensuring this threat mechanism is structurally coherent with the core protocol modeling (e.g., events, rules, etc). Thus, the gener-ated threat model in the appropriate modeling language is directly pluggable to the protocol DSM, making the entire model ready for verification. Consequently, the reported vio-lations in DSM model checking strictly adhere to the defined application-level threats, ensuring analysis soundness. 
+
+Our approach . To address these challenges, we designed and implemented LL-Verifier , an automatic logical flaw identification framework (§ 3). LL-Verifier introduces an LLM-compatible modeling framework, Les , which features a novel “modeling guardrails” design tailored for LLMs and includes a Les model compiler (§ 2.5). The “modeling guardrails” (FMG) ensure accurate and reliable LLM generation of formal models for application-level protocols. 
+
+Les is designed with FMG principles, including foundational symbols and types (§ 2.1), State-Transitional Logic Rules for protocol rule modeling (§ 2.2), and Event Generation Rules for event modeling (§ 2.4). The Les compiler translates Les formal models of protocols or applications into a rewrite theory [62], enabling the creation of logical state machines M (§ 2.5), and supporting non-monotonic mutable states. This facilitates exhaustive and automatic model checking using off-the-shelf model checkers [63]. Given the textual representation of a protocol and a customized security goal, LL-Verifier reorganizes the infor-mation into multiple components and formalizes each of them respectively to Les through the collaborative efforts of Les formalization agents (§ 3.1). By employing LLM in-context learning (i.e., few-shots prompting) [64] and an embedded program analyzer, we ensure the reliability and accuracy of LLM responses (§ 3.2). Based on customized threat models and security goals, LL-Verifier adjusts the determinism/non-determinism of Les rules (§ 3.3.2) and sup-port non Dolev-Yao application-layer threat model. Using 
+
+LL-Verifier , we specify trace properties in Linear Temporal Logic (LTL). These properties are defined over proposi-tions derived from the same Σ and are evaluated against system states (§ 3.3.3). By verifying whether M satisfies the negation of a trace property, LL-Verifier produces the corresponding attack traces. 
+
+Evaluation and findings. We have used LL-Verifier to model and reason about IoT devices and applications of 28 IoT vendors (such as iRobot, Google Home, Aqara, see Table 2), show that our techniques are effective and and practical (§ 4). Specifically, across 27 unique devices , LL-Verifier found 35 logic flaws; this includes 30 previously unknown logic flaws among 23 vendors. We implemented proof-of-concept attacks on real devices of ours for all the new flaws (§ 5). We responsibly reported all zero-day flaws to affected vendors. The Connectivity Standards Alliance (CSA, the organization that manages the emerging IoT stan-dard Matter [65]) and 14 vendors such as August, Philips, and Tuya have acknowledged the flaws and are releasing patches. To further evaluate coverage and accuracy of LL-Verifier in modeling application-level protocols, we devel-oped Logic-Modeling Bench , a novel benchmark including the textual specifications and formal models of 29 applica-tion level protocols, including those of 24 IoT and mobile vendors (such as iRobot, Philips, Tuya) and 5 protocols from prior papers (§ 4). Given those protocols, we eval-uate the coverage and accuracy in modeling the protocols’ semantics elements, including subjects (i.e., principals, e.g., users, clients, devices, servers), events (e.g., actions and API requests supported in the protocol), attributes of the subjects and events, and protocol rules. Our evaluation shows that 
+
+LL-Verifier achieved high coverage in modeling semantic elements and high accuracy. 
+
+Contributions. We summarize the contributions as follows: 
+
+• New techniques . We present LL-Verifier , a novel approach and tool for autonomous formal modeling of system and application designs of various semantic contexts into domain-specific models (DMSes), and automatically detecting application-level logical flaws based on formal model checking. 
+
+• New benchmark . We introduce Logic-Modeling Bench , the first benchmark to evaluate autonomous formal modeling of application-level protocols with varied semantics across vendors and application domains. 
+
+• New findings . We applied LL-Verifier to model and ana-lyze logic flaws in 27 real devices, uncovering the sophisti-cation and pervasiveness of these flaws in IoT protocols and diverse application scenarios, highlighting the fundamental threats posed by logic flaws, which are difficult to avoid in the design space of IoT systems and potentially other systems. 
+
+## 2. Les : A Logic Modeling Framework 
+
+To address RQ1 and RQ2 and enable LLM to effectively and accurately generate formal logic models that model po-tentially arbitrary application-level protocols, we introduce 
+
+Les , a novel LLM-friendly modeling framework including a LLM-friendly logic modeling language that features a novel “modeling guardrails” design for LLM and a Les 
+
+model compiler. Our design intuition is that although logic language must be general and flexible enough to support potentially any application semantics, meanwhile, it ought to come with “guards” on the format and structures in modeling semantic elements (of the protocols) and how the semantic elements may impact each other in a transition-system paradigm. Those “guards” are essential to ensure that LLM can accurately and successfully generate formal models in the way we aim to model arbitrary application-level protocols — called Logical State Machine or LSM (§ 2.5). We call those “guards” for highly generic modeling language as formal modeling guardrails (FMG). Design of FMG is novel, distinguishing Les from other general logic languages or modeling languages like Maude and Tamarin and prior modeling approaches [34], [35], [66]–[71]. In the following, we elaborate on the design of Les 
+
+focusing on FMG including foundational symbols and types in the logic language denoted as Σ that we expect LLM to use in modeling (§ 2.1), State-Transitional Logic Rules for LLM to model protocol rules that are both determin-istic and trusted in protocol execution and those that are not (dependent on threat model of interest, § 2.2), Event Generation Rules for LLM to model event generations that are supported in the protocol. While these FMG s along with the Les language are de-signed to be general, we implemented the Les language with 
+
+FMG s using the EBNF [72] (extended Backus–Naur Form, a metasyntax notation for formally specifying the syntax) with 27 lines of code [73]. In § 3, we elaborate our Les 
+
+LLM agents that take Les ’s EBNF specification and target protocol’s textual specification as input, and autonomously generate formal models in the target Les logic language. To enable execution of and fully automatic model checking on 
+
+Les formal models, Les additionally includes a Les compiler to convert the Les formal model (of a target protocol or application) into a rewrite theory [62], in the syntax of Maude modeling language. A rewrite theory is known to be able to be directly mapped to a state-machine, called 
+
+logical state machine (LSM) in our task, and can leverage the off-the-shelf Maude model checker [63] for exhaustive, automatic model checking for our models. We elaborate on the Les compiler and LSM definition in § 2.5. Our Les LLM agents and automatic model checking are elaborated in § 3. 
+
+2.1. Foundational Logic Symbols and Types 
+
+In Les , our logic language, denoted as Σ, is designed to have (1) basic symbols and types inherit from prior generic logical languages, and (2) guardrail symbols and types that can be flexibly, effectively used by LLM (also by human of course) to specify and model semantics elements in application-level protocols. The guardrail symbols and types are essential to help formulate (1) principals (e.g., users, devices, clients, servers) in applications and protocols; (2) the principals’ internal states (i.e., attributes, data/knowl-edge); (3) events that can occur in the application or protocol (e.g., operations performed by principals). 
+
+2.1.1. Basic Symbols and Types. Data types . Based on basic types previously used in logic, including Bool, Qid (quoted identifier or String), Nat, Set (we use nils to express an empty set), List, etc., Σ defines a generic sort DataItem 
+
+(or simply Item ), and prior basic types Bool , Qid , and 
+
+N at are subsorts of Item . Σ further defines a subsort of 
+
+Item , namely sort P air to model key-value pairs, denoted as K : Y where K is of sort Key and Y is of sort Set . A 
+
+Key is a Qid (String). 
+
+2.1.2. Guardrail Symbols and Types. Principals . In Σ,we define P rincipal as a type (called sort in the algebraic specification community), and we define U ser , Device , and 
+
+Cloud as subsort of P rincipal (i.e. every instance of the sort U ser is a P rincipal ). 
+
+Σ considers the set of data items (Item s). For example, the set {'localT o ' : deviceB, 'know ' :('SecretC ', 'SecretA ')} contains two P air s which have key 'localT o ' and 'know ' respectively. In this example, 
+
+Σ used “ ,” as a union operator to concatenate Item s to form a bigger set, which satisfies idempotency, associativity, and commutativity properties. 
+
+Attributes and Internal State of Principals . Each principal has internal states (or InS ), and the internal states are modeled by attributes of the principal. Specifically, Σ
+
+defines the syntax < P rincipal | Attributes > to specify an internal state of the P rincipal , with the delimiter 
+
+| which can be read as “with”, followed by the sort 
+
+Attributes . Σ defines the sort Attributes as a set of data items ( Item ). For example, < U serX | 'localT o ' :
+
+deviceB, 'bindingStatus ' : true, 'know ' :('SecretA ', 'SecretC ') >, being a logical proposition, denotes an internal state of the user namely U serX : intu-itively, she is local to the device named deviceB, her binding status is “true”, and she knows “SecretA” and “SecretC”. The logic expressions in Σ can include variables (like in first-order logic). For example, < cloudA | 'bdKey ' :
+
+KeyA, 'owner ' : U serX > denotes the internal state of the Cloud namely cloudA, which has a ‘bdKey’ (intuitively binding key) whose value is variable KeyA and the ‘owner’ is U serX .Based on the logic convention [74], names that start with an upper-case letter is a variable (e.g., Key 1,
+
+U serX ). In contrast, cloudA that starts with a lower-case is a constant denoting the principal named “cloudA”. 
+
+Actions and Events. In systems like IoT, a principal may perform actions (e.g., operate the device). Σ defines the syntax $ P rincipal Action P rincipal | Arguments to denote an Event , where the principal followed by a $ sign performs an action towards the other principal, optionally with some Arguments along with the action. For exam-ple, userA 'pressButton ' deviceB denotes that userA 
+
+presses the button of deviceB , where 'pressButton ' is an action (of sort Action ). In our design of Σ, the sort 
+
+Action is general and can additionally model API calls; we define the sort Arguments as a list of Item s, intuitively being arguments related to the action. For example, the 
+
+Event $U serX 'callAP I : bind ' cloudA | KeyA 
+
+denotes that any user U serX calls the API “bind” of the cloud namely cloudA with an argument KeyA . Notably, the above examples are all from our specification of the iRobot protocol using Les .
+
+Logical State . In Les (Σ), we define the syntax 
+
+< P rincipal 1 | Attributes >< P rincipal 2 | Attributes > ...... < P rincipal n | Attributes > to denote a
+
+Logical State , which includes the internal states of multiple principals that are considered in modeling and analyzing the protocol. 
+
+Syntactic sugar. Les comes with a few intuitive syntax symbols that can be used like syntactic sugar to improve expressiveness. For example, “...” is a variable of sort 
+
+Set , which can be seen as a wildcard in pattern-matching Attributes of the principals (see a detailed example in § 2.2). Note that this section focuses on the syntax and in § 2.2 and § 2.3 we will elaborate on how to use these sorts and syntax to model protocols underlying real application scenarios. 
+
+2.2. State-Transitional Rules to Model Protocol Rules 
+
+A principal’s actions in protocols and applications (e.g., IoT binding [75], delegation [27]) can have side effects, leading to reactions of other principals and changes of their internal states. For example, a user makes an API request (along with a binding key) to the cloud to bind with a device, and correspondingly the cloud principal internally updates the recorded binding status of the device and records the binding key. To formulate protocol rules in diverse application protocols, we introduce state-transitional rules to model the logical rules of application protocols in the form of 
+
+premise → conclusion . State-transitional rules are de-signed by modeling the principals’ changes in their internal state corresponding to protocol-supported events (e.g., spe-cific user actions or API requests with certain arguments). By default, state-transitional rules for all rules of the target protocol are denoted with the general → sign. Meanwhile, a novel design here is that we ought to differentiate “determin-istic” protocol rules that are trusted to execute (rules defining expected changes or actions of a trusted principal) and “non-deterministic” protocol rules that may not necessarily be executed (rules defining expected changes or actions of a non-trusted principal). In Les , we designed r
+
+→ (compared to 
+
+→) to denote “non-deterministic” rules. Essentially, whether a protocol rule is “deterministic” or not depends on the threat model of interest. In § 3, when we provide a customized threat model (arbitrary principals being trusted or not) to our model-generation LLM agent along with the protocol specifications, our agent is able to automatically generate and differentiate rules of the two kinds ( r
+
+→ and →). Rule 1 and 2 show examples in modeling iRobot devices’ protocol.                      
+
+> < cloudA |DeviceY : ( 'bdKey ':KeyB, ... )>
+> $DeviceY 'callAP I :setKey 'cloudA |KeyA
+> →< cloudA |DeviceY : ( 'bdKey ':KeyA, ... )>(1)
+
+In Rule 1, Line 1 abstracts an internal state of the 
+
+cloudA : the cloud recorded for a device (matched by variable DeviceY ) a binding key KeyB . Line 2 is an event (starting with $) where the device calls the API to set a binding key KeyA . The → means implification: based on Rule 1, the cloud internal state and device event will be rewritten with a new internal state of the cloud (after the 
+
+→ sign at Line 3): the cloud replaces KeyB with KeyA 
+
+as binding key of the device (intuitively, the cloud will no longer recognize KeyB ). Notably, here the simplification in our Les is powerful and flexible in the sense that, it can pattern-match a fragment of the cloud’s internal state specified using the pair 'bdKey ′ : KeyB , regardless of other attributes and values in the cloud’s internal state (specified using syntax “...”, like a wildcard, a variable of sort Set developed in Σ).                             
+
+> < cloudA |DeviceY : ( 'bdKey ':KeyA, 'owner ':nils )>
+> $U serX 'callAP I :bind 'cloudA |DeviceY ;KeyA
+> →< cloudA |DeviceY : ( 'bdKey ':KeyA, 'owner ':U serX )>
+> (2)
+
+Intuitively, Rule 2 denotes that, when the cloud’s internal state already recognizes any KeyA for the device which has no owner (Line 1), once any user U serX calls the “bind” API of cloudA with the same KeyA , the cloud will update its internal state by changing the device owner from empty (denoted as nils ) to U serX (Line 3). 
+
+2.3. A Running Example of iRobot 
+
+Based on the design of our state-transitional rules, we formally specified the complete application protocol rules of establishing root trust (RTE) for iRobot devices [76]. In iRobot’s protocol, if any U serX and the DeviceY present to the cloud the same arbitrary binding key KeyA , the cloud establishes an internal state where U serX is the owner of 
+
+DeviceY (Rule 2). The normal process of the iRobot proto-col starts when a user presses the button on the device, and then the device accepts a new binding key KeyA that she can send using her iRobot app (Rule 3). This is a mechanism developed by iRobot for the user and device to share a secret binding key. After that, then the device will automatically set 
+
+KeyA to the cloud (Last line in Rule 3). This will lead to the cloud recording the KeyA to its internal state (attributes) for the device (Rule 1). Then if any U serX presents the same key to the cloud by calling API “bind”, the cloud will record the U serX as the owner (Line 3 in Rule 2).                               
+
+> < DeviceY |'key ':KeyB, 'pressed ':true, ... >
+> $U serX 'callAP I :setKey 'DeviceY |KeyA
+> →< DeviceY |'key ':KeyA, 'pressed ':f alse, ... >
+> $DeviceY ′callAP I :setKey ′cloudA |KeyA (3)
+
+Normally, U serX may additionally call the API “reset” using the same key KeyA (Line 2 in Rule 4), which will make the cloud reset the binding status of the device by setting the “owner” key’ value as nils (Line 3 in Rule 4). Full model specification of the iRobot RTE protocol can be found in our website [73].                              
+
+> < cloudA |DeviceY : ( 'bdKey ':KeyA, 'owner ':OwnerX )>
+> $U serX 'callAP I :reset 'cloudA |(DeviceY ;KeyA )
+> →< cloudA |DeviceY : ( 'bdKey ':nils, 'owner ':nils )>(4)
+
+2.4. Modeling Protocol Events Generation 
+
+Earlier, we leverage state-transitional rules for model-ing the protocol rules (§ 2.2). Still, we need a non-trivial design to model the generation of protocol-relevant events, considering that (1) generation of many events (e.g., a user operation) is conditional; (2) depending on the threat model of interest, generation of events is often non-deterministic (by non-trusted principals) while generation of other events (by trusted principals) can be deterministic. Intuitively, being conditional means that the event that a principal may gen-erate is not completely arbitrary; for example, a principal cannot make an API request along with secret argument values that he has not known. Moreover, an event being “non-deterministic” is to consider that a principal especially untrusted principals may perform arbitrary actions as he can, strategically (or unintentionally) out of protocol-regular order and using arbitrary arguments based on his knowl-edge. By default, event generations are modeled as non-deterministic rules in the form of s r
+
+−→ e with s and e
+
+specified using the Les : s characterizes and matches certain states (a collection of interested principal’s internal states) in the protocol’s execution; depending on the principals’ logical state, the rule yields e that specifies a possible new event to be performed by a principal. For example, the event generation rule (formula 5) spec-ifies that at any logical state where there are any DeviceX 
+
+and any U serX whose knowledge (part of his internal state) includes any string K(regardless of the set of other information in his knowledge, denoted by a variable Keys ), the rule will generate an event to call the API “bind” using the argument K.                                  
+
+> < U serX |'know ': ( K, Keys ), ... > < DeviceY |... >
+> r
+> −→ $U serX 'callAP I :bind 'cloudA |(DeviceY ;K)(5)
+> < U serX |'know ': ( K, Keys ), ... > < DeviceY |... >
+> r
+> −→ $U serX 'callAP I :reset 'cloudA |(DeviceY ;K)(6)
+
+Even from the same logical state, a principal especially untrusted ones may alternatively perform other actions, e.g., line 2 in Equation 6. For example, LL-Verifier automatically creates 7 event generation rules for modeling the iRobot protocol. In execution of the logic state machine (§ 2.5), our LL-Verifier will exhaustively generate possible events using the protocols’ non-deterministic event generation rules, dependent on the specific logic states such as principal knowledge in the state. Additionally, Les supports modeling events being “deterministic” to generate if the principals (to generate the events) are trusted depending on the threat model. This is done by replacing r
+
+−→ with →.
+
+2.5. Les Model Compiler 
+
+Making Les models executable. With novel design in 
+
+Les , including FMG s designed as foundational types and symbols, state-transitional rules, and event generation rules, 
+
+Les achieves a high degree of expressiveness and guardrail guidance for modeling, enabling concise and precise model-ing of a wide range of application protocols while enabling LLMs to automatically generate Les models (§ 2.1) based on our FMG implementation in EBNF. Still, a challenge is how to make Les models executable for automatic model checking on Les models. To address the challenge, we developed a Les model compiler (intuitively “converter”) that translates a Les 
+
+model into a rewrite theory with a syntax compatible with the generic Maude logic language, which is thus executable by the off-the-shelf Maude model checker [63]. Specifically, all deterministic rules are translated into equational rules E,non-deterministic rules are translated into rewrite rules R,and data structures and types remain unchanged. Notably, we also support cryptography primitives and operations as equational rules built-in our tool (not protocol specific) like Tamarin [35]. The resulting rewrite theory (Σ , E, R )
+
+corresponds to a state machine [77], called logical state machine (see definition below). 
+
+Logical State Machine. The LSM model is defined as a logical transition system denoted as M = (S, s0, T R ,
+
+R). S is the set of states (also called LSM states). Each state s (s ∈ S ), formulated as s = e @ ls , comprises (1) a logical state ls of all principals of interest in the application protocol (e.g., a set of clients, devices, servers and clouds, also see the sort Logical State in § 2.1) and (2) the most recent event e that occurred and has driven the logical state changes to yield ls .1 Essentially, each state comprises the logical propositions (principals’ internal states, events) that hold at the state. The s0 is the initial state, whose event is empty, denoted as idle . T R denotes the transition relation 
+
+T R : S × S . From any current state sc, a state transition t
+
+(t ∈ T R ) is driven by a new event occurring enew (e.g., a client’s action). Notably, The possible new events that can occur to the state sc are modeled by rewriting rules R
+
+(particularly those converted from the event generation rules, which look like event generation rules with a syntax like 
+
+E @ ls ⇒ e @ ls e instead of s → e, to be compatible with Maude model checker). In R with event generation rules such as rule 5, Line 2 essentially derives a new intermediate state s′ = enew @ ls e new (here, enew denotes the generated    
+
+> 1. @is a syntactic sugar designed and implemented in Les .
+
+event). Automatic model checking will then apply equa-tional rules in R on s′ to transition to a new LSM states. 
+
+## 3. Autonomous Les Modeling and Formal Rea-soning 
+
+This section elaborates on our design and implementa-tion of LL-Verifier , a novel logic flaw detection framework that is empowered by LLM and is capable of (1) autonomous generation of Les models from protocol specifications and threat model descriptions (in natural languages), (2) auto-matically compiling Les models into LSM using our Les 
+
+model compiler (see § 2.5), and (3) performing automatic logic model checking on our LSM models with respect to provided threat model of interest and reporting logic flaws in the application protocol under verification. We provide an overview of LL-Verifier in § 3.1 and elaborate on the design in § 3.2 and 3.3. We implemented LL-Verifier and released its source code online [73]. In § 4, we report our thorough evaluation of LL-Verifier , based on Les .
+
+3.1. Overview of LL-Verifier 
+
+Figure 1 outlines the architecture of LL-Verifier ’s analy-sis pipeline, which is designed to autonomously translate protocol designs into formal models and conduct model checking to uncover application-layer logic flaws. The pipeline consists of three phases, including autonomous formalization, Les Model building with automated repair, and Logical Model Checking. 
+
+Input pre-processing. Before LL-Verifier ’s fully automatic formal modeling and reasoning, LL-Verifier employs a semi-automatic pre-processing phase to better organize and struc-ture the raw input. The pre-processing component is devel-oped as an LLM agent called the specification preprocessing agent that groups the textual descriptions from the input into four semantic segments (without changes to the original descriptions in the sentences): (1) texts describing rules in the protocols, (2) texts describing how (when and on what conditions) events can be generated in the protocol, (3) texts related to the considered initial state of the pro-tocol’s operation, and (4) texts related to the threat model of interest and desired security properties. Following this step, we involve human in the loop to check the results: in particular, we manually ensure that descriptions of each protocol rule should include at least three elements: pre-conditions (optional), events (including actions), and post-conditions of the events/actions. Essentially, a protocol rule should describe both conditions and consequences of the events/actions supported in the protocol. For each target protocol or system, the pre-processing phase transfers raw textual descriptions to organized texts as input to LL-Verifier . We provide the pre-processing output for the iRobot protocol in Appendix Figure 3. Our 
+
+Logic-Modeling Bench (§ 4) includes the raw descriptions, organized texts, and formal models of 29 unique protocols of 28 IoT and mobile vendors. Figure 1: LL-Verifier overview 
+
+Autonomous modeling and formal reasoning. Taking the (organized) input, LL-Verifier ’s formalization component au-tonomously generates Les models. The formalization com-ponent is built with a set of collaborative Les formalization agents , each powered by an LLM. Each Les formalization agent processes one of the four semantic segments from the input and respectively generates Les formal representations of state-transitional rules, event generation rules, an initial Logical State (for related principals of interest that should be mentioned in the threat model), and the security properties. In the final Logical Model Checking component, the 
+
+Les model compiler converts the Les models including the modeled security properties into a rewrite-theory represen-tation (LSM) using the Maude-compatible syntax. Then the sub-component called LSM runner employs the Maude LTL Logical Model Checker [63] for automatic model checking on our models with respect to the security properties. 
+
+Implementation and open-source release. We imple-mented LL-Verifier using 2564 lines of Python code and 157 lines of Maude code. We released the source code and related prompts used by the agents online [73], [78]. 
+
+3.2. Autonomous Protocol Modeling in Les 
+
+3.2.1. Formalization Agents. The formalization component comes with multiple LLM agents that translate natural lan-guage texts grouped and organized by the pre-processing phase into Les formal models. 
+
+Agent for State-Transitional Rules (Agent S ). Among mul-tiple agents in the Formalization component, first, Agent S
+
+works by processing the texts describing protocol rules. Given an arbitrary application protocol with protocol-specific semantic elements and attributes for its principals, Agent S actually generates rules that include those protocol-specific principals, attributes of the principals mentioned in the specification as long as they impact protocol operation. For example, in the running example of iRobot (§ 2.3), the user and device are relevant principals; their keys and the “pressed” status are relevant attributes that affect those principals and their events to generate. Essentially, Agent S
+
+models domain-specific protocol rules autonomously. 
+
+Agent for Event Generation Rules (Agent E ). Agent S
+
+takes the state transitional rules produced by Agent S and invokes a light-weight program analyzer we developed to find all principals from state transitional rules and for each principal, generate a full internal state template (or simply 
+
+state template ) that models all their attributes that have been found in the state transitional rules (all attributes that are relevant to the principal in the target protocol, with each attribute represented as a set of all possible data types). For example, by combining rules 1 and 2, the program analyzer computes a state template for the principal cloudA 
+
+as follows:        
+
+> < cloudA |DeviceB : ( 'bdKey ': [ Qid ],'owner ': [ U ser ]) >
+
+Based on the templates, Agent E processes the texts for event generation (produced by the Preprocessing component of LL-Verifier ) to produce the event generation rules for the protocol. Using the templates that come with protocol-specific attribute names and event names already used by Agent S ensure that event generation rules generated by Agent E reuse the same names. Similarly, Agent E generates event templates for each named event that are found in state transitional rules; this ensures Agent E to reuse the event names already used by Agent S .
+
+3.2.2. Guardrail Agents for Grammar and Semantics Correctness. To ensure modeling correctness and effec-tiveness, LL-Verifier developed novel guardrails techniques built on reflection agents [39]: each Formalization agent such as Agent S and Agent E is accompanied with a “model guardrail” agent that evaluates whether the agent generates proper model code with correct Les grammar and respect to goals defined in its system prompt. With the feedback, each formalization agent iteratively improves results until they are approved by its “model guardrail” agent. We elaborate on the approaches below. 
+
+Guardrail of modeling grammar. While recent develop-ment of grammar-constrained decode (GCD) [79]–[93] can ensure output of LLMs to strictly conform specified formal grammars, this can introduce performance overhead and cost in producing output. Likely for these reasons, GCD techniques have not been widely deployed. For example, OpenAI supports strict JSON in output [94], but has not deployed support for arbitrary formal grammar. To help our formalization agents generate models that confirm to 
+
+Les grammar, we developed a set of practical approaches into LL-Verifier . First, these agents all leverage the EBNF specification of Les grammar as part of their system prompts to LLM , which helps regulate grammar of the generated Les 
+
+models. Second, we leverage the aforementioned “model guardrail” agent (our reflection-agent) that evaluates Les 
+
+grammar of the generated model by the specific agent, and provides the grammar errors and possible repair guidance to the agent to regenerate grammar-correct models. Inside the “model guardrail” agent, the grammar check is built on the Python Lark library, which can accept an arbitrary EBNF specification and rigorously check and report gram-mar errors. In our current configuration, for each protocol, the “model guardrail” agents run up to three times to help fix grammar errors. This is already sufficient to ensure grammar correctness for all 29 unique protocols across 28 IoT and mobile vendors we studied (see § 4). 
+
+Mitigating hallucinations in semantic modeling. Based on semantic level inspection by guardrail agents, the for-malization agents come with iterative repairs of the models for semantic correctness. During development, we observed several recurring hallucinations and mistakes. Even though the context-free grammar is often guaranteed, the modeling result from LLM could still obey the semantic requirements of Rewriting Logic or Les . For instance, Rewriting Logic mandates that all variables on the right-hand side (RHS) of a rule must also appear on the left-hand side (LHS). To mitigate these issues, our high-level strategy involves: (1)Reducing LLM workload by allowing certain repairable errors and correcting them post hoc. (2)Predefining common error-repair patterns; LL-Verifier applies an iterative repair loop to refine LLM outputs. When an error pattern is detected, LL-Verifier triggers the corresponding repair routine. Examples are provided in Appendix B. 
+
+3.3. Threat Model and Security Goals in Les 
+
+To address RQ2, LL-Verifier supports as input domain-specific, flexibly customized threat models and security goals, and models them in Les . We first introduce the modeling of primitive propositions(§ 3.3.1), then present the threat model specification and the underlying mechanisms for constraining state exploration in Les (§ 3.3.2), and finally describe how security goals or properties are encoded as Linear Temporal Logic formulas in Les (§ 3.3.3). 
+
+3.3.1. Modeling Primitive Propositions in Les . Consid-ering the diversity of domain-specific threat models and security properties, one should be able to model properties on (1) states, (2) events and (3) state traces. State properties are the properties that depend on the current logical state including all internal states of interested principals in the protocol, like “userA is the owner of deviceB” (referred as 
+
+uaOwner ), “userC is remote to deviceB” in the iRobot pro-tocol. Event properties are the properties that depend on the event that happened, like ”userA press the physical button of deviceB” ( uaP ress ) , and ”userA reset the deviceB”. The above properties care about individual LSM state, while trace properties are defined above those properties with Linear Temporal Logic operators, which can model the relation across time, like ”Eventually, there is a state that userC is not local to deviceB and userA is the owner of deviceB , and the next state userC is still on the remote and the userA is not the owner of deviceB .” ( sv 1). By formulating individual LSM state as e @ ls as § 2.5, we records the most recent event in LSM state, enables defining both state property and event property. Formula 
+
+e @ LS ⊢ p = true where LS is a variable to match whatever logic state defines that only e is the most recent event that the primitive proposition p (primitive propositions are the most simple properties and can build more complex properties with Logic operators) is evaluated to true at current LSM state. Similarly, E @ ls ⊢ p = true where 
+
+E is an event variable defined that when proposition p is true at the LSM state by matching ls . Subsequently, the aforementioned uaOwner and uaP ress can be formalized as follows:                      
+
+> •E@LS < cloudA |'deviceB ': ( 'owner ':userA, ... )>⊢
+> uaOwner =true
+> •userA ′pressButton ′deviceB @LS ⊢uaP ress =true
+
+The operator syntax ⊢ comes with the underlying model checker MLMC (maude LTL model checker [63]), being generally used to define a logic proposition (of sort P rop 
+
+in MLMC). To make MLMC recognize LSM state, an 
+
+LSM state is defined as a general sort State of MLMC. In this way, while LL-Verifier instantiates all LSM states (see model checking in § 3.1), LL-Verifier is capable of leveraging MLMC to reason about each LSM state and evaluate the primitive propositions. Based on whether or not related propositions hold at one LSM state or a state trace, LL-Verifier can identify counterexamples of the prop-erties. Similar to uaOwner and uaP ress , other primitive propositions can be defined (Appendix Table 1). 
+
+3.3.2. Modeling Threat Models in Les . Unlike traditional network-layer analysis that universally assumes a Dolev-Yao attacker, application-layer protocols rely on determin-istic logic flows (rather than network anomalies like packet loss or delay) and face highly context-specific threats (e.g., a malicious guest user, a compromised cloud node, or a physically proximate attacker). To precisely capture these diverse threat models, we design the following mechanisms. When generating formal Les models from texts, protocol state-transition rules are deterministic, while event genera-tion rules are non-deterministic by default, unless explicitly specified otherwise using a strong directive (which can be identified cues and tune of the texts by LLMs). During preprocessing, the determinism or non-determinism of rules can be adjusted according to specified threat models. By designating a party as untrusted within threat models, LL-Verifier converts all rules associated with the principal to non-deterministic ones. Furthermore, threat models support the explicit specification of rules to fine-tune the deter-minism or non-determinism of protocol rules with greater granularity. Rules explicitly defined in a threat model take precedence over and override those in the protocol that share identical premises. This functionality is achieved by treating both threat models and protocol models as sets of rules, which are subsequently merged into a unified set ( Algorithm online [73]). Furthermore, LL-Verifier supports explicitly defining complex attacker capabilities by modeling how an adver-sary’s actions interleave with a benign user’s deterministic sequence. For instance, in the iRobot root trust establish (RTE) protocol, an attacker might have prior or concurrent physical access to a device. To demonstrate the generality of our approach in modeling such constraints, we define benign user valid operation trace, and attacker’s non-deterministic events. Using primitive propositions (mentioned in 3.3.1 and Appendix Table 1), LL-Verifier formalizes it in Linear Temporal Logic to rp as follows:                 
+
+> □(uaP ressButton → ⃝ (ucOperation W(uaCallSetKey ∨uaReset )))
+> ∧□(uaCallSetKey → ⃝ (ucOperation W(uaCallBind ∨uaReset )))
+> ∧□(uaReset → ⃝ (ucOperation WuaP ressButton ))
+> ∧□(uaOwner → ¬ ⃝ uaOperation )
+> ∧□(⃝uaReset →(uaCallBind ∧ ¬ uaOwner ))
+
+(7) In formula 7, we present this threat model into LTL using standard temporal operators: □ (Globally), 
+
+⃝ (Next), and W (Weak Until). It encodes this threat model in LTL, bounding an untrusted attacker’s arbi-trary actions (ucOperation ) within the benign user’s (ua ) deterministic sequence (e.g., uaP ressButton →
+
+uaCallSetKey → uaCallBind ). By combining the ⃝
+
+and W operators, we formally define interleaving win-dows. For instance, the clause □(uaP ressButton →⃝(ucOperation W (uaCallSetKey ∨uaReset ))) dictates that the attacker can non-deterministically inject operations strictly between the user’s legitimate button press and the subsequent expected state or device reset. 
+
+3.3.3. Modeling Security Goals/Properties in Les . Cur-rently we support two security goals, including attacker gains device ownership remotely (equation 8) and attacker unauthorized device control (equation 9).            
+
+> sv 1:♢(( ucRemote |{z }
+> remote attacker
+> ∧uaOwner |{z }
+> ua is device owner
+> )∧ ⃝ (ucRemote ∧ ¬ uaOwner ))
+
+(8)                
+
+> sv 2:♢(( ¬deviceOn |{z }
+> device off
+> ∧¬ ucOwner |{z }
+> attacker not owner
+> )∧ ⃝ (ucEvents |{z }
+> arbitrary actions
+> ∧deviceOn ∧ ¬ ucOwner ))
+
+(9) In Les , security goals are formalized as LTL (Linear Temporal Logic) formulas representing the precise violation traces (i.e., the realization of an attack). We leverage the eventually operator ( ♢) and the next-state operator ( ⃝) to capture illicit logical transitions over explicit state variables. By formalizing these goals as definitive transitions over explicit key-value states, the Les model checker exhaustively evaluates the state space against these properties. Because our analysis is strictly bounded by the customized threat model rather than generic Dolev-Yao assumptions, this eval-uation guarantees analytical soundness—meaning any trace satisfying these formulas is a confirmed logic flaw with no false positives (FP) within the defined scope. 
+
+3.4. An Attack Trace in the iRobot Protocol 
+
+Logic Flaw Type 1 . We illustrate a counterexample vio-lating sv 1 in iRobot’s protocol (§ 2.3). After a legitimate owner userA binds to deviceB , a malicious userC with temporary physical access presses the device button. This forces the device to accept a rogue KeyA from userC ’s app and synchronize it with the cloud. Subsequently, userC 
+
+remotely invokes the “reset” API using KeyA , erasing the legitimate owner’s cloud record. Full implementation traces are available online [73]. 
+
+## 4. Evaluation 
+
+We used LL-Verifier to automatically model and verify multiple classes of proprietary protocols of 28 vendors, including IoT RTE (§ 5), IoT interoperability (§ 5.2), and collaborative IoT access control (§ 5.3) under the following threat model. 
+
+Threat model. We consider realistic IoT threat scenarios built on prior works in studying different IoT protocols [27], [57], [59], [60]. To analyze application-layer logic flaws, we consider that the IoT cloud infrastructure and systems are benign (the cloud, management console, and device hard-ware and firmware); the adversary cannot eavesdrop on or interfere with the communication of other users’ devices and apps. Some older generations of IoT designs assume that whoever has physical access to the device may reset or bind with the device. Hence, we do not focus on the adversary who resets or binds with the device when he has physical access to the devices, which are well-known attacks, less stealthy and even assumed. However, if he comes once, and is able to either break the owner’s binding or bind with the device anytime after he leaves, this is a violation of security expectations, shed light on in our research. 
+
+End-to-end discoveries of logic flaws. With LL-Verifier ,we identified 30 zero-day logic flaws (Table 2), all confirmed on real devices , including multiple flaw types and novel attacks discussed in § 5. 
+
+Formal model generation. Our benchmark (available on-line [73]) includes 29 protocols from real-world vendors, including the original texts, organized texts, and correspond-ing formal models written in Les . On average, each protocol contains 425 words, 12 rules, 4 principals, and 10 attributes. On the benchmark, we evaluated the performance of the gen-erated models across several semantic elements (Appendix Table 3). Overall, LL-Verifier successfully models 98.3% of principals with 1.7% false positives, 99.3% of attributes with 1.4% false positives, 96.8% of rules, and 64.3% of properties. 65.5% of logic flaws can be checked without human intervention. Among the remaining failures, only 2.3 manual corrections on average were required to make the defective models functional. See detailed error discussion in Appendix § C. 
+
+Ablation Evaluation. With official Maude grammar [95], we designed a prompt (on website [73]) to evaluate the effectiveness of generating Maude code directly. We compared model generation between LL-Verifier and standard Maude on three protocols (iRobot, Aqara, and August). From a syntactic perspective, LL-Verifier generated models executed without errors, whereas the Maude models encountered multiple runtime failures. Semantically, LL-Verifier achieved full coverage. In contrast, the Maude models covered only 27/44 rules, 27/30 attributes.The complete table is on our website [73], which demonstrates low effectiveness in directly formalizing protocols using foundational logic frameworks like Maude. 
+
+LLM Choices. To assess the impact of LLM choice, we selected 5 popular models: GPT-4o, Grok-3, Claude-sonnet-4, DeepSeek-R1, and Gemini-2.5-Pro-Preview. From Logic-Modeling Bench , we randomly sampled three representative protocols—iRobot, Aqara, and August—and evaluated LL-Verifier ’s performance with each LLM. The results show that all five LLMs achieved over 70% coverage in modeling principals, attributes, rules, and events. 4 out of 5 models successfully generated at least one protocol model that uncovered real flaws without any human intervention. See the full table online [73]. 
+
+Performance overhead. We evaluated the performance overhead of LSM Runner running on the 29 protocol models using 3GHz AMD Ryzen 5 4600H CPU and 16 GB memory. Based on the average of ten executions, 
+
+LL-Verifier took 462 milliseconds and 75,860 KB memory at most to fully reason about a model. 
+
+## 5. Logic Flaws in Application-Level IoT Access Protocols 
+
+This paper focuses on analyzing application-level 
+
+protocols and logic (compared to cryptography-level protocols). Taking IoT as an example domain, application-level protocols manage how users access (use, operate) and securely manage IoT devices. LL-Verifier reported 35 logic flaws across 28 vendors (Table 2) for the multiple classes of IoT application-level protocols. This includes 30 zero-day flaws: they are categorized as 9 logic flaw types (LFT 1 to LFT 9) and elaborated on in § 5.1 to § 5.3 based on the protocols’ design-level mistakes and protocol classes. Further, LL-Verifier reported 4 previously known flaws in in-teroperability (cross-vendor delegation of Google Home and SmartThings [27]) and collaborative access control (MaaG of Kwikset and Level [59]) (last four rows in Table 2). Based on their design and usage purposes, we summarize real-world deployed, common IoT application protocols into a few general classes: IoT RTE (§ 5.1), IoT interoperability (§ 5.2), and collaborative IoT access control (§ 5.3). 
+
+5.1. IoT Root Trust Establishment (RTE) 
+
+Fundamental to the security of any application protocols for IoT devices is the establishment of root trust, called 
+
+root trust establishment or RTE (sometimes called device binding [75]). The prior RTE protocols [75], [96] were usually simple and could be easily compromised, allowing 132  
+
+> (a) RTE P1 12(b) RTE P2 213(c) RTE P3
+
+Figure 2: Three RTE design paradigms in the wild unexpected users (attackers) to become the “root” users. For example, in prior understanding, whoever presenting the de-vice’s unique identifier to the cloud (server) can simply bind with the device (entitled as “root” user) [75], [96]. The prob-lem was that device ID (e.g., a string, a MAC address [97]) may be leaked (e.g., to a guest or in brute-force guess), seriously endangering prior RTE designs. Unlike prior un-derstanding, we note that modern RTE protocols of real-world vendors are more complicated, usually proprietary and diverse, with some being quite sophisticated aiming for improved security and usability. With the diversity of ven-dors’ RTE protocols we found, we further summarize them in three sub-paradigms in § 5.1.1 to § 5.1.3 respectively. 
+
+5.1.1. RTE P1: User-and-Device Provers. Essentially, in RTE protocols, the user aims to prove to the cloud that she/he is the legitimate root user. In some vendors’ RTE protocol design, the user u (using IoT mobile app) and the device d send a secret ( binding key ) to the cloud respectively. If their secrets match, the cloud is convinced that the user is entitled to bind with the device, establishing a binding relation such as (u, d ) (Figure 2a). We call this general design pattern RTE Paradigm 1 (RTE P1), although different vendors still bear subtle differences with vulnerabilities in protocol logic (e.g., iRobot, Philips Hue, see below). No-tably, Logic Flaw Type 1 (LFT 1) is under RTE P1. 
+
+LFT 2 (local distribution of binding key). We find that vendors usually come with unique mechanisms to let the device and the user (using mobile apps) share a secret binding key. In LFT 1, once the user presses a button on an iRobot device, the device accepts a new binding key from the user’s iRobot app. This is based on a local Message Queuing Telemetry Transport (MQTT) [98] server in the iRobot device accepting customized commands. In iRobot’s RTE protocol, the user u alternatively can press the button and query the in-device MQTT server to retrieve the binding key kprior previously used (already sent to the cloud, Equation 1) which is still recorded in the device. Anytime in the future , he can remotely send 
+
+kprior to the cloud by calling a binding-related reset 
+
+API (https://auth1.iot.irobot.cn/v1/ {deviceID }/reset) and the legitimate owner will lose binding relation and access rights (see PoC implementation below). The reason iRobot devices keep the used binding key kprior is possible because iRobot intends to reuse such an established secret between the iRobot app and the device for local control. Specifically, although normally the app’s control commands (e.g., turning on/off the device) go through the cloud (allowing remote control), when the cloud or Internet service is unavailable, the iRobot app can automatically switch to local working mode, and directly send commands to the device (through the device’s MQTT interface) using the secret key. 
+
+LFT 3 (remote distribution of binding key). Different from iRobot devices that convey the binding key between the iRobot app and device through local communication channels (Bluetooth or Wi-Fi), the Philips Hue RTE strives to ensure their RTE is cross-platform and compatible with Web clients. Specifically, users can use a Web page to bind with Philips Hue devices. Given that browsers or Webviews may not always be entitled or equipped with Bluetooth, Wi-Fi, or support raw TCP/UDP protocols (e.g., customized MQTT commands between iRobot app and device), Philips Hue leverages the cloud to convey the secret key. Once a button is pressed on the device, the device sends a new binding key to the cloud, which then tries to deliver the key to the user (using her Hue app) who presses the button. However, determining the actual user of a device be-fore completing RTE is challenging. As a workaround, the Hue cloud issues the binding key to any users that share the same outbound IP address with the device. To receive the binding key, normally the benign user’s binding Web page will query a Hue cloud API hue.accounts. v1.BridgeService/RequestAccess . However, the attacker can also query (or even keep querying for racing with the victim) the cloud API to receive the binding key, whenever any victim with the same outbound IP address is attempting a Hue device binding. The attacker can then use the key to call the Hue cloud API hue.accounts.v1. BridgeService/LinkBridgeWithTicket , and es-tablish a binding with the device. Once the attacker receives the key, the victim cannot receive it. The victim may attempt RTE again, whose device generates another key ( key 2). Notably, in the Philips Hue protocol, the cloud supports both root users and respective binding keys; the benign user can bind with the device without the awareness of another root user (attacker). This attack can pose practical, serious risks in places like campuses, corporations, or communities, where many users share outbound IP addresses. 
+
+Implementation and PoC exploits. We PoC attacks for LFT 1 and 2 using our iRobot Roomba 975 devices. After pressing the device’s button, by transmitting an iRobot-customized packet f005efcc3b2900 to the in-device MQTT server on port 8883, we developed a script (similar to the iRobot mobile app) to retrieve the existing binding key from the device; alternatively, our script can send the device a new binding key with up to 30-bytes after sending a packet 
+
+f023efcc3b2900 to the in-device MQTT server [99]. We implemented attacks for LFT 3 on our Philips Hue Hub (victim device). We developed an attack script, running on a machine sharing the same outbound IP address as the victim device. The Hue cloud APIs (see below) are under https://api.account.meethue.com/. The attack script fetched the binding key via the Hue API hue.accounts.v1.BridgeService/ RequestAccess . To bind with devices, the attack script uses the API hue.accounts.v1.HomeService/ LinkBridgeWithTicket or hue.accounts.v1. HomeService/JoinWithTicket . The former requires the ticket, device MAC, and home ID as arguments when the device has no existing binding. The latter API is used to bind with devices that have existing binding(s). Encoded RTE protocols and attack traces are available online [73]. 
+
+5.1.2. RTE P2: User Prover. For some vendors, the user 
+
+u is the prover trying to convince the cloud that she is the legitimate user to bind with a device d. Usually, the user (using mobile apps) obtains a binding key from the device and sends it to the cloud to prove credibility (Figure 2b). The key can include the device’s identity, in-device secret, or other credentials up to individual vendors’ RTE design. We find that real IoT devices supported by this RTE paradigm (RTE P2) do not require Internet connectivity (August [100] and Kevo [101]) although some devices connect to the cloud for after RTE (Switchbot [102], Netvue [103], and Govee [104]). 
+
+LFT 4 (multiple usages of a binding key). The design of Broadlink smart plugs did not differentiate a regular access key from a binding key. Specifically, in its RTE, the owner usually presses a button on the device, and her Broadlink app will automatically receive a secret binding key after connecting to the device’s Wi-Fi hotspot. The app then sends the binding key to the cloud to finish the binding. Further, the owner can allow guest users to use Broadlink devices by either adding a guest user or turning on a “local access” switch both done in the Broadlink app. In the former case, the guest user’s Broadlink app will automatically retrieve an access token from the cloud. In the latter case, the guest user can press the button on the device and the app will retrieve an access token from the device. With such access tokens, the guest user can send commands to operate the device either remotely through the cloud or locally (through Wi-Fi). However, it turns out that the access token exposed to the guest users is the same as the binding token. Even after the guest user is revoked, they can use the access token and call the cloud API https://app-service-chn-467a8f05.ibroadlink. com/appsync/group/dev/manage?operation=add to establish a binding becoming the root user. 
+
+LFT 5 (insufficient restriction of binding key usage). 
+
+Certain vendors have put measures to limit the validity and the usability context of the binding key, to mitigate threats considering the binding key may sometimes be exposed (e.g., to someone who could ever access the device). For example, the iRobot cloud only acknowledges the latest binding key sent by the device, while the server of Kevo door locks [101] and Netvue cameras [103] acknowledge all prior binding keys. A guest user of Netvue cameras (e.g., Airbnb guest) can press a device button and receive a fresh binding key kn (using the Netvue app). Although the owner could have bound or may generate a new binding key km
+
+to bind with the device, the guest can use kn to bind with the device for arbitrary times. RTE protocols of some devices ensure only one root user at a time, such as August [100] and TTLock [105] locks. Even if a guest user obtains the binding key from the device, their binding request to the cloud will be rejected. Unless the existing lock owner (using the app) makes requests to the cloud to reset existing binding or transfer the ownership to another user, no one can reset or bind with the device even physically having the device. However, such restric-tions can still be bypassed by a looping attack script that patiently waits for the opportune moment. Once the owner resets the device binding (e.g., during ownership transfer or configuration resetting), this script may operate faster than the benign user who performs a new binding, and establishes malicious binding (by automatically sending the binding key to the cloud). The benign user will have no way to bind the device — even a physical resetting would not help. 
+
+Implementation and PoC exploits. We performed PoC attacks for LFT 4 using our Broadlink SP4M smart plugs. We used two different Broadlink accounts to act as the benign owner and the guest (attacker, with guest permissions granted by the owner). The guest obtained the device’s local key by sniffing the app’s network traffic with the Broadlink cloud. After the owner revoked the guest’s permissions, the guest used a script to invoke the Broadlink cloud API with POST data. The data has a key field called “cookie”, which is a base64 encoded JSON that contains the pair 
+
+“aeskey”: {local key }. Then, the guest whose permissions were revoked, became a root user stealthily without the owner awareness. We show PoC attack videos online [73]. 
+
+5.1.3. RTE P3: Device Prover. Some IoT vendors feature RTE Paradigm 3 (RTE P3): the device d is the prover that tries to convince the cloud to bind itself with a user 
+
+u. To do so, the device obtains a binding key from the user’s app, which usually includes the user’s identity or other credentials up to individual vendor design, and sends the binding key to the cloud (Figure 2c). Again, real-world vendors’ RTE protocols under RTE P3 are varied, featuring subtle logic flaws. 
+
+LFT 6 (attacker binding key with the victim device). 
+
+The TP-Link Kasa plugs enter RTE process once the benign owner presses a physical button. During binding, the device 
+
+d receives a secret binding key k from the user u (using her Kasa app), who got it from the cloud. The communication is based on that the user app is connected to the hotspot of the device. Next, the user app sends the home’s Wi-Fi credential to the device, which then connects to the Internet. Since the cloud knew the correlation (k, u ), once the device 
+
+d presents k to the cloud, the cloud concludes the binding relation (d, u, k ).Leveraging a protocol flaw, after a victim sends hers 
+
+k to the device, a malicious user u′ can also send his own binding key k′ to the device, replacing k effectively. After the victim’s app sends Wi-Fi information, the device presents k′ to the cloud, establishes a binding (d, u ′, k ′). In reality, the attacker can be a neighbor, someone nearby, or even an app with malicious code on the victim’s phone, that keeps trying the above attack (using automatic code) and awaits for the victim to ever bind with her device (see PoC attacks on real devices below). We present another LFT 7 under RTE Paradigm 3 for CloudEdge cameras in Appendix. 
+
+Implementation and PoC exploits. We implemented PoC attacks for LFT 6 with our own TP-Link Kasa HS103P2 smart plug. We used a benign “owner” account (victim) and a malicious user. We implemented an attack An-droid app (either running on a nearby, malicious user’s phone or on the victim’s phone), using minimal permis-sion ACCESS_FINE_LOCATION , which is needed to scan nearby hotspot of the device. This app monitors Wi-Fi SSID “TP-LINK”. The device launches such a hotspot only during binding. The attack app then keeps sending a malicious binding key every 100 milliseconds until a successful bind-ing. Notably, the attack app does not know the victim’s credentials related to binding. 
+
+5.2. IoT Interoperability 
+
+IoT interoperability enables devices from multiple ven-dors to work easily together including cross-vendor del-egation [27], multiple device management channels (M-DMC) [57], and etc. The Matter protocol [65] is an industry-standard for smart-home IoT, supporting multiple protocols including RTE. As a new control channel besides the com-mon DMCs in [57], it emphasizes local control to enhance reliability and security, recording access control lists inside the devices. 
+
+LFT 8. Many IoT vendors add Matter protocols to their ex-isting devices and apps for compatibility with the emerging Matter standard. In Aqara [106], device owner u can still leverage the vendor’s original RTE protocol to bind with device d, and delegate partial access rights (guest-level) to a user c , all using the Aqara app. Normally, the privileges of a guest-level user are restricted, unable to establish binding using Aqara RTE or edit other users, for example. Since the Aqara devices support Matter, we developed an LSM 
+
+model that collectively models Aqara’s RTE, delegation, and Matter RTE protocols. Such an LSM model specifies more comprehensive application semantics than modeling individual protocols. LL-Verifier finds that after delegation is conducted by owner u, user c can execute Matter RTE with the device, establishing a binding relation that is recorded in the device’s internal state. Consequently, user c achieved privilege escalation. Even after the owner revokes user c 
+
+using the Aqara app (part of Aqara delegation protocol), leading to removal of user c in the cloud-side access control list (modeled in the cloud’s internal state), user c still has a binding relation with the device based on the Matter protocol. Such a binding status is recorded in the device’s internal state, still allowing user c to operate the device, posing a security violation.Tuya [107] has a similar logic flaw (Table 2). 
+
+Implementation and PoC exploits. The encoded Aqara protocol is released online [73]. We implemented PoC attacks with our Aqara smart hub M2. Acting as adevice owner (victim), we invited a guest user ac-count (attacker) into the “home” in the Aqara app and granted the attacker a “Guest User” role. Through re-verse engineering network traffic between his Aqara app and the Aqara cloud, the attacker collected the de-vice identifier. The attacker retrieved the Matter pairing code of the device by calling Aqara cloud API with payload {"data":[ {"options":["4.200.700"], "subjected": "DEVICE_ID" }]}. Using an open-source Matter controller CHIP Tool [108], the attacker successfully bound with the device using Matter protocol, which lasted after the owner removed him in the Aqara app. 
+
+5.3. Collaborative IoT Access Control 
+
+Unlike prior protocols (§ 5.1 and 5.2) with centralized access control (e.g., a vendor’s cloud), some IoT devices coordinate policies between cloud and in-device authorities, especially for offline devices [59]. IoT vendors, such as Ap-ple Home [109], Dyson [110], and Tuya [107], enforce in-device security policies to authorize local user app requests. For remote users, commands are routed through the cloud, which authenticates users and relays approved instructions to devices. Devices synchronize with the cloud to update or retrieve access policies, such as adding a new authorized user. This bidirectional synchronization ensures consistent access control between devices and cloud authorities. 
+
+LFT 9. Under CAC protocols, when the cloud de-authorizes a user, the device’s local access control should not permit the user to operate the device. Take, Tuya devices’ CAC protocol in combination with delegation protocol, for instance. Following the Tuya app’s delegation workflow, an owner can delegate permissions to another user, who can be a malicious employee or tenant, for example. The latter (attacker) gets two keys key remote and key local : for remote access through the cloud the requests should include both keys and for local access the requests only need the latter key. After the device owner (victim) revokes the attacker, the cloud’s policy (modeled as part of the cloud’s internal state) deauthorizes requests with the two keys; inconsistently, the device policy will still permit the attacker’s operating requests carrying key local . Dyson, Xiaomi, Huawei, Philips, CloudEdge, and Broadlink all have similar CAC protocols and a similar logic flaw (Table 2). 
+
+Implementation and PoC exploits. We released Tuya’s logical model in Les and its attack traces online [73]. We implemented PoC attacks using our Tuya Kmeasion smart plug CZ1. We used an owner account (victim) and granted a guest role to another account using the Tuya Smart (mobile) app. The latter account (attacker) can obtain the two keys by employing Frida [111] to instrument the 
+
+com.tuya.smart.common.utils.AESUtil class of his Tuya app. After the owner completely removes the at-tacker from his home using the Tuya app, the attacker cannot request the cloud to operate the device but can send opera-tion commands to the device’s port 6668 carrying key local .
+
+5.4. Discussions 
+
+Our findings (§ 5 or Table 2) showed pervasive logic flaws across multiple classes of IoT protocols, which are difficult to avoid and present serious and subtle problems in the security design space. Specifically, production-level IoT devices are supposed to have gone through internal security review by developers (or dedicated security teams). However, thanks to LL-Verifier , all vendors we studied come with subtle logic flaws, indicating that state-of-the-practice approaches (e.g., prior techniques, manual security review) are less effective or hard to scale in reasoning about logic flaws. Problems in the application logic space require proper approaches for effective, comprehensive modeling and rea-soning, for which LL-Verifier advances the state-of-the-art. 
+
+## 6. Related Work 
+
+LLM-empowered protocol modeling. Prior work [112]– [116] has primarily used code as input, rather than natural language, to construct models. In contrast, our objective is to synthesize formal protocol models directly from tex-tual descriptions. [117] proposed generating formal models from natural languages, in sharp contrast, their approach targets cryptographic protocols and is designed to model limited kinds of cryptographic semantics (e.g., encryption, keys, key exchange). It was not designed to autonomously model application-level protocols of various semantics and domains like LL-Verifier .
+
+Security analysis of logic flaws. Previous works [3], [27], [29], [41]–[60] relied on empirical analysis or significant manual efforts to analyze logic flaws, and identify specific exploits and logical attack steps. Some other works have used relatively automatic approaches, including those leveraging test cases generation [26], [28], [30], [118], and model-guided analysis [26], [27], [29]. They are typically domain-specific and need significant manual efforts. In contrast, our LL-Verifier aims for a cross-application-domain, semantic-agnostic, general, automatic approach to identify logic flaws. 
+
+Model checking for protocol security analysis. Prior works extensively leveraged model checking to formally verify system protocols or access control policies [12]–[17]. General model checking tools (e.g., Spin [66], SMV [67], Alloy [68], ProVerif [119], and TLA+ [69]) are commonly adopted to implement and verify models for specific appli-cation domains (e.g., VerioT [27], MPInspector [37], MQT-Tactic [61]). [120]–[124] used Maude to model IoT/Cyber-physical systems [120]–[122] and Fog systems [123], [124]. [125]–[127] modeled and verified IoT trigger-action appli-cations partially using Maude. However, in prior works, modeling a specific sys-tem, application or underlying protocols involves identify-ing domain-specific, context-specific semantic elements that should be modeled, and deciding how to model these seman-tic elements (e.g., defining data structures and operations using the syntax supported by a modeling language) [26]– [30]. The prior modeling process has generally (1) relied heavily on manual efforts or domain experts for individual systems and protocols, and (2) been highly tailored to spe-cific systems or domains to identify the necessary semantics for modeling. our LL-Verifier addresses such a fundamental gap in formal modeling of application-level protocols of various semantic contexts and domains, through a general, autonomous approach design and implementation. 
+
+## 7. Conclusion 
+
+We presented an automatic logic flaw identification framework LL-Verifier empowered by LLM, enabling the modeling and specification of real-world systems and the automated verification of security flaws. With LL-Verifier ,we identified 30 zero-day logic flaws among 28 IoT vendors, highlighting the effectiveness of our approach in improving IoT security. 
+
+## References 
+
+[1] “Cwe - cwe-840: Cwe category: Business logic errors (4.16,” https: //cwe.mitre.org/data/definitions/840.html, 2026. [2] “Business logic vulnerability — owasp foundation,” https://owasp. org/www-community/vulnerabilities/Business logic vulnerability, 2026. [3] J. Wang, Y. Xiao, X. Wang, Y. Nan, L. Xing, X. Liao, J. Dong, N. Serrano, H. Lu, X. Wang et al. , “Understanding malicious cross-library data harvesting on android,” in 30th USENIX Security Symposium (USENIX Security 21) , 2021, pp. 4133–4150. [4] Y. Zhang, Z. Hu, X. Wang, Y. Hong, Y. Nan, X. Wang, J. Cheng, and L. Xing, “Navigating the privacy compliance maze: Under-standing risks with {Privacy-Configurable } mobile {SDKs },” in 
+
+33rd USENIX Security Symposium (USENIX Security 24) , 2024, pp. 6543–6560. [5] D. Liu, Y. Xiao, C. Zhang, K. Xie, X. Bai, S. Zhang, and L. Xing, “{iHunter }: Hunting privacy violations at scale in the software supply chain on {iOS },” in 33rd USENIX Security Symposium (USENIX Security 24) , 2024, pp. 5663–5680. [6] X. Wang, Y. Zhang, X. Wang, Y. Jia, and L. Xing, “Union under duress: understanding hazards of duplicate resource mismediation in android software supply chain,” in 32nd USENIX Security Sympo-sium (USENIX Security 23) , 2023, pp. 3403–3420. [7] X. Bai, L. Xing, M. Zheng, and F. Qu, “idea: Static analysis on the security of apple kernel drivers,” in Proceedings of the 2020 ACM SIGSAC Conference on Computer and Communications Security ,2020, pp. 1185–1202. [8] C. Zuo, W. Wang, Z. Lin, and R. Wang, “Automatic forgery of cryp-tographically consistent messages to identify security vulnerabilities in mobile services.” in NDSS , 2016. [9] E. Bauman, Z. Lin, K. W. Hamlen et al. , “Superset disassembly: Statically rewriting x86 binaries without heuristics.” in NDSS , 2018. [10] “Trains were designed to break down after third-party repairs, hack-ers find - ars technic,” https://arstechnica.com/tech-policy/2026/12/ manufacturer-deliberately-bricked-trains-repaired-by-competitors-hackers-find/, 2026. [11] “How a group of train hackers exposed a right-to-repair nightmare - threatshub cybersecurity news,” https://www.threatshub.org/blog/ how-a-group-of-train-hackers-exposed-a-right-to-repair-nightmare/, 2026. [12] M. Bouchet, B. Cook, B. Cutler, A. Druzkina, A. Gacek, L. Hadarean, R. Jhala, B. Marshall, D. Peebles, N. Rungta et al. ,“Block public access: trust safety verification of access control policies,” in Proceedings of the 28th ACM Joint Meeting on Eu-ropean Software Engineering Conference and Symposium on the Foundations of Software Engineering , 2020, pp. 281–291. [13] J. Backes, U. Berrueco, T. Bray, D. Brim, B. Cook, A. Gacek, R. Jhala, K. Luckow, S. McLaughlin, M. Menon et al. , “Stratified abstraction of access control policies,” in International Conference on Computer Aided Verification . Springer, 2020, pp. 165–176. [14] J. Backes, P. Bolignano, B. Cook, C. Dodge, A. Gacek, K. S. Luckow, N. Rungta, O. Tkachuk, and C. Varming, “Semantic-based automated reasoning for AWS access policies using SMT,” in 
+
+2018 Formal Methods in Computer Aided Design, FMCAD 2018, Austin, TX, USA, October 30 - November 2, 2018 , N. Bjørner and A. Gurfinkel, Eds. IEEE, 2018, pp. 1–9. [Online]. Available: https://doi.org/10.23919/FMCAD.2018.8602994 [15] M. Yahyazadeh, P. Podder, E. Hoque, and O. Chowdhury, “Ex-pat: Expectation-based policy analysis and enforcement for appified smart-home platforms,” in Proceedings of the 24th ACM Symposium on Access Control Models and Technologies , 2019, pp. 61–72. [16] K. Jayaraman, N. Bjørner, G. Outhred, and C. Kaufman, “Automated analysis and debugging of network connectivity policies,” Microsoft Research , pp. 1–11, 2014. [17] W. T. Hallahan, E. Zhai, and R. Piskac, “Automated repair by example for firewalls,” in 2017 Formal Methods in Computer Aided Design (FMCAD) . IEEE, 2017, pp. 220–229. [18] B. Lampson, M. Abadi, M. Burrows, and E. Wobber, “Authentication in distributed systems: Theory and practice,” ACM Transactions on Computer Systems (TOCS) , vol. 10, no. 4, pp. 265–310, 1992. [19] A. W. Appel and E. W. Felten, “Proof-carrying authentication,” in 
+
+Proceedings of the 6th ACM Conference on Computer and Commu-nications Security , 1999, pp. 52–62. [20] L. Bauer, M. A. Schneider, and E. W. Felten, “A general and flexible access-control system for the web.” in USENIX Security Symposium ,2002, pp. 93–108. [21] L. Bauer, S. Garriss, J. M. McCune, M. K. Reiter, J. Rouse, and P. Rutenbar, “Device-enabled authorization in the grey system,” in Information Security: 8th International Conference, ISC 2005, Singapore, September 20-23, 2005. Proceedings 8 . Springer, 2005, pp. 431–445. [22] L. Bauer, S. Garriss, and M. K. Reiter, “Distributed proving in access-control systems,” in 2005 IEEE symposium on security and privacy (S&P’05) . IEEE, 2005, pp. 81–95. [23] M. Burrows, M. Abadi, and R. Needham, “A logic of authentica-tion,” ACM Transactions on Computer Systems (TOCS) , vol. 8, no. 1, pp. 18–36, 1990. [24] H. Ganzinger, F. Pfenning, and C. Sch¨ urmann, “System descrip-tion: Twelf—a meta-logical framework for deductive systems,” in 
+
+Automated Deduction—CADE-16: 16th International Conference on Automated Deduction Trento, Italy, July 7–10, 1999 Proceedings 16 .Springer, 1999, pp. 202–206. [25] Y. Bertot and P. Cast´ eran, Interactive theorem proving and pro-gram development: Coq’Art: the calculus of inductive constructions .Springer Science & Business Media, 2013. [26] V. Felmetsger, L. Cavedon, C. Kruegel, and G. Vigna, “Toward automated detection of logic vulnerabilities in web applications,” in USENIX Security Symposium , vol. 58, 2010. [27] B. Yuan, Y. Jia, L. Xing, D. Zhao, X. Wang, D. Zou, H. Jin, and Y. Zhang, “Shattered chain of trust: Understanding security risks in cross-cloud iot access delegation.” in USENIX Security Symposium ,2020, pp. 1183–1200. [28] G. Pellegrino and D. Balzarotti, “Toward black-box detection of logic flaws in web applications.” in NDSS , vol. 14, 2014, pp. 23– 26. [29] Y. Chen, L. Xing, Y. Qin, X. Liao, X. Wang, K. Chen, and W. Zou, “Devils in the guidance: Predicting logic vulnerabilities in payment syndication services through automated documentation analysis.” in 
+
+USENIX security symposium , 2019, pp. 747–764. [30] A. Doup´ e, B. Boe, C. Kruegel, and G. Vigna, “Fear the ear: discovering and mitigating execution after redirect vulnerabilities,” in Proceedings of the 18th ACM conference on Computer and communications security , 2011, pp. 251–262. [31] J. Yen, T. L´ evai, Q. Ye, X. Ren, R. Govindan, and B. Raghavan, “Semi-automated protocol disambiguation and code generation,” in 
+
+Proceedings of the 2021 ACM SIGCOMM 2021 Conference , 2021, pp. 272–286. [32] A. Sosnovich, O. Grumberg, and G. Nakibly, “Formal black-box analysis of routing protocol implementations,” arXiv preprint arXiv:1709.08096 , 2017. [33] A. Davis, M. Hirschhorn, and J. Schvimer, “Extreme modelling in practice,” arXiv preprint arXiv:2006.00915 , 2020. [34] M. Clavel, F. Dur´ an, S. Eker, S. Escobar, P. Lincoln, N. Martı-Oliet, J. Meseguer, R. Rubio, and C. Talcott, “Maude manual (version 3.1),” SRI International University of Illinois at Urbana-Champaign http://maude. lcc. uma. es/maude31-manual-html/maude-manual. html , 2020. [35] S. Meier, B. Schmidt, C. Cremers, and D. Basin, “The tamarin prover for the symbolic analysis of security protocols,” in Computer Aided Verification: 25th International Conference, CAV 2013, Saint Petersburg, Russia, July 13-19, 2013. Proceedings 25 . Springer, 2013, pp. 696–701. [36] A. Colmerauer and P. Roussel, “The birth of prolog,” in History of programming languages—II , 1996, pp. 331–367. [37] Q. Wang, S. Ji, Y. Tian, X. Zhang, B. Zhao, Y. Kan, Z. Lin, C. Lin, S. Deng, A. X. Liu et al. , “ {MPInspector }: A systematic and automatic approach for evaluating the security of {IoT } messaging protocols,” in 30th USENIX Security Symposium (USENIX Security 21) , 2021, pp. 4205–4222. [38] J. Wei, X. Wang, D. Schuurmans, M. Bosma, F. Xia, E. Chi, Q. V. Le, D. Zhou et al. , “Chain-of-thought prompting elicits reasoning in large language models,” Advances in neural information processing systems , vol. 35, pp. 24 824–24 837, 2022. [39] N. Shinn, F. Cassano, B. Labash, A. Gopinath, K. Narasimhan, and S. Yao, “Reflexion: Language agents with verbal reinforcement learning.(2023),” arXiv preprint cs.AI/2303.11366 , 2023. [40] S. Demri, F. Laroussinie, and P. Schnoebelen, “A parametric analysis of the state-explosion problem in model checking,” Journal of Computer and System Sciences , vol. 72, no. 4, pp. 547–575, 2006. [41] J. Zhou and G. Vigna, “Detecting attacks that exploit application-logic errors through application-level auditing,” in 20th Annual Computer Security Applications Conference . IEEE, 2004, pp. 168– 178. [42] R. Wang, S. Chen, X. Wang, and S. Qadeer, “How to shop for free online–security analysis of cashier-as-a-service based web stores,” in 2011 IEEE symposium on security and privacy . IEEE, 2011, pp. 465–480. [43] R. Wang, S. Chen, and X. Wang, “Signing me onto your accounts through facebook and google: A traffic-guided security study of commercially deployed single-sign-on web services,” in 2012 IEEE Symposium on Security and Privacy . IEEE, 2012, pp. 365–379. [44] L. Xing, X. Pan, R. Wang, K. Yuan, and X. Wang, “Upgrading your android, elevating my malware: Privilege escalation through mobile os updating,” in 2014 IEEE symposium on security and privacy .IEEE, 2014, pp. 393–408. [45] R. Wang, L. Xing, X. Wang, and S. Chen, “Unauthorized origin crossing on mobile platforms: Threats and mitigation,” in Pro-ceedings of the 2013 ACM SIGSAC conference on Computer & communications security , 2013, pp. 635–646. [46] T. Li, X. Zhou, L. Xing, Y. Lee, M. Naveed, X. Wang, and X. Han, “Mayhem in the push clouds: Understanding and mitigating security hazards in mobile push-messaging services,” in Proceedings of the 2014 ACM SIGSAC Conference on Computer and Communications Security , 2014, pp. 978–989. [47] L. Xing, X. Bai, T. Li, X. Wang, K. Chen, X. Liao, S.-M. Hu, and X. Han, “Cracking app isolation on apple: Unauthorized cross-app resource access on mac os˜ x and ios,” in Proceedings of the 22nd ACM SIGSAC Conference on Computer and Communications Security , 2015, pp. 31–43. [48] X. Liao, K. Yuan, X. Wang, Z. Pei, H. Yang, J. Chen, H. Duan, K. Du, E. Alowaisheq, S. Alrwais et al. , “Seeking nonsense, looking for trouble: Efficient promotional-infection detection through seman-tic inconsistency search,” in 2016 IEEE Symposium on Security and Privacy (SP) . IEEE, 2016, pp. 707–723. [49] X. Bai, L. Xing, N. Zhang, X. Wang, X. Liao, T. Li, and S.-M. Hu, “Staying secure and unprepared: Understanding and mitigating the security risks of apple zeroconf,” in 2016 IEEE Symposium on Security and Privacy (SP) . IEEE, 2016, pp. 655–674. [50] X. Liao, K. Yuan, X. Wang, Z. Li, L. Xing, and R. Beyah, “Acing the ioc game: Toward automatic discovery and analysis of open-source cyber threat intelligence,” in Proceedings of the 2016 ACM SIGSAC conference on computer and communications security , 2016, pp. 755–766. [51] X. Liao, S. Alrwais, K. Yuan, L. Xing, X. Wang, S. Hao, and R. Beyah, “Lurking malice in the cloud: Understanding and detect-ing cloud repository as a malicious service,” in Proceedings of the 2016 ACM SIGSAC Conference on Computer and Communications Security , 2016, pp. 1541–1552. [52] T. Li, X. Wang, M. Zha, K. Chen, X. Wang, L. Xing, X. Bai, N. Zhang, and X. Han, “Unleashing the walking dead: Under-standing cross-app remote infections on mobile webviews,” in Pro-ceedings of the 2017 ACM SIGSAC Conference on Computer and Communications Security , 2017, pp. 829–844. [53] Y. Jia, L. Xing, Y. Mao, D. Zhao, X. Wang, S. Zhao, and Y. Zhang, “Burglars’ iot paradise: Understanding and mitigating security risks of general messaging protocols on iot clouds,” in 2020 IEEE Sym-posium on Security and Privacy (SP) . IEEE, 2020, pp. 465–481. [54] H. Lu, L. Xing, Y. Xiao, Y. Zhang, X. Liao, X. Wang, and X. Wang, “Demystifying resource management risks in emerging mobile app-in-app ecosystems,” in Proceedings of the 2020 ACM SIGSAC conference on computer and communications Security , 2020, pp. 569–585. [55] T. Lv, R. Li, Y. Yang, K. Chen, X. Liao, X. Wang, P. Hu, and L. Xing, “Rtfm! automatic assumption discovery and verification derivation from library document for api misuse detection,” in 
+
+Proceedings of the 2020 ACM SIGSAC conference on computer and communications security , 2020, pp. 1837–1852. [56] L. Su, X. Shen, X. Du, X. Liao, X. Wang, L. Xing, and B. Liu, “Evil under the sun: Understanding and discovering attacks on ethereum decentralized applications.” in USENIX Security Symposium , 2021, pp. 1307–1324. [57] Y. Jia, B. Yuan, L. Xing, D. Zhao, Y. Zhang, X. Wang, Y. Liu, K. Zheng, P. Crnjak, Y. Zhang et al. , “Who’s in control? on security risks of disjointed iot device management channels,” in 
+
+Proceedings of the 2021 ACM SIGSAC Conference on Computer and Communications Security , 2021, pp. 1289–1305. [58] Z. Li, W. Liu, H. Chen, X. Wang, X. Liao, L. Xing, M. Zha, H. Jin, and D. Zou, “Robbery on devops: Understanding and mitigating illicit cryptomining on continuous integration service platforms,” in 
+
+2022 IEEE Symposium on Security and Privacy (SP) . IEEE, 2022, pp. 2397–2412. [59] X. Zhou, J. Guan, L. Xing, and Z. Qian, “Perils and mitigation of security risks of cooperation in mobile-as-a-gateway iot,” in 
+
+Proceedings of the 2022 ACM SIGSAC Conference on Computer and Communications Security , 2022, pp. 3285–3299. [60] Z. Jin, L. Xing, Y. Fang, Y. Jia, B. Yuan, and Q. Liu, “P-verifier: Understanding and mitigating security risks in cloud-based iot access policies,” in Proceedings of the 2022 ACM SIGSAC Conference on Computer and Communications Security , 2022, pp. 1647–1661. [61] B. Yuan, Z. Song, Y. Jia, Z. Lu, D. Zou, H. Jin, and L. Xing, “Mqttactic: Security analysis and verification for logic flaws in mqtt implementations,” in 2024 IEEE Symposium on Security and Privacy (SP) . IEEE, 2024. [62] N. Mart´ ı-Oliet and J. Meseguer, “Rewriting logic as a logical and semantic framework,” Electronic Notes in Theoretical Computer Science , vol. 4, pp. 190–225, 1996. [63] S. Eker, J. Meseguer, and A. Sridharanarayanan, “The maude ltl model checker,” Electronic Notes in Theoretical Computer Science ,vol. 71, pp. 162–187, 2004. [64] T. Brown, B. Mann, N. Ryder, M. Subbiah, J. D. Kaplan, P. Dhari-wal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell et al. , “Lan-guage models are few-shot learners,” Advances in neural information processing systems , vol. 33, pp. 1877–1901, 2020. [65] “Matter - csa-iot,” https://csa-iot.org/all-solutions/matter/, 2024. [66] G. J. Holzmann, “The model checker spin,” IEEE Transactions on software engineering , vol. 23, no. 5, pp. 279–295, 1997. [67] K. L. McMillan and K. L. McMillan, “The smv system,” Symbolic Model Checking , pp. 61–85, 1993. [68] D. Jackson, “Alloy: a language and tool for exploring software designs,” Communications of the ACM , vol. 62, no. 9, pp. 66–76, 2019. [69] Y. Yu, P. Manolios, and L. Lamport, “Model checking tla+ spec-ifications,” in Advanced Research Working Conference on Correct Hardware Design and Verification Methods . Springer, 1999, pp. 54–66. [70] B. Yuan, Z. Song, Y. Jia, Z. Lu, D. Zou, H. Jin, and L. Xing, “Mqttactic: Security analysis and verification for logic flaws in mqtt implementations,” in 2024 IEEE Symposium on Security and Privacy (SP) . IEEE, 2024, pp. 2385–2403. [71] M. P. Andersen, S. Kumar, M. AbdelBaky, G. Fierro, J. Kolb, H. Kim, D. E. Culler, and R. A. Popa, “WAVE: A decentralized authorization framework with transitive delegation,” in 28th USENIX Security Symposium , 2019, pp. 1375–1392. [72] “Extended backus–naur form - wikipedia,” https://en.wikipedia.org/ wiki/Extended Backus%E2%80%93Naur form, 2026. [73] “Ll-verifier,” https://sites.google.com/view/ll-verifier/home, 2026. [74] A. V. Aho and J. D. Ullman, Foundations of computer science .Computer Science Press, Inc., 1992. [75] J. Chen, C. Zuo, W. Diao, S. Dong, Q. Zhao, M. Sun, Z. Lin, Y. Zhang, and K. Zhang, “Your iots are (not) mine: On the re-mote binding between iot devices and users,” in 2019 49th Annual IEEE/IFIP International Conference on Dependable Systems and Networks (DSN) . IEEE, 2019, pp. 222–233. [76] “irobot,” https://www.irobot.com/, 2024, accessed: 2019-01. [77] S. Escobar and J. Meseguer, “Symbolic model checking of infinite-state systems using narrowing,” in International Conference on Rewriting Techniques and Applications . Springer, 2007, pp. 153– 168. [78] “Llverifier artifact,” https://anonymous.4open.science/r/LLVerifier-204C/README.md, 2026. [79] K. Park, J. Wang, T. Berg-Kirkpatrick, N. Polikarpova, and L. Antoni, “Grammar-aligned decoding,” in Advances in Neural Information Processing Systems , A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, Eds., vol. 37. Curran Associates, Inc., 2024, pp. 24 547–24 568. [Online]. Available: https://proceedings.neurips.cc/paper files/paper/2024/file/ 2bdc2267c3d7d01523e2e17ac0a754f3-Paper-Conference.pdf [80] B. T. Willard and R. Louf, “Efficient guided generation for large language models,” arXiv preprint arXiv:2307.09702 , 2023. [81] S. Ugare, T. Suresh, H. Kang, S. Misailovic, and G. Singh, “Syn-code: Llm generation with grammar augmentation, 2024,” URL https://arxiv. org/abs/2403.01632 .[82] S. G. Patil, T. Zhang, V. Fang, R. Huang, A. Hao, M. Casado, J. E. Gonzalez, R. A. Popa, and I. Stoica, “Goex: Perspectives and designs towards a runtime for autonomous llm applications,” arXiv preprint arXiv:2404.06921 , 2024. [83] S. Geng, M. Josifoski, M. Peyrard, and R. West, “Grammar-constrained decoding for structured nlp tasks without finetuning,” 
+
+arXiv preprint arXiv:2305.13971 , 2023. [84] Z. Wang, L. F. Ribeiro, A. Papangelis, R. Mukherjee, T.-Y. Wang, X. Zhao, A. Biswas, J. Caverlee, and A. Metallinou, “Fantastic sequences and where to find them: Faithful and efficient api call generation through state-tracked constrained decoding and rerank-ing,” arXiv preprint arXiv:2407.13945 , 2024. [85] Z. R. Tam, C.-K. Wu, Y.-L. Tsai, C.-Y. Lin, H.-y. Lee, and Y.-N. Chen, “Let me speak freely? a study on the impact of format re-strictions on performance of large language models,” arXiv preprint arXiv:2408.02442 , 2024. [86] K. Park, J. Wang, T. Berg-Kirkpatrick, N. Polikarpova, and L. D’Antoni, “Grammar-aligned decoding,” arXiv preprint arXiv:2405.21047 , 2024. [87] T. Koo, F. Liu, and L. He, “Automata-based constraints for language model decoding,” arXiv preprint arXiv:2407.08103 , 2024. [88] S. Geng, B. D¨ oner, C. Wendler, M. Josifoski, and R. West, “Sketch-guided constrained decoding for boosting blackbox large language models without logit access,” arXiv preprint arXiv:2401.09967 ,2024. [89] S. Ugare, R. Gumaste, T. Suresh, G. Singh, and S. Mis-ailovic, “Itergen: Iterative structured llm generation,” arXiv preprint arXiv:2410.07295 , 2024. [90] Z. Li, W. Hua, H. Wang, H. Zhu, and Y. Zhang, “Formal-llm: Integrating formal language and natural language for controllable llm-based agents,” arXiv preprint arXiv:2402.00798 , 2024. [91] Y. Dong, C. F. Ruan, Y. Cai, R. Lai, Z. Xu, Y. Zhao, and T. Chen, “Xgrammar: Flexible and efficient structured generation engine for large language models,” arXiv preprint arXiv:2411.15100 , 2024. [92] S. Geng, H. Cooper, M. Moskal, S. Jenkins, J. Berman, N. Ranchin, R. West, E. Horvitz, and H. Nori, “Generating structured outputs from language models: Benchmark and studies,” arXiv preprint arXiv:2501.10868 , 2025. [93] S. G. Patil, T. Zhang, X. Wang, and J. E. Gonzalez, “Gorilla: Large language model connected with massive apis,” arXiv preprint arXiv:2305.15334 , 2023. [94] “Introducing structured outputs in the api — openai,” https://openai. com/index/introducing-structured-outputs-in-the-api/, 2026. [95] “19 core maude grammar,” https://maude.lcc.uma.es/manual271/ maude-manualch19.html, 2026. [96] J. Chen, M. Sun, and K. Zhang, “Security analysis of device binding for ip-based iot devices,” in 2019 IEEE International Conference on Pervasive Computing and Communications Workshops (PerCom Workshops) . IEEE, 2019, pp. 900–905. [97] “Mac address - wikipedia,” https://en.wikipedia.org/wiki/MAC address, 2026. [98] “Mqtt version 3.0 - candidate oasis standard 01,” https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html, 2026. [99] “Roomba980-python/password.py at master - github,” https://github.com/NickWaterton/Roomba980-Python/blob/master/ roomba/password.py, 2026. [100] “August Home,” https://august.com/, 2024. [101] “Kevo Smart Lock, 2nd Gen,” https://www.kwikset.com/products/ detail/kevo-traditional-touch-to-open-smart-lock-2nd-gen, 2024. [102] “SwitchBot Official - Make Home Appliances Smart,” https://us. switch-bot.com/, 2024. [103] “Netvue Web Client — Home Security, Done Smart,” https://my. netvue.com, 2024. [104] “Govee IoT,” https://us.govee.com/, 2024. [105] “TTLock,” https://www.ttlock.com/, 2024. [106] “Aqara,” https://www.aqara.com/us/, 2024. [107] “Tuya Smart - Global IoT Development Platform Service Provider,” https://www.tuya.com, 2024. [108] “connectedhomeip,” https://github.com/project-chip/ connectedhomeip/, 2026. [109] “Home app - Apple,” https://www.apple.com/home-app/, 2024. [110] “Dyson,” https://www.dyson.com/en, 2024. [111] “Frida • a world-class dynamic instrumentation toolkit,” https://frida. re/, 2026. [112] H. Wei, Z. Du, H. Huang, Y. Liu, G. Cheng, L. Wang, and B. Mao, “Inferring state machine from the protocol implementation via large language model,” arXiv preprint arXiv:2405.00393 , 2024. [113] T. Chen, S. Lu, S. Lu, Y. Gong, C. Yang, X. Li, M. R. H. Misu, H. Yu, N. Duan, P. Cheng et al. , “Automated proof generation for rust code via self-evolution,” arXiv preprint arXiv:2410.15756 ,2024. [114] S. Chakraborty, S. K. Lahiri, S. Fakhoury, M. Musuvathi, A. Lal, A. Rastogi, A. Senthilnathan, R. Sharma, and N. Swamy, “Rank-ing llm-generated loop invariants for program verification,” arXiv preprint arXiv:2310.09342 , 2023. [115] S. Chakraborty, G. Ebner, S. Bhat, S. Fakhoury, S. Fatima, S. Lahiri, and N. Swamy, “Towards neural synthesis for smt-assisted proof-oriented programming,” arXiv preprint arXiv:2405.01787 , 2024. [116] K. Yang, A. Swope, A. Gu, R. Chalamala, P. Song, S. Yu, S. Godil, R. J. Prenger, and A. Anandkumar, “Leandojo: Theorem proving with retrieval-augmented language models,” Advances in Neural Information Processing Systems , vol. 36, pp. 21 573–21 612, 2023. [117] Z. Mao, J. Wang, J. Sun, S. Qin, and J. Xiong, “Llm-aided automatic modelling for security protocol verification,” in 2025 IEEE/ACM 47th International Conference on Software Engineering (ICSE) .IEEE Computer Society, 2025, pp. 734–734. [118] D. Balzarotti, M. Cova, V. V. Felmetsger, and G. Vigna, “Multi-module vulnerability analysis of web-based applications,” in Pro-ceedings of the 14th ACM conference on Computer and communi-cations security , 2007, pp. 25–35. [119] M. Abadi and B. Blanchet, “Computer-assisted verification of a protocol for certified email,” in International Static Analysis Sym-posium . Springer, 2003, pp. 316–335. [120] M. Souad, B. Faiza, and H. Nabil, “Formal modeling iot systems on the basis of biagents* and maude,” in 2020 International Conference on Advanced Aspects of Software Engineering (ICAASE) . IEEE, 2020, pp. 1–7. [121] S. Ouchani, K. Khebbeb, and M. Hafsi, “Towards enhancing secu-rity and resilience in cps: A coq-maude based approach,” in 2020 IEEE/ACS 17th International Conference on Computer Systems and Applications (AICCSA) . IEEE, 2020, pp. 1–6. [122] A. Fortas, E. Kerkouche, and A. Chaoui, “Formal verification of iot applications using rewriting logic: An mde-based approach,” Science of Computer Programming , vol. 222, p. 102859, 2022. [123] K. Khebbeb, N. Hameurlain, and F. Belala, “A maude-based rewrit-ing approach to model and verify cloud/fog self-adaptation and orchestration,” Journal of Systems Architecture , vol. 110, p. 101821, 2020. [124] S. Marir, F. Belala, and N. Hameurlain, “A strategy-based formal approach for fog systems analysis,” Future Internet , vol. 14, no. 2, p. 52, 2022. [125] F. Dur´ an, G. Sala¨ un, and A. Krishna, “Automated composition, anal-ysis and deployment of iot applications,” in Software Technology: Methods and Tools: 51st International Conference, TOOLS 2019, Innopolis, Russia, October 15–17, 2019, Proceedings 51 . Springer, 2019, pp. 252–268. [126] F. Dur´ an, A. Krishna, M. Le Pallec, R. Mateescu, and G. Sala¨ un, “Models and analysis for user-driven reconfiguration of rule-based iot applications,” Internet of Things , vol. 19, p. 100515, 2022. [127] Q. Wang, P. Datta, W. Yang, S. Liu, A. Bates, and C. A. Gunter, “Charting the attack surface of trigger-action iot platforms,” in 
+
+Proceedings of the 2019 ACM SIGSAC conference on computer and communications security , 2019, pp. 1439–1453. 
+
+## Appendix 
+
+1. Other Logic Flaw Types 
+
+LFT 7 (victim binding key with the attacker device). In CloudEdge camera’s RTE protocol (released online [73]), a string called “phoneMac” is used as a binding key sent from the user app to the device. It is a string that uniquely identifies the user’s CloudEdge account, in the format “US-00015kXXX4eK” in which the “XXX” part with 3-characters is user-specific. Consequently, the device 
+
+d sends the “phoneMac” of user u to the CloudEdge cloud, which concludes the binding relation (d, u ). Such a premise of binding allows an attacker to bind his malicious device with a victim user’s account using her “phoneMac”, which is subject to brute force enumeration (3-characters being user-specific). As a result, when the victim user opens the CloudEdge camera’s app, they will encounter an unfamiliar device displaying the attacker’s contents (at the app’s launch screen), such as those intimidating or harassing. We released CloudEdge’s LSM model and the attack traces identified by 
+
+LL-Verifier online [73]. 
+
+2. Automatic repairing example. 
+
+Based on whether outputs are structured and whether detection/repair relies on the LLM or solely on the Les 
+
+program analyzer, these mistakes fall into four quadrants. 
+
+Unstructured output Structured output PA only K1 K4 
+
+LLMs K2 K3 
+
+For each kind of mistake, LL-Verifier applies a tailored repair strategy:  
+
+> •
+
+K1: Identified and corrected via string-level manipulation.  
+
+> •
+
+K2: Forwards general parsing errors from the PA to the LLM for output revision.  
+
+> •
+
+K3: After parsing, detects inconsistencies and prompts the LLM with candidate fixes, letting it choose the most semantically appropriate correction.  
+
+> •
+
+K4: Eliminates errors via direct abstract syntax tree (AST) manipulation. 
+
+LL-Verifier employs an iterative repair loop to refine LLM outputs. For each output, it checks for mistakes from K1 to K4. Upon detecting a pattern, LL-Verifier invokes the corresponding repair routine. 
+
+< U serX | 'know ' : ( K, Keys ), ... > // know 
+
+> r
+
+−→ $ U serX 'callAP I : bind ' cloudA | (DeviceY ; K) (10) 
+
+< U serX | 'know ' : ( K, Keys ), ... > 
+
+> r
+
+−→ $ U serX 'callAP I : bind ' cloudA | (DeviceY ; K) (11) 
+
+For instance, the output in rule 10 cannot be parsed due to a K2 issue; specifically, it contains a C-style comment. LL-Verifier resolves this by removing the comment, resulting in rule 11. In the subsequent iteration, rule 11 becomes parsable and structured, but it still suffers from a K4 prob-lem: the variable DeviceY appears in the RHS but is absent from the LHS. The PA addresses this by copying the missing internal states to the LHS, producing the well-formed rule 5. 
+
+3. Evaluation discussion 
+
+This section outlines common errors observed in the evaluation of generated formal models. Addressing these issues can reduce the overall error rate by 75%. 
+
+Duplicated internal states. We observed the presence of duplicated internal states for a single principal in the initial state in multiple protocols, like Broadlink, Aqara, Dyson, and Huawei. For instance. When generating the initial state, the LLMs use two internal states like formula 12. 
+
+< cloudA | (userA : ( 'device ' : deviceB, 'members ' : nils )) >< cloudA | (userC : ( 'device ' : nils, 'members ' : nils )) >
+
+(12) 
+
+instead of a single internal state in formula 13, 
+
+< cloudA | userA : ( 'device ' : deviceB, 'members ' : nils )) ,userC : ( 'device ' : nils, 'members ' : nils ) > (13) 
+
+which is inconsistent with the state-transitional rules and prevents correct reasoning. This error corresponds to a K4
+
+issue (§ 3.2), which can be repaired by merging internal states associated with the same principal. 
+
+Omissions. Models of Philips, TPLink, and Level overlook certain proposition definitions when extracting propositions from property texts. Additionally, when LL-Verifier 
+
+detects errors in the initial output and prompts LLMs for revision, the revised output sometimes includes only the modified portion rather than the complete result, leading to incomplete Maude code. TABLE 1: Primitive propositions in iRobot RTE protocol (Automaticaly generated by LLMs) 
+
+Primitive proposition Description 
+
+uaP ressButton if userA pressed the physical button of deviceB. 
+
+uaCallSetKey if userA calls device API to set key. 
+
+uaReset if userA calls cloud API to reset the device. 
+
+uaOperation if userA performs any operations 
+
+ucOperation if userC performs any operations 
+
+uaOwner if userA is the owner of deviceB 
+
+ucOwner if userC is the owner of deviceB 
+
+ucRemote if userC is remote to the target device now 
+
+TABLE 2: Zero-day flaws 
+
+Vendor Protocol Classes 1
+
+Logic Flaw Type Device Type 2
+
+App Down-loads Security Impact 3
+
+iRobot RTE P1 LFT 1, 2 Vacuum 5M+ DPhilips RTE P1, CAC LFT 3, 9 Smart light 5M+ B, E CloudEdge RTE P3, CAC LFT 7, 9 Camera 1M+ A, E Meross RTE P3 LFT 5, 7 Light/Plug 1M+ A, B Netvue RTE P2, CAC LFT 5, 9 Camera 500K+ B, E Broadlink RTE P2, CAC LFT 4, 9 Smart plug 1M+ B, E Kwikset Kevo RTE P2 LFT 5 Lock 500K+ DMidea RTE P2 LFT 5 Air conditioner 50M+ B, D EZVIZ RTE P2 LFT 5 Camera 10M+ BIMOU RTE P2 LFT 5 Camera 5M+ BAugust RTE P2 LFT 5 Lock 1M+ B, D Switchbot RTE P2 LFT 4 Smart plug 500K+ BGovee RTE P2 LFT 5 Light 1M+ BSunlogin RTE P2 LFT 5 Smart plug 10M+ BBeurer RTE P2 LFT 5 Air purifier 5K+ BWiz RTE P2 LFT 5 Light 1M+ DBelkin Wemo RTE P3 LFT 6 Smart plug 1M+ BTplink Kasa RTE P3 LFT 6 Smart plug 5M+ BAqara INT LFT 8 Hub 100K+ BTuya INT, CAC LFT 8, 9 Hub/Light 10M+ BXiaomi CAC LFT 9 Air purifier 50M+ EDyson CAC LFT 9 Air purifier 1M+ EHuawei CAC LFT 9 Smart plug 23M+ E 
+
+> 1
+
+Protocol Classes: RTE P n: IoT RTE Paradigm n; INT: IoT Interoperability; CAC: Collaborative IoT Access Control (see § 5).  
+
+> 2
+
+Device Type: We provide specific device models on our website [73].  
+
+> 3
+
+Security Impact: D: Break victims’ established binding; B:Hijack binding and become root user; A: Bind attack devices with victim users; E: Permission escalation; 
+
+TABLE 3: Formal model generation evaluation 
+
+(a) Models of protocols with zero-day flaws                                                                                                                                                                                                                                                                                                                             
+
+> Protocol Principals Attributes Rules Events Flaws Time Tokens
+> CP 1FP 2CP FP CP FP CP FP CP FP Philips 4/4 08/8 015/15 06/6 00/1 188.4 21352 TPLink 4/4 010/10 011/11 05/5 01/1 077.2 19358 CloudEdge 5/5 010/10 011/11 05/5 01/1 081.8 19636 Wemo 4/4 010/10 011/11 05/5 01/1 096.3 19947 Govee 4/4 08/8 09/9 04/4 01/1 082.4 19090 iRobot 4/4 09/9 017/17 07/7 01/1 0104.1 23000 August 4/4 011/11 012/12 05/5 01/1 0108.6 21751 Beurer 4/4 08/8 09/9 04/4 01/1 087.1 19502 Sunlogin 4/4 08/8 09/9 04/4 01/1 080.2 19405 Wiz 4/4 08/8 09/9 04/4 01/1 081.2 19347 Imou 4/4 09/9 010/11 04/5 00/1 191.0 19570 Ezviz 4/4 09/9 011/11 05/5 01/1 091.2 20059 Switchbot 4/4 011/11 014/15 06/6 01/1 095.5 21079 Midea 4/4 09/9 011/11 05/5 01/1 086.1 19301 Meross 4/4 012/12 011/11 05/5 01/1 079.5 21371 Netvue 4/4 08/8 011/11 05/5 11/1 084.1 20752 Kevo 4/4 08/8 011/11 05/5 11/1 098.8 21688 Broadlink 4/4 012/12 217/18 09/9 01/1 0100.9 23146 Aqara 4/4 011/11 014/15 06/6 00/1 092.5 21328 TuyaMatter 4/4 011/11 015/15 06/6 01/1 089.7 21750 TuyaCAC 4/4 010/10 013/13 05/5 01/1 097.0 24614 Xiaomi 4/4 010/10 013/13 05/5 01/1 098.7 25380 Dyson 4/4 110/10 013/13 05/5 00/1 082.0 20844 Huawei 4/4 110/10 013/13 05/5 00/1 095.0 24536
+> Average 100% 2% 100% 0.9% 98.6% 0% 99.2% 1.6% 75% 8.3% 90.4 21159
+
+(b) Models of protocols with one-day flaws                                                                                        
+
+> Protocol Principals Attributes Rules Events Flaws Time Tokens
+> CP FP CP FP CP FP CP FP CP FP Maag Level [59] 4/4 08/8 010/13 05/5 00/1 0121.4 28359 Maag Kwickset [59] 4/4 010/10 015/16 08/8 00/1 0328.6 22945 Delegation Flaw1 [27] 4/5 012/13 011/13 04/5 00/1 088.6 21098 Delegation Flaw2 [27] 4/5 012/13 012/13 05/5 00/1 0147.9 21171 MQTT Flaw1 [70] 4/4 08/8 29/9 04/5 00/1 061.6 17910
+> Average 90.9% 0% 96.2% 4% 89.1% 0% 92.9% 0% 0% 0% 149.6 22297
+> 1
+
+CP: Coverage Probability — the proportion of semantic elements that are correctly modeled.  
+
+> 2
+
+FP: False Positives — the number of extra semantic elements incorrectly included in the model (false positive rate in the row average ). [init] Initially, the userA is local to the deviceB and has key 'secretA'; the cloudA records deviceB's information where its binding key is '' and owner is empty set ...... [state changes] If any user presses the button on any device, then the device records that it is pressed. When any device is pressed with no key before, and any user calls device API 'callAPI:setKey', then the device will change its state to be not pressed, record the new key, and call the cloudA' s API 'callAPI:setKey' with the new binding key as an argument, change the device's state to record it has a key now. When any device which already has a key is pressed, and any user calls device API 'callAPI:setKey', then the device will change its state to be not pressed, record the new key, and call the cloudA' sAPI 'callAPI:setKey' with the new binding key. When the cloudA receives a 'callAPI:setKey' event from any device, the cloudA will update its binding key record for that device. ...... [events] If the user has some key, the user can: 1. use the key to call cloudA 's API 'callAPI:bind' ; 2. use the key to call cloudA 's API 'callAPI:reset'. ...... [properties] The userA will always ...... Eventually, there is a time point that userC is not local to deviceB and is not the owner of deviceB, and the next time userC is not local and the owner of deviceB. 
+
+Figure 3: Preprocessing result of iRobot’s RTE protocol (Simplified version, full texts are available online [73].
