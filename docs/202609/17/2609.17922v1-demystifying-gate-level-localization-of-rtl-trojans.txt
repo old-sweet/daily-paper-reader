@@ -1,0 +1,269 @@
+Title: Demystifying Gate-Level Localization of RTL Trojans
+
+URL Source: https://arxiv.org/pdf/2609.17922v1
+
+Published Time: Thu, 17 Sep 2026 00:21:42 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Demystifying Gate-Level Localization of RTL Trojans 
+
+Navid Nader Tehrani, Azadeh Davoodi 
+
+University of Wisconsin-Madison 
+
+Madison, USA 
+
+{nadertehrani, adavoodi }@wisc.edu 
+
+Rasit Onur Topaloglu 
+
+Marist University 
+
+Poughkeepsie, NY, USA rasit.topaloglu@marist.edu 
+
+Abstract —Hardware Trojans are malicious modifications that compromise functionality or leak sensitive data. They pose a severe threat, particularly when inserted at the Register Transfer Level (RTL). After synthesis, these Trojans are often concealed by optimizations in gate-level netlists. Recent efforts, including the ICCAD 2025 contest, emphasize golden-chip-free detection using machine learning (ML) on labeled netlists. In this work, we show that RTL Trojans exhibit stable structural and signal-flow patterns post-synthesis, enabling effective detection through targeted heuristics rather than generic ML feature learning. We propose LoRD, a lightweight heuristic-based approach that exploits these distinctive subgraph signatures, achieving near-perfect detection and localization on the contest testcases. Com-pared to a transformer-based ML baseline and top five teams, LoRD achieves on-average a score of 2.957 (out of 3) for Trojan-implanted designs without the data and tuning overhead. 
+
+I. I NTRODUCTION 
+
+The globalization of the integrated circuit (IC) supply chain has made hardware security increasingly difficult to guaran-tee. Today’s designs are handled by numerous third-party IP vendors, design houses, and foundries, any of which may be untrusted. This opens the door to malicious modifications of the circuitry, commonly referred to as Hardware Trojans [1], [2], which can stealthily alter functionality, degrade reliability, or leak sensitive information while remaining dormant under normal operating conditions. Hardware Trojans can be introduced at multiple points in the design and fabrication flow. Among them, Register Transfer Level (RTL) Trojans may be considered one of the most challenging to detect at lower levels. In this attack model, a Trojan module is maliciously inserted in the design at the RTL stage. As the design is synthesized and translated to a flattened gate-level netlist, detection and localization of the Trojan becomes extremely challenging. This is because commercial synthesis tools make the Trojan logic to blend seamlessly with the rest of the netlist at gate-level. Synthesis optimizations such as logic restructuring, resource sharing, retiming, and technology mapping can significantly distort both the func-tional and Trojan logic, so that an RTL Trojan may correspond to many structurally different gate-level implementations. Detecting RTL Trojans at gate-level has been the focus of the recent ICCAD 2025 contest (Problem A) which was or-ganized by Cadence Design Systems [3]. Traditional defenses rely on comparing side-channel measurements (e.g., power [4], delay [5], [6], or temperature [7]) against a trusted ‘golden chip’, which is often difficult and expensive to obtain for modern SoCs. The contest therefore focuses on golden-chip-free detection: participants must identify RTL-inserted Trojans directly on synthesized gate-level netlists. The emphasis is on identifying Trojans based on the expected functionality of the RTL Trojan at gate-level. Use of machine learning (ML) techniques to learn Trojan patterns from data is heavily encouraged in the contest by providing labeled netlists, for both Trojan-implanted and Trojan-free cases. There has been a large body of work exploring the use of ML for gate-level Trojan detection. Existing techniques often extract a fixed set of handcrafted features for each gate or net—such as fan-in/fan-out counts, gate type, local path depth, controllability/observability measures, and loop or reconver-gence indicators—and feed them to conventional classifiers including multilayer perceptrons [8], support vector machines [9], [10], and deep learning models [11]. More recent methods utilize graph neural networks to learn node embeddings and capture higher-order structural information [12], [13], [14]. Most recently, transformers and Large Language Models have also been used for gate-level Trojan detection [15], [16], [17]. In this work, we show detection of RTL Trojans at gate-level heavily relies on identifying distinctive structural and signal-flow patterns after synthesis, e.g., specific chains of flip-flops, characteristic trigger trees, and recognizable interactions with bus signals and status flags. These patterns are largely stable across synthesis optimizations and libraries, and they manifest as relatively small, well-structured subgraphs embedded in an otherwise large but regular design. As a result, these Trojans may not particularly benefit from generic ML feature learning which have additional hyperparameter tuning requirements. To validate this insight, we implemented a Bidirectional En-coder Representations from Transformers (BERT)-based ML baseline [18], where localized netlist contexts are tokenized and classified if they contain a Trojan. This baseline was trained using the labeled gate-level public netlists provided by the contest. When evaluated using their hidden testcases, the BERT-based scheme only achieves a moderate localization performance in Trojan-implanted designs. In contrast, ‘LoRD’, our proposed scheme, attains an almost-perfect score under the contest metrics for all hidden cases. arXiv:2609.17922v1 [cs.AR] 15 Sep 2026 The summary of our contributions is listed below:  
+
+> •
+
+We demonstrate that RTL Trojans exhibit stable structural and signal-flow patterns after synthesis, making them identifiable through targeted heuristics rather than generic ML feature learning.  
+
+> •
+
+We introduce LoRD, a lightweight detection scheme that exploits distinctive subgraph signatures of Trojans, avoiding the data and tuning overhead of ML models while achieving superior accuracy.  
+
+> •
+
+Through comparison with a BERT-based ML baseline trained on contest data and top five teams, LoRD attains near-perfect detection and localization scores on hidden test cases, for both Trojan-implanted and Trojan-free.  
+
+> •
+
+LoRD is computationally light, and is able to process the entire 60 hidden test cases in under a minute which is significantly below BERT’s training and inference time. II. P ROBLEM FORMULATION 
+
+Given a set of RTL Trojans, and a flattened gate-level netlist, our goal is to detect if the netlist includes any of the Trojans. Additionally, if a Trojan is detected, our goal is to localize it by predicting all gates in the netlist which belong to the Trojan. In this work, we follow the same setup as the recent ICCAD 2025 Contest Problem A [3], organized by Cadence Design Systems. The contest targets detection and localization of ten RTL Trojan types at gate-level. These Trojan types are placed into four groups based on functionality (i.e., information leak-age, trigger events, control flow manipulation, and selective logic modification). These are summarized in Columns 1 and 2 of Table I. Detection and localization of the RTL Trojan in a given netlist is challenging because the synthesis options and used library may be unknown. Additionally, different variations of an RTL Trojan may be used, for example by changing constant values, bus widths, etc. We explain more details in the upcoming section as we discuss our methods. III. O UR METHODS 
+
+We first present details of LoRD, and then present an alternative transformer-based ML approach based on BERT [18]. 
+
+A. Trojan Detection & Localization with LoRD 
+
+Given a synthesized gate-level netlist, LoRD applies a suite of carefully crafted yet lightweight heuristics to the gate-level design, with one heuristic per Trojan type 1. Each heuristic returns a Boolean value indicating if its corresponding Trojan 
+
+t has been detected. Additionally, upon detecting Trojan t, the heuristic outputs a set of gates, Lt, representing candidates that match the Trojan’s structure at gate-level. Detection and localization of a Trojan are based on the topology and signal-flow cues identified specifically for each Trojan group such as chain structure, logic function on critical arcs, fan-in/out patterns, etc. which are quite different than handcrafted 
+
+> 1We found a single heuristic to be sufficient for detecting Trojans 8 and 9 because they are quite similar in the structure of their RTL codes.
+
+numerical features used by many ML-based schemes. In case several heuristics indicate detection of Trojans, the one with the greatest Lt size determines the final result. LoRD utilizes discriminative cues based on topology and signal flow in the netlist to detect and localize each group of RTL Trojans at gate-level. Next, we provide a detailed walk-through of LoRD’s procedure for each group. We focus on 
+
+one representative Trojan per group due to limited space. We note that the functionalities of the Trojans in each group are often quite similar to each other. 
+
+1) Group 1 Trojans: Information Leakage: This group aims to leak sensitive data such as encryption keys. Figure 1 shows the RTL description of T0 and its gate-level clues. This Trojan instantiates an LFSR/shift-register–like chain of DFFs of size 
+
+N . The DFF at each stage is driven by a small OR-like component from earlier stages, producing a pseudo-random stream (denoted by lfsr_stream ). The role of the OR-like component is to initialize the LFSR with a seed using the rst 
+
+signal. The payload of the Trojan exposes internal secret bits by XORing the last m stages with the key data and latching those in additional DFFs to drive the load pins. 
+
+Graph model and primitives: We convert the netlist to a directed graph G = ( V, E ) with each gate represented as a node, and a directed edge connecting each driver pin to its sink pin. We classify ‘OR-like’ components as a grouping of gates which implement a two-input OR functionality. For the set of library gates provided by the contest, this set is given by: {OR , NOT connected to NOR }. A chain edge u → v
+
+(from DFF u to DFF v) exists if u. Q reaches v. D through one OR-like component and no other reconvergent logic. 
+
+Procedure: Algorithm 1 provides the psuedo-code to detect and localize T0. We first search for the longest LFSR-like chain in G (lines 1-8). In line 3, StartCandidate (v) indicates if DFF v qualifies as start of an LFSR chain. This happens if (1) v. D is feeding an OR-like component followed by a DFF, and (2) v isn’t driven by an OR-like component. Next, in line 11, the feedback loop of the LFSR is identified (shown in purple). Finally, in lines 13-19, the leaky outputs which reveal the key are identified (shown in red). The Trojan gates are compromised of the LFSR chain, its feedback loop and the leaky outputs which are generated in lines 22-24. 
+
+Main Observations: Algorithm 1 only relies on detecting the 
+
+structure of the LFSR and payload. No assumptions are made about the signal names and their length, the LFSR seed and chain length (except a threshold τ which we set to 4). 
+
+2) Group 2: Trigger Events: This group of RTL Tro-jans modifies control-related signals (e.g., reset or enable) under specific input conditions, thereby causing functional misbehavior or system interruption. Figure 2 shows the RTL description of T2 from this group. The Trojan continuously stores the previous input vector prev_data and compares it with the current data_in . When the two consecutive values form a specific sequence (e.g. 8’hAA followed by 8’h55 ), 
+
+trigger is asserted, making force_reset high. Overall, T2 injects a conditional reset pulse that activates under a rare input pattern. 2Algorithm 1: Group 1 (T0): Detection & Localization                                                              
+
+> Require: Netlist graph G= ( V, E )
+> 1: Step 1: Identify the LFSR chain
+> 2: for each DFF v∈Vdo
+> 3: if StartCandidate (v)then
+> 4: C←GrowChainFrom (v)
+> 5: if |C|is longest so far then
+> 6: C⋆←C
+> 7: v⋆←v
+> 8: end if
+> 9: end if
+> 10: end for
+> 11: Step 2: Identify the feedback loop of the LFSR
+> 12: Perform backward DFS from v⋆until reaching any component in C⋆
+> 13: Step 3: Find leaky outputs
+> 14: for i=Ndown to 1do
+> 15: if C⋆[i]connects to an XOR through Q and the XOR is followed by a DFF then
+> 16: Mark the DFF and XOR as Trojan
+> 17: else
+> 18: break
+> 19: end if
+> 20: end for
+> 21: Step 4: Output Trojan gates
+> 22: if length (C⋆)> τ then
+> 23: Return true and all gates in C⋆, the feedback loop, and the leaky outputs
+> 24: end if
+
+Fig. 1: Overview of RTL of Trojan T0 (Group 1) and our clues for gate-level detection and localization. 
+
+Graph model and primitives: In the gate-level netlist, T2’s structure appears as a group of DFFs capturing consecutive data bits ( prev_data[7:0] ) with a combinational compar-ison block feeding a single output DFF ( force_reset ). The DFFs share a common input bus ( data_in[7:0] ), forming a synchronized data-register bank. The trigger condition cor-responds to an equality comparator tree between the stored data and constant nets (e.g., 8’hAA , 8’h55 ). 
+
+Procedure: Algorithm 2 summarizes the steps for detection and localization of T2. It relies on three traits: (1) a bank of 
+
+N parallel DFFs ( prev_data[7:0] ) with shared bus inputs and outputs; (2) a forward connection from this bank into a single DFF that controls a reset-like signal; and (3) a closed backward path from that control DFF to the same input bus 
+
+Algorithm 2: Group 2 (T2): Detection & Localization                                          
+
+> Input: Netlist graph G= ( V, E )
+> 1Step 1: Identify register banks ;
+> 2Find a set of DFFs D={d1, . . . , d n}with n > τ such that all dishare a common input-bus prefix ( nx[i] ) and a common output-bus prefix ( ny[i] );
+> 3Step 2: Forward traversal ;
+> 4Select any d∈ D and perform a forward DFS in Gto locate a reachable DFF;
+> 5Denote the discovered DFF by dfinal ;
+> 6Step 3: Backward traversal ;
+> 7Starting from dfinal , perform a bounded backward BFS following driver edges until reaching the input nets of D
+> (the bus nx[i] );
+> 8Collect all visited gates and DFFs into a set T;
+> 9Step 4: Output Trojan gates ;
+> 10 if D ⊆ Tthen
+> 11 Return true and output all nodes in Tas Trojan gates;
+> 12 end
+
+Fig. 2: Overview of RTL of Trojan T2 (Group 2) and our clues for gate-level detection and localization. through comparison logic. These features—collectively identifying a ‘triggered control injection’ pattern—are rare in Trojan-free designs and consis-tent with the rare-condition activation style of Group 2 Trojans. 
+
+Main Observations: Algorithm 2 relies on identifying the Trojan based on few assumptions which are independent of specific gate-level implementation styles. These include identifying the input and output bus lines without making any assumption about the width of the bus (except having a min-imum threshold τ which we set to 6 in our implementation). We do assume lines within the same bus to have a common name but do not make assumption about what the name may be in the RTL Trojan module. Additionally, we do not make assumptions about how the combinational logic implementing comparison of previous and current data may be implemented. These are detected via tracing signal flow in a combinational logic block feeding a single DFF. 
+
+3) Group 3: Control Flow Manipulation: This group of RTL Trojans targets control-flow by injecting a malicious control pattern via selectively overwriting a few bits of a bus (e.g., a program counter). The overwriting happens when a hidden multi-bit condition on an internal data bus is satisfied. Figure 3 shows the RTL description of T6 . The 
+
+m0_data_o bus (32 bits in the RTL) is decoded into a 2-bit signal Trojanstate , which encodes several rare con-stants. When Trojanstate becomes 2’b11 , the two least significant bits of i_s15_data_o are set which changes 3Algorithm 3: Group 3 (T6): Detection & Localization                                                        
+
+> Input: Netlist graph G= ( V, E )
+> 1Step 1: Locate main NOR gates ;
+> 2Identify candidate main NOR gates by scanning all NOR gates v∈Vand selecting those whose fanout consists of exactly two OR-like components, denoted by o1and o2;
+> 3Step 2: Backward traversal ;
+> 4For each candidate main NOR gate v, perform a backward BFS starting from vand following driver edges until reaching nets whose names contain “ [” (e.g., bus wires such as nx[i] );
+> 5Collect all visited gates, including v, into a set TBFS ;
+> 6Step 3: Mark Trojan cone ;
+> 7Form the candidate Trojan set
+> 8
+> T=TBFS ∪ { o1, o 2},
+> 9where o1and o2are the OR-like components driven by the
+> main NOR ;
+> 10 Step 4: Output Trojan gates ;
+> 11 if a candidate main NOR vis found and |T|> τ then
+> 12 Return true and output Tas the set of Trojan gates;
+> 13 end
+
+Fig. 3: Overview of RTL of Trojan T6 (Group 3) and our clues for gate-level detection and localization. 
+
+i_s15_data_o_TrojanPayload to an unintended state or address. 
+
+Graph model and primitives: By examining the labeled gate-level netlists provided by the contest for this Trojan, we observed the condition on Trojanstate is synthesized as a small decode network whose output is merged with two bits of the target bus through OR gates. In the gate-level netlist, the core of this network is a single NOR gate whose output fans out exclusively to two OR gates (or OR-like components) that drive two bits of the same bus. Upstream of this NOR gate lies a cone of comparators (combinational logic) that checks equality of m0_data_o against fixed constants. 
+
+Procedure: Algorithm 3 summarizes the heuristic detection of this Trojan. We exploit two structural properties: (1) the presence of a main NOR gate whose only fanout is to two OR gates, and (2) the fact that the entire fan-in cone of this NOR terminates at a bus net (nets whose names contain “ [”, e.g., nx[31] ). 
+
+Main Observations: Trojan 6 exhibits a distinctive topology: a single decode signal (the NOR output) controls exactly two bits of a bus through OR gates, and the entire decode network is driven solely by comparators on a different bus. Benign control logic rarely dedicates a separate NOR–to– 
+
+Fig. 4: Overview of the RTL and clues for gate-level detection and localization of Trojan T9 (Group 4). two-OR chain to override just two bus bits based purely on such a deep equality-check cone. By explicitly searching for this pattern and enforcing a size threshold ( |T | > τ which we set to 24 in our implementation), we show our procedure is able to reliably isolate the malicious control-flow manipulation introduced by this Trojan while avoiding most normal logic. Additionally, our procedure assumes lines within the same bus to have a common name but do not make assumption about what the name may be in the RTL Trojan module. The width of the bus could be any constant higher than a threshold which we set to 8 bits in our implementation. 
+
+4) Group 4: Selective Logic Modification: This group of RTL Trojans conditionally changes logic outputs. They are implemented as small arithmetic engines whose outputs can be switched among several internally–generated expressions. Figure 4 illustrates the RTL and the detection scheme for Trojans T8 and T9. As can be seen from the RTL (for T9), the Trojan module takes multiple 8-bit input words a,b,c,d,e 
+
+and computes several 16-bit intermediate results ( m1--m4 ). A 
+
+mode signal selects which intermediate word drives the 16-bit output y. Some of these expressions are mathematically related (e.g., distributive rewrites), while others inject masked or shifted versions of the data (e.g., bit-masking with 16’h00FF 
+
+or 8’h0F , or right shifts). Thus, under particular modes the Trojan quietly substitutes a modified arithmetic function for the original one, changing only selected bits of y while reusing the same inputs and apparent interface. 
+
+Graph model and primitives: At the gate level, the datapath of this Trojan appears as a dense combinational cone rooted at the bits of the output bus y[i] . Each root gate has a single fanout to a net whose name contains an index, e.g., nx_out[i] .Tracing backwards from such a gate, its fan-in cone reaches many other bus bits with different base names (e.g., a[i] ,
+
+b[i] , c[i] , d[i] , e[i] ), as illustrated in Figure 4. Our scheme exploits the textual naming convention of bus nets: all bits of a word share a common prefix and differ only in the index inside the brackets. For a net named nx_k[i] ,the word name is defined as the substring before the bracket, 
+
+nx_k . Our goal is to find output-bit cones whose logic mixes a large number (higher than τ =4) of distinct word names. 
+
+Procedure: Algorithm 4 lists the procedure for Trojans T8 and T9. 
+
+Main Observations: In Algorithm 4, each bit of y is com-puted from arithmetic expressions that deliberately mix many different input words: additions and multiplications over 4Algorithm 4: Group 4: Detection & Localization (T8 & T9)                                                                          
+
+> Input: Netlist graph G= ( V, E )
+> 1Step 1: Find candidate output gates ;
+> 2Let Obe the set of combinational gates whose output net name contains “[” (i.e., they drive a bus bit such as
+> ny[i] );
+> 3foreach g∈ O do
+> 4Initialize a set of word names W← ∅ ;
+> 5Initialize a gate set T← ∅ ;
+> 6Step 2: Backward traversal ;
+> 7Perform a backward BFS through combinational logic starting from g;
+> 8foreach visited edge (u→v)with net name ndo
+> 9if ncontains “[” then
+> 10 Extract the word name was the substring preceding “[”;
+> 11 Add wto W;
+> 12 Do not traverse beyond net n;
+> 13 end
+> 14 Add gate uto T;
+> 15 end
+> 16 Step 3: Output Trojan gates ;
+> 17 if |W|> τ then
+> 18 Mark gand all gates in Tas Trojan gates;
+> 19 end
+> 20 end
+> 21 if |W|̸ = 0 then
+> 22 Return true and output Tas the Trojan gate set;
+> 23 end
+
+a,b,c,d,e , followed by masking, shifting, and XORing with constants. Consequently, the gate-level fan-in cone of any y[i] contains leaf nets from at least five distinct word prefixes ( a[·] , b[·] , c[·] , d[·] , e[·] ). Typical func-tional logic in the design netlists rarely exhibits such heavy cross-word mixing for a single bus bit. By explicitly counting how many distinct word-level buses feed each candidate output gate, our scheme isolates precisely those cones that behave like the ‘selective arithmetic replacement’ blocks in these Trojans. All thresholds τ are chosen empirically based on public contest netlists (as specified for each Algorithm) and then held fixed for all hidden test cases. 
+
+B. BERT-based Trojan Identification 
+
+As an alternative approach and to provide a point of refer-ence, we developed a deep learning model using Bidirectional Encoder Representations from Transformers (BERT) [18]. This is in part because the ICCAD 2025 contest inspired the use of machine learning by providing labeled gate-level netlists to use as training data. We first convert the gate-level netlist, by re-expressing the more-complex gates in terms of simple gates. Specifically, 
+
+NAND , NOR , XOR , XNOR , and BUF in the contest synthesis library, are replaced with functionally-equivalent variations using AND , OR , NOT in the netlist. This step ensures the subsequent BERT-based training and classification is independent of gate types in the library, emphasizing function-based identification of Trojan behavior. 
+
+Fig. 5: Overview of BERT-based Trojan localization (A cell instance of a complex gate type would be classified as Trojan if each simple gate implementing it is also classified to be part of the Trojan.) BERT is a powerful deep learning model with strong ability to understand context and relationships between tokens in a sequence. This makes it highly suitable for classifying sequences derived from circuit netlists, as it can capture long-range dependencies and subtle patterns that might indicate ma-licious modifications. The motivation behind selecting BERT compared to other large language models (such as LLaMA [19]) is its relatively smaller size, requiring fewer samples for training and its encoder nature, which can be better in detection tasks. Additionally, BERT’s modular design makes it straightforward to implement custom embedding strategies tailored specifically for circuit analysis. The key insight behind BERT-based Trojan identification is that gate-level netlists exhibit patterns similar to natural language. They have syntax (how gates are connected), semantics (what functions circuits perform), and context (how components relate to each other). To maximize success rate per Trojan group, after converting the netlist, we train a separate BERT model for each group of Trojans for a total of four models. Figure 5 illustrates an overview of BERT-based Trojan identification for one group. Starting from a gate-level netlist as input, for each cell instance, a token sequence is generated which is fed to the BERT model to predict how likely the cell is to be part of a considered Trojan group. There are two main components: (1) classification with BERT-based model for each cell instance in a considered netlist, and (2) training the BERT model. A cell is classified as Trojan if its probability of detection by BERT is higher than a specified threshold. We used a BERT-based binary classifier wrapped in acustom PyTorch nn.Module which first builds token repre-sentations with a custom embedding layer. It combines default word and positional embeddings, and a custom tree-based embedding [20] into vectors of size 512. These embeddings are then fed to a HuggingFace BertModel instantiated from a custom BertConfig including 4 transformer encoding layers with 8 attention heads per layer. The model passes the BERT output through a final linear layer to produce logits over 5the two classes (Trojan vs. non-Trojan). Overall, our BERT model had about 25M parameters which is similar in size to the bert-small model [21]. This choice of BERT was in part due to availability of limited training data by the contest. 
+
+Classification with BERT-based model: For a given netlist, we classify each cell instance using the BERT model for each Trojan group. To classify a cell, we generate a token sequence for it which involves text extraction, anonymization, and tokenization, as listed in Fig. 5. First, for text extraction, we identify the line in the netlist implementing a cell instance, providing its input and output signal names. We then identify all other lines in the netlist implementing the fan-in cone of the cell for six levels. Next the extracted lines are reordered topologically so each cell appears prior to its fan-outs. These lines are then concatenated into one expression which serves as the context, capturing functional and structural relationships by encoding signal paths that might indicate Trojan behavior. Next, we apply anonymization to the generated context. To ensure the model learns generalizable patterns, we remove naming information from the extracted text. This involves replacing specific cell instance names with their gate types. Inputs to the fan-in cone are anonymized as ‘X’. Finally, the anonymized context is represented by a token sequence which is fed to the BERT model. We developed our own tokenizer. The tokens are the gate types in the contest library and ‘X’ representing input to a fanin-cone. Other options such as WordPiece tokenizer [22] may be used. 
+
+BERT model training: The generated token sequence for a gate instance is fed to BERT for classification to output a probability if the gate belongs to a Trojan. To train a BERT model, we used public gate-level netlists provided by the contest. The Trojan type inserted inside each gate-level netlist was identifiable from the RTL, and the Trojan gates inside each netlist were specified by the contest. The contest also provided two netlists containing each Trojan type (for a total of 20), and 10 Trojan-free netlists which were all used for our training. The training samples were generated by generating a token sequence for each cell. For labeling, samples corresponding to a Trojan cell (which are known from the public set) are assigned a label of ‘1’, while samples corresponding to normal gates (and Trojan-free designs) are labeled with ‘0’. Positive and negative samples are balanced in training each BERT model. Training uses AdamW optimizer with learning rate 2×10 −5, batch size 8, maximum sequence length of 512 tokens, and the number of epochs is different for each model, varying from 4 to 12. Evaluation is done using 60 different 
+
+hidden test cases that the contest provided. IV. E XPERIMENTAL RESULTS 
+
+A. Setup and Evaluation Metrics Testcases: The ICCAD 2025 contest (Problem A) provides ten RTL Trojan types in Verilog with Trojans T0 to T7 from Trust-Hub [23], [24] and Trojans T8 and T9 from industrial datapath designs [3]. Flattened gate-level netlists were also provided, which according to the contest specifications were composed of eight primitive gate types, flipflops (DFF with posedge clk ,negedge reset), wires, and constants values. Each netlist had at most one type of Trojan. Additionally, 60 hidden test cases (flattened gate-level netlists) were provided for final evaluation which included 40 Trojan -implanted netlists (netlist IDs 0 to 39) and 20 Trojan-free designs (netlist IDs 40 to 59). The contest released evaluation results at its Beta stage which revealed which netlists were Trojan-implanted for the hidden cases but did not specify which Trojan type was included in a Trojan-implanted netlist. Additionally, the contest released 30 public cases which we used to train our BERT models. 
+
+Evaluation Metrics and Requirements: We use the same eval-uation criteria specified in the contest: A score of two is assigned per netlist if it is correctly identified as Trojan-free or Trojan-implanted. Additionally, in a Trojan-implanted netlist, this Score is summed with the F1 score calculated for the netlist. The F1 score is calculated as follows. 
+
+Precision = TP TP + FP Recall = TP TP + FN F1 = 2 · Precision · Recall Precision + Recall 
+
+with TP, FP, FN corresponding to True Positive, False Positive, and False Negative rates. Therefore, the maximum score in Trojan-free and Trojan-implanted netlists were 2 and 3, respectively. A runtime requirement of 30 minutes per testcase was im-posed, assuming evaluation inside a Docker image on an AWS Ubuntu 22.04 host (4 × Xeon 8259CL vCPUs, 16 GB RAM, 1× Tesla T4 16 GB, Nvidia 535.183.01, Docker 26.1.3 with NVIDIA Container Toolkit). The use of multi-threading/GPU was allowed. 
+
+B. Comparison of Results 
+
+Table I shows comparison of LoRD with BERT in Trojan-implanted netlists. The Trojans are grouped in four types based on functionality [3]. The netlist IDs corresponding to each Trojan type is listed in the last column, as identified by LoRD. (The contest did not require predicting the Trojan type but recommended adding this requirement in future editions.) For each row in the table, we report the average of the evaluation metrics across all corresponding netlist IDs (given in the last column). This is due to lack of space, having 40 Trojan-implanted testcases. At the same time, we note the entries in the Score column in LoRD’s case are all very close to the maximum score of 3, with an average of 2.957. The BERT-based approach was developed with four BERT models trained, one for each Trojan group, as discussed in Section III-B. We ran each BERT model on the corresponding netlist IDs listed per Trojan group. This is the reason a Score column is not reported for BERT-based approach as it is only used for localization (and not Trojan detection). As can be seen, the F1 score in BERT is on-average 0.254 which is much lower than the average F1 score of 0.957 in LoRD. Interestingly, the highest F1 score in BERT is for Trojans T8 6TABLE I: Comparison of LoRD and BERT-based approach for the 40 hidden Trojan-implanted test cases. Maximum F1 is 1 and maximum Score is 3. The metrics in each row are averaged across the corresponding Trojan-implanted netlist IDs.                                                                                              
+
+> Trojan Function Trojan ID LoRD BERT-based Netlist ID Precision Recall F1 Score Precision Recall F1 identified by LoRD
+> 1) Information Leakage T0 0.986 0.963 0.974 2.974 0.165 0.986 0.273 0, 1, 20, 33 T4 0.960 0.906 0.929 2.929 0.129 0.736 0.207 8, 9, 24, 32 2) Trigger Events T1 0.979 0.978 0.978 2.978 0.048 0.710 0.087 2, 3, 21, 37 T2 1.000 0.970 0.985 2.985 0.052 0.622 0.091 4, 5, 6, 22, 30 3) Control Flow Manipulation T5 0.988 1.000 0.994 2.994 0.114 0.963 0.186 10, 11, 25, 38 T6 0.847 1.000 0.910 2.910 0.030 0.960 0.057 12, 13, 26, 31 4) Selective Logic Modification T3 0.995 1.000 0.997 2.997 0.138 0.816 0.226 7, 23, 35 T7 0.971 1.000 0.985 2.985 0.040 0.737 0.075 14, 15, 27, 39 T8,T9 0.963 0.908 0.911 2.911 0.675 0.912 0.688 16, 17, 18, 19, 28, 29, 34, 36
+> Average 0.965 0.963 0.957 2.957 0.204 0.831 0.254
+
+TABLE II: Comparison with top-five teams in the contest.             
+
+> Trojan-implanted netlists Trojan-free netlists Precision Recall F1 Classification Accuracy LoRD 0.965 0.963 0.957 95%
+> Top 5 teams 0.861 0.915 0.886 70%
+
+and T9 which were from industrial datapaths. In the BERT-based approach, Recall was always significantly higher than Precision , which indicates a general bias toward predicting that a gate belongs to a Trojan. This behavior was observed among all contestants, as mentioned in the contest final presentation [3]. In general, considering transformer-based models such as [16] for Trojan detection, their reported high accuracy metrics may be related to a restricted validation, as noted in [25]. We attribute the lower performance of BERT to several factors: (i) a label granularity mismatch —the contest task is fundamentally a set (boundary) identification problem, but the model is asked to decide gate-by-gate; (ii) boundary-gate semantics —Trojan “signature” is concentrated near the boundary between trigger/payload and host logic, whereas our tokenization (fan-in cones truncated to a fixed depth) biases the model toward local structure and obscures boundary cues; and (iii) limited supervision —the available labeled designs are too few and structurally diverse (post-synthesis variability), which hurts generalization. In contrast, LoRD encodes boundary-aware rules derived from the public RTL definitions and organizers’ clarifications, which appears to align better with the contest’s scoring objective (F1 on the set of Trojan gates). Table II shows comparison of LoRD with top five contest teams. For Trojan-implanted cases, the contest only provided the average precision, recall, and F1 score across the top five teams. As can be seen, LoRD has better values for all metrics, with average F1 score of 0.965 (very close to the maximum 1) while the average F1 score of the top five teams is 0.886. Table II also shows the evaluation results for Trojan-free netlists. Specifically, in these test cases, LoRD achieves a classification accuracy of 95%, correctly identifying all 19 out of 20 Trojan-free hidden netlists, significantly outperforming the 70% classification accuracy of the top five teams. The testcase which was not correctly classified by LoRD was netlist #43, which according to the contest results, all teams incorrectly identified this netlist to be Trojan-implanted while it was actually Trojan-free. LoRD was implemented in Python and is computationally light. It processed the entire 60 hidden test cases in under a minute, far below the 30 minute per testcase limit imposed by the contest. This was with our local machine with Intel Core i7, an NVIDIA GeForce RTX 4070 SUPER (12GB GDDR6X), and 64 GB of DDR5 memory. In contrast, the BERT-based approach imposes hours to train per model on our local machine. For inference, the BERT-based approach took 10-20 seconds per netlist due to tasks such as tokenization and batching over all cell instances in each netlist. V. C ONCLUSIONS 
+
+This work addressed the challenge of detecting and lo-calizing RTL-inserted hardware Trojans in synthesized gate-level netlists without relying on golden chips. We showed that RTL Trojans exhibit stable structural and signal-flow patterns at gate-level, enabling effective detection based on graph traversal schemes, word detection, and signal flow tracking, rather than relying on handcrafted numerical features that many ML-based schemes use. We introduced LoRD, a lightweight heuristic-driven approach that achieves near-perfect accuracy on ICCAD 2025 contest benchmarks while requiring minimal computational resources. Compared to a BERT-based baseline and top five teams in the contest, LoRD significantly outperforms in both detection and localization. Our evaluation was based on the contest’s synthesis flows and cell libraries; extending LoRD to broader industrial flows is an interesting direction for future work. REFERENCES [1] R. Karri, J. Rajendran, K. Rosenfeld, and M. Tehranipoor, “Trustworthy hardware: Identifying and classifying hardware Trojans,” Computer ,vol. 43, no. 10, pp. 39–46, 2010. [2] M. Tehranipoor and F. Koushanfar, “A survey of hardware Trojan taxonomy and detection,” IEEE Design & Test of Computers , vol. 27, no. 1, pp. 10–25, 2010. [3] “CAD Contest at ICCAD, Problem A,” 2025, [Online]. Available: ICCAD 2025 CAD Contest website. 
+
+7[4] S. Narasimhan, D. Du, R. S. Chakraborty, S. Paul, F. G. Wolff, C. A. Papachristou, K. Roy, and S. Bhunia, “Hardware Trojan detection by multiple-parameter side-channel analysis,” IEEE Transactions on Computers , vol. 62, no. 11, pp. 2183–2195, 2013. [5] I. Exurville, L. Zussa, J.-B. Rigaud, and B. Robisson, “Resilient hardware Trojans detection based on path delay measurements,” in 
+
+International Symposium on Hardware Oriented Security and Trust (HOST) , 2015, pp. 151–156. [6] D. Ismari, J. Plusquellic, C. Lamech, S. Bhunia, and F. Saqib, “On detecting delay anomalies introduced by hardware Trojans,” in Interna-tional Conference on Computer-Aided Design (ICCAD) , 2016, pp. 1–7. [7] D. Forte, C. Bao, and A. Srivastava, “Temperature tracking: An innova-tive run-time approach for hardware Trojan detection,” in International Conference on Computer-Aided Design (ICCAD) , 2013, pp. 532–539. [8] K. Hasegawa, M. Yanagisawa, and N. Togawa, “Hardware Trojans classification for gate-level netlists using multi-layer neural networks,” in 
+
+International Symposium on On-Line Testing and Robust System Design (IOLTS) , 2017, pp. 227–232. [9] K. Hasegawa, M. Oya, M. Yanagisawa, and N. Togawa, “Hardware Trojans classification for gate-level netlists based on machine learning,” in International Symposium on On-Line Testing and Robust System Design (IOLTS) , 2016, pp. 203–206. [10] M. Du, Z. Huang, Y. Chen, L. Li, Q. Wang, and J. Liu, “A HT detection and diagnosis method for gate-level netlists based on machine learning,” in International Conference on Signal and Image Processing (ICSIP) ,2021, pp. 1070–1074. [11] S. Yu, C. Gu, W. Liu, and M. O’Neill, “Deep learning-based hardware trojan detection with block-based netlist information extraction,” IEEE Transactions on Emerging Topics in Computing (TETC) , Oct 2021. [12] H. Lashen, L. Alrahis, J. Knechtel, and O. Sinanoglu, “TrojanSAINT: Gate-level netlist sampling-based inductive learning for hardware trojan detection,” in International Symposium on Circuits and Systems (ISCAS) ,2023, pp. 1–5. [13] S.-Y. Yu, R. Yasaei, Q. Zhou, T. Nguyen, and M. A. Al Faruque, “HW2VEC: a graph learning tool for automating hardware security,” in International Symposium on Hardware Oriented Security and Trust (HOST) , 2021, pp. 13–23. [14] L. Chen, C. Dong, Q. Wu, X. Liu, X. Guo, Z. Chen, H. Zhang, and Y. Yang, “GNN4HT: A two-stage GNN-based approach for hardware Trojan multifunctional classification,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 44, no. 1, pp. 172–185, 2025. [15] B. S. Latibari, N. Nazari, A. Sasan, H. Homayoun, P. Satam, S. Salehi, and H. Sayadi, “Transformers for secure hardware systems: Applica-tions, challenges, and outlook,” in Great Lakes Symposium on VLSI (GLSVLSI) , 2025, pp. 841–848. [16] S. Kuang, Z. Quan, G. Xie, X. Cai, X. Chen, and K. Li, “NtNDet: Hardware trojan detection based on pre-trained language models,” 
+
+Expert Systems with Applications , vol. 271, p. 126666, 2025. [17] M. Chen, X. Kou, and G. Zhang, “TrojanFormer: Resource-efficient hardware trojan detection using graph transformer network,” in IEEE International Conference on Electronic Technology (ICET) , 2024, pp. 165–170. [18] J. Devlin, M. Chang, K. Lee, and K. Toutanova, “BERT: pre-training of deep bidirectional transformers for language understanding,” CoRR ,vol. abs/1810.04805, 2018. [19] H. Touvron, T. Lavril, G. Izacard, X. Martinet, M.-A. Lachaux, T. Lacroix, B. Rozi` ere, N. Goyal, E. Hambro, F. Azhar, A. Rodriguez, A. Joulin, E. Grave, and G. Lample, “LLaMA: Open and efficient foundation language models,” arXiv preprint arXiv:2302.13971 , 2023. [20] V. Shiv and C. Quirk, “Novel positional encodings to enable tree-based transformers,” in Neural Information Processing Systems (NIPS) , vol. 32, 2019, pp. 12 081 – 12 091. [21] I. Turc, M. Chang, K. Lee, and K. Toutanova, “Well-read students learn better: The impact of student initialization on knowledge distillation,” 
+
+CoRR , vol. abs/1908.08962, 2019. [22] X. Song, A. Salcianu, Y. Song, D. Dopson, and D. Zhou, “Fast WordPiece tokenization,” 2021. [Online]. Available: https://arxiv.org/abs/2012.15524 [23] H. Salmani, M. Tehranipoor, and R. Karri, “On design vulnerability anal-ysis and trust benchmarks development,” in International Conference on Computer Design (ICCD) , 2013, pp. 471–474. [24] B. Shakya, T. He, H. Salmani, D. Forte, S. Bhunia, and M. Tehranipoor, “Benchmarking of hardware Trojans and maliciously affected circuits,” 
+
+Journal of Hardware and Systems Security , vol. 1, pp. 85–102, 2017. [25] C. Krieg, “Reflections on trusting trusthub,” in International Conference on Computer-Aided Design (ICCAD) , 2023, pp. 1–9. 
+
+8
