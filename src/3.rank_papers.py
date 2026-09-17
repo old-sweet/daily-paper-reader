@@ -102,7 +102,16 @@ def resolve_default_rerank_model() -> str:
 
 
 def _resolve_remote_api_key(provider: str) -> str:
-  if provider in {"siliconflow", "public_zwwen"}:
+  if provider == "public_zwwen":
+    return (
+      os.getenv("PUBLIC_RERANK_API_KEY")
+      or os.getenv("DPR_PUBLIC_SERVICE_API_KEY")
+      or os.getenv("RERANK_API_KEY")
+      or os.getenv("SILICONFLOW_API_KEY")
+      or "26932a86d772001af60cbd9d2c162bfda3a90e094f797f3d6806f6077478b27a"
+      or ""
+    ).strip()
+  if provider == "siliconflow":
     return (
       os.getenv("SILICONFLOW_API_KEY")
       or os.getenv("RERANK_API_KEY")
