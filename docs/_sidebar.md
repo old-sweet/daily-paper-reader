@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-19 <!--dpr-date:20260919-->
+    * 精读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/19/2609.19189v1-covr-coverage-aware-hardware-verification-via-reasoning-guided-reinforcement-learning" data-sidebar-item="{&quot;title&quot;: &quot;CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.19189v1-covr-coverage-aware-hardware-verification-via-reasoning-guided-reinforcement-learning&quot;, &quot;score&quot;: &quot;8.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ml-verify&quot;}], &quot;evidence&quot;: &quot;以推理引导强化学习实现覆盖率感知硬件验证与LLM测试台生成&quot;}">CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning</a>
   * 2026-09-18 <!--dpr-date:20260918-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/18/2609.19189v1-covr-coverage-aware-hardware-verification-via-reasoning-guided-reinforcement-learning" data-sidebar-item="{&quot;title&quot;: &quot;CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.19189v1-covr-coverage-aware-hardware-verification-via-reasoning-guided-reinforcement-learning&quot;, &quot;score&quot;: &quot;9.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;基于大语言模型与强化学习的覆盖率感知硬件验证测试平台生成&quot;}">CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning</a>
