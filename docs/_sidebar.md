@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-21 <!--dpr-date:20260921-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/21/2609.18022v2-veribugbench-an-empirically-grounded-framework-for-constructing-verilog-rtl-debugging-benchmarks" data-sidebar-item="{&quot;title&quot;: &quot;VeriBugBench: An Empirically Grounded Framework for Constructing Verilog RTL Debugging Benchmarks&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.18022v2-veribugbench-an-empirically-grounded-framework-for-constructing-verilog-rtl-debugging-benchmarks&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;面向Verilog RTL调试基准的LLM测试平台增强&quot;}">VeriBugBench: An Empirically Grounded Framework for Constructing Verilog RTL Debugging Benchmarks</a>
   * 2026-09-20 <!--dpr-date:20260920-->
     * 速读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/20/2609.18595v1-redil-gnn-resynthesis-domain-incremental-learning-for-circuit-graph-neural-networks" data-sidebar-item="{&quot;title&quot;: &quot;ReDIL-GNN: Resynthesis Domain Incremental Learning for Circuit Graph Neural Networks&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.18595v1-redil-gnn-resynthesis-domain-incremental-learning-for-circuit-graph-neural-networks&quot;, &quot;score&quot;: &quot;7.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;ml-verify&quot;}], &quot;evidence&quot;: &quot;面向逻辑重综合的电路图神经网络增量学习&quot;}">ReDIL-GNN: Resynthesis Domain Incremental Learning for Circuit Graph Neural Networks</a>

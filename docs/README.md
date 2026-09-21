@@ -6,35 +6,26 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-20
-- 运行时间：2026-09-20 21:44:52 UTC
+- 最新运行日期：2026-09-21
+- 运行时间：2026-09-21 22:44:45 UTC
 - 运行状态：成功
-- 本次总论文数：4
+- 本次总论文数：1
 - 精读区：0
-- 速读区：4
+- 速读区：1
 
 ### 今日简报（AI）
-今日速读4篇、精读0篇，题录中ReDIL-GNN以7.0分领跑。
-最值得看的是ReDIL-GNN的电路图增量学习，以及SCHERI/MAGS代表的硬件安全与智能体输出安全方向。
-普通读者可先花10分钟读ReDIL-GNN摘要，再按需速览SCHERI与MAGS，不必逐篇精读。
-- 详情：[/202609/20/README](/202609/20/README)
+今日速读1篇：VeriBugBench 用实证框架瞄准 Verilog RTL 调试基准（6.0/10）。
+最值得看的是 Verilog RTL 调试基准如何构建与评测，适合硬件验证和 EDA 方向读者关注。
+普通读者可先收藏该文，若后续要评估 RTL 调试工具，再重点看它的基准构造流程。
+- 详情：[/202609/21/README](/202609/21/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [ReDIL-GNN: Resynthesis Domain Incremental Learning for Circuit Graph Neural Networks](/202609/20/2609.18595v1-redil-gnn-resynthesis-domain-incremental-learning-for-circuit-graph-neural-networks)  
-   标签：评分：7.0/10、query:ml-verify
-   evidence：面向逻辑重综合的电路图神经网络增量学习
-2. [SCHERI: Provably Secure Speculation Under the Constant-Time Policy for CHERI (Extended Version)](/202609/20/2609.17399v1-scheri-provably-secure-speculation-under-the-constant-time-policy-for-cheri-extended-version)  
-   标签：评分：6.0/10、query:fsh
-   evidence：面向能力安全、推测执行与信息流安全的形式化框架
-3. [MAGS: Multi-agent Auto-formalization Guarantees Safety for Agentic Outputs](/202609/20/2609.19391v1-mags-multi-agent-auto-formalization-guarantees-safety-for-agentic-outputs)  
+1. [VeriBugBench: An Empirically Grounded Framework for Constructing Verilog RTL Debugging Benchmarks](/202609/21/2609.18022v2-veribugbench-an-empirically-grounded-framework-for-constructing-verilog-rtl-debugging-benchmarks)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：基于LLM的多智能体框架，通过Dafny验证中间表示生成带形式安全保证的程序
-4. [Long-horizon autoformalization of a core theorem underlying MIP* = RE](/202609/20/2609.19814v1-long-horizon-autoformalization-of-a-core-theorem-underlying-mip--re)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：AI证明智能体用于长时程形式化定理证明
+   evidence：面向Verilog RTL调试基准的LLM测试平台增强
 
 
 <div class="dpr-home-promo-card">
