@@ -1,0 +1,1357 @@
+Title: CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning
+
+URL Source: https://arxiv.org/pdf/2609.19189v2
+
+Published Time: Tue, 22 Sep 2026 01:20:45 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning 
+
+# Manar Abdelatty 
+
+manar_abdelatty@brown.edu School of Engineering Brown University Providence, RI, USA 
+
+# Maryam Nouh 
+
+maryam_nouh@brown.edu School of Engineering Brown University Providence, RI, USA 
+
+# Sherief Reda 
+
+sherief_reda@brown.edu School of Engineering Brown University Providence, RI, USA 
+
+## Abstract 
+
+Design verification remains one of the most resource-intensive stages of hardware development, often consuming up to 70% of the total design effort. While recent work has explored using Large Language Models (LLMs) to automate testbench generation, most existing approaches focus narrowly on functional correctness, over-looking the critical aspect of coverage quality. To bridge this gap, we present CovR, an agentic framework for automated testbench gener-ation that combines self-reflection loops with simulation-based feed-back to maximize coverage. Using this pipeline, we construct a large-scale dataset of 16 , 514 natural specification–RTL–reasoning–testbench tuples with a strong teacher model, enabling coverage-aware su-pervision. Building on this, we propose a reinforcement learning (RL) framework tailored for coverage-driven testbench generation, leveraging tool-derived rewards from simulation and coverage feed-back to optimize a student model. Experimental results show that the CovR finetuned model achieves 93.81% cov@10 on VerilogEval and RTLLM V2.0, and 87.76% cov@10 on CVDP, outperforming state-of-the-art approaches by 7.97% and 3.59%, respectively. Fur-thermore, deploying the finetuned model back into the agentic refinement pipeline further improves cov@10 to 94.27% on Veri-logEval and RTLLM V2.0 and 91.39% on CVDP. Moreover, when integrated as a plug-in stimulus engine for full verification work-flows, CovR improves coverage by 18.95% and mutation detection score by 1.19%, while revealing 4.46% undetected failures, high-lighting the importance of optimizing for coverage in LLM-based hardware verification. 
+
+## Keywords 
+
+Large Language Model, LLM, Hardware Verification, Code Cover-age, Testbench Generation, Reasoning 
+
+ACM Reference Format: 
+
+Manar Abdelatty, Maryam Nouh, and Sherief Reda. 2026. CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learn-ing. In 2026 ACM/IEEE International Symposium on Machine Learning for CAD (MLCAD ’26), September 07–09, 2026, Jeju Island, Republic of Korea. 
+
+ACM, New York, NY, USA, 15 pages. https://doi.org/10.1145/3831599.3840347 
+
+> This work is licensed under a Creative Commons Attribution 4.0 International License.
+> MLCAD ’26, Jeju Island, Republic of Korea
+> © 2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2878-5/2026/09 https://doi.org/10.1145/3831599.3840347
+
+Figure 1: Overview of CovR within a full RTL verification workflow. CovR generates high-coverage stimuli that exer-cise the DUT, oracle, and injected RTL mutants to improve coverage, mutation detection, and bug-finding effectiveness. 
+
+## 1 Introduction 
+
+Design verification is a fundamental stage in the hardware design workflow, ensuring that a Register Transfer Level (RTL) imple-mentation faithfully realizes its intended specification [2, 34]. This process typically consists of two complementary components. First, a Functional Reference Model (FRM), or an equivalent specification-derived oracle, is constructed to capture the expected behavior of the design [13]. Second, test stimuli are generated to exercise the RTL across diverse scenarios, while validating its outputs against the oracle using self-checking mechanisms such as assertions [15]. The effectiveness of this process is quantified along two dimensions: 
+
+functional coverage , which measures how well intended behaviors are exercised [9, 19, 25], and code coverage , which evaluates how thoroughly the RTL implementation, including its lines, conditions, states, and branches, is explored during simulation [38]. Despite advances in design automation, verification can consume up to 70% of the hardware development effort [3]. This motivates the need for intelligent automation to accelerate verification and improve productivity. Recent work leverages Large Language Models (LLMs) to auto-mate verification tasks, including the generation of testbenches [27, 28], test plans [16], Functional Reference Models (FRMs) [49], and assertions [42, 46]. While effective at producing executable veri-fication artifacts, these approaches often overlook the diversity of generated stimuli, leading to limited coverage and reduced ability to uncover corner-case bugs. Coverage-guided methods address this by optimizing for coverage via iterative feedback [48], curriculum-based finetuning [44], preference optimization [21], and reinforce-ment learning [23]. However, they exhibit three key limitations: (i) methods such as LLM4DV [48] and the RL-based approach in [23] represent stimuli as structured or binary sequences, limiting their expressiveness compared to hardware description languages such arXiv:2609.19189v2 [cs.AR] 19 Sep 2026 MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+as Verilog. (ii) State-of-the-art approaches such as LLM4COV [44] rely on curriculum-based supervised finetuning over offline training data, rather than directly optimizing stimulus generation through online interaction with coverage feedback during training. (iii) Agentic pipelines in LLM4DV [48] lack self-reflection [32, 45], lim-iting their ability to accumulate knowledge across iterations and converge to high-coverage solutions. To address these limitations, we introduce CovR 1, an agentic framework for high-coverage stimulus generation. CovR iterat-ively refines test stimuli using simulation feedback and trains a reasoning-enhanced LLM through supervised finetuning and rein-forcement learning with rewards derived from simulation validity and coverage reports. Fig. 1 illustrates how CovR integrates into full verification workflows as a plug-in stimulus engine, generating high-coverage stimuli that drive design-under-test (DUT), oracle, and design mutants to improve coverage closure and bug detection. Our contributions are as follows: 
+
+• We develop an agentic pipeline that leverages simulation feedback and self-reflection to iteratively refine testbenches toward high coverage, enabling automatic generation of high-quality synthetic data via a strong teacher model. 
+
+• Using the proposed pipeline, we construct a large-scale data-set for high-coverage testbench generation, comprising 16 ,514 specification–RTL–testbench–reasoning tuples. 
+
+• We formulate test stimulus generation as a coverage op-timization problem and propose a learning framework that combines supervised finetuning on reasoning-augmented data with reinforcement learning using tool-derived rewards. 
+
+• We train a student model with our learning framework to approximate the teacher pipeline, improving average cov@1 
+
+by 44.29% over the base model and surpassing the teacher by 7.3% on average across VerilogEval, RTLLM, and CVDP. 
+
+• We deploy the finetuned model into the CovR self-refinement agentic pipeline, further improving average cov@1 by 6.68% compared to direct inference. 
+
+• We integrate CovR into full verification workflows [28, 49] as a plug-in stimulus engine, improving coverage by 18.95%, mutation detection score by 1.19% on average, while reveal-ing 4.46% more previously undetected failures. This paper is organized as follows. Section 2 discusses related work. Section 3 presents the CovR self-refinement workflow, synthetic dataset generation, the finetuning process. Section 4 presents our experimental results. Finally, section 5 concludes the paper. 
+
+## 2 Related Work 
+
+Recent work applies LLMs to hardware verification through two main directions: testbench generation frameworks and coverage-guided stimulus generation, differing in their use of representations, learning strategies, and feedback mechanisms. 
+
+Testbench Generation Frameworks AutoBench [27] and Cor-rectBench [28] generate assertion-based testbenches by construct-ing a Python reference model as an oracle, followed by iterative refinement to improve bug detection. However, both incur high 
+
+> 1https://github.com/orgs/scale-lab/CovR
+
+Table 1: Prior work leverages coverage feedback but rarely integrates reasoning with reinforcement learning. CovR uni-fies these components to produce high-coverage testbenches.                                                 
+
+> Approach Coverage Feedback Agentic Reasoning Learning Primary Output
+> AutoBench [27] ×✓×None FRM + Stimuli Testbench CorrectBench [28] ×✓×None FRM + Stimuli Testbench PRO-V-R1 [49] ×✓✓SFT-W/Reason + RL FRM + Test Stimuli Testplan Gen. [16] ×✓✓SFT-W/Reason + RL Test-plan LLM4DV [48] ✓✓×None Test stimuli Test stimuli gen. [23] ✓××SFT + RL Test stimuli (Tabular) TB or NOT TB [21] ✓××DPO Stimuli Testbench LLM4COV [44] ✓✓×Curriculum SFT Stimuli Testbench
+> CovR (Ours) ✓✓✓SFT-W/Reason + RL Stimuli Testbench
+
+computational cost due to repeated prompting and lack of fine-tuning. PRO-V-R1 [49] extends this paradigm with a multi-agent framework that incorporates supervised finetuning and reinforce-ment learning to improve reasoning and tool use, reducing reliance on iterative prompting. Similarly, the work in [16] improves test plan generation via reinforcement learning. Despite these advances, existing methods primarily target functional correctness and bug detection, with limited emphasis on test stimuli coverage. 
+
+Coverage-Guided Generation Coverage-driven approaches use simulation feedback to improve stimulus quality. LLM4DV [48] targets functional coverage through an iterative loop between a Python-based test generator and a simulation backend (e.g., Veri-lator [33]), using manually specified coverage bins implemented in cocotb [6]. However, it relies on repeated prompting without self-reflection [32, 45] or model finetuning, requiring many iterations to achieve acceptable coverage. Later work [23] introduces super-vised and reinforcement learning for coverage optimization, but represents stimuli as table-structured binary matrices. As a result, it scales poorly with input dimensionality, lacks semantic structure, and cannot effectively capture temporal behaviors, limiting gen-eralization to complex designs. The work in [21] further explores finetuning via Direct Preference Optimization (DPO) [31] to favor high-coverage testbenches, but reliance on static preference data limits exploration compared to tool-interactive or reinforcement learning-based methods. LLM4COV [44] advances finetuning with a curriculum-based strategy that gradually increases coverage com-plexity during supervised finetuning. However, it is limited to SFT and does not leverage reinforcement learning to explore diverse high-coverage behaviors through interactive tool feedback. Table 1 summarizes prior approaches. Existing testbench genera-tion frameworks often lack coverage feedback, motivating coverage-aware stimulus generation. Prior coverage-driven methods either rely on limited stimulus representations that hinder scalability to complex designs or lack exploration mechanisms for discovering diverse verification behaviors. CovR addresses these limitations through agentic self-refinement and reinforcement learning guided by simulation and coverage feedback. 
+
+## 3 CovR Framework 
+
+This section presents the CovR workflow (Fig. 2), including its agentic pipeline, dataset construction, and learning framework for improving testbench generation. 
+
+## 3.1 CovR Self-Refinement Workflow 
+
+Fig. 2 (a) presents the CovR agentic pipeline. Given a natural lan-guage specification N and RTL design V, the workflow begins with CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+Figure 2: Overview of the CovR framework. (a) Self-refinement workflow: An initial testbench is generated from the specification 
+
+N and RTL V, then iteratively refined through execution and coverage-driven loops to produce a valid high-coverage testbench 
+
+T ∗, which is annotated with reasoning traces R∗. (b) Agentic training framework: The resulting tuples (N , V, R∗, T ∗) form a synthetic dataset for supervised fine-tuning (SFT), followed by reinforcement learning (RL), where multiple testbenches are sampled, simulated in parallel, and optimized using hierarchical rewards combining format, compile, and coverage signals. 
+
+test plan generation , which derives a structured testing strategy cov-ering corner cases, reset scenarios, and diverse input conditions. A 
+
+Testbench Generator then produces an initial stimulus Tinitial , which is refined through two self-refinement loops: (1) a testbench execu-tion loop , which ensures successful testbench simulation, and (2) a 
+
+coverage optimization loop , which uses simulation tool feedback to maximize coverage by targeting uncovered scenarios. The testbench execution loop refines Tinitial to ensure simulation validity. The testbench is compiled and simulated using external tools, and runtime errors are passed to the Reflector . The Reflector analyzes the reasoning trace used to generate the testbench and the tool feedback, producing a reflection trace explaining failures in the Generator’s reasoning. This reflection trace, with prior itera-tions history, is passed to the Curator , which maintains an evolving context of failures, fixes, and unresolved issues. This context is then provided to the Fixer , which repairs the testbench T𝑖 using both the latest feedback and prior history. This process repeats until the testbench executes successfully or a maximum number of iterations is reached, after which the workflow transitions to the coverage optimization loop. This iterative improvement process follows the paradigm of self-refinement and self-reflection [32, 45], where a model iteratively improves its outputs by leveraging feedback from external tools and its own reasoning traces. The coverage optimization loop improves stimulus quality by tar-geting hard-to-reach behaviors. Coverage reports from the latest testbench identify unexercised behaviors, including uncovered branches, conditions, and state transitions. Guided by this feed-back, the Generator refines the testbench by introducing stimuli to close coverage gaps. As in the execution loop, a Reflector analyzes coverage deficiencies to guide refinement, while a Curator main-tains context across iterations. The Curator also emits an exit signal to indicate that further refinement is infeasible due to unreachable states. If refinement breaks simulation, the workflow returns to the execution loop to restore simulation validity. Across refinement iterations, multiple testbenches are gener-ated. A testbench selector selects the final testbench T ∗ by choos-ing, among all testbenches that are successfully executed, the one achieving the highest coverage. The selected testbench, natural spe-cification N , RTL design V, and coverage report are then passed to the Reasoner , which generates candidate reasoning traces describ-ing the verification strategy, stimulus generation, and coverage intent. These traces are evaluated by the Verifier using a structured rubric that measures consistency of the reasoning trace with RTL design, testbench, and the coverage report. The highest-scoring trace is selected as the final explanation 𝑅 ∗. The resulting reasoning maps test scenarios to RTL behavior, identifying covered branches, conditions, edge cases, and state transitions, and explaining how coverage is achieved through stimulus. The flow outputs a quad-ruple of natural language specification N , RTL design V, stimulus testbench T ∗, and reasoning trace R∗ explaining how coverage MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+Table 2: RTL and Testbench design sources.                                         
+
+> Source Designs Statistics {Median, Max} Count I/O Ports # Cells Branches FSM Trans. Pyra [20] 1,732 {7,3586} {1,16678} {2,274} {9,68} VeriThoughts [43] 8,775 {12,21276} {6,3129} {5,527} {6,66} VeriReason ∗[39] 998 {8,256} {3,33046} {3,80} {6,6} VeriTriplets ∗[37] 2,309 {54,16772} {36,36488} {16,1151} {7,112} LLM4Cov ∗[44] 3,468 {30,38452} {17,47438} {8,4033} {7,35}
+> CovR (ours) 16,514 {19,38452} {8,47438} {6,4033} {6,112}
+> *Refined for coverage and augmented with reasoning traces.
+
+is achieved. The framework supports both open-source (Icarus Verilog [8], Covered [40]) and commercial (Synopsys VCS [36], URG [35]) toolchains. 
+
+## 3.2 CovR Synthetic Dataset 
+
+We leverage the CovR self-refinement workflow to generate high-coverage testbenches by deploying it with strong foundation mod-els. Specifically, we use gpt-4o-mini [22] for self-refinement loops and reasoning trace verification, and DeepSeek-R1 [7] for reason-ing trace generation. Each data point is produced via 5 iterations of self-refinement, with 3 candidate reasoning traces evaluated per sample. We use Synopsys tools for simulation and coverage feedback to ensure data quality. Using this pipeline, we construct the CovR synthetic dataset from a large collection of RTL–specification pairs sourced from publicly available Verilog code generation datasets. Table 2 summarizes the key sources, including Pyra [20] and VeriThoughts [43], which serve as inputs to the self-refinement workflow. We also incorpor-ate samples from RTLSeek [47], VeriPrefer [37], VeriReason [39], and LLM4COV [44], converting their testbenches to stimulus-only form and using them as initial seeds for self-refinement to maxim-ize coverage and generate reasoning traces. In total, we generate 16 ,514 quadruples, comprising a natural language specification, an RTL design, a testbench, and corresponding reasoning trace. Unlike prior coverage-oriented datasets such as LLM4COV [44], 
+
+CovR additionally includes reasoning traces that explicitly describe the verification strategy, targeted behaviors, and coverage intent underlying each generated testbench. Fig. 3 shows the coverage distributions of the CovR dataset, showing that most generated testbenches achieve high coverage. Lower-coverage samples are retained in the training set. These capture harder cases where re-finement fails or full coverage is inherently infeasible, for example due to constant signals or unreachable states. 
+
+## 3.3 CovR Training Framework 
+
+The quality of generated testbenches critically depends on the Gen-erator ’s ability to produce high-coverage stimuli. To enhance this, we propose a two-stage training framework, illustrated in Fig. 2 (b), that specializes the Generator for coverage-driven testbench gener-ation for later deployment in the agentic framework. First, we per-form supervised finetuning (SFT) on the synthetic CovR dataset. In this stage, the Generator is trained on a dataset D = {( 𝑁 , 𝑉 , 𝑅 ∗,𝑇 ∗)} ,where each tuple consists of a natural language specification 𝑁 ,RTL design 𝑉 , reasoning trace 𝑅 ∗, and corresponding testbench 𝑇 ∗.Conditioned on (𝑁 , 𝑉 ), the model is trained to jointly generate the reasoning trace 𝑅 ∗ and the testbench 𝑇 ∗ using the standard auto-regressive cross-entropy loss [1, 30] detailed in Equation 1, where 
+
+y∗ = [𝑅 ∗,𝑇 ∗] is the target output sequence consisting of the reason-ing trace followed by the testbench. This stage initializes the model 0 20 40 60 80 100  
+
+> Coverage (%)
+> Fsm Toggle Line Cond Branch Median
+> 75% 100% 100% 100% 100%
+
+Figure 3: CovR synthetic dataset coverage distribution. Line, toggle, condition, and branch coverage achieve 100% median, while FSM coverage is more dispersed with a 75% median. 
+
+with patterns of high-coverage testbench generation. However, SFT alone may encourage memorization and limit generalization [5]. 
+
+LSFT (𝜃 ) = −E(𝑁 ,𝑉 ,𝑅 ∗,𝑇 ∗ )∼D 
+
+ 
+
+> |y∗|
+
+∑︁  
+
+> 𝑡 =1
+
+log 𝜋 𝜃 
+
+ 𝑦 ∗ 
+
+> 𝑡
+
+| 𝑁 , 𝑉 , 𝑦 ∗
+
+> <𝑡
+
+
+
+, (1) 
+
+To address this limitation, we introduce a reinforcement learning (RL) stage that directly optimizes the Generator using tool-derived rewards to maximize testbench coverage. In this stage, the Gener-ator is trained with Group Relative Policy Optimization (GRPO) [11]. Starting from the SFT-initialized policy, GRPO samples a group of candidate testbenches {𝑇 1, . . . ,𝑇 𝑛 } for each input (𝑁 , 𝑉 ) and updates the policy based on their relative rewards. Each sampled testbench 𝑇 𝑖 is executed in a simulator to extract coverage metrics, which are used to compute the rewards. We define a hierarchical reward (Eq. 2) that captures the dependency structure of the veri-fication process. Specifically, Rformat encourages adherence to the expected output structure, Rcompile indicates successful compilation and execution, and Rcoverage measures average code coverage. The weights 𝑤 cov > 𝑤 cmp > 𝑤 fmt prioritize coverage optimization while still encouraging executable testbenches. This formulation ensures that compilation is evaluated only for well-formatted outputs, and coverage is computed only for successfully executed testbenches. 
+
+R ( 𝑇 𝑖 ) = Rformat (𝑇 𝑖 )  𝑤 fmt + R compile (𝑇 𝑖 )  𝑤 cmp + 𝑤 cov Rcoverage (𝑇 𝑖 ) (2) 
+
+Rewards are normalized across the testbenches sampled for the same input (𝑁 , 𝑉 ) to compute group-relative advantages (Eq. 3). Specifically, 𝜇 R and 𝜎 R denote the mean and standard deviation of rewards, and 𝛿 is a small constant to avoid division by zero, 𝐺 is the number of sampled testbenches. This normalization produces a scale-invariant advantage signal that stabilizes optimization across sampled testbench groups with different reward distributions.                   
+
+> ˆ𝐴 𝑖 =R ( 𝑇 𝑖 ) − 𝜇 R
+> 𝜎 R+𝛿 , 𝜇 R=1
+> 𝐺
+> 𝐺 ∑︁
+> 𝑗 =1
+> R ( 𝑇 𝑗 ), 𝜎 R=
+> vut1
+> 𝐺
+> 𝐺 ∑︁
+> 𝑗 =1
+>  R ( 𝑇 𝑗 ) − 𝜇 R
+> 2.(3)
+
+The final GRPO objective is defined in Eq. 4. The objective max-imizes the likelihood of candidate testbenches that outperform their peers according to the advantage signal ˆ 𝐴 𝑖 , while constrain-ing policy drift with respect to the supervised finetuned reference policy 𝜋 ref . Here, 𝛽 controls the strength of this regularization, and 𝑟 𝑖 (𝜃 ) = 𝜋 𝜃 (𝑇 𝑖 |𝑁 ,𝑉 )    
+
+> 𝜋 ref (𝑇 𝑖 |𝑁 ,𝑉 )
+
+measures how the updated policy changes the likelihood of testbench 𝑇 𝑖 relative to the reference policy. The clipping operation stabilizes training by limiting large policy up-dates. As a result, the Generator progressively learns to generate simulation-valid testbenches with higher verification coverage. CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+Table 3: CovR versus baseline methods. Evaluation is performed on VerilogEval [17], RTLLM V2.0 [18], and CVDP [24]. pass@k 
+
+measures simulation validity, and cov@k reports the average best coverage. Agentic column indicates the inference mode: ×
+
+denotes direct model inference without tool feedback, while ✓ denotes agentic inference with iterative coverage feedback. Model Variant Agentic VerilogEval + RTLLM V2.0 CVDP (cid012) pass@k (%) cov@k (%) pass@k (%) cov@k (%) k=1 k=5 k=10 k=1 k=5 k=10 k=1 k=5 k=10 k=1 k=5 k=10                                                                                                                                                                                                                            
+
+> Vanilla
+> gpt-4o-mini –×88.62 95.25 96.06 81.27 90.01 91.60 71.08 87.15 90.30 62.10 79.78 83.75
+> Qwen2.5-Coder-7B-Instruct –×77.88 93.72 95.07 67.26 86.54 89.54 51.44 75.22 80.72 41.63 65.05 71.49
+> Qwen3-4B-Instruct-2507 –×65.02 93.47 96.06 55.56 86.13 90.24 20.00 53.60 69.88 13.82 38.54 51.58 Iterative Feedback Qwen2.5-Coder-7B-Instruct –✓80.30 90.61 92.12 73.70 84.99 87.08 69.64 82.15 84.34 56.72 70.01 73.01
+> Qwen3-4B-Instruct-2507 –✓85.22 94.67 96.06 76.34 88.24 90.07 56.87 80.65 85.54 43.32 65.78 71.84 LLM4COV [44] LLM4Cov-Qwen3-4B-SFT-Stage2 –×84.04 92.23 94.09 81.59 90.39 92.58 77.59 88.47 90.36 69.04 81.72 84.17
+> CovR (Ours)
+> Qwen2.5-Coder-7B-Instruct –✓82.85 96.62 97.04 75.75 92.21 93.51 73.37 93.83 96.39 60.16 83.06 86.62
+> Qwen3-4B-Instruct-2507 –✓84.78 95.48 96.06 76.90 91.34 92.82 56.75 87.75 96.39 43.00 72.41 81.63
+> CovR -Qwen3-4B-Instruct-2507
+> SFT ×78.91 88.41 90.15 73.53 83.56 85.65 56.75 84.62 87.95 50.78 76.98 80.85 SFT-W/Reason ×77.93 93.83 96.55 71.34 88.49 92.07 65.42 90.98 93.98 56.45 82.05 85.81 SFT-W/Reason+RL ×90.79 96.70 97.04 86.50 93.19 93.81 78.92 91.41 92.77 71.46 85.94 87.76 SFT-W/Reason+RL ✓95.71 97.04 97.04 91.47 94.03 94.27 88.19 93.94 95.18 79.86 89.66 91.39
+> CovR -Qwen-2.5-coder-7b
+> SFT ×77.00 89.80 92.10 72.00 85.20 87.50 72.17 91.75 92.77 64.69 85.27 87.24 SFT-W/Reason ×84.50 96.51 97.04 78.34 91.67 92.90 69.04 92.24 93.98 61.12 84.21 86.79 SFT-W/Reason+RL ×92.51 96.50 96.55 88.49 93.29 93.61 80.48 90.83 91.56 73.01 85.73 87.25 SFT-W/Reason+RL ✓94.38 97.03 97.04 90.38 94.10 94.30 87.10 94.89 95.18 78.72 89.40 90.44
+
+Bolded values indicate the highest value for each column. Underlined values indicate the second-highest value. @k agentic values are reported by sampling n=10 
+
+different trajectories and refining each trajectory via 5 iterations. 
+
+(a) Vanilla (b) CovR-SFT-W/Reason (c) CovR-SFT-W/Reason+RL (d) CovR-SFT-W/Reason+RL (Agentic) 
+
+Figure 4: Distribution of per-problem pass@ 1 and cov@ 1 scores for Qwen3-4B-Instruct-2507 across (a) the vanilla, (b) reasoning-augmented supervised fine-tuning, (c) GRPO-based reinforcement learning optimized models, and (d) the full agentic pipeline. 
+
+LGRPO (𝜃 ) = −E
+
+"
+
+1
+
+𝐺 
+
+> 𝐺
+
+∑︁ 
+
+> 𝑖 =1
+
+
+
+min (𝑟 𝑖 ˆ𝐴 𝑖 , clip (𝑟 𝑖 , 1 − 𝜖, 1 + 𝜖 ) ˆ𝐴 𝑖 ) − 𝛽𝐷 KL (𝜋 𝜃 ∥𝜋 ref )
+
+#
+
+(4) 
+
+## 4 Experimental Results 4.1 Experimental Setup 
+
+We train Qwen-2.5-Coder [14] and Qwen3-4B-Instruct [29] on the CovR synthetic dataset using our proposed two-stage training framework with LoRA-based adaptation [12] ( 𝑟 = 512, 𝛼 = 512, dropout = 0.1). All experiments are conducted on NVIDIA B200 GPUs with bfloat16 mixed precision. Tools. For simulation and coverage evaluation, we use Synopsys VCS [36] and URG [35]. SFT Stage. We perform supervised finetuning with a learning rate of 2e −5 and a maximum sequence length of 5K tokens. RL Stage. 
+
+Starting from the best SFT checkpoint, we further optimize the model using GRPO [11]. We use 𝐺 = 8 samples per prompt, a maximum sequence length of 4K tokens, a sampling temperature of 1 .0, a constant learning rate of 1e −6, 𝛽 = 0.01, and reward weights of 𝑤 fmt = 0.02, 𝑤 cmp = 0.13, and 𝑤 cov = 0.85. Evaluation. 
+
+All models are evaluated with temperature 0 .1, a maximum se-quence length of 32K tokens, and a maximum generation length of 10K tokens. We evaluate model performance on VerilogEval [17], RTLLM V2.0 [18], and CVDP ( cid012 ) [24, 44], comprising 203 tasks for VerilogEval+RTLLM V2.0 and 83 tasks for CVDP. 
+
+## 4.2 Evaluation Metrics 
+
+We evaluate generated testbenches along two dimensions: simula-tion validity and coverage quality . Simulation validity. We use the standard pass@k metric [4], which measures the probability that at least one of the top-𝑘 generated testbenches executes successfully without compilation errors or timeouts. Coverage quality. We define a normalized quality score (Eq. 5) that quantifies how closely a generated testbench approaches the maximum attainable cover-age Cmax . For CVDP, Cmax is defined using the reference coverage targets provided by the benchmark. For problem 𝑖 and sample 𝑗 , ˆ C𝑖,𝑗 
+
+denotes the reported coverage. The score is represented as a five-dimensional vector (FSM, toggle, line, condition, branch), averaged to a scalar as described below, where 𝑞 𝑖,𝑗 = 1 indicates full coverage and 𝑞 𝑖,𝑗 = 0 corresponds to failed simulation or zero coverage. 
+
+𝑞 𝑖,𝑗 =
+
+
+
+ˆC𝑖,𝑗 
+
+Cmax 
+
+> 𝑖
+
+, if the sample runs successfully in simulation 0, otherwise. (5) 
+
+The quality score is used to compute cov@k , defined in Eq. 6, which measures the expected best coverage achieved when sampling up to 𝑘 candidate testbenches per problem (i.e., the coverage at-tainable within 𝑘 attempts). Here, 𝑁 is the number of problems, 𝑛 
+
+the number of generated samples per problem, and 𝐽 a uniformly drawn subset of size 𝑘 . For each problem 𝑖 , 𝑞 𝑖,𝑗 ∈ [ 0, 1] denotes the quality of sample 𝑗 , and 𝑞 𝑖, (𝑟 ) the 𝑟 -th smallest score after sorting the 𝑛 samples in ascending order. We estimate this expectation MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+Table 4: CovR as a plug-in stimulus engine for full RTL verification workflows. Integrating CovR improves coverage (cov@1) and mutation detection score (Eval2-100) while preserving simulation validity (Eval0). Lower Eval1 under high coverage stimuli indicates that CovR uncovers previously missed verification bugs.                                                                       
+
+> Model Setting VerilogEval + RTLLM v2.0 CVDP (cid012) Eval0 Eval1 Eval2-100 cov@1 Eval0 Eval1 Eval2-100 cov@1
+> CorrectBench [28] Qwen2.5-Coder-7B Base 43.4 36.0 6.9 20.8 9.6 8.4 1.2 1.4
+> +CovR (Ours) 64.5 (↑ 21 .2)22.2 (-13.8) 9.4 (↑ 2.5)43.1 (↑ 22 .3)48.2 (↑ 38 .6)14.5 (↑ 6.0)0.0 (-1.2) 25.6 (↑ 24 .2)
+> PRO-V-R1 [49] PRO-V-R1-Qwen3-8B Base 93.6 52.2 28.6 67.2 89.5 42.2 1.2 38.2
+> +CovR (Ours) 94.1 (↑ 0.49 )48.3 (-3.94) 32.0 (↑ 3.44 )79.3 (↑ 12 .10 )92.8 (↑ 3.30 )36.1 (-6.10) 1.2 (↑ 0.00 )55.4 (↑ 17 .20 )
+
+using the unbiased subset estimator in Eq. 6, following prior eff@k 
+
+work [26]. The coefficient  𝑟 −1 
+
+> 𝑘 −1
+
+/ 𝑛 𝑘 
+
+ is the probability that the 𝑟 -th ranked sample is the best element in a uniformly selected subset of size 𝑘 . Intuitively, a cov@k score of 0 .5 means that the best testbench found within 𝑘 attempts achieves 50% coverage. The cov@k metric is reported per coverage dimension (line, condition, toggle, FSM, branch). Unless otherwise stated, all results in this paper report the scalar cov@ 𝑘 score obtained by averaging these five dimensions. Due to the cost of simulation tool invocations, all pass@k and cov@k 
+
+computations are parallelized across designs and samples. 
+
+cov@ 𝑘 = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+E𝐽 ⊆{ 1,...,𝑛 }, |𝐽 |=𝑘 
+
+
+
+max    
+
+> 𝑗 ∈𝐽
+
+𝑞 𝑖,𝑗 
+
+
+
+= 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+> 𝑛
+
+∑︁  
+
+> 𝑟 =𝑘
+
+ 𝑟 −1 
+
+> 𝑘 −1
+
+ 𝑛 𝑘 
+
+ 𝑞 𝑖, (𝑟 ) (6) 
+
+## 4.3 Main Results 
+
+Table 3 shows that the finetuned CovR-Qwen3-4B-Instruct-2507 
+
+and CovR-Qwen2.5-Coder-7B models consistently outperform their base counterparts across both benchmarks. Under direct inference, the best-performing CovR configuration, CovR-Qwen2.5-Coder-7B 
+
+with SFT-W/Reason+RL, achieves 88.49% cov@1 on VerilogEval + RTLLM V2.0 and 73.01% cov@1 on CVDP, surpassing the teacher model, GPT-4o-mini , by 7.22% and 10.91%, respectively. It also out-performs the prior approach, LLM4COV, by 11.85% and 3.97% on all benchmarks. When deployed within the agentic self-reflection framework, coverage further improves to 90.38% cov@1 on Verilo-gEval + RTLLM V2.0 and 78.72% cov@1 on CVDP. Compared to the iterative feedback baseline in Table 3, which returns tool feedback directly to the Generator without self-reflection or context curation, the proposed CovR self-reflection loop improves cov@10 by 6.43% on VerilogEval+RTLLM V2.0 and 13.61% on CVDP when using the same Qwen2.5-Coder-7B Generator, demonstrating the effect-iveness of the Reflector and Curator agents in guiding coverage-oriented refinement. Fig. 4 further illustrates the effectiveness of the proposed training pipeline. As the model progresses from the vanilla baseline through supervised finetuning, reinforcement learn-ing, and agentic deployment, the distributions of cov@1 and pass@1 
+
+shift consistently toward higher values across all benchmark sets. Line Toggle Cond. Branch FSM Avg. 0% 20% 40% 60% 80% 100%    
+
+> cov@1 (%)
+> 44 64 79 86
+> Vanilla +SFT/W-Reason +RL +Agentic
+
+Figure 5: Cov@1 progression for Qwen3-4B-Instruct across inference variants, broken down by coverage metric. 
+
+Fig. 5 further decomposes this progression, highlighting how each stage of the training pipeline contributes to improvements in line, condition, toggle, FSM, and branch coverage. 
+
+## 4.4 Integration with Verification Workflows 
+
+CovR serves as a plug-in stimulus engine for full RTL verifica-tion frameworks such as CorrectBench [28] and PRO-V-R1 [49]. These systems target end-to-end verification by combining func-tional reference models, checking infrastructure, and test-stimuli generation, but they do not explicitly optimize for coverage. In CorrectBench, CovR replaces the driver track which generates test stimuli with the stimulus-only testbench generated by CovR . In con-trast, PRO-V-R1 represents stimuli as a Python-generated .json 
+
+file specifying DUT input values at each clock cycle. To integ-rate CovR without modifying PRO-V-R1’s downstream verification flow, we first simulate the CovR -generated testbench, extract the DUT input activity from the resulting .vcd waveform, and convert the recovered input sequence into the .json format expected by PRO-V-R1. Following the evaluation methodology of [28, 49], we report Eval0 , which measures successful execution of the gener-ated verification environment; Eval1 , which measures the fraction of generated verification environments that pass on the bug-free RTL implementation; and Eval2-100 , which measures the percent-age of generated verification environments that achieve a perfect mutation score by detecting 100% of injected RTL mutants. We use MCY-Yosys [41] to generate 10 RTL mutants per design. Res-ults in Table 4 show that substituting the native Generators with the agentic CovR-Qwen2.5-Coder-7B model consistently improves coverage by 18.95% and mutation detection score by 1.19% on aver-age across benchmarks. Interestingly, this reduces Eval1 by 4.46%, indicating that coverage-driven stimuli uncover latent bugs in the generated FRM that were previously undetected. 
+
+## 5 Conclusion 
+
+In this paper, we present CovR , a coverage-aware framework that combines agentic self-refinement with reasoning-guided reinforce-ment learning to generate high-coverage test stimuli. Experimental results show that the CovR finetuned model achieves 93.81% cov@10 on VerilogEval and RTLLM V2.0, and 87.76% cov@10 on CVDP, sur-passing GPT-4o-mini by 2.21% and 4.01% and outperforming the SOTA baseline LLM4COV by 7.97% and 3.59%, respectively. Within full verification workflows, CovR improves achieved coverage by 18.95%, mutation detection score by 1.19%, and reveals 4.46% more previously undetected failures. These results demonstrate the im-portance of explicitly optimizing coverage in LLM-based hardware verification. Future work includes using asynchronous GRPO [10] to improve scalability, as well as expanding to functional coverage. CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+## Acknowledgments 
+
+This work is partially supported by NSF grants 2350180 and 2453413 
+
+## References 
+
+[1] Yoshua Bengio, Réjean Ducharme, Pascal Vincent, and Christian Jauvin. 2003. A Neural Probabilistic Language Model. Journal of Machine Learning Research 3(2003), 1137–1155. [2] Janick Bergeron. 2000. Writing Testbenches: Functional Verification of HDL Models .Kluwer Academic Publishers. [3] Harry B. Carter. 2007. Metric Driven Design Verification: An Engineer’s and Executive’s Guide to First Pass Success . Springer. [4] Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oli-veira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. 2021. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 (2021). [5] Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V Le, Sergey Levine, and Yi Ma. 2025. Sft memorizes, rl generalizes: A comparative study of foundation model post-training. arXiv preprint arXiv:2501.17161 (2025). [6] cocotb contributors. 2024. cocotb: Coroutine-based cosimulation library for writing VHDL and Verilog testbenches in Python. https://www.cocotb.org/. Accessed: 2026-04-21. [7] DeepSeek-AI. 2025. DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning. arXiv:2501.12948 [cs.CL] https://arxiv.org/abs/2501. 12948 [8] Stephen Williams et al. 2002. Icarus verilog: open-source verilog more than a year later. Linux Journal (2002). [9] Glenn Fine and Avi Ziv. 2005. Coverage-Driven Verification. IEEE Design & Test of Computers 22, 4 (2005), 310–321. [10] Wei Fu, Jiaxuan Gao, Xujie Shen, Chen Zhu, Zhiyu Mei, Chuyi He, Shusheng Xu, Guo Wei, Jun Mei, Jiashu Wang, et al. 2026. Areal: A large-scale asynchronous reinforcement learning system for language reasoning. Advances in Neural Information Processing Systems 38 (2026), 36256–36282. [11] Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. 2025. Deepseek-r1: Incentiv-izing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 (2025). [12] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. 2022. Lora: Low-rank adaptation of large language models. Iclr 1, 2 (2022), 3. [13] Xuandong Huang. 2005. Principles of Verifiable RTL Design: A Functional Coding Style Supporting Verification Processes . Springer. [14] Binyuan Hui, Jian Yang, Zeyu Cui, Jiaxi Yang, Dayiheng Liu, Lei Zhang, Tianyu Liu, Jiajun Zhang, Bowen Yu, Keming Lu, et al. 2024. Qwen2.5-Coder Technical Report. arXiv preprint arXiv:2409.12186 (2024). [15] IEEE. 2017. IEEE Standard for SystemVerilog—Unified Hardware Design, Spe-cification, and Verification Language. [16] Dimple Vijay Kochar, Nathaniel Pinckney, Guan-Ting Liu, Chia-Tung Ho, Chen-hui Deng, Haoxing Ren, and Brucek Khailany. 2026. GRPO with State Muta-tions: Improving LLM-Based Hardware Test Plan Generation. arXiv preprint arXiv:2601.07593 (2026). [17] Mingjie Liu, Nathaniel Pinckney, Brucek Khailany, and Haoxing Ren. 2023. In-vited Paper: VerilogEval: Evaluating Large Language Models for Verilog Code Generation. In 2023 IEEE/ACM International Conference on Computer Aided Design (ICCAD) . 1–8. doi:10.1109/ICCAD57390.2023.10323812 [18] Yao Lu, Shang Liu, Qijun Zhang, and Zhiyao Xie. 2024. RTLLM: An open-source benchmark for design rtl generation with large language model. In 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 722–727. [19] Ashok B. Mehta. 2020. System Verilog Assertions and Functional Coverage: Guide to Language, Methodology and Applications . Springer. [20] Bardia Nadimi, Ghali Omar Boutaib, and Hao Zheng. 2025. Pyranet: A multi-layered hierarchical dataset for verilog. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) . IEEE, 1–7. [21] Bardia Nadimi, Khashayar Filom, Deming Chen, and Hao Zheng. 2025. TB or Not TB: Coverage-Driven Direct Preference Optimization for Verilog Stimulus Generation. arXiv preprint arXiv:2511.15767 (2025). [22] OpenAI. 2024. GPT-4o mini. https://platform.openai.com/docs/models/gpt-4o-mini. Accessed: 2026-04-29. [23] Hyeonwoo Park, Seonghyeon Park, and Seokhyeong Kang. 2025. Late Breaking Results: Fine-Tuning LLMs for Test Stimuli Generation. In Proceedings of the 62nd ACM/IEEE Design Automation Conference (DAC) .[24] Nathaniel Pinckney, Chenhui Deng, Chia-Tung Ho, Yun-Da Tsai, Mingjie Liu, Wenfei Zhou, Brucek Khailany, and Haoxing Ren. 2025. Comprehensive Verilog design problems: A next-generation benchmark dataset for evaluating large language models and agents on rtl design and verification. arXiv preprint arXiv:2506.14074 (2025). [25] Antonio Piziali. 2004. Functional Verification Coverage Measurement and Analysis .Springer, Boston, MA. doi:10.1007/978-0-387-21603-4 [26] Ruizhong Qiu, Weiliang Will Zeng, James Ezick, Christopher Lott, and Hanghang Tong. 2024. How efficient is LLM-generated code? A rigorous & high-standard benchmark. arXiv preprint arXiv:2406.06647 (2024). [27] Ruidi Qiu, Grace Li Zhang, Rolf Drechsler, Ulf Schlichtmann, and Bing Li. 2024. AutoBench: Automatic Testbench Generation and Evaluation Using LLMs for HDL Design. In Proceedings of the 2024 ACM/IEEE International Symposium on Machine Learning for CAD (MLCAD ’24) . ACM, New York, NY, USA. doi:10.1145/ 3670673.3673441 [28] R. Qiu, G. L. Zhang, R. Drechsler, U. Schlichtmann, and B. Li. 2025. CorrectBench: Automatic Testbench Generation with Functional Self-Correction using LLMs for HDL Design. In 2025 Design, Automation & Test in Europe Conference (DATE) .Lyon, France, 1–7. doi:10.23919/DATE64628.2025.10992873 [29] Qwen Team. 2025. Qwen3 Technical Report. arXiv:2505.09388 [cs.CL] https: //arxiv.org/abs/2505.09388 [30] Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, and Ilya Sutskever. 2019. Language Models are Unsupervised Multitask Learners. OpenAI Blog 1, 8 (2019), 9. [31] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. 2023. Direct preference optimization: Your language model is secretly a reward model. Advances in neural information processing systems 36 (2023), 53728–53741. [32] Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. 2023. Reflexion: Language agents with verbal reinforcement learning. 
+
+Advances in neural information processing systems 36 (2023), 8634–8652. [33] Wilson Snyder. 2024. Verilator: Fast, Free Verilog Simulator. https://www.veripool. org/verilator/. Accessed: 2026-04-21. [34] Chris Spear and Greg Tumbush. 2012. SystemVerilog for Verification: A Guide to Learning the Testbench Language Features . Springer. [35] Synopsys Inc. 2025. Unified Report Generator (URG) . Synopsys Inc. https: //www.synopsys.com/ [36] Synopsys Inc. 2025. VCS Functional Verification Tool . Synopsys Inc. https: //www.synopsys.com/verification/simulation/vcs.html [37] Ning Wang, Bingkun Yao, Jie Zhou, Yuchen Hu, Xi Wang, Nan Guan, and Zhe Jiang. 2025. Insights from verification: Training a verilog generation LLM with reinforcement learning with testbench feedback. arXiv preprint arXiv:2504.15804 
+
+(2025). [38] Tsu-Hua Wang and Chong Guan Tan. 1995. Practical code coverage for Verilog. In Proceedings of the 4th IEEE International Verilog HDL Conference (IVC ’95) . IEEE Computer Society, USA, 99. [39] Yiting Wang, Guoheng Sun, Wanghao Ye, Gang Qu, and Ang Li. 2025. VeriRe-ason: Reinforcement Learning with Testbench Feedback for Reasoning-Enhanced Verilog Generation. arXiv preprint arXiv:2505.11849 (2025). [40] Trevor Williams. 2010. Covered — Verilog Code Coverage Analyzer . Open-source Verilog code-coverage tool (GPL v2).. [41] Claire Xenia Wolf and YosysHQ. 2024. MCY: Mutation Cover with Yosys. https: //github.com/YosysHQ/mcy. Accessed: 2026. [42] Zhiyuan Yan, Wenji Fang, Mengming Li, Min Li, Shang Liu, Zhiyao Xie, and Hongce Zhang. 2025. Assertllm: Generating hardware verification assertions from design specifications via multi-llms. In Proceedings of the 30th Asia and South Pacific Design Automation Conference . 614–621. [43] Patrick Yubeaton, Andre Nakkab, Weihua Xiao, Luca Collini, Ramesh Karri, Chinmay Hegde, and Siddharth Garg. 2025. Verithoughts: Enabling automated verilog code generation using reasoning and formal verification. arXiv preprint arXiv:2505.20302 (2025). [44] Hejia Zhang, Zhongming Yu, Chia-Tung Ho, Haoxing Ren, Brucek Khailany, and Jishen Zhao. 2026. LLM4Cov: Execution-Aware Agentic Learning for High-coverage Testbench Generation. arXiv preprint arXiv:2602.16953 (2026). [45] Qizheng Zhang, Changran Hu, Shubhangi Upasani, Boyuan Ma, Fenglu Hong, Vamsidhar Kamanuru, Jay Rainton, Chen Wu, Mengmeng Ji, Hanchen Li, et al. 2025. Agentic context engineering: Evolving contexts for self-improving language models. arXiv preprint arXiv:2510.04618 (2025). [46] Quanjun Zhang, Weifeng Sun, Chunrong Fang, Bowen Yu, Hongyan Li, Meng Yan, Jianyi Zhou, and Zhenyu Chen. 2025. Exploring Automated Assertion Generation via Large Language Models. ACM Trans. Softw. Eng. Methodol. 34, 3, Article 81 (Feb. 2025), 25 pages. doi:10.1145/3699598 [47] Xinyu Zhang, Zhiteng Chao, Yonghao Wang, Bin Sun, Tianyun Ma, Tianmeng Yang, Jianan Mu, Jing Justin Ye, and Huawei Li. 2026. RTLSeek: Boosting the LLM-Based RTL Generation with Multi-Stage Diversity-Oriented Reinforcement Learning. arXiv preprint arXiv:2603.27630 (2026). [48] Zixi Zhang, Balint Szekely, Pedro Gimenes, Greg Chadwick, Hugo McNally, Jianyi Cheng, Robert Mullins, and Yiren Zhao. 2025. Llm4dv: Using large language models for hardware test stimuli generation. In 2025 IEEE 33rd Annual Interna-tional Symposium on Field-Programmable Custom Computing Machines (FCCM) .IEEE, 133–137. MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+[49] Yujie Zhao, Zhijing Wu, Boqin Yuan, Zhongming Yu, Hejia Zhang, Wentao Ni, Chia-Tung Ho, Haoxing Ren, and Jishen Zhao. 2025. PRO-V-R1: Reasoning En-hanced Programming Agent for RTL Verification. arXiv preprint arXiv:2506.12200 
+
+(2025). 
+
+## A Self-Refinement Agents Prompts 
+
+Generator (Fix Mode) Prompt 
+
+You are an expert language verification engineer. Your job is to fix syntax and functional errors and produce a syntactically and functionally valid, simulator-ready testbench. Non-negotiable requirements: (1) style_requirements (2) Prefer minimal targeted repairs over broad rewrites. (3) Do not change the intended DUT functionality. (4) ‘wire‘, ‘reg‘, and ‘int‘ declarations are not allowed inside ‘initial‘ blocks. (5) Do not add or keep VCD or waveform dumping logic such as ‘$dumpfile‘ or ‘$dumpvars‘. (6) If simulation is timing out, reduce unnecessary stimulus while preserving the intended coverage intent. Inputs Fixing Context 
+
+{fixing_context} 
+
+Reflection Summary 
+
+{reflection_summary} 
+
+RTL Code 
+
+{rtl_code} 
+
+Current Testbench 
+
+{testbench} 
+
+Current Compiler/Simulator Error Log 
+
+{testbench_error} 
+
+Instructions Repair the current testbench without weakening its verification quality. You must preserve or restore the following properties: 
+
+{preservation_requirements} 
+
+Use the fixing context as iterative memory: - avoid repeating failed repair strategies - preserve helpful prior fixes - use previous accepted directions when still relevant Use the reflection summary as high-level guidance. If the fixing context or reflection summary conflicts with the current compiler/simulator error log, prioritize the current error log. First briefly reason about: - the root cause - which checks must be preserved or repaired - the minimal safe changes to make Then output only the final fixed testbench inside a fenced code block exactly like this: 
+
+``` testbench <fixed testbench code here> 
+
+``` 
+
+Generator (Enhance Mode) Prompt 
+
+You are an expert Verification Engineer and Testbench Optimizer. Your job is to improve an existing testbench so it closes more coverage on the provided RTL. You are working in an iterative enhancement loop. You may be given memory from previous attempts. Use that memory to avoid repeating ineffective strategies, but always prioritize the current coverage evidence. 
+
+Important rules: 
+
+- Prefer targeted additions over full rewrites. - Focus on uncovered or weakly covered behavior. - Keep the testbench deterministic. - Preserve clocks and resets when valid. - Do not degrade already-covered behavior. 
+
+Enhancement Context 
+
+{enhancement_context} 
+
+Reflection Summary 
+
+{reflection_summary} 
+
+RTL Code 
+
+{rtl_code} 
+
+Current Testbench 
+
+{testbench} 
+
+Current Coverage Report 
+
+{coverage_report} 
+
+Instructions 
+
+Use enhancement context as memory: - Identify previously attempted directions. - Avoid ineffective changes. - Preserve useful additions. - Reuse successful strategies when relevant. Use reflection summary for: - Remaining coverage gaps. - Promising next scenarios. - Known pitfalls. Prioritize: - Coverage report - RTL + testbench - Reflection summary - Enhancement context If conflicts exist, trust the coverage report. 
+
+Your task 
+
+Produce an improved testbench that: - Increases coverage with targeted additions. - Preserves existing correct checks. - Avoids unnecessary rewrites. - Adds directed tests, corner cases, assertions, or constrained-random where useful. - Maintains determinism. - Preserves style. - Keeps valid infrastructure (no VCD dumping). - Avoids regression. When useful: - Add concise explanatory comments. - Use fixed-seed constrained random. - Target edge cases and timing-sensitive behavior. - Prefer compact, high-signal additions. 
+
+Output Format 
+
+First, reason about: - Remaining coverage gaps. - What to avoid/reuse. - Planned additions. Then output only: 
+
+``` testbench <enhanced testbench code here> 
+
+``` CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+Reflector (Fix Mode) Prompt 
+
+Analyze why the testbench failed simulation. RTL: 
+
+{rtl_code} 
+
+Generator Reasoning Trace: 
+
+{reasoning_trace} 
+
+Testbench: 
+
+{testbench} 
+
+Environment Feedback: 
+
+{testbench_error} 
+
+Focus on the concrete compile/simulation blocker. If the issue also hints at a deeper sequencing or DUT-interface misunderstanding, mention it briefly. **Answer in this exact JSON format:** 
+
+{"reasoning": "[Your chain of thought / reasoning / thinking process]", "error_identification": "[What specifically went wrong in the generator reasoning?]", "root_cause_analysis": "[Why did this error occur? What concept was misunderstood?]", "correct_approach": "[ What should the model have done instead?]", "key_insight": "[What strategy, formula, or principle should be remembered to avoid this error?]" }
+
+Reflector (Enhance Mode) Prompt 
+
+Analyze why coverage is still insufficient and propose better tests. RTL: 
+
+{rtl_code} 
+
+Generator Reasoning Trace: 
+
+{reasoning_trace} 
+
+Testbench: 
+
+{testbench} 
+
+Coverage stats: 
+
+{coverage_stats} 
+
+Environment Feedback: 
+
+{coverage_report} 
+
+When FSM coverage is weak or the RTL appears stateful, explicitly analyze: 
+
+• likely unreached states 
+
+• likely missing transitions 
+
+• guards/prerequisites for those transitions 
+
+• whether additional dwell time or multi-cycle sequencing is re-quired 
+
+• whether the current stimulus is too random, too shallow, or missing directed transition paths Prefer concrete, transition-oriented recommendations such as: 
+
+• reset → IDLE → START → BUSY → DONE 
+
+• error/recovery paths 
+
+• timeout paths 
+
+• self-loops with varied dwell length 
+
+• same destination reached from multiple predecessor states **Answer in this exact JSON format:** 
+
+{"reasoning": "[Your chain of thought / reasoning / thinking process]", "error_identification": "[What specifically went wrong in the generator reasoning?]", "root_cause_analysis": "[Why did this error occur? What concept was misunderstood?]", "correct_approach": "[ What should the model have done instead?]", "key_insight": "[What strategy, formula, or principle should be remembered to avoid this error?]" }
+
+Curator Prompt 
+
+Role. You are an expert iteration-memory curator for an agentic RTL verification pipeline. Your sole responsibility is to maintain a concise and structured evolving context across iterations. You do not generate RTL, testbenches, or reflections, and you do not provide free-form advice. 
+
+Inputs. You receive the existing evolving context, the latest generator output summary, tool feedback, reflection summary, and acceptance signal. 
+
+Purpose. Maintain cross-iteration memory in a compact, structured form, capturing what was attempted, what failed or improved, reflection insights, acceptance status, and whether progress has stalled. 
+
+Rules. 
+
+• Preserve all prior iteration records from the evolving context. 
+
+• Append exactly one new iteration record. 
+
+• Do not delete prior iterations unless the context is empty. 
+
+• Summarize concisely; avoid copying raw logs. 
+
+• Do not invent outcomes; summarize conservatively. 
+
+• Mark stalled if recent iterations show no meaningful progress. 
+
+• Set restart_recommended only if the trajectory is clearly stuck. 
+
+• Set exit_recommended only if further iterations are unlikely to help. 
+
+Output Schema. Return valid JSON with exactly the following structure: 
+
+{"iterations": [ {"iteration": 1, "mode": "fix", "generator_output": "short summary", "errors_encountered": "short summary", "llm_reflection": "short summary", "accepted": false }], "current_status": { "latest_issue": "short summary", "stalled": false, "restart_recommended": false, "exit_recommended": false }}
+
+Guidelines. 
+
+• Keep summaries concise and factual. 
+
+• generator_output : describe changes, not full code. 
+
+• errors_encountered : summarize key failures or coverage gaps. 
+
+• llm_reflection : 1–3 sentence distilled insight. 
+
+• accepted : whether the iteration improved sufficiently. 
+
+• latest_issue : most critical unresolved problem. 
+
+Existing Context: 
+
+{evolving_context} 
+
+Iteration: {iteration} 
+
+Generator Output: 
+
+{generator_output} 
+
+Tool Feedback: 
+
+{tool_feedback} 
+
+Reflection Summary: 
+
+{reflection_summary} 
+
+Accepted: {accepted} 
+
+Instructions. 
+
+(1) Preserve all prior iterations. (2) Append one new iteration record. (3) Summarize the current output, issues, and reflection concisely. (4) Update current_status .(5) Detect stagnation and update flags accordingly. (6) Return valid JSON only. Do not include any additional text. MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+Reasoner Prompt 
+
+Your task is to INFER the internal reasoning process of a verification engin-eer. Given the RTL design, the final testbench, reconstruct the step-by-step verification reasoning that would naturally lead to writing this testbench. 
+
+IMPORTANT: 
+
+• The reasoning must be written as if it precedes the testbench. 
+
+• Do not describe the testbench at a surface level. Instead, explain the intent behind each verification decision: why specific inputs are chosen, why certain behaviors are tested, how they relate to the RTL logic, and how they help exercise coverage-relevant behaviors. 
+
+• Every stimulus described must be explicitly linked to a concrete RTL condition, such as an if /else branch, case item, reset path, state transition, corner case, or output condition. 
+
+• Do not introduce behaviors, checks, branches, states, or coverage claims that are not supported by the RTL, testbench, or coverage evidence. 
+
+• Emphasize why the selected stimuli are useful for covering distinct RTL behaviors, not just for functional validation. 
+
+• If important RTL behaviors remain uncovered, briefly mention them as limitations of the first-pass reasoning, but do not invent tests that are not present. 
+
+• Do not narrate the testbench (e.g., “the testbench applies . . . ”). Ex-press each point as a verification decision rather than a description of actions. 
+
+• Coverage discussion must refer to distinct RTL behaviors rather than generic coverage terms. This is NOT an explanation task. This is a reconstruction of the reasoning process that leads to the testbench. The reasoning should reflect a coverage-aware verification mindset: identify how a verification engineer would choose inputs and checks to exercise meaningful and distinct RTL behaviors, not just to observe outputs. Use concise, technical, verification-oriented language. Prefer short numbered steps or compact paragraphs. For each major test stimulus, explain both: (1) the functional intent, and (2) the distinct RTL behavior or coverage target it is meant to exercise. Use a concise structured format. Focus on the most important reasoning only. Do not add routine DUT-instantiation discussion unless it is unusual or materially relevant to the verification intent. Structure each reasoning trace using only the relevant sections below: (1) Verification Goal What functionality or behavior needs to be validated. (2) Stimulus Design Why the important inputs, sequences, or scen-arios are chosen and which RTL behaviors they are intended to exercise. Highlight when a stimulus targets something specific such as a branch, case split, reset path, FSM transition, or bound-ary condition. (3) Timing and Execution Include only timing, reset, or sampling details that materially affect behavior. (4) Coverage Intent and Corner Cases Identify the distinct RTL behaviors and edge cases being targeted, and briefly note important uncovered behaviors if present. Keep each section concise and grounded in the RTL and testbench. Omit any section that is not relevant instead of adding generic content. """ Natural language specification: 
+
+{natural_spec} 
+
+RTL code: 
+
+``` verilog {verilog} 
+
+``` 
+
+Testbench code: 
+
+``` verilog {testbench} 
+
+``` 
+
+Verifier Prompt 
+
+You are an expert verification reviewer acting as an LLM judge. You will score each candidate reasoning trace based on how well it explains the provided testbench with respect to the natural language specification, RTL, and coverage report. Return exactly a JSON object with the following schema: 
+
+{{ "ranking": [ {{ "id": "trace_1", "score": 9, "reason": "justification grounded in the testbench behavior and coverage report" }} ]}} 
+
+Judging criteria: 
+
+• correctness with respect to the RTL and testbench behavior 
+
+• specificity and grounding in actual testbench logic 
+
+• effective use of coverage report evidence 
+
+• usefulness for testbench-generation reasoning data 
+
+• clarity, conciseness, and non-redundancy 
+
+• penalize hallucinations or unsupported claims Ground all judgments in the RTL, testbench, and coverage report. Prefer traces that reference concrete signals, conditions, or behaviors. Do not reward vague or generic explanations. Do not return markdown fences or additional text. Natural language specification: 
+
+{natural_spec} 
+
+RTL code: 
+
+{verilog} 
+
+Testbench code: 
+
+{testbench} 
+
+Coverage report: 
+
+{coverage_report} 
+
+Candidate reasoning traces: 
+
+{reasoning_traces} 
+
+## B CovR Synthetic Data 
+
+Figure 6 shows a sample from the CovR synthetic data constructed from the self-refinement workflow. CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+Natural Specification ( N)
+
+Span4Mux_h4 module has the following interface: input I (4-bit vector); input S (2-bit vector); output O (single bit). The module should function as a 4-to-1 multiplexer. The input S selects one of the bits from the input I to be routed to the output O... 
+
+RTL Design ( V)
+
+1 module Span4Mux_h4( input [3:0] I, input [1:0] S, output O); 
+
+2 assign O = (S == 2'b00) ? I[0] : 
+
+3 (S == 2'b01) ? I[1] : 
+
+4 (S == 2'b10) ? I[2] : I[3]; 
+
+5 endmodule 
+
+Reasoning Trace ( R∗)
+
+Verification Goal Validate that for every possible 2-bit select value ‘S‘, the output ‘O‘ corresponds exactly to the selected bit of the 4-bit input ‘I‘, matching the conditional assignment in the RTL. 
+
+Stimulus Design 1. All-zero and all-one I patterns – Apply ‘I=4’b0000‘ and ‘I=4’b1111‘ for each ‘S‘ value (00, 01, 10, 11). - **Functional intent:** Verify the multiplexer’s basic routing for both logic-0 and logic-1 across all selection branches. - **RTL target:** Exercise each of the four conditional branches (‘S == 2’b00‘, ‘2’b01‘, ‘2’b10‘, ‘2’b11‘) with inputs that cause the selected bit to be 0 and 1, ensuring each branch propagates the correct logic level. 2. Mixed I patterns with specific bit emphasis – Apply ‘I=4’b1000‘ (only MSB=1) with ‘S=00‘, ‘I=4’b0111‘ (only LSB=0) with ‘S=01‘, ‘I=4’b0001‘ (only LSB=1) with ‘S=10‘, ‘I=4’b1110‘ (only LSB=0) with ‘S=11‘. - **Functional intent:** Verify that each selection path correctly isolates the intended bit when other bits differ, catching potential cross-coupling or bit-selection errors. - **RTL target:** For each branch, ensure the condition picks the exact indexed bit (‘I[0]‘, ‘I[1]‘, ‘I[2]‘, ‘I[3]‘), not an adjacent or constant value. 3. Random I and S combinations – Generate 10 random ‘I‘ and ‘S‘ values. - **Functional intent:** Stress the mux with arbitrary input combinations beyond directed patterns. - **RTL target:** Cover a broader subset of the 64 possible ‘I,S‘ combinations, increasing confidence that no unexpected interaction exists between ‘I‘ bits and the select logic. 4. Rapid S changes with constant I – Hold ‘I=4’b1010‘ and sequence ‘S‘ through 00 →01 →10 →11 with short delays. - **Functional intent:** Verify the combinational path responds immediately to select changes, and that the output correctly toggles between 0 and 1 as different bits are selected. - **RTL target:** Exercise the conditional assignment’s switching behavior as ‘S‘ changes, ensuring no lingering or transient output values. 
+
+Timing and Execution - Primary test intervals use 100-time-unit delays, allowing clear observation of steady-state outputs. - Rapid-change sequence uses 10-time-unit delays to check dynamic response without requiring timing-model consideration (purely combinational). 
+
+Coverage Intent and Corner Cases - Covered All four select branches with both 0 and 1 on the selected bit; mixed-bit patterns to ensure bit-indexing correctness; random combinations for broader input-space sampling; quick switching to verify combinational behavior. - **Limitations:** No explicit test for unknown/high-impedance values on ‘I‘ or ‘S‘; no check for glitches during simultaneous ‘I‘ and ‘S‘ changes; only 10 random samples leave many of the 64 possible combinations uncovered. Directed tests focus on functional correctness of each branch but do not systematically cover all ‘I‘ bit-value combinations per branch. 
+
+Testbench ( T∗)
+
+1 module testbench; 
+
+2 reg [3:0] I; 
+
+3 reg [1:0] S; 
+
+4 wire O; 
+
+56 Span4Mux_h4 uut (.I(I), .S(S), .O(O)); 
+
+78 initial begin 
+
+9 // Directed tests for specific edge cases 
+
+10 I = 4'b0000; S = 2'b00; #100; 
+
+11 I = 4'b0000; S = 2'b01; #100; 
+
+12 I = 4'b0000; S = 2'b10; #100; 
+
+13 I = 4'b0000; S = 2'b11; #100; 
+
+14 15 I = 4'b1111; S = 2'b00; #100; 
+
+16 I = 4'b1111; S = 2'b01; #100; 
+
+17 I = 4'b1111; S = 2'b10; #100; 
+
+18 I = 4'b1111; S = 2'b11; #100; 
+
+19 20 I = 4'b1000; S = 2'b00; #100; 
+
+21 I = 4'b0111; S = 2'b01; #100; 
+
+22 I = 4'b0001; S = 2'b10; #100; 
+
+23 I = 4'b1110; S = 2'b11; #100; 
+
+24 25 // Random tests 
+
+26 repeat (10) begin 
+
+27 I = $random % 16; // Random I value from 0 to 15 
+
+28 S = $random % 4; // Random S value from 0 to 3 
+
+29 #100; 
+
+30 end 
+
+31 32 // Rapidly change S while keeping I constant 
+
+33 I = 4'b1010; // Set a constant I 
+
+34 S = 2'b00; #10; 
+
+35 S = 2'b01; #10; 
+
+36 S = 2'b10; #10; 
+
+37 S = 2'b11; #10; 
+
+38 39 // Timeout 
+
+40 #1000 $finish ;
+
+41 end 
+
+42 endmodule 
+
+Coverage Achieved: 100% cond, 100% toggle, 100% branch 
+
+Figure 6: CovR dataset sample, showing high coverage test-bench and its corresponding reasoning annotations. 
+
+1○ LLM Inference 2○ Coverage 3○ Metrics 
+
+Problems 
+
+> problem 1 problem 2
+
+...
+
+> problem b problem bz
+
+GPU 0 
+
+Batch 
+
+GPU n 
+
+Batch 
+
+... Answers 
+
+JSONL 
+
+CPU 0 
+
+VCS 
+
+CPU m 
+
+VCS 
+
+...
+
+Metrics 
+
+pass@k cov@k 
+
+Figure 7: Efficient evaluation pipeline of CovR . Problems are distributed across GPUs for LLM inference, stored in JSONL format, and evaluated in parallel using Synopsys VCS to compute pass@k and cov@k metrics. 
+
+## C Efficient Pass@k and Cov@k Computation 
+
+The pass@k metric is defined in Eq. 7, where 𝑁 is the number of designs, 𝑘 is the number of allowed attempts, 𝑛 𝑖 is the number of generated samples for problem 𝑖 , and 𝑐 𝑖 is the number of samples that execute successfully in simulation. Intuitively, pass@k meas-ures the fraction of problems for which at least one of the top-𝑘 
+
+generated testbenches runs successfully. pass@ 𝑘 = E𝑁 𝑖 =1
+
+
+
+1 − 𝐶 (𝑛 𝑖 − 𝑐 𝑖 , 𝑘 )
+
+𝐶 (𝑛 𝑖 , 𝑘 )
+
+
+
+(7) The cov@k is defined in Eq. 6. Both pass@k and cov@k re-quire sampling multiple testbenches per design and executing each sample with EDA tools for simulation and coverage extraction. As these tool invocations are computationally expensive, we design the 
+
+CovR evaluation system for efficient, large-scale parallel execution. Since EDA tool calls are computationally expensive, we design the CovR evaluation system to support parallel execution for effi-cient pass@k and cov@k computation. To address this, we develop a fast, highly parallelized evaluation pipeline that decomposes the workflow into two stages: testbench generation and evaluation, as illustrated in Fig 7. 
+
+## D CovR Kills Mutations and Reveals Latent Verification Failures 
+
+Figure 8 shows how CovR’s broader stimulus kills more mutants than PRO-V [49] stimulus engine. MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+(a) Specification 
+
+TopModule decodes four keyboard scancodes into one-hot direction signals: 
+
+E06B → left , E072 → down , E074 → right , E075 → up .
+
+All other scancodes should produce left=down=right=up=0 .
+
+(b) Full Benchmark RTL             
+
+> module TopModule (
+> input [15:0] scancode,
+> output reg left,
+> output reg down,
+> output reg right,
+> output reg up );
+> always @(*) begin
+> {up, left, down, right} = 0;
+> case (scancode) 16'he06b: left = 1; 16'he072: down = 1; 16'he074: right = 1; 16'he075: up = 1;
+> endcase end endmodule
+
+(c) Representative Mutant Faults                            
+
+> Inverted decode predicates
+> M0 assign right = ~(scancode == 16'he074);
+> M2 assign up = ~(scancode == 16'he075);
+> M4 assign down = ~(scancode == 16'he072);
+> M6 assign left = ~(scancode == 16'he06b);
+> Stuck-at-high output faults
+> M1 assign left = 1'h1;
+> M5 assign up = 1'h1;
+> M8 assign right = 1'h1;
+> Stuck-at-low output faults
+> M3 assign down = 1'h0;
+> M7 assign left = 1'h0;
+> M9 assign right = 1'h0;
+> Green-highlighted mutants are killed by CovR but missed by Pro-V.
+
+(d) Pro-V Stimulus Mutation Score: 70.0% Killed: 7/10 
+
+Test 0 1 2 3 4
+
+scancode 1f7c f072 29f1 30e1 fb17 
+
+left 0 0 0 0 0
+
+down 0 0 0 0 0
+
+right 0 0 0 0 0
+
+up 0 0 0 0 0
+
+Killed Mutants: M0 M1 M2 M4 M5 M6 M8 
+
+Survived Mutants: M3 M7 M9 
+
+Most sampled scancodes are invalid, so the expected output remains all-zero. This exposes faults that perturb invalid-code behavior, but misses valid-code stuck-at-zero decode faults. 
+
+(e) CovR Stimulus Mutation Score: 100.0% Killed: 10/10 
+
+Test 0 1 2 3
+
+scancode e06b e072 e074 e075 
+
+left 1 0 0 0
+
+down 0 1 0 0
+
+right 0 0 1 0
+
+up 0 0 0 1
+
+Killed Mutants: M0 M1 M2 M3 M4 M5 M6 M7 M8 M9 
+
+Survived Mutants: None 
+
+CovR exercises each semantic scancode, activating every decode path and exposing both inverted and stuck-at-zero faults that survive under invalid-only stimulus. 
+
+Figure 8: CovR improves mutation detection on 
+
+Prob106_always_nolatches .
+
+Figure 9 shows how CovR’s broader stimulus exploration uncov-ers latent failures in the FRM generated by PRO-V-R1 [49]. 
+
+(a) Specification 
+
+TopModule is a 16-bit register with active-low synchronous reset. On each rising clock edge, if resetn=0 , then q=0 . Otherwise, byteena[0] updates q[7:0] from d[7:0] , and byteena[1] 
+
+updates q[15:8] from d[15:8] . Disabled bytes retain their previous values. 
+
+(b) Benchmark RTL 
+
+module TopModule ( 
+
+input clk, 
+
+input resetn, 
+
+input [1:0] byteena, 
+
+input [15:0] d, 
+
+output reg [15:0] q ); 
+
+always @( posedge clk) 
+
+if (!resetn) q <= 0; 
+
+else begin if (byteena[0]) q[7:0] <= d[7:0]; 
+
+if (byteena[1]) q[15:8] <= d[15:8]; 
+
+end endmodule 
+
+(c) Generated FRM 
+
+class GoldenDUT: 
+
+def __init__(self): self.q = [0] * 16 self.prev_clk = 0 
+
+def load(self, clk, inputs): resetn = int (inputs["resetn"], 2) byteena = int (inputs["byteena"], 2) d = int (inputs["d"], 2) 
+
+if clk == 1 and self.prev_clk == 0: 
+
+if resetn == 0: self.q = [0] * 16 
+
+else :
+
+if byteena & 0b10: 
+
+for i in range (8, 16): self.q[i] = (d » 8) & 0xff BUG 
+
+if byteena & 0b01: 
+
+for i in range (0, 8): self.q[i] = d & 0xff BUG self.prev_clk = clk result = 0 
+
+for i in range (16): result = (result « 8) | self.q[i] BUG 
+
+return {"q": format (result & 0xffff, "016b" )} 
+
+Bug: The FRM stores full byte values in each bit slot and reconstructs q by shifting bytes instead of bits. 
+
+(d) Pro-V Stimulus 
+
+Coverage: Line 100% | Branch 75.0% | Toggle 9.7% | Overall 17.3% 
+
+Cycle 0 1 2 3 4
+
+resetn 1 0 0 0 0
+
+byteena 00 00 00 00 00 
+
+d 0000 0000 0000 0000 0000 
+
+Spec / FRM / RTL 0000 0000 0000 0000 0000 
+
+Result ✓ ✓ ✓ ✓ ✓
+
+Missed case: The stimulus resets or keeps byte enables disabled, so it does not stress partial-byte updates. 
+
+(e) CovR Stimulus 
+
+Coverage: Line 100% | Branch 16.7% | Toggle 52.8% | Overall 50.6%                                     
+
+> Cycle 456789
+> byteena 01 01 01 10 01 01
+> d998d 5212 cd0d cd3d f78c 24c6
+> Spec / RTL 008d 0012 000d cd0d cd8c cdc6 Generated FRM 0000 0000 0000 cdcd cdcd cdcd Result ××××××
+
+Failure exposed: CovR exercises partial-byte updates and exposes an FRM/oracle bug. The RTL updates only the enabled byte and preserves the disabled byte, while the FRM incorrectly replicates byte values, producing outputs such as cdcd .
+
+Figure 9: CovR reveals an oracle bug in the generated FRM for a byte-enable register. The RTL correctly updates only enabled bytes, while the FRM incorrectly replicates byte val-ues across its internal state. 
+
+Figure 10 shows how CovR reveals a DUT RTL bug by exercising an uncovered edge case. CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+Figure 11 illustrates an oracle bug in the generated FRM that remains hidden under PRO-V stimuli due to insufficient temporal input variation. 
+
+(a) Specification 
+
+signal_generator produces a 5-bit triangle wave. After active-low reset, wave counts upward from 0 to 31 and then downward: 
+
+0, 1, . . . , 30 , 31 , 30 , 29 , . . . 
+
+(b) Benchmark RTL 
+
+module signal_generator( 
+
+input clk, 
+
+input rst_n, 
+
+output reg [4:0] wave ); 
+
+reg [1:0] state; 
+
+always @( posedge clk or negedge rst_n ) begin if (~rst_n) begin 
+
+state <= 2'b0; wave <= 5'b0; 
+
+end else begin case (state) 2'b00: begin if (wave == 5'b11111) state <= 2’b01; BUG 
+
+else 
+
+wave <= wave + 1; 
+
+end 
+
+2'b01: begin if (wave == 5'b00000) state <= 2'b00; 
+
+else 
+
+wave <= wave - 1; 
+
+end endcase end end endmodule 
+
+Bug: state changes at wave=31 , but wave does not decrement until the next cycle. 
+
+(c) Generated Pro-V FRM 
+
+class GoldenDUT: 
+
+def __init__(self): self.state = 0 self.wave = 0 self.prev_clk = 0 
+
+def load(self, clk, inputs): rst_n = int (inputs["rst_n"], 2) rising_edge = ( self.prev_clk == 0 and clk == 1 )self.prev_clk = clk 
+
+if rising_edge: 
+
+if not rst_n: self.state = 0 self.wave = 0 
+
+elif self.state == 0: self.wave = ( self.wave + 1 ) & 0x1F 
+
+if self.wave == 31: self.state = 1 
+
+elif self.state == 1: self.wave = ( self.wave - 1 ) & 0x1F 
+
+if self.wave == 0: self.state = 0 
+
+return {"wave": 
+
+format (self.wave, "05b") }
+
+(d) Pro-V Stimulus 
+
+Coverage: Line 60.0% | Branch 83.3% | Toggle 55.6% | Overall 65.0% 
+
+Cycle 0 . . . 27 28 29 30 
+
+rst_n 1 . . . 1 1 1 –
+
+Spec / FRM 1 . . . 28 29 30 –
+
+RTL 1 . . . 28 29 30 –
+
+Result ✓ . . . ✓ ✓ ✓ –
+
+Missed case: The stimulus terminates before exercising the peak turn-around transition: 30 → 31 → 30 .
+
+(e) CovR Stimulus 
+
+Coverage: Line 100% | Branch 100% | Toggle 88.9% | Overall 92.6% 
+
+Cycle 0 . . . 30 31 32 33 34 
+
+rst_n 0 . . . 1 1 1 1 1
+
+Spec / FRM 0 . . . 30 31 30 29 28 
+
+RTL 0 . . . 30 31 31 30 29 Result ✓ . . . ✓ ✓ × × ×
+
+Failure exposed: CovR keeps reset deasserted long enough to exercise the peak transition. The RTL incorrectly stalls at wave=31 for one cycle before decrementing. 
+
+Figure 10: CovR generates longer temporal stimuli that reach the peak turn-around case and expose an RTL bug missed by shorter static stimulus sequences. MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea Trovato et al. 
+
+(a) Specification 
+
+TopModule implements a level-sensitive D latch using an always block. When ena=1 , the output follows d. When ena=0 , the output holds its previous value: 
+
+𝑞 + =
+
+𝑑, ena = 1
+
+𝑞, ena = 0
+
+(b) Benchmark RTL 
+
+module TopModule ( 
+
+input d, 
+
+input ena, 
+
+output logic q ); always@(*) begin if (ena) q = d; 
+
+end endmodule 
+
+(c) Generated Pro-V FRM 
+
+class GoldenDUT: 
+
+def __init__(self): self.q = 0 self.prev_ena = 0 
+
+def load(self, inputs): d = int (inputs["d"], 2) ena = int (inputs["ena"], 2) if ena == 1 and self.prev_ena == 0: BUG self.q = d self.prev_ena = ena 
+
+return {"q": format (self.q & 0x1, "01b")} 
+
+Bug: The FRM incorrectly models ena as edge-triggered. A D latch should update whenever ena=1 .
+
+(d) Pro-V Stimulus 
+
+Coverage: Line n/a | Branch 100% | Toggle 66.7% | Overall 75.0% 
+
+Vector 0 1 2 3
+
+d 0 0 1 1
+
+ena 0 1 0 1
+
+Spec 0 0 0 1
+
+FRM 0 0 0 1
+
+RTL 0 0 0 1
+
+Result ✓ ✓ ✓ ✓
+
+Missed case: The stimulus covers static input combinations, but does not test d changing while ena remains high. 
+
+(e) CovR Stimulus 
+
+Coverage: Line 100% | Branch 100% | Toggle 100% | Overall 100% 
+
+Vector 0 1 2 3 4 5
+
+d 0 0 1 1 1 0
+
+ena 0 1 1 0 1 1
+
+Spec 0 0 1 1 1 0
+
+FRM 0 0 0 0 1 1
+
+RTL 0 0 1 1 1 0
+
+Result ✓ ✓ × × ✓ ×
+
+Failure exposed: CovR exercises temporal input changes and reveals that the generated FRM incorrectly models ena as edge-triggered instead of level-sensitive. As a result, the oracle becomes stale at vectors 2, 3, and 5. 
+
+Figure 11: CovR generates temporally diverse stimuli that expose an oracle bug in the generated functional reference model, while static input-combination stimuli fail to reveal the mismatch. 
+
+(a) Specification 
+
+TopModule is a 64-bit shift register. On each rising clock edge, load has priority and loads data 
+
+into q. Otherwise, when ena=1 , amount selects one shift operation: 
+
+amount operation 
+
+00 logical left shift by 1 
+
+01 logical left shift by 8 
+
+10 arithmetic right shift by 1 
+
+11 arithmetic right shift by 8 
+
+(b) Benchmark RTL 
+
+module TopModule ( 
+
+input clk, 
+
+input load, 
+
+input ena, 
+
+input [1:0] amount, 
+
+input [63:0] data, 
+
+output reg [63:0] q ); 
+
+always @( posedge clk) begin if (load) q <= data; 
+
+else if (ena) case (amount) 2'b00: q <= {q[62:0], 1'b0}; 2'b01: q <= {q[55:0], 8'b0}; 2'b10: q <= {q[63], q[63:1]}; 2'b11: q <= {{8{q[63]}}, q [63:8]}; 
+
+endcase end endmodule 
+
+(c) Generated FRM 
+
+class GoldenDUT: 
+
+def __init__(self): self.q = 0 self.prev_clk = 0 
+
+def load(self, clk, inputs): load = int (inputs["load"], 2) ena = int (inputs["ena"], 2) amount = int (inputs["amount"], 2) data = int (inputs["data"], 2) 
+
+if clk == 1 and self.prev_clk == 0: 
+
+if load: self.q = data 
+
+elif ena: 
+
+if amount == 0: self.q = (self.q << 1) & MASK 
+
+elif amount == 1: self.q = (self.q << 8) & MASK 
+
+elif amount == 2: s = (self.q >> 63) & 1 self.q = (self.q >> 1) | (s << 63) 
+
+elif amount == 3: s = (self.q >> 63) & 1 self.q = (self.q » 8) | (s « 63) BUG self.prev_clk = clk 
+
+return {"q": format (self.q, "064b")} 
+
+Bug: For arithmetic right shift by 8, the FRM inserts only one sign bit at bit 63 instead of filling the upper 8 bits with the sign bit. 
+
+(d) Pro-V Stimulus 
+
+Coverage: Line 28.6% | Branch 100% | Toggle 4.5% | Overall 6.5% 
+
+Cycle 0 1 2 3 4
+
+load 0 0 0 0 0
+
+ena 0 0 0 0 0
+
+amount 00 00 00 00 00 
+
+Spec / FRM / RTL 0 0 0 0 0
+
+Result ✓ ✓ ✓ ✓ ✓
+
+Missed case: The stimulus leaves shifting disabled, so it does not exercise the arithmetic right-shift corner case. 
+
+(e) CovR Stimulus 
+
+Coverage: Line 85.7% | Branch 100% | Toggle 100% | Overall 99.6%                             
+
+> Cycle 15 16 17 18
+> load 1000
+> ena 0010
+> amount 01 01 11 11
+> Spec / RTL ffffffff8484d609 ffffffff8484d609 ffffffffff8484d6 ffffffffff8484d6 Generated FRM ffffffff8484d609 ffffffff8484d609 80ffffffff8484d6 80ffffffff8484d6 Result ✓✓××
+
+Failure exposed: CovR loads a negative value and applies arithmetic right shift by 8. The RTL sign-extends correctly, but the FRM constructs an incorrect sign-extension pattern, predicting 80ffffffff8484d6 instead of ffffffffff8484d6 .
+
+Figure 12: CovR reveals an oracle bug in the generated FRM for Prob115_shift18 . The RTL correctly sign-extends during arithmetic right shift by 8, while the FRM constructs an in-correct sign-extension pattern. CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning MLCAD ’26, September 07–09, 2026, Jeju Island, Republic of Korea 
+
+## E CovR Stimuli Improves Mutation Detection Score 
+
+In this section, we present two case studies on how CovR’s gener-ated stimulus improves mutation detection score. 
+
+(a) Specification 
+
+TopModule takes a 100-bit input vector and computes three reduction outputs: 
+
+out_and = &in , out_or = |in , out_xor = ˆin .
+
+Thus, out_and is high only for all-one inputs, out_or is low only for all-zero inputs, and out_xor 
+
+is the parity of in .
+
+(b) Full Benchmark RTL          
+
+> module TopModule (
+> input [99:0] in,
+> output out_and,
+> output out_or,
+> output out_xor );
+> assign out_and = &in;
+> assign out_or = |in;
+> assign out_xor = ^in;
+> endmodule
+
+(c) Representative Mutant Faults                     
+
+> AND reduction faults
+> M0 assign out_and = &{in[99:77], ~in[76], in[75:0]};
+> M2 assign out_and = 1'h1;
+> M4 assign out_and = 1'h0;
+> M7 assign out_and = &{in[99:65], 1'h1, in[63:0]};
+> OR reduction faults
+> M1 assign out_or = 1'h0;
+> M6 assign out_or = |{in[99:14], 1'h0, in[12:0]};
+> XOR reduction faults
+> M3 assign out_xor = ^{in[99:67], ~in[66], in[65:0]};
+> M5 assign out_xor = 1'h1;
+> M8 assign out_xor = 1'h0;
+> M9 assign out_xor = ~(^in);
+> CovR kills M0, M4, and M6 that Pro-V misses; M7 sur-vives both.
+
+(d) Pro-V Stimulus Mutation Score: 60.0% Killed: 6/10 
+
+Test 0 1 2 3 4
+
+in 0011...a6 1110...4d 1110...e2 0010...86 0011...9f out_and 0 0 0 0 0
+
+out_or 1 1 1 1 1
+
+out_xor 1 0 0 1 0
+
+Killed Mutants: M1 M2 M3 M5 M8 M9 
+
+Survived Mutants: M0 M4 M6 M7 
+
+Random dense vectors usually have out_and=0 and out_or=1 . This misses mutants that require all-one, all-zero, or specific one-hot patterns. 
+
+(e) CovR Stimulus Mutation Score: 90.0% Killed: 9/10 
+
+Test 0 1 2 17 1206 
+
+in 0...0 0...1 0101...01 bit13=1 1...1 out_and 0 0 0 0 1
+
+out_or 0 1 1 1 1
+
+out_xor 0 1 0 1 0
+
+Killed Mutants: M0 M1 M2 M3 M4 M5 M6 M8 M9 
+
+Survived Mutants: M7 
+
+CovR includes reduction-specific edge cases: all-zero for out_or , all-one for 
+
+out_and , alternating patterns for parity, and one-hot vectors for bit-sensitivity faults. 
+
+(f) Mutants Newly Killed by CovR Mutant Fault Killing stimulus Expected Mutant output 
+
+M0 out_and uses ~in[76] in = 1...1 out_and = 1 out_and = 0 
+
+M4 out_and = 1’h0 in = 1...1 out_and = 1 out_and = 0 
+
+M6 out_or ignores bit 13 in[13] = 1 , others 0 out_or = 1 out_or = 0 
+
+The three additional kills come from structured vectors that directly target reduction-operator corner cases rather than relying on random dense inputs. 
+
+Figure 13: CovR improves mutation detection on 
+
+Prob052_gates100 . Pro-V’s random vectors kill parity and obvious stuck-output mutants, but miss reduction-specific corner cases. CovR adds all-zero, all-one, alternating, and one-hot stimuli, improving mutation score from 6/10 to 9/10.

@@ -1,0 +1,750 @@
+Title: VSpector: Specification-Driven Bug Detection for RISC-V CPUs
+
+URL Source: https://arxiv.org/pdf/2609.23517v1
+
+Published Time: Tue, 22 Sep 2026 01:57:09 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+# VSpector: Specification-Driven Bug Detection for RISC-V CPUs 
+
+## Tianyu Jia 
+
+Renmin University of China Beijing, China 2025103980@ruc.edu.cn 
+
+## Zhaoyang Yu 
+
+Renmin University of China Beijing, China 2023202273@ruc.edu.cn 
+
+## Yuanliang Chen 
+
+Renmin University of China Beijing, China sard.chen@gmail.com 
+
+## Wei You 
+
+Renmin University of China Beijing, China youwei@ruc.edu.cn 
+
+## Jianjun Huang 
+
+Renmin University of China Beijing, China hjj@ruc.edu.cn 
+
+## Bin Liang ∗
+
+Renmin University of China Beijing, China liangb@ruc.edu.cn 
+
+## Abstract 
+
+Detecting RTL design bugs in open-source RISC-V CPU implementations is critical for ensuring system reliabil-ity. Traditional detection approaches inherently rely on predefined artifacts. In this paper, we leverage the official, natural-language RISC-V specifications as an effective in-formation source for bug detection. We present VSpector, a specification-driven bug detection pipeline that directly checks whether CPU register-transfer level (RTL) imple-mentations adhere to official specification rules, without requiring specialized construction of reference models, for-mal properties, or custom bug patterns. To resolve the key technical trade-off between broad context scope and model reasoning accuracy when using Large Language Models (LLMs), VSpector employs a stepwise context refinement scheme across a four-stage pipeline: rule extraction, im-plementation localization, candidate identification, and sequential violation auditing. We evaluate VSpector on two industrial-strength RISC-V CPUs, CVA6 and XiangShan. Out of 217 reported candidates, manual inspection confirmed 148 true violations, representing a 68.2% precision. These viola-tions correspond to 73 distinct bugs, including 42 previously unknown bugs. In our comparative experiments, DiveFuzz, a state-of-the-art CPU fuzzer, detected none of these new bugs during 24-hour runs per CPU. All 42 new bugs have been reported upstream, with developers already fixing 19 and confirming an additional 11 ( 30 in total), demon-strating that specification-driven auditing is a practical and complementary strategy for CPU bug detection. 
+
+## 1 Introduction 
+
+RISC-V is an open-standard instruction set architecture (ISA) used in systems ranging from embedded devices to large-scale computing systems. In particular, open-source RISC-V CPUs provide accessible register-transfer level (RTL) de-signs. For instance, representative designs such as CVA6 [40] 
+
+> ∗Corresponding author.
+
+and XiangShan [35] make their full designs available in Sys-temVerilog [14] and Chisel [3], holding great promise for widespread adoption. The CPU is the core of a computer system. Like software, CPUs are susceptible to bugs that affect overall system opera-tion. Unlike software, however, CPUs are hard to be modified once manufactured. Post-silicon bugs can usually only be mitigated by disabling affected features [29], which often leads to significant performance drops. Therefore, detecting bugs in CPU designs is critical. A variety of approaches have been proposed for detecting bugs in RISC-V CPUs, successfully uncovering some real bugs. CPU fuzzing [10, 13, 27] feeds identical input vectors into both the target CPU design and a reference ISA simula-tor, identifying potential bugs by checking for discrepancies in architectural states such as registers and memory. Formal verification [38] aims to prove whether a CPU’s RTL design satisfies predefined correctness properties. Static analysis [7], borrowing concepts from software analysis, checks RTL de-signs against summarized bug patterns, making it scalable to large-scale designs. However, the effectiveness of these existing methods in-herently relies on the artifacts they employ, namely refer-ence models, properties, and bug patterns. In practice, these artifacts are not always reliable or comprehensive. Refer-ence models themselves may suffer from implementation issues (e.g., as shown in Section 2.1, simplifications in the widely used ISA simulators NEMU [22] and Spike [25] pre-vent them from detecting certain bugs), whereas manually crafted properties and patterns are prone to human error and incompleteness. This raises a key research question: Can we find alternative, high-quality information sources beyond conventional artifacts to identify CPU bugs? 
+
+In this study, we identify the official RISC-V specifica-tions [11, 19, 31, 32], maintained by RISC-V International, as a valuable yet underutilized information source for con-structing detection artifacts. Independent of specific CPU implementations, these specifications comprehensively de-fine the rules in natural language that compliant CPU designs must obey, including instruction semantics, privilege modes, 
+
+> 1arXiv:2609.23517v1 [cs.SE] 20 Sep 2026 Jia et al.
+
+control registers, interrupts, address translation, and exter-nal debugging. These documents are structured into distinct sections, each of which typically states several related rules. In practice, a CPU’s RTL design that fails to adhere to a re-quired rule is highly likely to manifest as a bug, which we term a specification violation .Section 2 illustrates such a violation in XiangShan, which violates a rule regarding the hypervisor memory-management fence: the fence must ignore the reserved bits of its operands. However, the corresponding Chisel imple-mentation lets two of these reserved bits take part in the comparison that selects translations to flush. Identifying specification violations requires a joint under-standing of natural-language specifications and RTL CPU designs. Recent advances in Large Language Models (LLMs) provide a viable path to perform such cross-domain analysis. As illustrated in Figure 1, we can extract explicit rules from the specification and derive their corresponding RTL imple-mentations from the CPU design, and then leverage LLMs to check whether the implementation adheres to the specified rules, eliminating the need for specialized construction of reference models, formal properties, or custom bug patterns. RISC-V specifications  
+
+> Joint understanding of rules and RTL
+> Does the implementation violates the rule?
+> Specification rule RTL implementation
+> CPU designs
+> SystemVerilog / Chisel
+> Specification Violation (bug)
+> English
+
+Figure 1. Specification violation detection. However, realizing such specification-to-code alignment introduces a key technical challenge. Concretely, performing the cross-domain analysis faces a clear trade-off between con-text scope and reasoning accuracy. On the one hand, a single specification section often contains multiple rules alongside scattered descriptions, with potential dependencies between rules. Similarly, the corresponding RTL implementation can be spread across multiple modules. Feeding intertwined rules and broad RTL implementations directly into LLMs reduces the model’s attention on key logic, lowering detection ac-curacy. On the other hand, overly narrowing the context scope causes the LLM to miss necessary specification or implementation details, leading to false positives. To address this challenge, we adopt a stepwise refinement scheme and propose a multi-stage pipeline VSpector . It combines localized focusing with dynamic context detection and auditing across four stages: (1) Rule extraction extracts targeted specification rules section by section, preserving applicability conditions and source locations so that each rule can be checked independently; (2) Implementation localization searches the CPU repository for code imple-menting each rule, restricting inspection to the relevant lines; (3) Candidate identification checks whether the localized code violates the rule, triggering a ReAct process to retrieve supplementary RTL code on demand whenever context is insufficient; and (4) Violation audit dynamically retrieves supplementary specification clauses and RTL context for each candidate, performing sequential specification-side and code-side reviews to effectively mitigate false positives. We evaluate VSpector on CVA6 and XiangShan. Among the 217 candidate violations reported by VSpector, manual inspection confirmed 148 as true violations, achieving a pre-cision of 68.2%. These violations correspond to 73 distinct bugs, 42 of which were previously unknown. All 42 new bugs have been reported upstream, with developers already fixing 19 and confirming an additional 11. Notably, DiveFuzz [10], a state-of-the-art (SOTA) RISC-V CPU fuzzer, failed to de-tect any of these 42 bugs during a 24-hour run on the same commits. These results demonstrate that directly checking RTL implementations against RISC-V specification rules is a practical and effective strategy for uncovering real-world CPU bugs. In summary, our main contributions are as follows: 
+
+• New Scheme: We introduce a new specification-driven bug detection scheme for open-source RISC-V CPUs. By treating official specification documents directly as detection artifacts, our scheme uncovers bugs by identifying inconsistencies between hardware specification intent and RTL implementations, with-out requiring predefined reference models, formal properties, or bug patterns. 
+
+• Multi-stage Pipeline: We design VSpector, a multi-stage pipeline based on a stepwise refinement scheme that integrates localized focusing with dynamic con-text retrieval. It initially restricts analysis to an individ-ual rule and its core RTL code, and then progressively retrieves additional context on demand to conduct bug detection and rigorous auditing, ultimately mitigating false positives. 
+
+• Detection Results: We demonstrate the effective-ness of VSpector on two industrial-strength RISC-V CPUs, CVA6 and XiangShan. VSpector achieved a precision of 68.2% and uncovered 73 distinct bugs ( 42 
+
+previously unknown), demonstrating complementary bug-detection capability to SOTA CPU fuzzing. All new bugs were reported upstream, with developers already fixing 19 and confirming an additional 11 ( 30 
+
+in total). 
+
+## 2 Motivating Examples 
+
+We use two violations that VSpector found in XiangShan: a count-overflow interrupt that the CPU drops (Figure 2), and the HFENCE.GVMA of Figure 3, which, when either of two reserved bits of its rs2 operand is set, matches no TLB entry and leaves the stale translations in place. Section 2.1 discusses     
+
+> 2VSpector: Specification-Driven Bug Detection for RISC-V CPUs RISC-V Privileged ISA, Sec. 9.1.1: Count Overflow Control
+> If an hpmcounter overflows while the associated OF bit is zero, then a “count overflow interrupt request” is generated. If the OF bit is one, then no interrupt request is generated. . . . Generation of a count-overflow-interrupt request by an hpmcounter sets the associated OF bit. When an OF bit is set, it eventually , but not necessarily immediately, sets the LCOFIP bit in the mip /sip
+> registers.
+
+(a) The section; the violated rule  
+
+> // .../backend/fu/NewCSR/NewCSR.scala
+> lcofiReqVec(i) := ofFromPerfCntVec(i) && !mhpmevent.OF.asBool // pulse, only while OF=0 val lcofiReq = lcofiReqVec.asUInt.orR
+> // .../NewCSR/MachineLevel.scala (mip, bit 13)
+> when (fromSip.LCOFIP.valid || fromVSip.LCOFIP.valid || wen) { reg.LCOFIP := Mux1H(Seq( fromSip.LCOFIP.valid -> fromSip.LCOFIP.bits, fromVSip.LCOFIP.valid -> fromVSip.LCOFIP.bits, wen -> wdata.LCOFIP, // the write wins )) }.elsewhen(lcofiReq) { // request only if no write reg.LCOFIP := lcofiReq }
+
+(b) XiangShan buggy code (confirmed) 
+
+> // NEMU: .../riscv64/system/priv.c (CSR write)
+> case CSR_MHPMCOUNTER_BASE ... CSR_MHPMCOUNTER_BASE+CSR_MHPMCOUNTER_NUM-1: break; // write ignored; never incremented
+> // Spike: .../riscv/csr_init.cc
+> auto mcounter = std::make_shared<const_csr_t>( proc, which_mcounter, 0); // read-only zero
+
+(c) NEMU and Spike: hpm counters are read-only zero 
+
+Figure 2. A specification violation that VSpector found in XiangShan, confirmed upstream: (a) the rule; (b) the RTL, where a same-cycle write to mip overrides the overflow re-quest; (c) NEMU and Spike, whose counters never overflow. the challenges these violations pose for CPU fuzzing and static analysis; Section 2.2 shows what detecting them from the specification takes. When a hardware performance counter overflows, the OF bit of its mhpmevent register is set and, by the rule in Figure 2(a), the LCOFIP bit of mip , the pending bit of the count-overflow interrupt, must eventually be set as well. XiangShan raises the request to mip as a one-cycle pulse while OF is still zero. A software write to mip or sip in the same cycle takes priority and drops the pulse (Figure 2(b)), even a write that leaves LCOFIP alone, such as clearing the software-interrupt bit. OF stays set and blocks any further request from the counter, so the interrupt is lost. An HFENCE.GVMA whose register operand rs2 is not x0 
+
+flushes only the guest translations whose virtual machine identifier (VMID) equals the VMID given in rs2 , and the RISC-V Privileged ISA, Sec. 5.3.2: Hypervisor Memory-Management Fence Instructions               
+
+> HFENCE.VVMA is valid only in M-mode or HS-mode. . . . if operand
+> rs2 ≠x0 , it specifies a single guest address-space identifier (ASID). When rs2 ≠x0 , bits XLEN-1:ASIDMAX of the value held in
+> rs2 are reserved for future standard use. . . . ignored by current implementations. . . .
+> HFENCE.GVMA is valid only in HS-mode when mstatus.TVM =0, or in M-mode (irrespective of mstatus.TVM ). . . . When rs2 ≠x0 , bits XLEN-1:VMIDMAX of the value held in rs2
+> are reserved for future standard use. Until their use is defined by a standard extension, they should be zeroed by software and ignored by current implementations. . . .
+
+(a) The section; the violated rule in red  
+
+> // .../xiangshan/Parameters.scala
+> AsidLength: Int = 16, VmidLength: Int = 14
+> // .../xiangshan/Bundle.scala
+> val id = UInt((AsidLength).W) // asid or vmid
+> // .../backend/fu/Fence.scala
+> sfence.bits.hg := func === FenceOpType.hfence_g sfence.bits.id := RegEnable( io.in.bits.data.src(1), io.in.fire)
+> // .../cache/mmu/TLBStorage.scala
+> val hfenceg_valid = sfence.valid && sfence.bits.hg entries(i).s2xlate =/= noS2xlate && entries(i).vmid === sfence.bits.id
+
+(b) XiangShan buggy code (fixed) 
+
+Figure 3. A specification violation that VSpector found in XiangShan, since fixed upstream: (a) the section, the violated rule in red; (b) the RTL that carries two reserved bits of rs2 
+
+into the VMID comparison. rule in Figure 3(a) requires the reserved bits of rs2 above the VMID to be ignored. XiangShan compares rs2 , carried in a 16-bit fence identifier, against the 14-bit VMID stored in each TLB entry, so the two reserved bits just above the VMID take part (Figure 3(b)). A fence whose rs2 sets either bit matches no entry and leaves the stale translations in the TLB. 
+
+2.1 Challenges for Existing Approaches 
+
+CPU fuzzing [10, 13, 27] runs generated programs on the RTL under test and on an ISA simulator that serves as the refer-ence model, and reports a bug when their architectural states diverge. A bug is found only when the reference model imple-ments the behavior correctly and a program triggers it. The count-overflow violation fails the first condition. NEMU [22] and Spike [25] simplify the performance counters to read-only zero, which the specification permits (Figure 2(c)), so comparing LCOFIP against them would flag every correct overflow; DiffTest [21, 35], XiangShan’s differential testing framework, therefore copies the bit from the RTL into NEMU, and the comparison carries no expectation that an overflow   
+
+> 3Jia et al. Bug report
+> Specification
+> side review
+> Code side
+> review
+> upheld
+> violation
+> upheld
+> violation
+> (b) Implementation
+> localization
+> (c) Candidate
+> identification
+> question for
+> retrieval
+> candidate
+> violation
+> (d) Violation
+> audit
+> Code retrieval
+> Retrieval sub-agents
+> (a) Rule
+> extraction
+> Rule
+> extraction
+> Rule 1
+> Rule 2
+> ⋯
+> Violation
+> judgement
+> CPU
+> repository
+> Seed search
+> LLM based
+> file slicing
+> code
+> context
+> Seeds enlarged
+> code context
+> for each
+> rule
+> RISC-V
+> specifications
+> +rule
+
+Figure 4. Overview of VSpector. Rule extraction (a) runs once per specification section; implementation localization (b) and candidate identification (c) run once per rule; the violation audit (d) runs once per candidate violation. Boxes with a robot icon are LLM calls; the stages in (b)–(d) search and read the CPU repository. must set it. For the same-cycle write of Figure 2(b), both sides read zero. The HFENCE.GVMA violation fails the sec-ond. The violation surfaces only after a program enables two-stage address translation, brings a guest translation into the TLB, changes the page-table entry behind it, issues an 
+
+HFENCE.GVMA with one of the two bits set, and touches the page again; 24 hours of DiveFuzz did not find it (Section 4.3). Static analysis [2, 7, 8] needs neither a program nor a reference model. It searches the RTL for bug patterns fixed in advance, such as a register without reset, an unreachable state of a finite-state machine, or a bit-width mismatch that truncates a value [2, 7], or it checks the assertions that the developers wrote into the code [8]. Detecting specification violations with these approaches depends on whether the relevant behavior is covered by the predefined patterns or developer-written assertions. Generic bug patterns often do not encode specification-specific semantics, limiting their ability to detect violations that depend on such knowledge. 
+
+2.2 What Detection from the Specification Takes 
+
+A section of the specification states several rules at once. The section in Figure 3(a) defines both HFENCE.VVMA and 
+
+HFENCE.GVMA , with the privilege modes, ordering, and operands of each; VSpector extracts ten rules from it. The violated rule is one sentence about rs2 of HFENCE.GVMA ; an earlier sentence in the same section says the same about 
+
+rs2 of HFENCE.VVMA , with the ASID in place of the VMID. Checking the whole section at once spreads attention over all of these rules; extracting them and checking each on its own keeps the attention on one. Deciding whether the RTL violates a rule takes the mean-ing of the code, and the code that implements a rule is spread over several files. Seeing the violation in Figure 3(b) takes four files together: the parameters give the ASID and the VMID different widths; the bundle gives the shared fence identifier the ASID width; the fence unit assigns rs2 to it, which in Chisel truncates the value, so the upper reserved bits are ignored as the rule requires; and the TLB compares the identifier against the stored VMID, which zero-extends the VMID, so the two bits between the widths take part. The fence unit alone shows rs2 assigned to an identifier whose width and use lie elsewhere, so the reserved bits look either fully forwarded or fully ignored; the decision comes out right only with all four files gathered from across the repository and read together. 
+
+## 3 Design 
+
+3.1 Overview 
+
+VSpector takes the RISC-V specification documents and the RTL repository of a CPU as the input and checks the CPU against the specifications. Figure 4 shows the workflow of VSpector, involving four stages. (a) Given a specification document, VSpector extracts from it the individual rules that must be implemented by the CPU. (b) For each rule, VSpector leverages the LLM to understand it and searches for the corresponding code snippets as the seeds, which then act as the slicing criteria for extracting the correlated implementation logic to form the code context of the rule. (c) With the rule and its code context, the LLM judges whether the rule may be violated. If it needs more code context to make the decision, sub-agents are launched to perform the code retrieval and enlarge the code context. (d) The candidate violations are passed to an additional audit against the full specification and the code repository, to eliminate the false warnings. The remaining are reported as the final violations. 
+
+3.2 Rule Extraction 
+
+A rule is a statement in the RISC-V specifications of the correct behavior of a CPU. For example, a rule can indicate how an instruction behaves when executed in a particular 
+
+> 4VSpector: Specification-Driven Bug Detection for RISC-V CPUs
+
+Extraction prompt (summary)                                              
+
+> 1. Extract every rule in the section that a CPU should obey. 2. Give each rule an explicit subject and keep its conditions and values as written. 3. You also need to understand the table contents and extract the rele-vant rules.
+> (a) Specification text Unprivileged ISA, Sec. 26.14.4 ( cm.jt )
+> cm.jt reads an entry from the jump vector table in memory and jumps to the address that was read.
+> switch(XLEN) { 32: table_address[XLEN-1:0] = jvt.base + (index<<2); 64: table_address[XLEN-1:0] = jvt.base + (index<<3); }// fetch from the jump table; clear bit 0
+> pc = InstMemory[table_address][XLEN-1:0]&~0x1;
+> Extracted rule bug 13 After the selected table entry is fetched as an XLEN-bit instruction-memory value, cm.jt must set the jump target PC to that value with bit 0 cleared .
+> (b) Specification text Privileged ISA, Sec. 5.3.2 When rs2 ≠x0 , bits XLEN-1:VMIDMAX of the value held in rs2 are re-served for future standard use. Until their use is defined by a standard extension, they should be zeroed by software and ignored by current implementations. Furthermore, if VMIDLEN <VMIDMAX, the imple-mentation shall ignore bits VMIDMAX-1:VMIDLEN of the value held in rs2 .
+> Extracted rule bug 61 For HFENCE.GVMA , when the value in rs2 is not x0 , the implemen-tation must ignore bits XLEN-1:VMIDMAX of that value; and if VMIDLEN <VMIDMAX, the implementation must also ignore bits VMIDMAX-1:VMIDLEN of that value.
+> (c) Specification text Privileged ISA, Ch. 11 (instruction listings) 31–25 24–20 19–15 14–12 11–7 6–0
+> 0110001 rs2 rs1 000 00000 1110011 HFENCE.GVMA
+> Extracted rule bug 41 The HFENCE.GVMA instruction must be encoded with bits [31:25]= 0110001 , [24:20]= rs2 , [19:15]= rs1 , [14:12]= 000 , [11:7]= 00000 ,[6:0]= 1110011 .
+
+Figure 5. The extraction prompt (top) and three pieces of specification text with the rule extracted from each: (a) pseu-docode, (b) a sentence that does not name its instruction, (c) a row of an encoding table. The bug index beside each rule corresponds to the row of Table 8 of the bug it surfaced. CPU state, what value a CSR takes on reset and how it is updated, or which exception is raised in a given situation. To cover as many of these rules as possible, VSpector does not rely on keywords such as must , shall and if . Instead, it splits each document at the section headings and feeds the LLM with the sections one by one. The LLM extracts the rules from each given section. The simplified prompt is shown at the top of Figure 5, which asks the LLM to extract what a CPU should obey, which may be described by an indi-vidual statement, continuous statements with tight semantic connections, a snippet of sample code and/or a table for the register bit setting. Finally, the LLM returns the rules found in the section as a list. Figure 5 shows three example rules extracted from the text of different forms. In (a), the behavior of cm.jt is given as a piece of pseudocode, and the rule is depicted in its last line: the jump target has bit 0 cleared. In (b), a sentence on the reserved bits of rs2 is worded as a rule but does not name its instruction. The LLM supplies HFENCE.GVMA from the section it appears in, and the rule becomes self-contained (this is the rule behind Figure 3). In (c), the encoding of HFENCE.GVMA is a row of a table, and the rule lists its fixed bits and operand fields. Each of the three rules surfaced a bug in Table 8 of Appendix A. 
+
+3.3 Implementation Localization 
+
+The code that implements one rule is only a small part in a large CPU repository. VSpector extracts the corresponding code snippet as the code context of the rule in two steps. First, it understands the rule and searches from the repos-itory for the core code snippets that are directly correspond-ing to the rule description. These snippets are called the 
+
+seeds . The seeds usually explicitly implement what the rule specifies, perform condition checks the rule requires, or as-sign the register or the field the rule concerns. From the rule, the LLM generates the patterns for a grep-based search and judges whether each hit is actually correlated to the rule and should be kept as a seed. However, searching for the seeds may not be completed within one round: the specification and the code sometimes name the same entity differently, a rule may involve several entities, and a seed may have to be traced back to the signals it depends on. We therefore de-sign a ReAct-style agent [37]. In each round, the LLM builds the query based on what it collects and searches the code repository, until it considers that the seeds have covered the key implementation of the rule. For example, the rule behind bug 55 in Table 8 requires that when an interrupt wakes a hart from WFI , the hart takes the interrupt before it exe-cutes the next instruction. The first round searched for the words of the rule: InterruptEvent returned nothing, and 
+
+wfi returned 196 hits in 41 files, four of them related to the rule. From these the LLM learned the names the design uses, 
+
+hasWFI for the sleeping hart and wfiEvent for the wake-up signal from the CSR unit, and the second round searched for them; its results showed a second signal from the CSR unit to the ROB, intrBitSet , the interrupt request. The third round searched for it and found the seed that decides the case: the ROB takes an interrupt only through intrEnable ,which requires the instruction at its head to be interruptible (Figure 6, orange). The initial searches using terms from the rule did not retrieve these lines. 
+
+> 5
+
+Jia et al. Rule Privileged ISA, Sec. 3.3.3 — XiangShan #55 If WFI stalls the hart and an enabled interrupt is present when WFI is executed or becomes present while the hart is stalled, the hart must take the interrupt trap on the instruction immediately following WFI , with mepc equal to pc+4 of the WFI          
+
+> instruction.
+> Rob.scala
+> 500 1000 1500 1,708 lines slice: 227
+> Seed: wake-up 420–423, round 1: grep wfi when(RegNext(RegNext(io.csr.wfiEvent)) || io.flushOut.valid || wfi_timeout) { hasWFI := false.B }
+> Seed: trap gate 575–576, round 3 ( intrBitSet )
+> val intrBitSetReg = RegNext(io.csr.intrBitSet) val intrEnable = intrBitSetReg && !hasWaitForward && deqPtrEntry. interrupt_safe && !deqHasFlushed
+> interrupt_safe driver 1137–1153, only assignment
+> val allow_interrupts =
+> !CommitType.isLoadStore(commitType) && !FuType.isFence(fuType) && ...
+> robEntries(..). interrupt_safe := allow_interrupts
+> False for a load/store, fence...such an instruction right after the WFI commits before the trap is taken.
+
+Figure 6. Implementation localization for the rule behind bug 55 in Table 8: the seeds (orange), the other blocks the file slice kept (blue), and among them the code that decides which instructions are interruptible (red). The strip on the left is the file drawn to scale. Second, the seeds are taken as the slicing criteria for ex-tracting the code context. In practice, a seed by itself rarely suffices for the decision. Deciding whether the seed imple-ments the rule correctly also requires the code related to it: where the signals it uses are set, where the value it pro-duces is used, and the conditions under which it takes effect. VSpector slices the seed’s file to collect such code. A file may run to thousands of lines, most of them about other parts of the design, and the relevant lines are easily lost in such an input [17]. VSpector therefore uses LLM-based slic-ing [6, 26], with one model call per file that holds a seed. The model reads the whole file, the rule and the seeds in the file, and is asked to extract only the code related to the seeds, filter out the unrelated code and return the blocks needed to make a decision. In the example, the seeds show that waking up and taking the interrupt are separate paths: the wake-up only lets the hart resume, and the interrupt waits for intrEnable , which requires an interruptible head instruction. Which instruc-tions are interruptible, the seeds do not say. The file slice kept ten blocks, 227 lines, of the 1,708-line Rob.scala (blue), among them the code that decides it (red): loads, stores, fences, CSR accesses and atomics are never interruptible, since, as its comment explains, a memory access may al-ready have reached a device. If a load follows the WFI , the woken hart therefore completes the load before it takes the interrupt: an instruction that should wait for the handler has executed, and the rule is violated. 
+
+3.4 Candidate Identification 
+
+The code context of a rule is confined to the files that hold its seeds, but whether the rule holds sometimes depends on code elsewhere in the repository. VSpector therefore makes candidate identification retrieval-driven. Given the rule and the code context, the LLM may return one of three decisions: 
+
+violation , no violation , or not enough code . A decision of not enough code must list the questions blocking the decision, each asking for code that is absent from the context and can be found by searching the repository. Code context after localization: selected lines 
+
+// .../backend/fu/Fence.scala 
+
+sfence.bits.id := RegEnable( io.in.bits.data.src(1), io.in.fire) 
+
+// .../cache/mmu/MMUBundle.scala 
+
+val vmid = if (HasHExtension) Some(UInt(vmidLen.W)) else None 
+
+// .../cache/mmu/TLBStorage.scala 
+
+entries(i).vmid === sfence.bits.id 
+
+↓ decide on the code context 
+
+Decision 1: not enough code 
+
+The identifier reaches the comparison unmasked; whether a reserved bit of rs2 survives into it depends on two questions outside the context. 
+
+Q1 : Width of sfence.bits.id ; is rs2 masked before the write? 
+
+Q2 : Values of vmidLen , VMIDLEN , VMIDMAX .
+
+↓ sub-agents return code locations 
+
+Code read for Q1 
+
+// Bundle.scala:600 
+
++ val id = UInt((AsidLength).W) 
+
+// Parameters.scala:81 
+
++ AsidLength: Int = 16, 
+
+Code read for Q2 
+
+// NewCSR.scala:34-36 
+
++ final val VMIDLEN = 14 + final val VMIDMAX = 14 
+
+// Parameters.scala:253 
+
++ MMUVmidLen: Int = 14, 
+
+↓ decide on the enlarged context 
+
+Decision 2: violation 
+
+The identifier is 16 bits and the stored VMID 14, so bits 15:14 of rs2 
+
+take part in the match: rs2 = 0x8123 must flush VMID 0x123 , but 
+
+0x8123 ≠ 0x0123 and the entry stays. 
+
+Figure 7. Candidate identification for the rule of Figure 3, in one run of VSpector: its code context after localization (top), the first decision with its two questions (Q1, Q2), one retrieval sub-agent per question, the lines read back from the repository at the locations they returned (marked +), and the second decision. Each question is assigned to its own ReAct-style retrieval sub-agent, so that each search is responsible for one ques-tion. The sub-agent searches the repository with grep , glob ,and read until it judges that it has found the answer, then 
+
+6VSpector: Specification-Driven Bug Detection for RISC-V CPUs 
+
+summarizes from what it has read the code facts that answer the question. To avoid the errors an LLM introduces when it copies code, the sub-agent reports each fact as the location of the code (a file and a line range), and VSpector reads the lines at that location from the repository into the context. The LLM then decides again on the enlarged context. This repeats until the LLM decides violation or no violation, or the number of retrieval rounds reaches its limit. A decision of no violation ends the check of the rule. A decision of violation must explain how the code violates the rule, citing the lines involved; the rule, this analysis, and the code context form a 
+
+candidate violation , which enters the violation audit. Figure 7 shows this stage on the rule of Figure 3. After localization, the code context held the path from rs2 to the fence identifier and on to the VMID comparison in the TLB and page-table cache. Nothing on that path masks the identi-fier, but its width is declared in a file outside the context; had it been as wide as the VMID, the reserved bits would have been discarded and the rule satisfied. The first decision was therefore not enough code, with two questions: the width of the identifier and whether rs2 is masked before the write (Q1), and the width of the stored VMID and the values of VMIDLEN and VMIDMAX named in the rule (Q2). The two sub-agents located the answers in the bundle declaration, the parameter file, and the CSR constants: the identifier is 16 bits wide, the VMID 14. On the enlarged context, the LLM decided violation and correctly identified its root cause. 
+
+3.5 Violation Audit 
+
+To keep the reported violations precise and trustworthy, VSpector re-examines every candidate violation before re-porting it. A candidate rests on two judgments by the LLM, its understanding of the rule and its understanding of the code, and each is open to a characteristic error. On the rule side, a rule read out of the context of the full specifications may be understood only partially: a provision elsewhere may state an exception for the very behavior the candidate con-cerns, and the LLM may also have misread the rule itself. On the code side, the LLM may have misread the code, or the sit-uation the analysis describes may never arise in this design. The violation audit therefore checks the two judgments in two reviews: a specification-side review over all candidates, followed by a code-side review over the candidates it upholds. Both reviews receive the rule, the code context, and the analysis from candidate identification of how the RTL vio-lates the rule. Like seed search and the retrieval sub-agents, each review is a ReAct-style agent [37] with tools such as 
+
+grep and read over its own source, the full specification corpus for one and the full repository for the other, and it searches that source to determine whether the reported violation holds. 
+
+Specification-side review. The LLM places the candidate back in the context of the full specifications, forms a com-plete understanding of what they require of the behavior in question, and decides whether that behavior still constitutes a violation. The LLM typically searches the specification corpus on its own initiative, using the rule’s own text and the registers, fields, instructions, and modes named in the analysis as leads, and reads the passages they lead to; such a passage may state an exception for the behavior, or show that the specifications leave it to the implementation. A candidate the specifications uphold passes to the code-side review. For example, the Privileged ISA [32] states that a trap taken in M-mode while mnstatus.NMIE is zero puts the hart into a critical-error state, in which it stops and asserts a critical-error signal to the platform. Identification observed that XiangShan asserts this signal only while dcsr.cetrig 
+
+is zero: with cetrig set, the hart enters the critical-error state but the signal stays low, and identification reported a violation. Searching the corpus for cetrig , the review found the deciding passage in the Debug Specification [19], in the field table of dcsr : when cetrig is set, a hart in a critical-error state enters Debug Mode instead of asserting the signal. The Privileged ISA refers to this alternative in its chapter on the Smdbltrp extension and leaves its definition to the Debug Specification. XiangShan enters Debug Mode in this case, and the review rejected the candidate. 
+
+Code-side review. This review takes the rule as given and independently verifies the analysis behind the candidate: whether the reported violation actually occurs in this core, whether it is observable, and whether the combination of extensions and configuration it relies on exists in this design. The review checks the analysis’s reading of the cited code, verifies that the situation the analysis describes can arise, and confirms whether the deviation reaches architecturally observable state, a register, memory, a trap, or an output of the core. A candidate whose violation verdict stands is reported as a violation. For example, a cache-block prefetch instruction is a hint: the CMO extension requires that it never raise an exception, and in particular that address translation for it neither check nor set the accessed and dirty bits of the page-table entry. Identification observed that the TLB of XiangShan applies its ordinary permission check to a prefetch and flags a page fault when the entry lacks the accessed or dirty bit, and it reported a violation. The review followed the flagged fault through the load pipeline: the pipeline clears every exception of a prefetch before the instruction commits, so the fault never becomes a trap. The review rejected the candidate. 
+
+## 4 Evaluation 
+
+Our evaluation answers four questions: 
+
+• RQ1 (Effectiveness). Does VSpector find real, previ-ously unknown specification violations in real RISC-V 
+
+> 7Jia et al.
+
+Table 1. Audited CPUs. Lines of RTL counts the HDL sources in the tree given to VSpector : core/ of CVA6 and 
+
+src/main/scala/ of XiangShan (Kunminghu V2).            
+
+> CVA6 XiangShan
+> HDL SystemVerilog Chisel Microarchitecture in-order out-of-order Audited commit b4d678f12 2e148b41d
+> Commit date 2026-01-09 2026-03-16 Lines of RTL ∼91,000 ∼122,000
+
+CPUs, and what fraction of the candidates that survive its audit are true violations? 
+
+• RQ2 (Comparison with fuzzing). Does CPU fuzzing find the bugs that VSpector finds? 
+
+• RQ3 (Component contribution). How much do the violation audit and rule-level checking contribute to the results? 
+
+• RQ4 (Cost). What does a campaign cost in model usage and time? 
+
+4.1 Experimental Setup 
+
+We run VSpector on two open-source RISC-V CPUs against four specification documents. We call one run of VSpector on one CPU against one document a campaign ; there are six campaigns in total. 
+
+Audited CPUs. Table 1 lists the two CPUs. CVA6 [40] is an application-class in-order CPU written in SystemVerilog; XiangShan [35] is a high-performance out-of-order CPU written in Chisel. Both are actively maintained, and they differ in HDL and microarchitecture, so together they test VSpector on different kinds of RTL. We audit the source of each CPU at the commit listed in the table. 
+
+Specification corpus. We audit four documents pub-lished by RISC-V International: Volume I (Unprivileged Architecture) and Volume II (Privileged Architecture) of the RISC-V Instruction Set Manual, the RISC-V Advanced Interrupt Architecture (AIA), and the RISC-V Debug Speci-fication. Table 2 gives the size of each document, the rules VSpector extracts from it, and how many of them are in scope for each CPU. 
+
+Audit scope. A CPU cannot violate a rule about a feature it does not implement. For each CPU, we therefore determine the ISA extensions it implements from its documentation and configuration files, and audit only the sections that de-fine these extensions (Appendix B). The scope contains 410 sections with 2,400 rules for CVA6 and 580 sections with 3,285 rules for XiangShan (Table 2). 
+
+Implementation. VSpector is implemented in Python with LangGraph [16]. Rules are checked in parallel, and so are 
+
+Table 2. Specification documents, extracted rules, and rules in scope for each CPU. AIA : Advanced Interrupt Architecture; 
+
+Debug : Debug Specification; XS : XiangShan.                               
+
+> In scope Document Words Sec. Rules CVA6 XS
+> Unprivileged ISA 146,476 664 2,715 1,212 1,310 Privileged ISA 79,789 244 1,758 1,188 1,431 AIA 37,998 103 540 –187 Debug 32,013 131 785 –357 Total 296,276 1,142 5,798 2,400 3,285
+
+the candidates within each review. Model calls use DeepSeek-V4-Flash [9] (0731 release) in thinking mode with default sampling parameters; the reasoning effort is max , except for the file slice, which uses high . The documents are converted from PDF to Markdown with GLM-OCR [42]. 
+
+Manual inspection and bug reports. We inspect every candidate that survives the audit and label it a true violation 
+
+or a false positive . A candidate is a true violation if the RTL contradicts the rule and the contradicting behavior can occur in a project-supported configuration. (Two authors label each candidate independently and resolve disagreements by discussion.) Candidates that share one root cause are merged into one bug , and we file one report per bug with the developers. 
+
+4.2 RQ1: Effectiveness 
+
+Table 3 summarizes the six campaigns. VSpector checked 5,685 rules in total. Identification produced 1,083 candidate violations; 217 of them survived the audit. Manual inspection labeled 148 of the 217 audited candidates as true violations, a precision of 68.2%. 
+
+From true violations to bugs. The 148 true violations correspond to 73 distinct bugs, listed in Table 8, Appendix A. 
+
+Kinds of new bugs. The 42 new bugs come from all four documents. In six, the CPU accepts an encoding that must raise an illegal-instruction exception, because the encoding is reserved or defined only for the other base ISA width. In six, a legal instruction produces a wrong result or state update. In eight, a CSR field has a wrong reset value, a wrong set of legal values, or a wrong update on a write or a trap return; for example, MRET in CVA6 restores the virtualization mode V
+
+from mstatus.MPV even when it returns to M-mode, where 
+
+V must be 0. In eight, the CPU takes the wrong trap, takes it late, or loses an interrupt. Seven are in address translation, permission checks, and fences, and seven are in the debug extension, from trigger matching to the halt sequence out of reset. 
+
+> 8VSpector: Specification-Driven Bug Detection for RISC-V CPUs
+
+Table 3. Results of the six campaigns. Cand. : candidate violations from identification. Audited : candidates that survived the audit. True : audited candidates labeled true violations by manual inspection. Prec. : True/Audited. Bugs : distinct bugs after merging candidates with one root cause, split into New (first reported by us) and Dup (reported earlier by others, or already fixed upstream). A bug found by two campaigns appears in both rows and is counted once in the total.                                                                 
+
+> Bugs Campaign Rules Cand. Audited True Prec. (%) All New Dup
+> CVA6, Unprivileged ISA 1,212 215 48 36 75.0 16 12 4CVA6, Privileged ISA 1,188 289 104 76 73.1 35 15 20 XiangShan, Unprivileged ISA 1,310 136 10 440.0 312XiangShan, Privileged ISA 1,431 300 38 19 50.0 14 95XiangShan, Adv. Interrupt Arch. 187 48 33100.0 321XiangShan, Debug Specification 357 95 14 10 71.4 761Total 5,685 1,083 217 148 68.2 73 42 31
+
+False positives. Of the 69 audited candidates that manual inspection rejected, 24 read the specification too strictly: the rule has a condition or a more permissive reading elsewhere in the corpus, such as the permission to implement time by trapping and emulating. Thirty are wrong about the RTL: the candidate misreads the code it cites, or the deviation it describes cannot arise or be observed in this core; one, for instance, reports that CVA6 reads the CSR on a CSRRW with 
+
+rd =x0 , which the ISA forbids, but the read has no side effect and its result is discarded, so software cannot tell. Fifteen hold for the source but do not occur in practice: 14 depend on parameter combinations unsupported by the audited im-plementation, such as RV32 with the hypervisor extension in CVA6, and one on a state the software stack never produces (an execute trigger armed while the hart single-steps, which the standard debugger rules out). The audit removes 866 of the 1,083 candidates (Section 4.4); in the 69 false positives it keeps, the specification-side and the code-side review read the specification or the RTL the same way the detector did. 
+
+Answer to RQ1. VSpector found 73 bugs in two RISC-V CPUs, 42 previously unknown, and 68.2% of the candidates that survive its audit are true violations. 
+
+4.3 RQ2: Comparison with CPU Fuzzing 
+
+Protocol. We ran DiveFuzz with its default generation configuration for 24 hours per CPU on the commits of Table 1, using the co-simulation flow of each project to execute the programs and compare them against the reference model (Spike for CVA6, NEMU for XiangShan). The runs produced 320,384 programs for CVA6 and 41,984 for XiangShan. We examined every divergence, reading the two traces against the RTL, the reference model, and the specification, and matched the RTL bugs among them against Table 8. 
+
+Results. DiveFuzz found two of the 73 bugs and none of the 42 new ones (Table 4). ecall and ebreak write the instruction word into mtval (row 29), and the big-endian 
+
+Table 4. Bugs of Table 8 that 24 hours of DiveFuzz found on the audited commits, among the 42 new bugs ( New ) and all 73 bugs ( All ).             
+
+> CPU Programs New All
+> CVA6 320,384 02XiangShan 41,984 00Total 362,368 0 / 42 2 / 73
+
+control bits of mstatus and hstatus are writable although the CPU has no big-endian data path (row 19). DiveFuzz also found four bugs that VSpector did not report, all of them already reported upstream. 
+
+Answer to RQ2. DiveFuzz found none of VSpector’s 42 new bugs in 24 hours per CPU. 
+
+4.4 RQ3: Component Contribution 
+
+RQ3 measures the contribution of two design decisions: the violation audit (Section 3.5) and checking one rule at a time instead of a whole section (Section 3.2). 
+
+Violation audit. We ran each review independently on all 1,083 candidates and compared four configurations: no audit, the specification-side review alone, the code-side re-view alone, and the two reviews in sequence, which is the pipeline. Table 5 reports, for each configuration, the number of candidates it keeps and the precision among them. Only the candidates that the pipeline keeps were inspected (Sec-tion 4.1), so the precision of the other three configurations is a lower bound. The two reviews reject largely different candidates: of the 866 candidates that the pipeline rejects, only 416 are rejected by both reviews. Either review alone would leave 384 or 500 candidates to inspect, at a precision of 38.5% or 29.6%; the two in sequence leave 217 candidates at 68.2%, compared with 13.7% without the audit. 
+
+> 9Jia et al.
+
+Table 5. Contribution of the two reviews. For each audit configuration, the candidates it keeps ( Kept ) and the share of true violations among them ( Prec. , %; see text). Both is the pipeline. Unpriv , Priv , AIA , Debug : the four documents; XS :XiangShan.                                                                    
+
+> No audit Spec. only Code only Both Campaign Kept Prec. Kept Prec. Kept Prec. Kept Prec. CVA6 Unpriv 215 16.7 92 39.1 101 35.6 48 75.0 CVA6 Priv 289 26.3 142 53.5 179 42.5 104 73.1 XS Unpriv 136 2.9 29 13.8 39 10.3 10 40.0 XS Priv 300 6.3 79 24.1 136 14.0 38 50.0 XS AIA 48 6.3 14 21.4 12 25.0 3100.0 XS Debug 95 10.5 28 35.7 33 30.3 14 71.4 Total 1,083 13.7 384 38.5 500 29.6 217 68.2
+
+Rule-level checking. The whole-section variant treats an entire specification section as one rule: localization, identifi-cation, and the audit run unchanged, with the same model, prompts, and tools, but on the section instead of one of its rules. This variant corresponds to applying the LLM to the specification text directly. We ran it on the 94 sections that contain a rule behind one of the 73 bugs of Section 4.2; these sections contain 1,138 rules. Because the sections were selected from the bugs that rule-level checking found, rule-level checking finds all 73 bugs on them, and Table 6 reports how many of them the variant finds. The variant produced 71 candidates, of which 57 survived the audit. Of these 57, 52 are true violations, and they cover 34 of the 73 bugs, a recall of 46.6%. 
+
+Answer to RQ3. The audit reduces the candidates to inspect from 1,083 to 217 and raises precision from 13.7% to 68.2%. Checking one rule at a time finds 39 bugs that whole-section checking misses. 
+
+4.5 RQ4: Cost 
+
+Table 7 reports the model usage, time, and cost of each cam-paign; Appendix C further breaks these figures down by step. Costs are computed from the provider’s list prices at the time of the runs (all runs fell in the provider’s off-peak hours): $0.007 per million input tokens served from the prompt cache, $0.22 per million other input tokens, and $0.66 per million output tokens, which include the model’s reasoning tokens. 
+
+Cost and time per campaign. The six campaigns cost $909 in total, or about $0.16 per checked rule. Individual campaigns cost between $29 for XiangShan AIA and $229 for XiangShan Privileged ISA, largely reflecting the num-ber and complexity of rules in each specification. Across all campaigns, VSpector makes 66,448 model calls for lo-calization and identification, processing 708.3 million input tokens and 1,213.2 million output tokens. A rule takes 20.5 minutes on average from seed search to its final decision, with the per-campaign average ranging from 19.1 to 23.2 minutes. Most of the cost comes from localization and iden-tification, which together account for $870, or 95.7% of the total cost. In comparison, the violation audit processes 1,083 candidate violations with 14,220 additional model calls and costs only $39 in total, about 4.3% of the overall budget. Thus, although the audit substantially filters candidate violations before manual inspection, it adds relatively little monetary cost compared with locating and reasoning about the RTL implementation of each specification rule. 
+
+Answer to RQ4. One campaign costs at most $230, and a rule takes about 20 minutes. Localization and identification dominate the cost; the audit adds 4%. 
+
+4.6 Limitations 
+
+Our results are subject to the following limitations. We can measure precision but not recall: the number of specification violations in either CPU is unknown, and RQ3 measures the rule-level design only against the bugs the pipeline it-self found. Identification and both reviews run on the same model, so a reading the detector gets wrong can be repeated by the reviewer. 
+
+## 5 Related Work 
+
+CPU fuzzing. CPU fuzzers run generated programs on the RTL and a reference model and report architectural di-vergences (Section 2.1). They differ in test generation and guidance: coverage feedback [5, 13, 15], runtime instruction rewriting [34], richer instruction mixes and dependences [10, 27, 41], data-sensitive operands and state-transition feed-back [39], or generative models trained on hardware feed-back [33]. Nevertheless, detection requires both a program that triggers the bug and a reference model that implements the relevant behavior correctly. Bugs may be missed because of limited input generation or incomplete reference-model behavior. Encarsia [4] further shows that current fuzzers miss many injected bugs even when they are visible in ar-chitectural state. In contrast, VSpector derives correctness directly from the RISC-V specifications, requiring neither a reference model nor a triggering program. 
+
+Formal verification and static analysis. Formal veri-fication proves that a CPU satisfies a property written for the checker, whether on single instructions [38] or on con-formance to an ISA-level model [24]. Static analysis tools can check RTL against predefined bug patterns, such as CWE weaknesses [2], missing resets, unreachable states of a finite-state machine, or a bit-width mismatch that truncates a value [2, 7]; ChiSA [8] checks the assertions that develop-ers write into Chisel code. These generic patterns often do not encode specification-specific semantics, limiting their ability to directly detect specification violations beyond their predefined scope. These approaches rely on predefined prop-erties or bug patterns; VSpector checks RTL directly against 
+
+> 10 VSpector: Specification-Driven Bug Detection for RISC-V CPUs
+
+Table 6. Whole-section against rule-level checking, on the 94 sections that contain a rule behind a bug of Table 3. Sections ,
+
+Rules : the sections given to the variant and the rules they contain. Bugs : bugs that rule-level checking found in these sections; a bug found by two campaigns is counted in one row. Cand. : candidates the variant produced. Audited : candidates that survived the audit, split by manual inspection into true violations ( True ) and false positives ( False ). Found : bugs covered by an audited candidate labeled a true violation. Recall : Found over Bugs.                                                                         
+
+> Campaign Sections Rules Bugs Cand. Audited True False Found Recall (%)
+> CVA6, Unprivileged ISA 24 184 15 19 18 16 2960.0 CVA6, Privileged ISA 41 626 33 32 25 23 216 48.5 XiangShan, Unprivileged ISA 424 33220133.3 XiangShan, Privileged ISA 16 178 12 10 871433.3 XiangShan, Adv. Interrupt Arch. 316 33220266.7 XiangShan, Debug Specification 6110 74220228.6 Total 94 1,138 73 71 57 52 534 46.6
+
+Table 7. Cost of the six campaigns: Localization + identification over all rules of a campaign, Audit over both reviews. Tokens in millions, input | output, output including reasoning. Per rule : mean time from seed search to final decision. Rule extraction ($7.9 in total) is excluded.                                                                              
+
+> Localization + identification Audit Campaign Rules Calls Tokens (M)
+> in | out
+> Per rule (min) Cost ($) Cand. Calls Tokens (M)
+> in | out
+> Cost ($)
+> Total ($)
+> CVA6, Unprivileged ISA 1,212 11,808 132.8 | 263.3 20.5 186.5 215 2,971 47.0 | 10.6 8.4 194.9 CVA6, Privileged ISA 1,188 11,378 141.8 | 225.0 19.2 160.5 289 4,439 71.8 | 15.3 12.6 173.1 XiangShan, Unprivileged ISA 1,310 18,806 191.1 | 308.9 23.2 223.0 136 1,426 24.8 | 4.7 4.0 227.0 XiangShan, Privileged ISA 1,431 18,315 185.7 | 304.8 19.6 220.3 300 3,506 57.8 | 10.5 9.0 229.3 XiangShan, Adv. Interrupt Arch. 187 2,153 20.0 | 37.9 20.3 27.1 48 611 11.2 | 2.4 1.9 29.0 XiangShan, Debug Specification 357 3,988 36.9 | 73.4 19.1 52.6 95 1,267 21.8 | 3.7 3.2 55.7 Total 5,685 66,448 708.3 | 1,213.2 20.5 870.0 1,083 14,220 234.2 | 47.0 39.0 909.1
+
+the RISC-V specifications without requiring such separately constructed artifacts. 
+
+LLMs for hardware design and verification. LLMs write Verilog from natural-language descriptions [28] and fix its syntax errors from compiler feedback [30]. In ver-ification, AssertLLM [36] turns a design document into SystemVerilog assertions for a model checker, UVLLM [12] generates UVM tests and repairs the design from simulation failures, FLAG [1] flags likely-buggy lines in RTL without running a test, and VerilogLAVD [18] uses an LLM to write bug detection patterns that a fixed engine runs over Verilog. In these works the LLM starts from a design document, the CWE list, or the code of one module. VSpector starts from the RISC-V specifications and CPU repository: the LLM reads a rule and the code that implements it, built up step by step from the repository, and decides whether the code violates the rule. 
+
+## 6 Discussion 
+
+Limitations of reference-model-based differential test-ing. XiangShan uses NEMU [22] as its reference model. NEMU is the RISC-V ISA simulator maintained by the Xi-angShan team; DiffTest [21], the differential testing frame-work of XiangShan, compares the architectural state of the RTL against it after every committed instruction, and Dive-Fuzz used it as the oracle for XiangShan in Section 4.3. We checked each of the 25 XiangShan bugs of Table 8 (rows 49– 73) against the NEMU source. The bugs fall into three groups. First, nine bugs were also present in NEMU when we iden-tified the corresponding bugs in XiangShan: a misaligned access to a non-idempotent region raises address-misaligned instead of access-fault, HLVX checks only read permission at the PMP/PMA stage, and address triggers compare the address before pointer masking. In these cases, both the RTL and the reference model exhibited the same incorrect behav-ior, leaving no discrepancy for differential testing to detect. Second, seven bugs concern behavior that NEMU simpli-fies away: NEMU implements the Sdtrig triggers but has no Debug Module and no Debug Mode ( dmode is hardwired 
+
+> 11
+
+Jia et al. 
+
+to zero, and no trigger action can enter Debug Mode), its performance counters are read-only zero and mip.LCOFIP is copied from the RTL (Figure 2), an interrupt is injected only when the RTL commits one and with the number the RTL chose, and WFI is a no-op. These behaviors are never com-pared. Third, for the remaining nine bugs, NEMU follows the specification, so differential testing can detect them in prin-ciple, but triggering them still requires carefully constructed programs. By checking RTL directly against the RISC-V spec-ifications, VSpector identifies violations without relying on separately constructed reference models, formal properties, or bug patterns, and without requiring triggering programs. 
+
+## 7 Conclusion 
+
+This paper presents VSpector, which checks CPU RTL di-rectly against the RISC-V specifications without relying on reference models, manually written properties, or predefined bug patterns. VSpector extracts specification rules, locates their RTL implementations, identifies potential violations with on-demand context retrieval, and audits candidates be-fore reporting them. On CVA6 and XiangShan, VSpector reported 217 candidates with 68.2% precision, corresponding to 73 distinct bugs, including 42 previously unknown bugs; developers have fixed 19 and confirmed 11 more. 
+
+## References 
+
+[1] Baleegh Ahmad, Joey Ah-kiow, Benjamin Tan, Ramesh Karri, and Hammond Pearce. 2025. FLAG: Finding Line Anomalies (in RTL Code) with Generative AI. ACM Transactions on Design Automation of Electronic Systems 30, 6 (2025), 103:1–103:30. https://doi.org/10.1145/ 3736411 
+
+[2] Baleegh Ahmad, Wei-Kai Liu, Luca Collini, Hammond Pearce, Jason M. Fung, Jonathan Valamehr, Mohammad Bidmeshki, Piotr Sapiecha, Steve Brown, Krishnendu Chakrabarty, Ramesh Karri, and Benjamin Tan. 2022. Don’t CWEAT It: Toward CWE Analysis Techniques in Early Stages of Hardware Design. In IEEE/ACM International Confer-ence on Computer-Aided Design . 1–9. https://doi.org/10.1145/3508352. 3549369 
+
+[3] Jonathan Bachrach, Huy Vo, Brian Richards, Yunsup Lee, Andrew Waterman, Rimas Avižienis, John Wawrzynek, and Krste Asanović. 2012. Chisel: Constructing Hardware in a Scala Embedded Language. In 49th ACM/EDAC/IEEE Design Automation Conference . 1216–1225. 
+
+https://doi.org/10.1145/2228360.2228584 
+
+[4] Matej Bölcskei, Flavien Solt, Katharina Ceesay-Seitz, and Kaveh Razavi. 2025. Encarsia: Evaluating CPU Fuzzers via Automatic Bug Injection. In 34th USENIX Security Symposium . 2577–2593. https://www.usenix. org/conference/usenixsecurity25/presentation/bolcskei 
+
+[5] Sadullah Canakci, Chathura Rajapaksha, Leila Delshadtehrani, Anoop Mysore Nataraja, Michael Bedford Taylor, Manuel Egele, and Ajay Joshi. 2023. ProcessorFuzz: Processor Fuzzing with Control and Status Registers Guidance. In IEEE International Symposium on Hardware Oriented Security and Trust . 1–12. https://doi.org/10.1109/ HOST55118.2023.10133714 
+
+[6] Jianming Chang, Jieke Shi, Yunbo Lyu, Xin Zhou, Lulu Wang, Zhou Yang, Bixin Li, and David Lo. 2025. SliceMate: Accurate and Scalable Static Program Slicing via LLM-Powered Agents. arXiv:2507.18957 [7] Qinlin Chen, Nairen Zhang, Jinpeng Wang, Jiacai Cui, Tian Tan, Xiaoxing Ma, Chang Xu, Jian Lu, and Yue Li. 2026. Exploiting Sophisticated Static Analysis for Verilog. Proceedings of the ACM on Programming Languages 10, PLDI, Article 222 (2026), 29 pages. 
+
+https://doi.org/10.1145/3808300 
+
+[8] Jiacai Cui, Qinlin Chen, Zhongsheng Zhan, Tian Tan, and Yue Li. 2026. ChiSA: Static Analysis for Lightweight Chisel Verification. Proceedings of the ACM on Programming Languages 10, POPL, Article 18 (2026), 33 pages. https://doi.org/10.1145/3776660 
+
+[9] DeepSeek-AI. 2026. DeepSeek-V4-Flash. https://huggingface.co/ deepseek-ai/DeepSeek-V4-Flash .[10] Zihui Guo, Miaomiao Yuan, Yanqi Yang, Liwei Chen, Gang Shi, and Dan Meng. 2025. DiveFuzz: Enhancing CPU Fuzzing via Diverse Instruction Construction. In ACM SIGSAC Conference on Computer and Communications Security . 1964–1978. https://doi.org/10.1145/ 3719027.3765167 
+
+[11] John Hauser (Ed.). 2025. The RISC-V Advanced Interrupt Architecture, Version 1.0 . RISC-V International. https://github.com/riscv/riscv-aia/releases/tag/20250312 
+
+[12] Yuchen Hu, Junhao Ye, Ke Xu, Jialin Sun, Shiyue Zhang, Xinyao Jiao, Dingrong Pan, Jie Zhou, Ning Wang, Weiwei Shan, Xinwei Fang, Xi Wang, Nan Guan, and Zhe Jiang. 2025. UVLLM: An Automated Universal RTL Verification Framework using LLMs. In 62nd ACM/IEEE Design Automation Conference . 1–7. https://doi.org/10.1109/DAC63849. 2025.11435108 
+
+[13] Jaewon Hur, Suhwan Song, Dongup Kwon, Eunjin Baek, Jangwoo Kim, and Byoungyoung Lee. 2021. DifuzzRTL: Differential Fuzz Testing to Find CPU Bugs. In IEEE Symposium on Security and Privacy . 1286–1303. 
+
+https://doi.org/10.1109/SP40001.2021.00103 
+
+[14] IEEE 2024. IEEE Standard for SystemVerilog—Unified Hardware Design, Specification, and Verification Language . IEEE. https://doi.org/10.1109/ IEEESTD.2024.10458102 IEEE Std 1800-2023. [15] Rahul Kande, Addison Crump, Garrett Persyn, Patrick Jauernig, Ahmad-Reza Sadeghi, Aakash Tyagi, and Jeyavijayan Rajendran. 2022. TheHuzz: Instruction Fuzzing of Processors Using Golden-Reference Models for Finding Software-Exploitable Vulnerabilities. In 31st USENIX Security Symposium . 3219–3236. https://www.usenix. org/conference/usenixsecurity22/presentation/kande 
+
+[16] LangChain, Inc. 2026. LangGraph: Build Resilient Language Agents as Graphs. https://github.com/langchain-ai/langgraph .[17] Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the Mid-dle: How Language Models Use Long Contexts. Transactions of the Association for Computational Linguistics 12 (2024), 157–173. https: //doi.org/10.1162/tacl_a_00638 
+
+[18] Xiang Long, Yingjie Xia, Li Kuang, Yao Wan, and ZiHao Liu. 2026. VerilogLAVD: LLM-Aided Pattern Generation for Verilog CWE De-tection. In 64th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) . 28292–28308. https://doi.org/10. 18653/v1/2026.acl-long.1304 
+
+[19] Tim Newsome and Paul Donahue (Eds.). 2025. The RISC-V Debug Specification, Version 1.0 . RISC-V International. https://github.com/ riscv/riscv-debug-spec/releases/tag/1.0 
+
+[20] OpenHW Group. 2026. CVA6 RISC-V CPU. https://github.com/ openhwgroup/cva6 .[21] OpenXiangShan. 2026. DiffTest: Modern Co-simulation Framework for RISC-V CPUs. https://github.com/OpenXiangShan/difftest .[22] OpenXiangShan. 2026. NEMU: Super Fast RISC-V ISA Emulator for XiangShan Processor. https://github.com/OpenXiangShan/NEMU .[23] OpenXiangShan. 2026. XiangShan User Guide. https://github.com/ OpenXiangShan/XiangShan-User-Guide .[24] Alastair Reid, Rick Chen, Anastasios Deligiannis, David Gilday, David Hoyes, Will Keen, Ashan Pathirane, Owen Shepherd, Peter Vrabel, and Ali Zaidi. 2016. End-to-End Verification of Processors with ISA-Formal. In Computer Aided Verification . 42–58. https://doi.org/10.1007/978-3-319-41540-6_3 
+
+12 VSpector: Specification-Driven Bug Detection for RISC-V CPUs 
+
+[25] RISC-V Software Source. 2026. Spike, a RISC-V ISA Simulator. https: //github.com/riscv-software-src/riscv-isa-sim .[26] Kimya Khakzad Shahandashti, Mohammad Mahdi Mohajer, Alvine Boaye Belle, Song Wang, and Hadi Hemmati. 2025. Program Slicing in the Era of Large Language Models. In IEEE 49th Annual Computers, Software, and Applications Conference (COMPSAC) .1224–1233. https://doi.org/10.1109/COMPSAC65507.2025.00155 
+
+[27] Flavien Solt, Katharina Ceesay-Seitz, and Kaveh Razavi. 2024. Cas-cade: CPU Fuzzing via Intricate Program Generation. In 33rd USENIX Security Symposium . 5341–5358. https://www.usenix.org/conference/ usenixsecurity24/presentation/solt 
+
+[28] Shailja Thakur, Baleegh Ahmad, Hammond Pearce, Benjamin Tan, Brendan Dolan-Gavitt, Ramesh Karri, and Siddharth Garg. 2024. Veri-Gen: A Large Language Model for Verilog Code Generation. ACM Transactions on Design Automation of Electronic Systems 29, 3 (2024), 1–31. https://doi.org/10.1145/3643681 
+
+[29] Fabian Thomas, Eric García Arribas, Lorenz Hetterich, Daniel Weber, Lukas Gerlach, Ruiyi Zhang, and Michael Schwarz. 2025. RISCover: Automatic Discovery of User-exploitable Architectural Security Vul-nerabilities in Closed-Source RISC-V CPUs. In ACM SIGSAC Confer-ence on Computer and Communications Security . 3326–3340. https: //doi.org/10.1145/3719027.3765141 
+
+[30] Yunda Tsai, Mingjie Liu, and Haoxing Ren. 2024. RTLFixer: Auto-matically Fixing RTL Syntax Errors with Large Language Model. In 
+
+61st ACM/IEEE Design Automation Conference . 1–6. https://doi.org/10. 1145/3649329.3657353 
+
+[31] Andrew Waterman and Krste Asanović (Eds.). 2026. The RISC-V In-struction Set Manual, Volume I: Unprivileged Architecture . RISC-V International. https://github.com/riscv/riscv-isa-manual/releases 
+
+[32] Andrew Waterman and Krste Asanović (Eds.). 2026. The RISC-V In-struction Set Manual, Volume II: Privileged Architecture . RISC-V Inter-national. https://github.com/riscv/riscv-isa-manual/releases 
+
+[33] Lichao Wu, Mohamadreza Rostami, Huimin Li, Jeyavijayan Ra-jendran, and Ahmad-Reza Sadeghi. 2025. GenHuzz: An Efficient Generative Hardware Fuzzer. In 34th USENIX Security Symposium .1787–1805. https://www.usenix.org/conference/usenixsecurity25/ presentation/wu-lichao 
+
+[34] Jinyan Xu, Yiyuan Liu, Sirui He, Haoran Lin, Yajin Zhou, and Cong Wang. 2023. MorFuzz: Fuzzing Processor via Runtime Instruction Morphing enhanced Synchronizable Co-simulation. In 32nd USENIX Security Symposium . 1307–1324. https://www.usenix.org/conference/ usenixsecurity23/presentation/xu-jinyan 
+
+[35] Yinan Xu, Zihao Yu, Dan Tang, Guokai Chen, Lu Chen, Lingrui Gou, Yue Jin, Qianruo Li, Xin Li, Zuojun Li, Jiawei Lin, Tong Liu, Zhigang Liu, Jiazhan Tan, Huaqiang Wang, Huizhe Wang, Kaifan Wang, Chuanqi Zhang, Fawang Zhang, Linjuan Zhang, Zifei Zhang, Yangyang Zhao, Yaoyang Zhou, Yike Zhou, Jiangrui Zou, Ye Cai, Dan-dan Huan, Zusong Li, Jiye Zhao, Zihao Chen, Wei He, Qiyuan Quan, Xingwu Liu, Sa Wang, Kan Shi, Ninghui Sun, and Yungang Bao. 2022. Towards Developing High Performance RISC-V Processors Using Agile Methodology. In 55th IEEE/ACM International Symposium on Microar-chitecture (MICRO) . 1178–1199. https://doi.org/10.1109/MICRO56248. 2022.00080 
+
+[36] Zhiyuan Yan, Wenji Fang, Mengming Li, Min Li, Shang Liu, Zhiyao Xie, and Hongce Zhang. 2025. AssertLLM: Generating Hardware Verification Assertions from Design Specifications via Multi-LLMs. In 
+
+30th Asia and South Pacific Design Automation Conference . 614–621. 
+
+https://doi.org/10.1145/3658617.3697756 
+
+[37] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. 2023. ReAct: Synergizing Reasoning and Acting in Language Models. In International Conference on Learning Representations . https://openreview.net/forum?id=WE_vluYUL-X 
+
+[38] YosysHQ. 2017. riscv-formal: RISC-V Formal Verification Framework. 
+
+https://github.com/YosysHQ/riscv-formal .[39] Zehong Yu, Yuanliang Chen, Zhen Yan, Xudong Zhang, Zhensheng Xian, and Yu Jiang. 2026. DRVFuzz: Data-Sensitive RISC-V CPU Fuzzing. In 35th USENIX Security Symposium (USENIX Security 26) .USENIX Association, 2505–2521. [40] Florian Zaruba and Luca Benini. 2019. The Cost of Application-Class Processing: Energy and Performance Analysis of a Linux-Ready 1.7-GHz 64-Bit RISC-V Core in 22-nm FDSOI Technology. IEEE Transac-tions on Very Large Scale Integration Systems 27, 11 (2019), 2629–2640. 
+
+https://doi.org/10.1109/TVLSI.2019.2926114 
+
+[41] Xudong Zhang, Yuanliang Chen, Zehong Yu, Zhen Yan, Fuchen Ma, Dalong Shi, and Yu Jiang. 2026. RISCSmith: Finding RISC-V CPU Bugs via Rich Instruction Construction and On-the-fly Differential Analysis. In 63rd ACM/IEEE Design Automation Conference . 1–7. https: //doi.org/10.1145/3770743.3803916 
+
+[42] Zhipu AI. 2026. GLM-OCR: A Multimodal OCR Model for Complex Document Understanding. https://github.com/zai-org/GLM-OCR .13 Jia et al. 
+
+## A List of Bugs 
+
+Table 8 lists the 73 bugs summarized in Section 4.2. Each row is one distinct bug after merging candidates that share a cause; the section column gives the section of the rule that surfaced it, and when a bug surfaced through rules in several sections we list the most specific one. 
+
+Table 8. Bugs found by VSpector (73 bugs: 42 new, 31 duplicates). Spec. and Section : the specification document and the section from which the violated rule was extracted; Unpriv and Priv are Volumes I and II of the instruction set manual, AIA the Advanced Interrupt Architecture, Debug the Debug Specification. New : we were the first to report the bug; Dup : it had been reported by others before our manual review. Status as of 2026-09-09: Fixed , a fix has landed upstream; Confirmed , maintainers have accepted the report; Reported otherwise. For new bugs, Fixed and Confirmed are in bold. 
+
+# Core Spec. Section Description New/Dup Status 
+
+1 CVA6 Unpriv 7.2 On RV32, a U-mode read of hpmcounter3h returns zero because the address check uses >
+
+instead of ≥.Dup Reported 2 CVA6 Unpriv 13.2 SC in WAIT_AW_READY drops aw.lock ; memory is written while rd reports failure. New Fixed 
+
+3 CVA6 Unpriv 17.4.2.2 CBO instructions take ordinary store permission checks instead of CBO checks. New Reported 4 CVA6 Unpriv 17.5 Under H, the CBO permission check ignores V, so illegal- and virtual-instruction are decided wrongly. 
+
+New Confirmed 
+
+5 CVA6 Unpriv 18.7 RV32 with F/D accepts the RV64-only FCVT.L /FCVT.LU conversions instead of raising illegal-instruction. 
+
+New Fixed 
+
+6 CVA6 Unpriv 26.1 With Zcmp and floating point both enabled, Zcmp encodings are decoded as c.fsdsp . Dup Fixed 7 CVA6 Unpriv 26.13.3 The Zcmp macro decoder is not flushed on a trap, so expansion resumes from a stale intermediate state. Dup Confirmed 8 CVA6 Unpriv 26.13.6 The Zcmp macro decoder leaves IDLE without waiting for issue_ack , so the first expanded instruction can be lost. 
+
+New Confirmed 
+
+9 CVA6 Unpriv 26.13.7 RV64 Zcmp push/pop steps sp by four bytes, overlapping stack slots. New Reported 10 CVA6 Unpriv 26.13.9 Reserved Zcmp rlist values 0–3 are accepted instead of raising illegal-instruction; the expansion underflows sp and can hang. 
+
+New Fixed 
+
+11 CVA6 Unpriv 26.14 The JVT table index is truncated to six bits, so larger indices wrap. New Fixed 
+
+12 CVA6 Unpriv 26.14.2 The Zcmt JVT entry is fetched by a plain D-cache read, with no execute or PMA check and no way to raise a fetch fault. 
+
+New Reported 13 CVA6 Unpriv 26.14.5 cm.jt /cm.jalt leave bit 0 of the jump target set. New Fixed 
+
+14 CVA6 Unpriv 27.9.17 Bit-manipulation encodings with reserved fields are accepted instead of raising illegal-instruction. 
+
+New Fixed 
+
+15 CVA6 Unpriv 27.9.46 The decoder has no XLEN guard on Zbkb/Zknh encodings: RV64 accepts the RV32-only 
+
+zip /unzip and SHA-512 instructions, and RV32 the RV64-only ones. 
+
+New Fixed 
+
+16 CVA6 Priv 2.2.3 A VS-CSR write under V=1 raises virtual-instruction but still commits. New Reported 17 CVA6 Priv 3.1.6.3 SXL /UXL still read as 64 when S/U modes are not implemented. New Fixed 
+
+18 CVA6 Priv 3.1.6.4 Without H, MRET /SRET do not clear mstatus.MPRV . New Reported 19 CVA6 Priv 3.1.6.5 mstatus.MBE /SBE and hstatus.VSBE are writable, but no big-endian data path exists. Dup Reported 20 CVA6 Priv 3.1.6.5 Without S-mode, mstatus.SBE is writable and reads back nonzero instead of being read-only zero. Dup Reported 21 CVA6 Priv 3.1.6.7 mstatus.SD stays clear when vector state is dirty. New Reported 22 CVA6 Priv 3.1.6.7 fcvt does not set mstatus.FS to Dirty when it implicitly modifies fcsr . Dup Reported 23 CVA6 Priv 3.1.9 Instructions already decoded when a write to mie enables an interrupt retire before the interrupt is taken. Dup Reported 24 CVA6 Priv 3.1.9 The interrupt priority chain ignores mideleg , so a pending SEI masks a delegated supervisor timer interrupt. Dup Reported 25 CVA6 Priv 3.1.11 Under H, a VU-mode counter access with mcounteren =1, hcounteren =1 and scounteren =0 does not trap. Dup Reported 26 CVA6 Priv 3.1.14 Without C, writes to sepc /mepc /vsepc leave bit 1 set. New Fixed 
+
+27 CVA6 Priv 3.1.15 A misaligned LR raises store-address-misaligned instead of load-address-misaligned. Dup Reported 28 CVA6 Priv 3.1.15 When a page fault and a PMP denial coincide, an access-fault is reported instead of the page-fault. Dup Confirmed 29 CVA6 Priv 3.1.16 ecall /ebreak write the instruction word into mtval . Dup Confirmed 30 CVA6 Priv 3.1.16 A misaligned branch or jump target reports the branch pc in tval instead of the target address. Dup Fixed 31 CVA6 Priv 3.1.18 menvcfg /senvcfg.CBIE accept the reserved encoding 10 and read it back. Dup Fixed 32 CVA6 Priv 3.6 The load unit drops the page offset when classifying speculative loads to non-idempotent regions. Dup Reported 
+
+Continued on next page 
+
+14 VSpector: Specification-Driven Bug Detection for RISC-V CPUs 
+
+Table 8. Bugs found by VSpector (continued). 
+
+# Core Spec. Section Description New/Dup Status 
+
+33 CVA6 Priv 3.7.1.1 TOR address matching uses pmpaddr bit 0, which lies below the PMP granularity G and must not affect the match. Dup Reported 34 CVA6 Priv 3.7.1.3 An 8-byte S-mode load/store that crosses a TOR PMP region boundary is accepted. Dup Fixed 35 CVA6 Priv 4.2.1 Writing mstatus.MXR does not invalidate DTLB entries that cached the old permission. New Confirmed 
+
+36 CVA6 Priv 4.2.1 VS-mode SFENCE.VMA with rd ≠0 retires instead of raising illegal-instruction. Dup Fixed 37 CVA6 Priv 4.3.2 A store-side PTW PMP failure is reported as a load access-fault. New Reported 38 CVA6 Priv 4.3.2 The G-stage leaf that maps a VS-stage page table truncates the host PPN to the guest PPN width. 
+
+New Confirmed 
+
+39 CVA6 Priv 5.1 MRET with MPP =M restores V from MPV instead of leaving V=0. New Fixed 
+
+40 CVA6 Priv 5.2.10 A write to hgatp with an unsupported MODE is dropped entirely, so PPN and VMID keep their old values. Dup Reported 41 CVA6 Priv 5.3.2 HFENCE with rd ≠0 is executed instead of being treated as illegal. New Fixed 
+
+42 CVA6 Priv 5.4.1 MPRV =1 with MPV =1 and MPP =M still translates through VS/G-stage. New Reported 43 CVA6 Priv 5.4.1 The illegal-instruction trap raised on CV-X-IF rejection sets GVA from the virtualization mode. Dup Fixed 44 CVA6 Priv 5.4.2 Under H, the VS bits of mideleg are not read-only one after reset. New Fixed 
+
+45 CVA6 Priv 5.4.4 mtval2 accepts and reads back arbitrary values, outside its WARL legal set. New Confirmed 
+
+46 CVA6 Priv 5.5.1 The G-stage check on a VS-stage page-table read does not test the U bit of the G-stage leaf PTE. Dup Reported 47 CVA6 Priv 5.6.3 mtinst /htinst are written with a transformed instruction on illegal-/virtual-instruction traps and on interrupts, where they must be zero. Dup Reported 48 CVA6 Priv 11 HLV.D is decoded without checking that its reserved rs2 field is zero or that XLEN is 64, so non-conforming encodings retire instead of raising illegal-instruction. 
+
+New Reported 49 XiangShan Unpriv 1.4 A misaligned load/store whose second half crosses into the non-canonical address hole is translated and executed instead of faulting. 
+
+New Confirmed 
+
+50 XiangShan Unpriv 17.6.1 A CBO to a page with PBMT =NC raises store access-fault instead of executing. Dup Fixed 51 XiangShan Unpriv 19.2 FLH through the uncached path does not NaN-box the loaded half-precision value. Dup Fixed 52 XiangShan Priv 3.1.6.2 MRET returning to VU does not clear vsstatus.SDT . New Fixed 
+
+53 XiangShan Priv 3.1.8 With mnstatus.NMIE =0, the HS trap entry is gated off, so an exception delegated to S/U-mode becomes a critical error instead of trapping to stvec .
+
+New Reported 54 XiangShan Priv 3.1.10 A write to minstret or another counter CSR takes effect at issue rather than after the writing instruction completes, so csrw minstret, X followed by csrr reads 𝑋 +1. 
+
+New Reported 55 XiangShan Priv 3.3.3 After WFI is woken by an interrupt, the next load/store/CSR/fence executes before the trap is taken, so mepc points past it. 
+
+New Confirmed 
+
+56 XiangShan Priv 3.4 mnstatus.NMIE resets to 1 and can be written to 0, and mstatus.MDT resets to 0. Dup Fixed 57 XiangShan Priv 3.6.7 Misaligned accesses to non-idempotent regions raise address-misaligned instead of access-fault. 
+
+New Fixed 
+
+58 XiangShan Priv 4.5.1 Sequential fetch that falls through across the Sv39/Sv48 canonical boundary does not raise an instruction page-fault. Dup Fixed 59 XiangShan Priv 5.2 A VS-mode access to vstimecmp with menvcfg.STCE =0 raises illegal-instruction where 
+
+henvcfg.STCE requires virtual-instruction. Dup Fixed 60 XiangShan Priv 5.3.1 HLVX checks only read permission at the final PMP/PMA stage, not execute permission. Dup Fixed 61 XiangShan Priv 5.3.2 HFENCE.GVMA matches VMID against reserved rs2 bits above VMIDMAX, so selective fences can miss. 
+
+New Fixed 
+
+62 XiangShan Priv 5.5.3 HFENCE.GVMA x0,x0 leaves VS-stage entries in the page-table cache, so they survive a G-stage change. Dup Fixed 63 XiangShan Priv 6.10.2.6 Address-trigger comparison uses the unmasked pointer, ignoring pointer masking. New Fixed 
+
+64 XiangShan Priv 9.1.1 A counter-overflow interrupt request that coincides with a CSR write to mip /sip is dropped, so LCOFIP is never set. 
+
+New Confirmed 
+
+65 XiangShan AIA 5.5 WFI does not wake on interrupts pending in hvictl /vstopi . New Confirmed 
+
+66 XiangShan AIA 6.3.3 A dead enable term in the vstopi logic makes the priority-255 encoding for a lone VSEI candidate unreachable. Dup Fixed 67 XiangShan Debug 4.6 haltreq /resethaltreq out of reset has no dedicated halt path, so the hart may commit its first instruction before halting. 
+
+New Confirmed 
+
+68 XiangShan Debug 4.9.1 dcsr.stopcount =1 does not stop minstret /mcycle ; only the instret /cycle read values are frozen. 
+
+New Confirmed 
+
+69 XiangShan Debug 4.9.1 dcsr.cause reports 3 instead of 7 when a critical error coincides with a debug interrupt, and tinfo.version is 0 although mcontrol6 is implemented. Dup Fixed 
+
+Continued on next page 
+
+15 Jia et al. 
+
+Table 8. Bugs found by VSpector (continued).                                        
+
+> #Core Spec. Section Description New/Dup Status
+> 70 XiangShan Debug 5.3 When several triggers fire at once, the hart takes the breakpoint exception by trigger index instead of entering Debug Mode.
+> New Fixed
+> 71 XiangShan Debug 5.5.4 Address triggers compare only the low VAddrBits bits of the address, and tdata2 is not legalized on write, so a non-canonical tdata2 matches spuriously.
+> New Reported 72 XiangShan Debug 5.7.12 The CBO store trigger drops mcontrol6.match and compares cache-block indices only, so GE and LT stop working; vector unit-stride accesses take the same equality path.
+> New Fixed
+> 73 XiangShan Debug 5.7.12 Writing mcontrol6.chain omits the required preceding dmode check. New Fixed
+
+## B Audit Scope 
+
+The scope of Table 2 keeps the sections that specify the extensions a CPU supports. We take the supported extensions of CVA6 from its configuration packages [20] and those of XiangShan from its user guide [23]. According to publicly available information in the XiangShan official repository, the XiangShan team plans to introduce a new implementation of the V extension, and its code has not yet been pushed to the repository. Therefore, this paper leaves the chapter out. We will audit it once the new implementation is merged. 
+
+## C Cost by Step 
+
+Tables 9 and 10 break the cost of Table 7 down by step: the two steps of implementation localization and the two parts of candidate identification, and the two reviews of the audit. 
+
+Table 9. Cost of implementation localization and candidate identification per campaign. Seed search and File slice are the two steps of localization (Section 3.3); Decision and Retrieval are the deciding model and the retrieval sub-agents of identification (Section 3.4), the latter run only when the decision is not enough code . Token counts are in millions, input | output; output tokens include reasoning. Retr. : share of rules for which retrieval ran. Per rule : mean time a rule takes from seed search to its final decision. 
+
+Localization Identification Cost ($) Campaign Rules Seed search 
+
+in | out 
+
+File slice 
+
+in | out 
+
+Decision 
+
+in | out 
+
+Retrieval 
+
+in | out 
+
+All steps 
+
+in | out Calls Retr. (%) 
+
+Per rule (min) Total Per rule 
+
+CVA6 
+
+Unpriv 1,212 27.5 | 93.0 51.4 | 118.1 8.0 | 39.3 46.0 | 13.0 132.8 | 263.3 11,808 16.8 20.5 186.5 0.154 Priv 1,188 26.0 | 84.8 66.8 | 89.4 7.3 | 35.3 41.7 | 15.4 141.8 | 225.0 11,378 22.0 19.2 160.5 0.135 
+
+XiangShan 
+
+Unpriv 1,310 36.2 | 113.5 58.1 | 111.6 9.3 | 44.9 87.6 | 38.8 191.1 | 308.9 18,806 45.0 23.2 223.0 0.170 Priv 1,431 39.5 | 99.3 55.9 | 126.3 8.7 | 47.6 81.5 | 31.6 185.7 | 304.8 18,315 29.8 19.6 220.3 0.154 AIA 187 4.9 | 12.8 4.9 | 13.9 1.1 | 7.3 9.2 | 3.9 20.0 | 37.9 2,153 26.2 20.3 27.1 0.145 Debug 357 10.8 | 29.2 11.6 | 30.4 1.8 | 9.4 12.7 | 4.4 36.9 | 73.4 3,988 23.5 19.1 52.6 0.147 Total 5,685 144.8 | 432.5 248.6 | 489.8 36.2 | 183.8 278.8 | 107.1 708.3 | 1,213.2 66,448 28.4 20.5 870.0 0.153 
+
+> 16 VSpector: Specification-Driven Bug Detection for RISC-V CPUs
+
+Table 10. Cost of the two reviews per campaign. The specification-side review runs on every candidate violation and the code-side review on the candidates it keeps ( Cand. under each review). Token counts are in millions, input | output; output tokens include reasoning. Rounds and Time are means per candidate; a round is one model call in the review’s search loop. Per cand. is the cost of both reviews per candidate entering the audit. 
+
+Specification-side review Code-side review Both reviews Campaign Cand. Calls Tokens (M) 
+
+in | out Rounds Time (s) Cost ($) Cand. Calls Tokens (M) 
+
+in | out Rounds Time (s) Cost ($) Cost ($) Per cand. ($) 
+
+CVA6 
+
+Unpriv 215 1,565 21.0 | 5.0 7.3 165 3.96 92 1,406 26.0 | 5.6 15.3 463 4.44 8.41 0.039 Priv 289 1,994 26.0 | 5.7 6.9 145 4.94 142 2,445 45.8 | 9.6 17.2 516 7.65 12.58 0.044 
+
+XiangShan 
+
+Unpriv 136 895 10.7 | 2.7 6.6 150 2.27 29 531 14.1 | 2.0 18.3 571 1.70 3.96 0.029 Priv 300 2,127 27.6 | 5.6 7.1 159 4.89 79 1,379 30.2 | 4.9 17.5 539 4.09 8.98 0.030 AIA 48 321 3.8 | 1.0 6.7 156 0.83 14 290 7.4 | 1.4 20.7 773 1.09 1.92 0.040 Debug 95 742 10.2 | 1.9 7.8 154 1.69 28 525 11.6 | 1.8 18.8 534 1.48 3.17 0.033 Total 1,083 7,644 99.2 | 21.8 7.1 155 18.58 384 6,576 135.0 | 25.2 17.1 523 20.45 39.02 0.036

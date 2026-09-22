@@ -6,26 +6,30 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-21
-- 运行时间：2026-09-21 22:44:45 UTC
+- 最新运行日期：2026-09-22
+- 运行时间：2026-09-22 22:40:29 UTC
 - 运行状态：成功
-- 本次总论文数：1
-- 精读区：0
-- 速读区：1
+- 本次总论文数：3
+- 精读区：3
+- 速读区：0
 
 ### 今日简报（AI）
-今日速读1篇：VeriBugBench 用实证框架瞄准 Verilog RTL 调试基准（6.0/10）。
-最值得看的是 Verilog RTL 调试基准如何构建与评测，适合硬件验证和 EDA 方向读者关注。
-普通读者可先收藏该文，若后续要评估 RTL 调试工具，再重点看它的基准构造流程。
-- 详情：[/202609/21/README](/202609/21/README)
+今日完成3篇精读，其中两篇9.0分聚焦强化学习驱动的硬件与芯片验证。最值得看：CovR用推理引导强化学习做覆盖率感知硬件验证，Verification Reward Model把奖励模型引入芯片设计验证。普通读者可先从这两篇高分精读入手，理解强化学习如何提升验证效率与自动化。
+- 详情：[/202609/22/README](/202609/22/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning](/202609/22/2609.19189v2-covr-coverage-aware-hardware-verification-via-reasoning-guided-reinforcement-learning)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：推理引导强化学习的覆盖率感知RTL测试平台自动生成框架
+2. [Verification Reward Model for Reinforcement Learning in Chip Design Verification](/202609/22/2609.22347v1-verification-reward-model-for-reinforcement-learning-in-chip-design-verification)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：用语言模型与强化学习做芯片设计验证并融合形式化证据
+3. [VSpector: Specification-Driven Bug Detection for RISC-V CPUs](/202609/22/2609.23517v1-vspector-specification-driven-bug-detection-for-risc-v-cpus)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：利用LLM依据RISC-V规范检测RTL实现缺陷
 
 ### 速读区论文标签
-1. [VeriBugBench: An Empirically Grounded Framework for Constructing Verilog RTL Debugging Benchmarks](/202609/21/2609.18022v2-veribugbench-an-empirically-grounded-framework-for-constructing-verilog-rtl-debugging-benchmarks)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：面向Verilog RTL调试基准的LLM测试平台增强
+- 本次无速读推荐。
 
 
 <div class="dpr-home-promo-card">
