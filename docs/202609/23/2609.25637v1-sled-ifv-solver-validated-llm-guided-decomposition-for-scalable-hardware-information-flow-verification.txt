@@ -1,0 +1,405 @@
+Title: SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification
+
+URL Source: https://arxiv.org/pdf/2609.25637v1
+
+Published Time: Wed, 23 Sep 2026 00:37:05 GMT
+
+Number of Pages: 7
+
+Markdown Content:
+# SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification 
+
+## Liangtao Dai 
+
+University of Virginia Charlottesville, USA kvf4sf@virginia.edu 
+
+## Yimin Gao 
+
+University of Virginia Charlottesville, USA yg9bq@virginia.edu 
+
+## Melika Morsali 
+
+University of Virginia Charlottesville, USA qfc2zn@virginia.edu 
+
+## Mircea Stan 
+
+University of Virginia Charlottesville, USA mircea@virginia.edu 
+
+Abstract 
+
+Formal hardware information-flow verification (IFV) provides strong guarantees against secret-dependent timing and control behavior, but often scales poorly on realistic RTL. We identify two recurring proof barriers in self-composed IFV: implementation complexity ,where proof-hard datapath logic dominates even though the prop-erty needs only a compact boundary relation, and relational in-ductive complexity , where the proof depends on cross-copy public-control facts that the backend prover does not infer efficiently. To address them, we introduce two semantic proof decomposi-tion forms: functional simplification , which replaces a proof-hard RTL region with a validated over-approximate summary, and re-lational strengthening , which exposes and proves the cross-copy relations needed for induction. We further present SLED-IFV , a solver-validated LLM-guided flow that automates the selection of these forms and their concrete targets. Given a self-composed miter and an oracle-free decision sheet, the LLM proposes a decomposi-tion, then materializes it into proof artifacts under controller checks. The controller compiles the checked artifacts into proof obligations, and the formal verification backend remains the sole authority for acceptance. Across nine nontrivial benchmarks constructed from real RTL, SLED-IFV achieves up to 603 × solver-only speedup and converts two 12-hour timeouts into completed proofs. The closed-loop flow produces verifier-accepted decompositions for all cases. 
+
+Keywords 
+
+Information-flow verification, formal verification, hardware secu-rity, property-directed reachability, large language models 
+
+1 Introduction 
+
+Security bugs that escape into silicon are costly to patch and difficult to contain[5, 9, 16, 22]. Modern SoCs therefore require signoff-level guarantees for hardware roots of trust, cryptographic accelerators, privilege logic, and constant-time execution. Hardware information-flow verification (IFV) provides such guarantees by proving non-interference : changing a protected source must not affect a public observation. A standard IFV encoding is self-composition , in which two RTL copies execute with equal public inputs and potentially different protected sources while the verifier proves equality of the selected public observations [2, 21, 23]. This reduction turns non-interference into a safety property and enables IC3/PDR-style model checking [3, 12]. In practice, however, such proofs are often substantially harder than ordinary functional checking because the backend must reason about two RTL executions simultaneously and infer the inductive facts that keep them aligned. The central obstacle is not simply RTL size; the proof presented to the solver is often in the wrong form. A human verifier may recognize that a masked datapath can be summarized by a compact boundary law, or that two executions remain aligned because their public control states evolve in lockstep. A generic PDR engine sees only the duplicated transition relation and must recover both implementation-level facts and cross-copy relations from low-level RTL. We find that hard RTL IFV proofs repeatedly expose two cor-responding barriers. The first is implementation complexity ,where proof-hard datapath logic dominates the cone of influence even though the proof requires only a compact boundary fact. Masked cryptographic logic is a representative example: schemes such as domain-oriented masking randomize internal shares [14], while the property may depend only on the corresponding un-masked value. The second is relational inductive complexity ,where the difficulty lies in establishing cross-copy invariants such as equality of public counters, protocol phases, valid signals, or control states. To address these barriers, we introduce two semantic proof de-composition forms. Functional simplification separates proof-hard implementation detail from the residual IFV argument by replacing a candidate RTL region with an over-approximate summary whose boundary law is proved on the concrete implementation. Relational strengthening exposes missing inductive structure by requiring PDR to prove the original IFV property together with candidate cross-copy relations on the concrete two-copy RTL. The two forms can be composed when both datapath and relational barriers occur in the same query. Prior work improves hardware IFV scalability at several lay-ers. Obligation-level methods reformulate properties or use struc-tural analysis [10, 11]; information-flow tracking and static sys-tems propagate security labels [13, 15, 28]; and backend techniques strengthen IC3/PDR through copy symmetry, equivalence predi-cates, or security-specific reasoning [6, 20]. These techniques are complementary, but they largely operate within a selected verifica-tion formulation and leave the query-specific proof-decomposition space unexplored. This space is consequential because an unsuit-able decomposition leaves the dominant proof bottleneck intact, whereas an appropriate one can turn an otherwise intractable IFV proof into tractable solver obligations. It is also difficult to navigate: the verifier must select not only among functional simplification, re-lational strengthening, and their composition, but also the concrete module boundary or cross-copy signals to target. These choices de-pend jointly on the source, observation, environment assumptions, RTL semantics, and candidate signal roles, and are therefore gener-ally difficult to determine from RTL hierarchy or fixed structural rules alone. We present SLED-IFV , a solver-validated, LLM-guided flow that explores this query-specific proof-decomposition space. Given a arXiv:2609.25637v1 [cs.CR] 22 Sep 2026 Dai et al. 
+
+self-composed miter and an oracle-free decision sheet, the LLM first selects a functional, relational, or composed decomposition together with its concrete RTL or signal-level target, and then ma-terializes the proposal into proof artifacts under controller-defined constraints. The controller checks the generated artifacts, compiles the valid ones into solver obligations, and leaves acceptance entirely to the formal verifier. To the best of our knowledge, SLED-IFV is the first framework to use an LLM to select and realize solver-validated proof decompositions for formal hardware IFV. The LLM remains outside the trusted proof base. Generated con-tracts, summaries, auxiliary relations, and negative controls affect the result only after passing controller-side scope checks and con-ventional solver obligations, including local-law proofs, accelerated proofs, false-law canaries, and faithfulness checks. An incorrect proposal or artifact may waste solver time, but it cannot certify an incorrect result. Prior LLM-assisted hardware-verification meth-ods primarily focus on general verification tasks, such as assertion generation and test generation [27, 29]. In contrast, relatively little work has explored LLMs for formal hardware IFV. LLM-IFT [18] uses an LLM to infer information-flow violations directly from RTL, but does not couple its predictions with a formal proof back-end. SLED-IFV instead places every LLM-generated decomposition and proof artifact inside a solver-validated flow, where the formal verifier remains the sole authority for acceptance. We evaluate SLED-IFV on nine nontrivial RTL IFV cases from public designs and published masking components, including masked datapaths incorporating OpenTitan DOM components, Goldschmidt-based floating-point divider, HMAC/SHA logic, lowRISC Ibex, YosysHQ PicoRV32, and a Chipyard/BOOM-derived routing control [1, 7, 8, 17, 19, 26]. Using the same ABC-PDR backend [12], SLED-IFV achieves up to 603 × solver-only speedup and converts two 12-hour PDR timeouts into completed proofs. Ablation studies further show that functional simplification and relational strengthening address complementary proof barriers. This paper makes the following contributions: 
+
+• We identify two recurring barriers in RTL IFV— implemen-tation complexity and relational inductive complex-ity —and introduce two corresponding semantic proof de-composition forms: functional simplification and relational strengthening .
+
+• We present SLED-IFV , which uses an LLM to automate the query-specific selection of decomposition forms and concrete targets while retaining a fully solver-checked trust boundary. 
+
+• We evaluate SLED-IFV on nine nontrivial RTL IFV cases, achieving up to 603 × solver-only speedup, converting two 12-hour timeouts into completed proofs, and demonstrating that the two decomposition forms address complementary proof barriers. 
+
+2 Background 
+
+Fig. 1 shows the standard self-composed IFV miter. Two RTL copies execute under the same public inputs and environment assumptions, while their protected sources may differ. The resulting observations are compared through a safety assertion, reducing non-interference to model checking over the product system. Secret_A  
+
+> Secret_B
+> Public inputs /
+> assumptions
+> RTL copy D(A)
+> RTL copy D(B)
+> Obs_A
+> Obs_B
+> Assert
+> Obs_A = Obs_B
+> product system D(A) || D(B)
+> Public inputs are shared; protected sources may differ.
+> Self-composed IFV miter
+
+Figure 1: Self-composed IFV miter that reduces non-interference to a safety assertion over two RTL copies with shared public inputs and potentially different protected sources. Table 1: Representative IFV queries and their corresponding proof bottlenecks. 
+
+Case Source → sink Bottleneck Form 
+
+Masked GF mult. masking enc. 
+
+→ unmasked product masked nonlinear datapath FIbex DMEM NI DMEM word 
+
+→ gated access trace public-control alignment RMini-cipher loop masking enc. 
+
+→ final unmasked state datapath + loop alignment F+R 
+
+> F = functional simplification; R = relational strengthening.
+
+Formally, we represent an RTL IFV task as 
+
+𝑄 = (𝐷, 𝑆, 𝑂, 𝐴 ),
+
+where 𝐷 is the RTL design, 𝑆 is the protected source, 𝑂 is the public observation, and 𝐴 denotes the public-input and environment assumptions. Self-composition instantiates two copies, 𝐷 (0) and 
+
+𝐷 (1) , and defines the target property 
+
+𝑃 IFV ≡ 𝑂 (0) = 𝑂 (1) .
+
+Proving 
+
+𝐷 (0) ∥ 𝐷 (1) |= 𝑃 IFV 
+
+establishes that the selected observation is independent of the pro-tected source under 𝐴 .We use IC3/PDR as the backend prover. On the product transition system in Fig. 1, PDR establishes 𝑃 IFV by constructing an inductive invariant over the combined state of the two RTL copies. 
+
+3 Motivation 
+
+Hard IFV queries can arise from qualitatively different proof bot-tlenecks. Depending on the source, observation, assumptions, and RTL semantics, the dominant difficulty may lie in proof-hard data-path logic, missing cross-copy inductive relations, or both. Table 1 illustrates these three representative patterns. The masked GF multiplier is dominated by datapath implementa-tion complexity. The two copies use different share encodings and fresh randomness, while the underlying unmasked operands are constrained to agree. The property observes the unmasked product, 
+
+𝑝𝑟𝑜𝑑 [0] ⊕ 𝑝𝑟𝑜𝑑 [1]. Although the concrete cone contains masked nonlinear share logic, the proof needs only the boundary unmask-ing relation. Functional simplification is therefore appropriate: the DOM implementation can be replaced by a summary once that boundary law has been proved on the concrete module. Relational SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification Functional simplification     
+
+> // LLM proposal: form + target + law kind = functional_simplification; target = M; // masked region law C = unmask(out) == f(unmask(in)); // Concrete RTL region module M(input in, rand, output out); out = masked_impl(in, rand); // proof-hard endmodule // Summary used in residual miter module M_abs(input in, output out); out = anyseq(); // over-approx assume(C(in, out)); // pinned law endmodule // Solver validation gate Ob1 : pdr(M |= C); // law holds Ob1’ : bmc(false_law) == CEX; // not vacuous Ob2 : pdr(D[M_abs] |= P_IFV); // residual Faith : bmc(leaky_control) == CEX; // faithful accept iff Ob1 && Ob1’ && Ob2 && Faith;
+
+Relational strengthening 
+
+> // LLM proposal: public lockstep facts kind = relational_strengthening; I_aux = equality(public control state); // Concrete two-copy miter; no RTL replaced D0 = D(public, secret0); D1 = D(public, secret1); assume(public0 == public1); // Original IFV property P_IFV := (obs0 == obs1); // Candidate auxiliary relation I_aux := (pc0 == pc1) && (phase0 == phase1) && (valid0 == valid1); // Guardrails // exclude sink equality and secrets // allow only public-control candidates // Solver validation gate Ob2 : pdr((D0 || D1) |= P_IFV && I_aux); // strengthened Faith : bmc(leaky_control) == CEX; // faithful accept iff Ob2 && Faith;
+
+Figure 2: Code-level solver gates for SLED-IFV. Functional simplification validates a local summary before proving the residual miter; relational strengthening proves 𝑃 IFV ∧ 𝐼 aux on the concrete two-copy RTL. 
+
+strengthening provides little value here because the internal shares are not expected to match across copies. The Ibex DMEM-access query exhibits the opposite behavior. The protected source is a data-memory word, and the sink is the gated memory-access trace, including request/write behavior and address-relevant control when a request is issued. Under a fixed constant-time program, the two executions should follow the same public control path. The main difficulty is therefore not a proof-hard datapath, but the absence of cross-copy lockstep facts needed for induction. Relational strengthening addresses this barrier by making selected public-control equalities explicit and proving them together with the original IFV property. The mini-cipher round loop combines both effects. Independent masks and randomness create a proof-hard masked S-box, while the iterative round schedule introduces a separate control-alignment requirement. Functional simplification removes the masked dat-apath barrier but leaves the loop-alignment problem; relational strengthening exposes the round-control relation but leaves the nonlinear masked implementation intact. Neither form is sufficient in isolation, so the two must be composed. These examples show that different IFV queries expose differ-ent dominant proof bottlenecks, and therefore require different decomposition strategies. The choice involves both the decompo-sition form and its concrete target: a module boundary for func-tional simplification, a set of public-control signals for relational strengthening, or both. SLED-IFV automates this bottleneck-aware selection, while accepting a proposal only after the corresponding solver obligations succeed. 
+
+4 Method: SLED-IFV 4.1 Overview 
+
+SLED-IFV formulates RTL IFV acceleration as a solver-validated decomposition problem. Given an IFV query 𝑄 = (𝐷, 𝑆, 𝑂, 𝐴 ), the controller first constructs the standard self-composed miter for 𝑃 IFV .The flow then searches for 
+
+𝜋 = (form , target ), form ∈ { F, R, F+R},
+
+where F denotes functional simplification, R relational strengthen-ing, and F+R their composition. The target is a module region 𝑀 , a set of public-control signals used to form 𝐼 aux , or both. The method separates semantic proposal, proposal realization, and proof acceptance. The first LLM stage selects the decomposi-tion form and target from an oracle-free decision sheet. A second LLM-guided realization stage then materializes the proposal into concrete verification artifacts, such as an obligation-1 (Ob1) harness, an abstraction stub, candidate 𝐼 aux , and negative controls. The con-troller constrains and checks these edits, compiles the well-formed artifacts into solver tasks, and invokes PDR. Thus, the LLM partici-pates in both decomposition selection and artifact generation, but only the verifier determines whether a candidate is accepted. 
+
+4.2 Semantic Proof Decomposition Forms 
+
+The two decomposition forms correspond to the proof barriers iden-tified in Section 3. As shown in Fig. 2, functional simplification re-moves proof-hard implementation detail behind a validated bound-ary summary, whereas relational strengthening exposes cross-copy facts that PDR needs for induction. 
+
+4.2.1 Functional simplification. Functional simplification applies when a proof-hard RTL region lies in the sink cone, but the IFV argument depends only on a compact relation at its boundary. For a proposed region 𝑀 , the realization stage generates a contract 𝐶 , an Ob1 harness over the concrete module, and a summary 𝑀 # that en-forces 𝐶 over selected boundary signals. Signals not constrained by 
+
+𝐶 remain nondeterministic, so 𝑀 # over-approximates the concrete implementation. The controller compiles Ob1 : 𝑀 |= 𝐶, Ob2 : 𝐷 [𝑀 #] | = 𝑃 IFV .
+
+Ob1 proves that the concrete RTL satisfies the proposed boundary law. Ob2 proves the residual IFV property after replacing 𝑀 with 
+
+𝑀 #. If both obligations hold, every concrete behavior of 𝐷 [𝑀 ] is represented by 𝐷 [𝑀 #], and the original IFV claim follows. Because 𝑀 # is an over-approximation, an Ob2 counterexample need not correspond to a concrete leak. Unconstrained summary signals may admit boundary behaviors that satisfy 𝐶 but cannot arise in 𝑀 . Such failures are returned as refinement feedback rather than reported immediately as violations. The next attempt may revise the contract, change the module boundary, add a relational component, or abandon functional simplification. The realization stage also generates a false-law canary. This negative control replaces 𝐶 with a deliberately incorrect law that must produce a counterexample. Failure to do so indicates a vacuous or malformed Ob1 harness. 
+
+4.2.2 Relational strengthening. Relational strengthening applies when the missing proof fact is a relation between the two exe-cutions rather than a local datapath summary. From the selected public-control or interface signals, the realization stage generates a candidate auxiliary relation 𝐼 aux , such as counter equality, protocol-phase alignment, valid-signal lockstep, or control-state equality. Dai et al. 2. Decision-sheet construction 
+
+The controller extracts query-, RTL-, and solver-level evidence.    
+
+> 2.1 Query Semantics
+> • protected source S
+> • observation O
+> • environment assumptions A
+> • reset / initial conditions
+> 2.2 Baseline Miter
+> • compile the full two -copy design
+> • collect AIG, latch, and gate
+> statistics
+> 2.3 Structural Cues
+> • masked / nonlinear datapath cues
+> •loop / protocol / control cues
+> 2.4 Lightweight Solver Probes
+> • shallow BMC leak probe
+> • bounded PDR difficulty probe
+> Output: Oracle-Free Decision
+> Sheet Σ
+> •query semantics
+> • candidate decomposition
+> targets
+> • structural cues
+> • baseline complexity
+> • probe outcomes
+
+3. Schema-Constrained LLM Proposal 
+
+The proposer performs query-conditioned semantic routing over the decomposition space. 
+
+3a. Structured Prompt Package 
+
+1) Method policy 
+
+decomposition forms and decision order 
+
+2) Decision sheet  Σ
+
+query semantics and RTL evidence 
+
+3) In-context examples 
+
+representative cue-to-form mappings 
+
+4) Output schema 
+
+constrained JSON proposal 
+
+5) Self-audit rules 
+
+target, scope, and consistency checks 
+
+6) Retry context 
+
+typed verifier feedback from prior attempts 
+
+3b. Structured Proposal π
+
+Input 
+
+Σ + method policy 
+
++ in-context examples 
+
++ retry feedback 
+
+Output 
+
+π = (form, target) 
+
+{
+
+"form": "F | R | F+R", 
+
+"target": "...", 
+
+"auxiliary_signals": [...], 
+
+"obligations": [...], 
+
+"rationale": "..." 
+
+}
+
+4. Proposal Realization and Compilation 
+
+LLM materializes the proposal; the controller enforces the proof boundary.           
+
+> 4.1 Context Preparation —Controller
+> • selected target and decision sheet Σ
+> • relevant RTL, miter, and interfaces
+> • clocks, resets, and permitted signal scope
+> 4.2 Primary Artifact Generation —LLM
+> • F: local -law harness and abstraction summary
+> • R: candidate cross -copy relations I_aux
+> • F+R: both artifact classes
+> 4.3 Negative-Control Generation —LLM
+> • false -law canary
+> • deliberately leaky faithfulness control
+> 4.4 Artifact Validation —Controller
+> • syntax and interface consistency
+> • cycle and signal -scope consistency
+> • no new assumptions
+> • no modification of the IFV property
+> 4.5 Solver-Task Compilation —Controller
+> • local -law proof
+> • false -law canary
+> • accelerated IFV proof
+> • faithfulness control
+
+5. Solver Validation and Typed Feedback 
+
+The formal backend is the sole authority; solver outcomes drive acceptance or feedback. 
+
+Solver validation tasks (from stage 4)     
+
+> Functional Simplification / F+R
+> • Ob1: concrete module satisfies the
+> local law
+> • Canary: false law must yield a CEX
+> • Ob2: residual IFV proof must succeed
+> • Faithfulness: leaky control must yield
+> a CEX
+> Relational Strengthening
+> •prove P_IFV ∧I_aux on the concrete miter
+> •faithfulness control must yield a CEX
+> Accept
+> • all required solver checks pass
+> • emit a proof -backed acceptance artifact
+> Reject and Refine
+> • classify the failed obligation
+> • summarize the CEX or solver
+> outcome
+> • return typed repair feedback
+
+Outcome & Decision 
+
+1.  IFV query: Q = (D, S, O, A). 
+
+Inputs: Property specification, Self-composed NI miter, RTL sources 
+
+Typed feedback for proposal repair 
+
+> Output: Solver-ready proof obligations
+
+Figure 3: SLED-IFV closed-loop decomposition flow. The controller builds an oracle-free decision sheet Σ; the LLM emits a strict JSON proposal 𝜋 naming the decomposition form and target, then materializes the proposal into proof artifacts under controller checks. The controller compiles the validated artifacts into solver tasks, and the verifier accepts or rejects the candidate. Rejections are classified into typed feedback and returned for repair. 
+
+The verifier must prove 
+
+𝐷 (0) ∥ 𝐷 (1) |= 𝑃 IFV ∧ 𝐼 aux .
+
+Because 𝑃 IFV remains a conjunct of the proved property, 𝐼 aux is established rather than assumed. The controller restricts edits to the permitted signal set, rejects direct restatements of the sink equality, and disallows changes to the original property or assumptions. 
+
+4.2.3 Composed decomposition. When both barriers are present, the realization stage generates both the functional artifacts and the relational candidate. The controller combines the summary and strengthened miter, and the resulting candidate must pass the local contract proof, false-law canary, accelerated proof, and faithfulness control. 
+
+4.3 Closed-Loop Flow 
+
+Figure 3 shows the complete SLED-IFV flow, comprising decision-sheet construction, schema-constrained LLM proposal, LLM-guided artifact realization under controller validation, and solver-based acceptance or typed feedback for iterative repair. 
+
+4.3.1 Decision-sheet construction. The controller records 𝑆 , 𝑂 , and 
+
+𝐴 , constructs the baseline two-copy miter, and emits its AIG. Event-based observations are guarded when needed so that equality is checked only when the observation is valid. The oracle-free deci-sion sheet Σ combines the source–sink–assumption triple, candi-date modules and 𝐼 aux signals, AIG statistics, RTL-text flags, and lightweight solver probes. Shallow BMC identifies bounded leaks, while short PDR runs identify already-easy cases. These probes guide proposal selection but do not contribute proof evidence. The sheet contains neither the expected decomposition nor the final proof outcome. 
+
+4.3.2 Schema-Constrained LLM proposal. The proposer receives a structured prompt package comprising the decision sheet Σ, rele-vant RTL sources, and a method prompt that specifies the decompo-sition forms and decision order, in-context examples that illustrate representative mappings from source–sink patterns to functional, relational, or composed decompositions, and a strict JSON schema for the output proposal. Self-audit rules require the model to check the proposed target, permitted signal scope, and consistency with the supplied candidate lists before returning a result. On subsequent attempts, the failure type, solver outcome, and relevant counterex-ample summary from the previous attempt are added to the prompt, allowing the model to revise the rejected proposal rather than re-generate it without feedback. The resulting proposal specifies the decomposition form, concrete target, intended proof obligations, and a concise rationale linking the query and RTL features to the selected strategy. At this stage, the proposal identifies what should be decomposed and where the decomposition should be applied; the corresponding solver-ready artifacts are generated in the sub-sequent realization stage. 
+
+4.3.3 Proposal realization and compilation. The realization stage converts the semantic proposal into concrete proof artifacts. The controller first prepares the relevant context: the proposed target, the original miter, interfaces, clocks, resets, and permitted signal SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification 
+
+Table 2: Typed validation failures and corresponding repair directions.             
+
+> Failure Meaning Repair direction Apply rejected The artifact cannot be compiled or applied. Fix the syntax, interface, target, or build configuration. Ob1 failed The proposed local law is false. Revise the law or module boundary. Ob1 vacuous The false-law canary does not pro-duce a CEX. Repair the Ob1 harness or negative control. Ob2 failed The residual or strengthened IFV proof fails. Refine the summary, target, decom-position form, or 𝐼 aux .Faithfulness failed The deliberately leaky control does not produce a CEX. Inspect the property, assumptions, or abstraction.
+
+scope. Guided by this context, the LLM generates the primary arti-facts required by the selected form. For functional simplification, these include the Ob1 harness and abstraction stub; for relational strengthening, they include candidate 𝐼 aux ; for the composed form, both sets are generated. The LLM also produces the negative con-trols used by the validation flow, including the false-law canary and deliberately leaky faithfulness miter. The controller then vali-dates the generated artifacts before compilation. It checks syntax and interface consistency, enforces cycle alignment and the per-mitted edit scope, and rejects any new assumptions or changes to the original IFV property. Artifacts that fail these checks are returned as apply-time feedback. Valid artifacts are compiled into Ob1, false-law, accelerated-proof, and faithfulness jobs, together with the corresponding solver-ready AIGs and scripts. 
+
+4.3.4 Solver validation and feedback. Solver validation provides the final acceptance criterion. A functional candidate is accepted only when both Ob1 and Ob2 are proved, while the false-law canary and faithfulness control each produce a counterexample. A rela-tional candidate must prove 𝑃 IFV ∧ 𝐼 aux on the concrete two-copy miter, with the faithfulness control still exposing the seeded leak. A composed candidate must satisfy the obligations of both forms. If an obligation fails, the controller records the rejected artifacts, the solver outcome, and any relevant counterexample, and maps the failure to one of the categories in Table 2. The resulting feedback is returned to the proposal and realization stages to guide the next attempt. For example, an Ob1 failure points to an invalid local law or module boundary, whereas an Ob2 failure following a success-ful Ob1 often indicates that the summary is too weak and admits spurious boundary behaviors. The loop continues until a candidate is accepted, a concrete violation is established, or the retry budget is exhausted. 
+
+4.4 Soundness Boundary 
+
+The LLM influences decomposition search and artifact construction, but not proof acceptance. Functional simplification is accepted only after Ob1 proves the concrete contract and Ob2 proves 𝑃 IFV on an over-approximation. Relational strengthening is accepted only after the concrete two-copy miter proves 𝑃 IFV ∧ 𝐼 aux . Controller-side scope checks prevent generated artifacts from changing the original property or adding assumptions, while false-law canaries and faithfulness controls guard against the targeted vacuity and harness failures. Consequently, an incorrect proposal or generated artifact can consume time or trigger another iteration, but it cannot produce an accepted proof without satisfying the solver-checked obligations. 
+
+Table 3: Solver validation runtime for accepted candidates. Ob1 is the local-law proof, Ob2 is the accelerated proof, and Faith reports the counterexample frame of the leaky control             
+
+> Case Form Baseline Ob1 Ob2 Faith Outcome
+> masked_mult F39.3 s 0.04 s 0.8 s CEX@4
+
+≈ 47 ×      
+
+> gs_div F281.4 s 6.6 s 0.46 s CEX@4
+
+≈ 40 ×      
+
+> otbn_sec_add F1224 s 0.03 s 2.0 s CEX@9
+
+≈ 603 ×      
+
+> keccak_chi F1459 s 2.4 s 56.6 s CEX@5
+
+≈ 25 ×      
+
+> picorv32 R212 s –57.7 s CEX@20
+
+≈ 3.7×            
+
+> ibex RTO@12h –55.8 s CEX@13 timeout-to-proof
+> hmac R502 s –21.7 s CEX@87
+
+≈ 23 ×      
+
+> hmac_shadone R8020 s –26.0 s CEX@87
+
+≈ 310 ×      
+
+> mini_cipher F+R TO@12h 0.8 s 13.0 s CEX@7 timeout-to-proof
+
+Table 4: Technique ablation on mini_cipher . Only the com-bined functional and relational decomposition proves within the 12-hour budget. 
+
+Config. S-box Round control Result Baseline real masked local TO@12h Simpl. only stub local TO@12h Rel. only real masked lockstep TO@12h Both stub lockstep 13.0 s 
+
+Table 5: Component ablation. B/V/R denote the numbers of benchmarks, variants, and independent proposals. W/O and W/ indicate without and with each component. Component Task B/V/R Metric W/O W/                                      
+
+> Candidate lists Target selection 10 𝑎 /1/3Correct target 13/30 24/30 Cheap probes Leak/easy triage 5𝑏 /2/3Correct routing 6/30 30/30 Verifier feedback End-to-end repair 9𝑐 /1/1Accepted proof 6/9 9/9 Few-shot examples Form selection 10 𝑎 /1/3Correct form 22/30 30/30 RTL-text flags Target selection 10 𝑎 /1/3Correct target 19/30 24/30
+> 𝑎 Nine nontrivial proof cases plus the already-easy chipyard_muldiv routing control. 𝑏 Four deliberately leaking cases plus the already-easy routing control, each evaluated with and without probe evidence. 𝑐 Nine nontrivial proof cases used for end-to-end validation.
+
+5 Evaluation 
+
+We evaluate three aspects of SLED-IFV: whether the proposed de-compositions accelerate hard IFV proofs under a fixed backend, whether functional simplification and relational strengthening ad-dress distinct proof barriers, and which components of the proposal loop are necessary for reliable automation. 
+
+5.1 Setup and Benchmarks 
+
+We construct nine nontrivial self-composed RTL IFV benchmarks from public designs and published masking components. Four cases masked_mult , gs_div , otbn_sec_add , and keccak_chi ex-ercise functional simplification on proof-hard datapaths, including masked cryptographic logic and iterative floating-point arithmetic. Four cases picorv32 , ibex , hmac , and hmac_shadone exercise re-lational strengthening on control or timing proofs. The remain-ing case, mini_cipher , requires both forms. We additionally use 
+
+chipyard_muldiv as an already-easy routing control, which is iden-tified as trivial by the preprocessing probes and therefore bypasses decomposition. For each benchmark, we define the protected source, public ob-servation, environment assumptions, and target non-interference Dai et al. 
+
+property. The underlying RTL includes OpenTitan-derived masked datapaths and HMAC/SHA logic, a Goldschmidt floating-point di-vider, lowRISC Ibex, YosysHQ PicoRV32, and a Chipyard/BOOM-derived control block. Two miters reuse OpenTitan DOM masking gadgets rather than synthetic substitutes. All benchmarks share public inputs and assumptions across the two copies, allow inde-pendent protected sources, and check equality at the selected public observation. Experiments run on an Intel Core i9-14900K workstation with 188 GiB RAM and Ubuntu 22.04.5. We use Yosys 0.65 [24, 25] as the RTL front-end and sv2v 0.0.13 when SystemVerilog conversion is required. Verification uses UC Berkeley ABC 1.01 [4]: proof obliga-tions run with pdr , while bounded probes and faithfulness controls use bmc3 . All proofs are single-threaded, and 12-hour baselines run in isolation. Claude Opus 4.7 ( claude-opus-4-7 ), invoked through Claude Code CLI 2.1.141, serves as both the proposer and artifact generator. Claude Sonnet 4.6 ( claude-sonnet-4-6 ) and Claude Haiku 4.5 ( claude-haiku-4-5-20251001 ) are used only for the weak-model ablations. 
+
+5.2 Proof Acceleration 
+
+Table 3 reports solver time along each accepted SLED-IFV path. For functional simplification, Ob1 proves the local law on the concrete module and Ob2 proves the residual IFV property after summary replacement. For relational strengthening, Ob2 proves 𝑃 IFV ∧ 𝐼 aux 
+
+on the concrete two-copy RTL. In the composed case, Ob2 includes both transformations. The reported times exclude LLM latency. SLED-IFV reduces minute-to-hour baselines to second-scale obli-gations and completes two cases that PDR cannot prove within 12 hours. For the functional cases, the LLM-guided realization replaces proof-hard datapath regions with solver-validated over-approximate summaries. For the masked cases, the summaries leave individual output shares nondeterministic while constraining their recombined values. For gs_div , SLED-IFV instead summarizes each Goldschmidt iteration with a multiplication-free convergence con-tract that lower-bounds the growth of the denominator’s leading-one prefix. For the relational cases, it strengthens the original two-copy miters with selected equalities over key-independent proces-sor or HMAC/SHA control state. For mini_cipher , it combines a summarized masked-GF datapath with round-control alignment. These transformations achieve up to 603 × solver-only speedup, re-duce all completed proofs to 0.84–59 seconds, and convert both ibex 
+
+and mini_cipher from 12-hour timeouts into completed proofs. All applicable false-law canaries and faithfulness controls produce counterexamples, confirming that the tested harnesses are non-vacuous and remain sensitive to seeded leaks. Across the 9 nontrivial cases, one LLM pass, including proposal and artifact generation, takes approximately 25 seconds on average, only about 0.2% of the average plain-PDR baseline runtime when 12-hour timeouts are counted at the cutoff. The flow typically con-verges within one to four passes. We therefore report solver-only speedup in Table 3 to isolate the reduction in proof difficulty. 
+
+5.3 Technique Complementarity 
+
+Table 4 isolates the two barriers in mini_cipher , which combines a masked DOM S-box with an iterative round loop. Replacing only the S-box removes the masked-datapath cost but leaves the round-alignment proof unresolved. Adding only round-control lockstep exposes the required relational invariant but leaves the nonlinear masked implementation intact. Both single-form configurations time out, whereas their composition proves in 13.0 seconds. The two decompositions therefore expose complementary proof facts rather than interchangeable solver hints. 
+
+5.4 Component Ablation 
+
+Table 5 evaluates each automation component in the setting for which it was designed: candidate lists and RTL-text flags for target selection, cheap probes for leak and trivial-case triage, verifier feedback for target repair, and few-shot examples for mapping observed cues to decomposition forms. All ablations use Claude Sonnet, except the few-shot study, which uses Claude Haiku to make prompt-example effects more visible under a weaker proposer. Candidate lists improve target selection from 13 /30 to 24 /30 by exposing the concrete module and signal names. Cheap probes serve a different purpose. On leaking and already-easy variants, they raise correct routing from 6 /30 to 30 /30, preventing unnecessary decomposition attempts before solver time is spent. Verifier feed-back closes the gap between selecting the right form and producing a verifier-accepted candidate. The one-shot proposer chooses the correct form in all nine runtime cases, but three proposals identify the wrong target. Typed feedback repairs all three, increasing accep-tance from 6 /9 to 9 /9. Few-shot examples improve form selection from 22 /30 to 30 /30 under the weaker model, while RTL-text flags provide a smaller target-selection gain from 19 /30 to 24 /30. Overall, the components play distinct roles. Candidate lists ground concrete targets, probes handle leak and trivial-case triage, verifier feedback repairs failed proposals, and prompt-side examples and RTL cues support decomposition selection. 
+
+6 Conclusion 
+
+We presented SLED-IFV, a solver-validated LLM-guided decom-position framework for scalable hardware information-flow veri-fication. SLED-IFV uses the LLM to select query-specific decom-position forms and targets and to materialize the corresponding proof artifacts, while the formal backend remains the sole authority for acceptance. Across nine nontrivial RTL IFV cases, SLED-IFV reduces minute-to-hour PDR proofs to second-scale obligations, achieves up to 603 × solver-only speedup, and converts two 12-hour timeouts into completed proofs. The results further show that func-tional simplification and relational strengthening address distinct proof bottlenecks and can be composed when both arise in the same query. More broadly, SLED-IFV demonstrates that LLMs can assist formal hardware verification by automating semantic proof decomposition without expanding the trusted computing base. 
+
+Acknowledgments 
+
+This work was partially supported by a grant from the CHEST IUCRC. 
+
+References  
+
+> [1] Alon Amid, David Biancolin, Abraham Gonzalez, Daniel Grubb, Sagar Karandikar, Harrison Liew, Albert Magyar, Howard Mao, Albert Ou, Nathan Pemberton, Paul Rigge, Colin Schmidt, John Wright, Jerry Zhao, Yakun Sophia Shao, Krste Asanović, and Borivoje Nikolić. 2020. Chipyard: Integrated Design, Simulation,
+
+SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification 
+
+and Implementation Framework for Custom SoCs. IEEE Micro 40, 4 (2020), 10–21. doi:10.1109/MM.2020.2996616 [2] G. Barthe, P.R. D’Argenio, and T. Rezk. 2004. Secure information flow by self-composition. In Proceedings. 17th IEEE Computer Security Foundations Workshop, 2004. 100–114. doi:10.1109/CSFW.2004.1310735 [3] Aaron R. Bradley. 2011. SAT-based model checking without unrolling. In Pro-ceedings of the 12th International Conference on Verification, Model Checking, and Abstract Interpretation (Austin, TX, USA) (VMCAI’11) . Springer-Verlag, Berlin, Heidelberg, 70–87. [4] Robert Brayton and Alan Mishchenko. 2010. ABC: An Academic Industrial-Strength Verification Tool. In Computer Aided Verification , Tayssir Touili, Byron Cook, and Paul Jackson (Eds.). Springer Berlin Heidelberg, Berlin, Heidelberg, 24–40. [5] Liangtao Dai, Yimin Gao, Melika Morsali, and Mircea Stan. 2026. NetLossBench: A Tiered Benchmark for GNN Hardware Trojan Detectors under Partial Netlist Ob-servations . Association for Computing Machinery, New York, NY, USA, 359–360. https://doi.org/10.1145/3787109.3815316 [6] Liangtao Dai, Yimin Gao, Melika Morsali, and Mircea R. Stan. 2026. Guarded Equivalence Predicates for Scalable Formal Hardware Information-Flow Verifica-tion. arXiv:2606.22063 [cs.CR] https://arxiv.org/abs/2606.22063 [7] Liangtao Dai, Haocheng Zhu, Yuan Wang, and Xin Lou. 2025. Efficient Floating-Point Divider based on Hybrid Cubic-Quadratic Goldschmidt Algorithm. In 2025 IEEE International Symposium on Circuits and Systems (ISCAS) . 1–5. doi:10.1109/ ISCAS56072.2025.11043381 [8] Liangtao Dai, Haocheng Zhu, Binzhe Yuan, Chao Yang, Yuan Wang, and Xin Lou. 2024. Low-Latency High-Throughput Multi-Precision Fused Floating-Point Division and Square-Root Unit Design. In 2024 International VLSI Symposium on Technology, Systems and Applications (VLSI TSA) . 1–4. doi:10.1109/VLSITSA60681. 2024.10546355 [9] Ghada Dessouky, David Gens, Patrick Haney, Garrett Persyn, Arun Kanuparthi, Hareesh Khattri, Jason M. Fung, Ahmad-Reza Sadeghi, and Jeyavijayan Rajen-dran. 2019. HardFails: Insights into Software-Exploitable Hardware Bugs. In 
+
+28th USENIX Security Symposium (USENIX Security 19) . USENIX Association, Santa Clara, CA, 213–230. https://www.usenix.org/conference/usenixsecurity19/ presentation/dessouky [10] Lucas Deutschmann, Andres Meza, Dominik Stoffel, Wolfgang Kunz, and Ryan Kastner Rptu. 2025. FastPath: A Hybrid Approach for Efficient Hard-ware Security Verification. In 2025 62nd ACM/IEEE Design Automation Conference (DAC) . 1–7. doi:10.1109/DAC63849.2025.11132905 [11] Lucas Deutschmann, Johannes Müller, Mohammad Rahmani Fadiheh, Dominik Stoffel, and Wolfgang Kunz. 2024. A Scalable Formal Verification Methodology for Data-Oblivious Hardware. Trans. Comp.-Aided Des. Integ. Cir. Sys. 43, 9 (Sept. 2024), 2551–2564. doi:10.1109/TCAD.2024.3374249 [12] Niklas Een, Alan Mishchenko, and Robert Brayton. 2011. Efficient implementa-tion of property directed reachability. In 2011 Formal Methods in Computer-Aided Design (FMCAD) . 125–134. [13] Andrew Ferraiuolo, Rui Xu, Danfeng Zhang, Andrew C. Myers, and G. Edward Suh. 2017. Verification of a Practical Hardware Security Architecture Through Static Information Flow Analysis. In Proceedings of the Twenty-Second Inter-national Conference on Architectural Support for Programming Languages and Operating Systems (Xi’an, China) (ASPLOS ’17) . Association for Computing Ma-chinery, New York, NY, USA, 555–568. doi:10.1145/3037697.3037739 [14] Hannes Gross, Stefan Mangard, and Thomas Korak. 2016. Domain-Oriented Masking: Compact Masked Hardware Implementations with Arbitrary Protection Order. In Proceedings of the 2016 ACM Workshop on Theory of Implementation Security (Vienna, Austria) (TIS ’16) . Association for Computing Machinery, New York, NY, USA, 3. doi:10.1145/2996366.2996426 [15] Wei Hu, Armaiti Ardeshiricham, and Ryan Kastner. 2021. Hardware Information Flow Tracking. ACM Comput. Surv. 54, 4, Article 83 (May 2021), 39 pages. doi:10.1145/3447867 [16] Paul Kocher, Jann Horn, Anders Fogh, Daniel Genkin, Daniel Gruss, Werner Haas, Mike Hamburg, Moritz Lipp, Stefan Mangard, Thomas Prescher, Michael Schwarz, and Yuval Yarom. 2019. Spectre Attacks: Exploiting Speculative Execution. In 2019 IEEE Symposium on Security and Privacy (SP) . 1–19. doi:10.1109/SP.2019.00002 [17] lowRISC contributors. 2026. Ibex RISC-V Core. https://github.com/lowRISC/ibex. [18] Nowfel Mashnoor, Mohammad Akyash, Hadi Kamali, and Kimia Azar. 2025. Llm-ift: Llm-powered information flow tracking for secure hardware. In 2025 IEEE 43rd VLSI Test Symposium (VTS) . IEEE, 1–5. [19] Andres Meza, Francesco Restuccia, Jason Oberg, Dominic Rizzo, and Ryan Kast-ner. 2023. Security Verification of the OpenTitan Hardware Root of Trust. IEEE Security & Privacy 21, 3 (2023), 27–36. doi:10.1109/MSEC.2023.3251954 [20] Qinhan Tan, Akash Gaonkar, Yu-Wei Fan, Aarti Gupta, and Sharad Malik. 2026. SecIC3: Customizing IC3 for Hardware Security Verification. In 2026 Design, Automation & Test in Europe Conference (DATE) . 1–7. doi:10.23919/DATE69613. 2026.11539567 [21] Tachio Terauchi and Alex Aiken. 2005. Secure information flow as a safety problem. In Proceedings of the 12th International Conference on Static Analysis 
+
+(London, UK) (SAS’05) . Springer-Verlag, Berlin, Heidelberg, 352–367. doi:10. 1007/11547662_24 [22] Timothy Trippel, Kang G. Shin, Alex Chernyakhovsky, Garret Kelly, Dominic Rizzo, and Matthew Hicks. 2022. Fuzzing Hardware Like Software. In 31st USENIX Security Symposium (USENIX Security 22) . USENIX Association, Boston, MA, 3237–3254. https://www.usenix.org/conference/usenixsecurity22/presentation/ trippel [23] Klaus v. Gleissenthall, Rami Gökhan Kıcı, Deian Stefan, and Ranjit Jhala. 2021. Solver-Aided Constant-Time Hardware Verification. In Proceedings of the 2021 ACM SIGSAC Conference on Computer and Communications Security (Virtual Event, Republic of Korea) (CCS ’21) . Association for Computing Machinery, New York, NY, USA, 429–444. doi:10.1145/3460120.3484810 [24] Claire Wolf. [n. d.]. Yosys Open SYnthesis Suite. https://yosyshq.net/yosys/. [25] Clifford Wolf and Johann Glaser. 2013. Yosys - A Free Verilog Synthesis Suite. In 
+
+Austrochip Workshop on Microelectronics 2013 , Gerald Hilber, Timm Ostermann, Andreas Rauchenecker (Ed.). 47–52. [26] Claire Xenia Wolf and YosysHQ contributors. 2026. PicoRV32: A Size-Optimized RISC-V CPU. https://github.com/YosysHQ/picorv32. [27] Zhiyuan Yan, Wenji Fang, Mengming Li, Min Li, Shang Liu, Zhiyao Xie, and Hongce Zhang. 2025. AssertLLM: Generating Hardware Verification Asser-tions from Design Specifications via Multi-LLMs. In Proceedings of the 30th Asia and South Pacific Design Automation Conference (Tokyo, Japan) (ASP-DAC ’25) . Association for Computing Machinery, New York, NY, USA, 614–621. doi:10.1145/3658617.3697756 [28] Danfeng Zhang, Yao Wang, G. Edward Suh, and Andrew C. Myers. 2015. A Hardware Design Language for Timing-Sensitive Information-Flow Security. 
+
+SIGPLAN Not. 50, 4 (March 2015), 503–516. doi:10.1145/2775054.2694372 [29] Zixi Zhang, Balint Szekely, Pedro Gimenes, Greg Chadwick, Hugo McNally, Jianyi Cheng, Robert Mullins, and Yiren Zhao. 2025. LLM4DV: Using Large Language Models for Hardware Test Stimuli Generation. arXiv:2310.04535 [cs.LG] https: //arxiv.org/abs/2310.04535

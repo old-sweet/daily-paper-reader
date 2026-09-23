@@ -6,30 +6,37 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-22
-- 运行时间：2026-09-22 22:40:29 UTC
+- 最新运行日期：2026-09-23
+- 运行时间：2026-09-23 22:14:19 UTC
 - 运行状态：成功
-- 本次总论文数：3
+- 本次总论文数：5
 - 精读区：3
-- 速读区：0
+- 速读区：2
 
 ### 今日简报（AI）
-今日完成3篇精读，其中两篇9.0分聚焦强化学习驱动的硬件与芯片验证。最值得看：CovR用推理引导强化学习做覆盖率感知硬件验证，Verification Reward Model把奖励模型引入芯片设计验证。普通读者可先从这两篇高分精读入手，理解强化学习如何提升验证效率与自动化。
-- 详情：[/202609/22/README](/202609/22/README)
+2026-09-23日报：5篇入选、3篇精读2篇速读，芯片设计验证与硬件信息流验证双双拿下9.0分。  
+最值得看：芯片设计验证中的强化学习奖励模型，以及用求解器校验LLM分解的可扩展硬件信息流验证。  
+建议普通读者优先读这两篇9分
+- 详情：[/202609/23/README](/202609/23/README)
 
 ### 精读区论文标签
-1. [CovR: Coverage-Aware Hardware Verification via Reasoning-Guided Reinforcement Learning](/202609/22/2609.19189v2-covr-coverage-aware-hardware-verification-via-reasoning-guided-reinforcement-learning)  
+1. [Verification Reward Model for Reinforcement Learning in Chip Design Verification](/202609/23/2609.22347v1-verification-reward-model-for-reinforcement-learning-in-chip-design-verification)  
+   标签：评分：9.0/10、query:ml-verify
+   evidence：面向芯片设计验证强化学习的验证奖励模型，融合形式与仿真证据
+2. [SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification](/202609/23/2609.25637v1-sled-ifv-solver-validated-llm-guided-decomposition-for-scalable-hardware-information-flow-verification)  
    标签：评分：9.0/10、query:llm-hw-fv
-   evidence：推理引导强化学习的覆盖率感知RTL测试平台自动生成框架
-2. [Verification Reward Model for Reinforcement Learning in Chip Design Verification](/202609/22/2609.22347v1-verification-reward-model-for-reinforcement-learning-in-chip-design-verification)  
-   标签：评分：9.0/10、query:llm-hw-fv
-   evidence：用语言模型与强化学习做芯片设计验证并融合形式化证据
-3. [VSpector: Specification-Driven Bug Detection for RISC-V CPUs](/202609/22/2609.23517v1-vspector-specification-driven-bug-detection-for-risc-v-cpus)  
+   evidence：LLM引导分解用于可扩展硬件形式验证
+3. [GRADE-RTL: Evaluating LLM-Generated RTL Beyond Compilation](/202609/23/2609.25335v1-grade-rtl-evaluating-llm-generated-rtl-beyond-compilation)  
    标签：评分：8.0/10、query:llm-hw-fv
-   evidence：利用LLM依据RISC-V规范检测RTL实现缺陷
+   evidence：评估LLM生成RTL的框架，包含对参考RTL的功能等价性检查
 
 ### 速读区论文标签
-- 本次无速读推荐。
+1. [TicTacBench: Benchmarking Timing Closure Capabilities of Coding Agents](/202609/23/2609.23363v1-tictacbench-benchmarking-timing-closure-capabilities-of-coding-agents)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：评估编码智能体RTL级时序收敛能力并含功能等价验证的基准
+2. [Direct Optimization of Generators for Search in Automated Theorem Proving](/202609/23/2609.25575v1-direct-optimization-of-generators-for-search-in-automated-theorem-proving)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：大语言模型引导的自动定理证明搜索，可迁移到硬件形式化验证
 
 
 <div class="dpr-home-promo-card">
