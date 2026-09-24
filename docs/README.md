@@ -6,37 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-23
-- 运行时间：2026-09-23 22:14:19 UTC
+- 最新运行日期：2026-09-24
+- 运行时间：2026-09-24 22:44:01 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：3
+- 本次总论文数：6
+- 精读区：4
 - 速读区：2
 
 ### 今日简报（AI）
-2026-09-23日报：5篇入选、3篇精读2篇速读，芯片设计验证与硬件信息流验证双双拿下9.0分。  
-最值得看：芯片设计验证中的强化学习奖励模型，以及用求解器校验LLM分解的可扩展硬件信息流验证。  
-建议普通读者优先读这两篇9分
-- 详情：[/202609/23/README](/202609/23/README)
+- 今日共生成 6 篇推荐（精读 4 篇，速读 2 篇）
+- 精读：《Verification Reward Model for Reinforcement Learning in Chip Design Verification》（9.0/10）, 《Agentic-IC3: Enabling Semantic Proof Search in IC3 Model Checking》（9.0/10）
+- 速读：《MAGS: Multi-agent Auto-formalization Guarantees Safety for Agentic Outputs》（6.0/10）, 《Validation and Simulation Catch Different Errors: Four Levels of Evaluation for LLM-Generated Circuits》（6.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202609/24/README](/202609/24/README)
 
 ### 精读区论文标签
-1. [Verification Reward Model for Reinforcement Learning in Chip Design Verification](/202609/23/2609.22347v1-verification-reward-model-for-reinforcement-learning-in-chip-design-verification)  
-   标签：评分：9.0/10、query:ml-verify
-   evidence：面向芯片设计验证强化学习的验证奖励模型，融合形式与仿真证据
-2. [SLED-IFV: Solver-Validated LLM-Guided Decomposition for Scalable Hardware Information-Flow Verification](/202609/23/2609.25637v1-sled-ifv-solver-validated-llm-guided-decomposition-for-scalable-hardware-information-flow-verification)  
+1. [Verification Reward Model for Reinforcement Learning in Chip Design Verification](/202609/24/2609.22347v1-verification-reward-model-for-reinforcement-learning-in-chip-design-verification)  
    标签：评分：9.0/10、query:llm-hw-fv
-   evidence：LLM引导分解用于可扩展硬件形式验证
-3. [GRADE-RTL: Evaluating LLM-Generated RTL Beyond Compilation](/202609/23/2609.25335v1-grade-rtl-evaluating-llm-generated-rtl-beyond-compilation)  
+   evidence：面向芯片设计验证强化学习的语言模型奖励模型
+2. [Agentic-IC3: Enabling Semantic Proof Search in IC3 Model Checking](/202609/24/2609.27162v1-agentic-ic3-enabling-semantic-proof-search-in-ic3-model-checking)  
+   标签：评分：9.0/10、query:llm-hw-fv
+   evidence：将语言模型智能体集成进IC3硬件模型检测
+3. [SoK: You Find What You Seek: Rethinking Oracles, Guidance, and Input Generation in Hardware Fuzzing](/202609/24/2609.27300v1-sok-you-find-what-you-seek-rethinking-oracles-guidance-and-input-generation-in-hardware-fuzzing)  
+   标签：评分：9.0/10、query:fsh
+   evidence：系统综述硬件模糊测试，分析52个模糊器并将验证建模为有界搜索
+4. [ChipMEM: Verification-Grounded Memory for EDA Agents](/202609/24/2609.27067v1-chipmem-verification-grounded-memory-for-eda-agents)  
    标签：评分：8.0/10、query:llm-hw-fv
-   evidence：评估LLM生成RTL的框架，包含对参考RTL的功能等价性检查
+   evidence：面向RTL验证反馈的LLM智能体记忆层
 
 ### 速读区论文标签
-1. [TicTacBench: Benchmarking Timing Closure Capabilities of Coding Agents](/202609/23/2609.23363v1-tictacbench-benchmarking-timing-closure-capabilities-of-coding-agents)  
+1. [MAGS: Multi-agent Auto-formalization Guarantees Safety for Agentic Outputs](/202609/24/2609.19391v1-mags-multi-agent-auto-formalization-guarantees-safety-for-agentic-outputs)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：评估编码智能体RTL级时序收敛能力并含功能等价验证的基准
-2. [Direct Optimization of Generators for Search in Automated Theorem Proving](/202609/23/2609.25575v1-direct-optimization-of-generators-for-search-in-automated-theorem-proving)  
+   evidence：大语言模型多智能体自动形式化并做Dafny形式验证
+2. [Validation and Simulation Catch Different Errors: Four Levels of Evaluation for LLM-Generated Circuits](/202609/24/2609.26830v1-validation-and-simulation-catch-different-errors-four-levels-of-evaluation-for-llm-generated-circuits)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：大语言模型引导的自动定理证明搜索，可迁移到硬件形式化验证
+   evidence：以四个层级评估LLM生成电路，指出验证与仿真捕捉不同错误，属LLM用于硬件设计验证
 
 
 <div class="dpr-home-promo-card">
