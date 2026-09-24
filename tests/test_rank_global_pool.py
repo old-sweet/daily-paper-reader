@@ -78,6 +78,25 @@ class RankGlobalPoolTest(unittest.TestCase):
                 "Qwen/Qwen3-Reranker-0.6B",
             )
 
+    def test_resolve_remote_api_key_prioritizes_provider_specific_keys(self):
+        with patch.dict(
+            self.mod.os.environ,
+            {
+                "SILICONFLOW_API_KEY": "silicon-key",
+                "PUBLIC_RERANK_API_KEY": "public-key",
+                "RERANK_API_KEY": "shared-key",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                self.mod._resolve_remote_api_key("public_zwwen"),
+                "public-key",
+            )
+            self.assertEqual(
+                self.mod._resolve_remote_api_key("siliconflow"),
+                "silicon-key",
+            )
+
     def test_build_global_candidate_ids_keeps_lane_top_and_global_top(self):
         queries = [
             {
