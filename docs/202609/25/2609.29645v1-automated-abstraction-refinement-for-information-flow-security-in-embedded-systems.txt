@@ -1,0 +1,301 @@
+Title: Automated Abstraction Refinement for Information Flow Security in Embedded Systems
+
+URL Source: https://arxiv.org/pdf/2609.29645v1
+
+Published Time: Fri, 25 Sep 2026 01:08:38 GMT
+
+Number of Pages: 18
+
+Markdown Content:
+# Automated Abstraction Refinement for Information Flow Security in Embedded Systems ⋆
+
+Jonas Becker-Kupczok [0009 −0007 −9605 −006 X], Lukas Ernst [0009 −0002 −9394 −1821] ,and Paula Herber [0000 −0002 −5349 −154 X]
+
+University of Münster, Computer Science Department, Münster, Germany 
+
+{jonas.becker-kupczok,lernst,paula.herber}@uni-muenster.de 
+
+Abstract. Information flow analysis (IFA) is a powerful technique for verifying confidentiality and integrity and is therefore highly desirable for security-sensitive embedded systems. However, as these systems are in-herently concurrent and time-dependent, existing IFA for embedded sys-tems tend to be either imprecise or expensive. In this paper, we propose an approach to tackle this problem using automatic abstraction refine-ment. The key idea is to heuristically choose abstraction levels based on information about dependencies between states and detected potential information leakage. Our approach builds on previous work, where we leverage symbolic execution to precisely capture data, control, timing, and event dependencies between processes within an IFA. To capture values symbolically, this analysis uses abstract interpretation. While the existing approach requires manual definition of abstraction levels, our novel contribution in this paper is using carefully designed heuristics to select these levels automatically. The aim is to keep analysis times accept-able while also retaining enough information to decide whether or not illegal information flow is possible. We have implemented our approach for the system design language SystemC and demonstrate its feasibility with experimental results on several shared bus architectures. 
+
+Keywords: Information Flow Analysis · Symbolic Execution · Abstrac-tion Refinement · Concurrency · Embedded Systems · SystemC. 
+
+# 1 Introduction 
+
+Embedded systems are ubiquitous and widely used in safety- and security-critical applications, e.g. in cars or pacemakers. This makes it crucial to protect them against malevolent attacks. One way of ensuring confidentiality or integrity is performing an information flow analysis (IFA) to verify non-interference between high (i.e. confidential or untrusted) inputs and low (i.e. public or trusted) out-puts. However, embedded systems are typically time-dependent and concurrent,  
+
+> ⋆
+
+This preprint has not undergone peer review or any post-submission improvements or corrections. This contribution has been accepted for publication at the 24th In-ternational Conference on Software Engineering and Formal Methods (SEFM 2026); the Version of Record will appear in Springer’s Lecture Notes in Computer Science 
+
+series and a link to it will be added here upon publication. arXiv:2609.29645v1 [cs.CR] 24 Sep 2026 2 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+which makes the analysis challenging. Existing IFA approaches usually suffer from one of two drawbacks: either they abstract completely from the concrete timing behavior, causing a severe loss of precision, or they precisely capture time- and control dependencies, which then means that suitable abstractions are required to enable scalable analysis. These drawbacks are particularly severe in systems with shared bus architectures: IFA that ignore timing behavior al-ways classify the whole system as insecure, whereas IFA that precisely capture time- and control dependencies, on the other hand, will consider all possible interleavings of read and write accesses to the bus, which does not scale well. In previous work [3], we have presented an approach that uses symbolic ex-ecution to compute an overapproximation of all possible interleavings in timed and concurrent systems. To tackle the scalability problem, it combines symbolic execution with abstract interpretation, abstracting selected data variables while keeping track of the state of most processes, events, and other scheduling-relevant information. The results are used to construct a dependence graph, which cap-tures an overapproximation of possible information flow in the system. The exact choice of the abstraction has a significant impact on the analysis: Keeping track of certain variables can reduce the state space, e.g. by determining which branch is taken in an if-statement, but can also greatly increase it. Also, the less informa-tion is retained during the analysis, the larger the overapproximation becomes, potentially leading to false positive results. Currently, selecting an appropriate abstraction is left to the user, requiring considerable expertise and manual effort. In this paper, we address this problem by introducing an automated re-finement approach that dynamically adapts abstraction levels during symbolic-execution-based IFA using heuristic guidance. Our approach is twofold: First, we propose to reduce the symbolic state space that is explored during the sym-bolic execution using exploration refinement . Second, we propose a dedicated 
+
+information flow refinement to eliminate spurious information flow caused by overapproximation whenever illegal information flow is detected. The approach is based on the second author’s Master’s thesis [11]. The underlying key idea of the exploration refinement is to track additional statements and variables when-ever an unknown branching decision leads to a “large” diversion in the state space. To decide which additional statements and variables are tracked, we pro-pose two novel heuristics: The partial descendants heuristic counts the number of successor states of a given branching node that lie on one branch, but not on all of them. The splitters heuristic identifies branching conditions that cause diverging scheduling states if left untracked. For information flow refinement, on the other hand, we propose a novel heuristic called path resolution , which tries to specifically refine nodes on a given path where potential illegal information flow is detected to exclude spurious information flow during IFA. Overall, the pro-posed heuristics reduce the need for expert-defined abstractions while improving both the efficiency and accuracy of symbolic-execution-based IFA. We have implemented our approach for the system design language Sys-temC [21], which is an industrially widely used language for the modeling and simulation of hardware/software co-designs and shared bus architectures [14]. Automated Abstraction Refinement for Information Flow Security in ES 3
+
+We demonstrate the feasibility of our approach with several case studies, which show that the automatically chosen abstractions enable precise and efficient IFA without requiring manually defined abstractions. The implementation and a full reproduction package are available as an artifact to this paper [2]. The rest of this paper is structured as follows: In Section 2 we introduce IFA, SystemC, and the approach from [3]. We then introduce our novel abstraction refinement heuristics in Section 3, before presenting the experimental evaluation in Section 4. We discuss related work in Section 5 and conclude in Section 6. 
+
+# 2 Background 
+
+This section introduces the necessary background for the remainder of this paper, namely IFA, SystemC, and the approach from [3], on which this work builds. 
+
+2.1 Information Flow Analysis 
+
+The goal of IFA is to identify all program locations (particularly all inputs) that can influence the execution of a given program location (usually an output). This information can be used to analyze properties such as non-interference [16], which can be used to establish confidentiality or integrity. IFA can be carried out using security type systems [40] or program depen-dence graphs (PDGs) [20]. Both techniques generally have the same precision [29]. A PDG contains a node for every program location in a method and edges for all possible influences between program locations. These edges are typically induced by data and control dependencies. The PDG can then be used to com-pute the backwards slice [41] of any output, i.e. the set of all nodes from which there exists a path in the PDG to the output node (the slicing criterion). 
+
+2.2 SystemC 
+
+SystemC is a system-level design language and a framework for HW/SW co-simulation. Its semantics are informally defined in an IEEE standard [21]. It is implemented as a C++ class library, providing language elements for the descrip-tion of hardware and software at various levels of abstraction. It also features an event-driven simulation kernel. A SystemC design consists of a set of communi-cating processes, triggered by events or timing delays and interacting through channels. SystemC is especially effective for modeling shared bus architectures because it can accurately simulate bus communication, arbitration, contention, and timing to evaluate system performance before hardware implementation. Like typical hardware simulators, SystemC models concurrency by impos-ing a partial order on parallel processes using delta-cycles: During simulation, the scheduler operates in phases. In the evaluation phase, a ready process is se-lected non-deterministically and executed until it terminates or reaches a wait-statement. This is repeated until no more processes are ready, in which case the scheduler switches to the update/notify phase. There, values written to signals 4 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+> SystemC Design Block-Wise Dependency Analysis Program Dependence Graphs Symbolic Execution with Abstract Interpretation
+> 1221332
+> Thread Interleaving Graph Time and Event Sensitive Dependency Analysis SystemC Dependence Graph Reachability Analysis
+> Secure Information Flow Violating Path
+
+Fig. 1. Symbolic Execution for IFA of Embedded Systems [3]. or channels during the previous evaluation phase become visible to other pro-cesses. At the end of the update/notify phase, a delta delay passes. This is a special unit of simulation time which is treated as greater than zero but smaller than any real delay, and each elapsed delta delay constitutes one delta cycle. Afterwards, if no process is ready, simulation time advances to the earliest point at which any process becomes ready. Finally, a new evaluation phase is started. SystemC uses a cooperative scheduler, which means that threads only yield control voluntarily and are executed atomically between waits. 
+
+2.3 Symbolic Execution for IFA of Embedded Systems 
+
+Symbolic execution executes a program with symbolic values [24], allowing many executions with different inputs or non-deterministic choices to be simulated in one or few passes. Classical symbolic execution represents symbolic values as terms and expressions derived from the program. [3] uses a more general definition where symbolic values range from concrete values, over elements of abstract domains [7] (e.g., intervals), to completely unknown values. The approach from [3] (visualized in Figure 1) exploits the fact that code in SystemC forms atomic blocks. It creates PDGs for these blocks using a block-wise depencency analysis, and uses a symbolic execution with abstract interpretation to find an overapproximation of all their possible interleavings captured as a thread interleaving graph. It uses this information to combine all the PDGs into a SystemC dependence graph (SysCDG), which captures all data, timing, event, and other control dependencies between blocks. IFA can then be performed by reachability analysis on the SysCDG. The analysis either finds a violating path where illegal information flow might occur or concludes that the system is secure. 
+
+# 3 Heuristic Abstraction Refinement 
+
+The symbolic execution used for precise IFA in [3] strongly relies on an appro-priate user-defined abstraction – i.e. the user needs to decide which variables are kept concrete and which are abstracted. This choice has a significant impact on Automated Abstraction Refinement for Information Flow Security in ES 5  
+
+> Symbolic Execution Exploration Refinement Information Flow Refinement
+>   a, b, c, x, y, z
+> Abstraction
+> SystemC Design
+
+Hin 
+
+Lin 
+
+Hout 
+
+Lout 
+
+> Information Flow Policy Information Flow Analysis
+> Secure Information Flow
+> Possible Violation branch continue restart restart exploration successful illegal path detected SysCDG Path
+
+Fig. 2. Precise IFA with Automated Abstraction Refinement. the analysis. On the one hand, it affects the runtime (and de-facto termination) of the symbolic execution. On the other hand, too much abstraction reduces the precision of the IFA. Consequently, selecting a suitable abstraction requires considerable expertise and manual effort. To address this problem, we propose heuristically selecting abstraction levels based on dependencies between states and detected potential information leak-age. During symbolic execution, we detect whenever the state space branches and identify refinements that can avoid unnecessary branching. Since these re-finements are applied during symbolic exploration, we refer to this process as 
+
+exploration refinement . To determine suitable refinement candidates, we propose two heuristics: 1. Partial descendants , which counts abstract states reachable from some, but not all, branches originating from the current state. 2. Splitters , which identifies control conditions that cause splits in the scheduler state space if left untracked. The goal of exploration refinement is to reduce the symbolic state space explored during symbolic execution, which is subsequently used to construct the thread interleaving graph and the SystemC dependence graph. A smaller state space accelerates symbolic execution and simplifies dependence analysis. Besides the scalability issues that result from large symbolic state spaces, a further problem of IFA for timed concurrent systems using symbolic execu-tion together with abstract interpretation is that due to the overapproximation, it might not be able to conclude the absence of illegal information flow due to spurious paths in the SysCDG. To counteract this problem, we propose in-formation flow refinement , which aims at eliminating spurious information flow caused by over- approximation whenever illegal information flow is detected. For 6 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+information flow refinement , we propose a path resolution heuristics , which tries to specifically refine nodes on a given path where potential illegal information flow is detected, for example by identifying control conditions on this path and choosing these conditions as candidates for refinement. Our overall approach to automate the process of finding a suitable abstrac-tion using exploration and information flow refinement is visualized in Figure 2. Initially, we perform a Symbolic Execution on a given SystemC Design with a trivial abstraction, e.g. an abstraction where all values are symbolically captured, i.e. assumed to be completely unknown. Whenever we detect a branch during the 
+
+Symbolic Execution , we perform Exploration Refinement on the current Abstrac-tion . For Exploration Refinement , we employ the partial descendants heuristic ,which refines the abstraction if the branch leads to a “large” number of different followup states, and the splitters heuristic , which refines the abstraction if the branch leads to a difference in the scheduling state. If one of the heuristics in-dicates that a refinement should be applied, we restart the Symbolic Execution .Otherwise, we just continue with the previously used Abstraction .Once the Symbolic Execution has successfully completed with a given ab-straction ( exploration successful ), we perform Information Flow Analysis for a given Information Flow Policy that specifies which high (i.e. confidential or un-trusted) inputs Hin and low (i.e. public or trusted) inputs Lin may influence which high outputs Hout and low outputs Lout . If a violating path is detected (illegal path detected ), we employ the path resolution heuristic to attempt In-formation Flow Refinement with the goal of finding an Abstraction where this violating path does not occur, meaning that the illegal information flow is not actually possible. This triggers a new symbolic execution ( restart ), possibly lead-ing to more exploration refinement in between information flow refinements. The analysis terminates once either no violating paths remain or no further promising refinement candidates can be identified. Our approach is compatible with different kinds of abstractions, some of which are discussed in Section 3.1. Then, we introduce exploration and informa-tion flow refinement in Sections 3.2 and 3.3. 
+
+3.1 Kinds of Abstractions 
+
+In principle, any abstraction in the sense of abstract interpretation [7] can be used in our approach. However, all heuristics presented in this paper rely on tracking or not tracking certain values . In the simplest form, these values are variable values, such that an abstraction is defined by a set of variables whose values are tracked. This approach may, however, be unnecessarily coarse. A variable may initially be worth tracking, e.g. because it appears in a branching condition affecting potential information flow, but later assume many different values that are no longer relevant. In such cases, it is preferable to track the variable only until the branching decision has been made. Therefore, our abstractions are typically characterized by a set of variable assignments whose values are tracked resp. not tracked. Conceptually, this cor-Automated Abstraction Refinement for Information Flow Security in ES 7
+
+responds to viewing the program in static single assignment form [8], although no explicit transformation is performed. 
+
+3.2 Exploration Refinement using Partial Descendants and Splitters 
+
+The goal of the exploration refinement is to identify an abstraction that reduces the size of the symbolically explored state space, allowing symbolic execution to terminate successfully in acceptable time. In general, higher abstractions yield smaller state spaces than lower (more concrete) ones. Therefore, we begin with the highest possible abstraction, tracking no values except constants. We then incrementally refine that abstraction whenever doing so is expected to reduce rather than increase the size of the explored state space. This is potentially the case whenever the execution reaches a branching point where it cannot decide which branch to take. Without refinement, all branches must be explored separately. If they merge again quickly, this incurs little over-head and refinement would be unnecessary. However, if they don’t, refining the abstraction to track the values determining the branching decision substantially reduce the exploration effort. These two cases are very difficult to distinguish without already knowing the state transition graph (the thread interleaving graph 
+
+from [3]), which the symbolic execution aims to construct. Therefore, we tackle the problem heuristically. The two heuristics we propose in this paper are the 
+
+partial descendants and splitters heuristics, introduced in the following sections. Note that whenever we track a value, we transitively extend that tracking to all values used to compute it, because assigning an unknown value to a tracked variable would make it unknown again, defeating the point of tracking it. 
+
+Partial Descendants Heuristic. If the complete state transition graph were available, the usefulness of refining a branch decision could be assessed directly by determining the number of states that are reachable from only a subset of the outgoing branches of a branching state. This information could be used to decide whether tracking the variables involved in the branch condition is likely to reduce the explored state space. Since the complete state transition graph is not avail-able during symbolic exploration, such an exact analysis is infeasible. Instead, we approximate this quantity using the partially explored state transition graph and estimate whether the number of such states exceeds a predefined threshold. This approximation forms the basis of the partial descendants heuristic .Intuitively, a state is a partial descendant (PD) of a branching state, if it is reachable from at least one of the branches without returning to the branching state, but not from all of them. Formally, we define this notion as follows. 
+
+Definition 1 (Partial Descendants). Let G = ( V, E ) be a directed graph with 
+
+V a set of abstract states and E ⊆ V × V a set of transitions between them. Let 
+
+P = {(v1, . . . , v n) | (v1, v 2) , . . . , (vn−1, v n) ∈ E} be the set of finite paths in 
+
+G. For v, v ′ ∈ V , we call v′ a partial descendant of v iff there exist distinct 
+
+v1, v 2 ∈ V with (v, v 1) , (v, v 2) ∈ E such that there is a path (v1, . . . , v ′) ∈ P not containing v, but there is no path (v2, . . . , v ′) ∈ P not containing v.8 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+This definition is applicable to both fully explored and partially constructed state transition graph. The partial descendants heuristic monitors the number of PDs of every state during the exploration. If this number exceeds a predefined threshold, the abstraction is refined to track the values controlling the branch (e.g. those occuring in an if-condition). If a branching statement is evaluated in multiple abstract states, we use the maximum number of PDs among these states rather than their sum. If a condition is evaluated in many states that have only a few PDs each, resolving the branch can reduce the state space only marginally, whereas the additional tracking may substantially increase it. Since the heuristic operates on the partially explored graph, it can in some cases overestimate the number of PDs. This occurs when a path from at least one branch to a node is already explored, but the paths from the remaining branches to that same node are yet to be discovered. To mitigate this effect, we perform symbolic execution using breadth-first search. Although this does not eliminate the issue, the remaining cases are unlikely to be problematic: either the missing path is significantly longer, making refinement potentially beneficial anyway, or the actual number of PDs is only slightly below the threshold, in which case refining the branch remains reasonable. 
+
+Splitters Heuristic. Similar to the partial descendants heuristic, the splitters heuristic identifies control conditions that cause a large split in the state space if left untracked. However, instead of estimating this effect explicitly, it relies on a simpler criterion: Since the scheduler state, i.e. which processes are waiting for which events or timing delays, is typically the most relevant part of the state for identifying possible interleavings of atomic blocks, the splitters heuristic tracks a control condition only if leaving it unknown changes the scheduler state at the end of an atomic block. This idea is inspired by the refinement heuristic of [38]. Although less precise than the PD heuristic, this approach is considerably cheaper, while still working well for typical SystemC designs. Because the heuris-tic is evaluated locally at the end of each atomic block, it requires no additional state and can be applied on the fly without being affected by subsequent states. As an exception, we propose not to track the concrete values of primitive channels in SystemC in certain cases. Some such channels, such as sc_signal ,notify an event only when written with a value different from their current one. This causes a split in the scheduler state based on the channel’s value, but tracking these concrete values typically increases the state space much more than it reduces it. However, if a channel value is subsequently used in another control condition that also causes a split, then our heuristic would decide to track it. 
+
+3.3 Information Flow Refinement 
+
+The goal of information flow refinement is to eliminate spurious information flow whenever a potential security violation is detected. To this end, we iteratively apply the path resolution heuristic to remove paths from the SysCDG that induce illegal information flow until either no violating path is left (and we report secure information flow), or no promising refinement candidates are left. Automated Abstraction Refinement for Information Flow Security in ES 9
+
+Algorithm 1 Cumulative Information Flow Refinement 
+
+Input: SystemC design D, initial abstraction A0 (set of tracked values, can be ∅)
+
+Output: potentially violating path in SysCDG, or ⊥ if none exists 1: A ← exploration_refinement (D, A 0)
+
+2: ▷ use exploration refinement to find first abstraction for the symbolic execution ◁
+
+3: T ← duration_of_execution () ▷ take the time for the successful execution 
+
+4: S ← construct_syscdg (D, A ) ▷ construct SysCDG with the found abstraction 
+
+5: while violating_paths (S)̸ = ∅ do ▷ repeat while violating path exists 
+
+6: choose P ∈ violating_paths (S) ▷ choose any violating path 
+
+7: for R ∈ refinement_candidates (S, P ) do ▷ iterate over refinement candidates 
+
+8: A′ ← exploration_refinement (D, A ∪ R, timeout (T )) 
+
+9: ▷ try to find a new abstraction for the symbolic execution based on the refined one, using a relative timeout ◁
+
+10: T ′ ← duration_of_execution () ▷ take the time again 
+
+11: if A′ = ⊥ then ▷ if the exploration was unsuccessful, reject the candidate 
+
+12: Continue for loop 
+
+13: S′ ← construct_syscdg (D, A ′) ▷ construct a new SysCDG 
+
+14: if ¬is_path_present (S′, P ) then 
+
+15: ▷ if the candidate eliminates the path, then update abstraction, time, and SysCDG, and continue with the next path (if any) ◁
+
+16: A ← A′, T ← max ( T, T ′ ) , S ← S′
+
+17: Continue while loop 
+
+18: return P ▷ if out of candidates, return possibly violating path 
+
+19: return ⊥
+
+Refinements identified by the path resolution heuristic for different paths can be combined in two ways: First, they can be accumulated, meaning that the final abstraction may resolve all violating paths simultaneously. Second, each path can be resolved individually. We refer to these variants as cumulative and the non-cumulative information flow refinement , respectively. The cumulative procedure is shown in Algorithm 1. To prevent an unfavor-able refinement candidate from causing a state space explosion and excessive symbolic execution times, we measure the duration of the first successful sym-bolic execution and use this time as a basis for a timeout on any subsequent execution. If the timeout is exceeded, the candidate is rejected, whereas success-ful executions update the reference runtime. We propose to set the timeout to 
+
+a · T + b (for a base duration T ), and use a = 5 and b = 10 s as default values. The non-cumulative procedure is similar, but differs in two aspects: it main-tains a set S of SysCDGs instead of a single SysCDG S, and lines 5–6 consider only violating paths present in all graphs, as clarified below. When a path P is resolved, i.e. an abstraction is found whose SysCDG no longer contains P , that SysCDG is added to S. Unlike in the cumulative variant, neither the abstraction 
+
+A nor the base timeout T is updated. Since S then contains a graph without 
+
+P , this path cannot be selected again, even if the abstraction is reset. This can keep the abstraction smaller, reducing runtime or making the analysis feasible. 10 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+Algorithm 1 and our description of the non-cumulative procedure leave two things unspecified: The selection of refinement candidates, and the determination of whether a path is present in a different or even in multiple SysCDGs (which can have different sets of nodes). We discuss these in the following sections. Note that, in order for the information flow refinement to always terminate, the exploration refinement must be monotone, i.e. never remove values from being tracked. Both our exploration heuristics satisfy this requirement. 
+
+Path Resolution Heuristic. For selecting refinement candidates, we propose the path resolution heuristic. The idea is that removing any node from a path resolves that path. This means that at least the value of any condition controlling a node on the path is a candidate for refinement. Since, when selecting candidates for the information flow refinement, we al-ready have a SysCDG, these controlling nodes are easy to find by simply travers-ing incoming control dependency edges from the node in question, as well as tran-sitively from already identified controlling nodes. Apart from classical controlling nodes like if-statements, we also treat wait-statements and event notifications as controlling the atomic blocks triggered by them. For a given controlling node that may resolve the path, it may be sufficient to ensure that the value of its condition (or, in the case of wait-statements and event notifications, its parameters) is known whenever it is encountered. This can be achieved by tracking the values of all its transitive data dependencies – i.e. by taking the backwards slice of the controlling node, but limited to only traversing data dependency edges, and tracking all assignments made in nodes in this slice. Such a case is illustrated in Figure 3b: low_out = val is part of the potentially violating path. It is control dependent on if (flag == 0) , which is data dependent on flag = 1 - flag . Tracking flag will resolve the path. In some cases, considering only data dependencies of controlling nodes is not sufficient, but considering all their dependencies is. Such a case is illustrated in Figure 3c: low_out = val is again part of the path, and it is control dependent on wait(low_event) . However, this has no data dependencies worth tracking. Instead, it has a control dependency on low_ev.notify(1, SC_MS) , which in turn is control dependent on if (flag == 0) . This does have a data dependency that, if trackked, resolves the path ( flag = 1 - flag ). Since, by definition, this approach results in a superset of values tracked compared to only considering data dependencies of controlling nodes, we prefer the latter whenever it suffices. Finally, in relatively rare cases, only considering controlling nodes of nodes on the path can be insufficient to resolve it. This may be the case if, e.g., a data dependency is overwritten with a low value, but the current abstraction is insuf-ficient to show this to be the case. Such a situation is illustrated in Figure 3d: 
+
+low_out = data is part of the path, and has no non-trivial control dependen-cies. However, it does have a data dependency on data = 5 , which is control dependent on if (flag != 0) . Tracking all dependencies of this node (which includes flag = 1 - flag ) resolves the path, because the perceived data depen-Automated Abstraction Refinement for Information Flow Security in ES 11                                                        
+
+> while ( true ) {flag =1-flag ; if ( fl ag == 0) {val =low_in ; low_ev . noti fy (1 , SC_MS ); }else {val =high_in ; high_ev . notify (1 , SC_MS ); }wait (2 , SC_MS ); }
+> (a) Process writing low and high infor-mation to val , setting flag accordingly.
+> wait (1 , SC_MS ); while ( true ) {if ( flag == 0) low_out =val ; else high_out =val ; wait (2 , SC_MS ) }
+> (b) Path that can be resolved by tracking data dependencies of a controlling node.
+> while ( true ) {wait ( lo w_ev ); low_out =val ; }
+> (c) Path that can be resolved by tracking all dependencies of a controlling node.
+> wait (1 , SC_MS ); while ( true ) {data =2*val ; if ( fla g != 0) data =5; low_out =data ; wait (2 , SC_MS ); }
+> (d) Path that can be resolved by tracking all dependencies of a dependency node.
+> · · · · · · · · · · · · · · · · · · · · · · · ·
+
+Fig. 3. Examples of paths that require different resolution techniques. Figure 3a shows a process writing (potentially high) information to the variable val , the other figures show processes reading that variable and potentially writing to a low output. The paths are shown in magenta, the nodes used to resolve them in blue, and their tracked influences in green. The dashed green nodes only belong to the influences of 3c. dency between data = 2 * val and low_out = data is killed whenever val is high. Because this is relatively rare, we first consider the other two possibilities. Taken all together, our proposed path resolution heuristic for information flow refinement is shown in Algorithm 2. The functions controlling_slice ,
+
+data_slice , and backwards_slice return the backwards slice of the given node in the graph, but traversing only control dependency edges, data dependency edges, or all edges, respectively. Concerning the order in which nodes are traversed (and, therefore, in which refinement candidates are produced), we propose to traverse the path from its source to its target, because nodes earlier in the path tend to have smaller backwards slices (leading to smaller refinement candidates). For traversing the candidates slices, we propose a breadth first search starting right after the node itself, because usually, control conditions closer to the path are more likely to 12 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+Algorithm 2 Path Resolution Heuristic                                                                                           
+
+> Input: SysCDG S, path P
+> Output: List of refinement candidates (sets of tracked values) 1: L←select( S,P, controlling_slice, data_slice)
+> 2: ▷select data dependencies of controlling nodes ◁
+> 3: L←L◦select( S,P, controlling_slice, backwards_slice)
+> 4: ▷select other dependencies of controlling nodes ◁
+> 5: L←L◦select( S,P, backwards_slice, backwards_slice)
+> 6: ▷select any dependencies of any nodes ◁
+> 7: function select( S,P, get_candidates, get_influences)
+> 8: L←[] ▷initialize result with empty list of candidates
+> 9: for N∈Pdo ▷iterate through the path
+> 10: for C∈get_candidates( S,C)do ▷iterate over candidates to resolve N
+> 11: R← ∅ ▷initialize refinement candidate with empty set of values
+> 12: for I∈get_influences( S,C)do ▷iterate over nodes influencing C
+> 13: R←R∪written_values (I)▷add values written in Ito tracking set
+> 14: L←L◦R▷add candidate set to result list
+> 15: return L▷return result list
+
+resolve it. Traversal order for the influence slices is irrelevant, because all their values are combined in a single refinement candidate. Note that the refinement candidates don’t have to be computed en bloc, but can also be determined on demand, whenever a new candidate is required. 
+
+Identifying Paths in Different SysCDGs. The SysCDG as constructed ac-cording to [3] consists of PDGs corresponding to executions of atomic blocks, and connected according to to their possible interleavings. Changes to the abstrac-tion affect these possible interleavings (that is the purpose of the refinement). Therefore, after a refinement, the SysCDG may look drastically different than before. That makes it non-trivial to test whether a potentailly violating path from one SysCDG still exists in the new SysCDG (i.e. the implementation of 
+
+is_path_present from line 14 in Algorithm 1), or to find a single path that appears in multiple SysCDGs. One could assume that, since our refinement is monotonic, the set of possible interleavings only ever decreases, and that the new SysCDG therefore must be a subgraph of the old. However, this is not the case: Even though the number of actually possible interleavings given the abstraction always decreases, a set of interleavings that may previously have been captured with just one sequence of abstract states may subsequently require several such sequences, because each abstract state now covers a smaller set of concrete states. The new SysCDG may therefore be neither a sub- nor a supergraph of the old one. We solve this problem by mapping paths to path signatures . A path signature is a sequence of node signatures , where a node signature serves to identify a node across SysCDGs. A straight forward example for concrete node signatures Automated Abstraction Refinement for Information Flow Security in ES 13 
+
+(and the one we use for our implementation) is to map nodes to the program locations they represent. If a path passing the same program locations in the same order exists in another graph (even if the abstract state transitions the nodes belong to look different), then it is likely the same path. Conversely, if such a path doesn’t exist, e.g. because some location which is part of the path is not executed with the abstraction inducing the other graph, then there likely isn’t actually any information flow following along that path: If there was, i.e. if a concrete execution of the system existed where this information flow took place, then any sound abstraction would also induce such a path. With this, the implementation of is_path_present becomes trivial: Perform a straight forward path finding on the new graph considering only successor nodes that have the same signature as the next node on the path. In contrast, finding a common violating path across SysCDGs is a bit more complex. We do this by taking a subgraph of the product graph of all considered SysCDGs, where only nodes with the same signatures may appear in one product node. We formalize this as follows. 
+
+Definition 2 (Signature Product Graph). Let (Gi)i∈{ 1,...,n } with Gi = ( Vi,Ei) be a sequence of SysCDGs, let V = S 
+
+> i∈{ 1,...,n }
+
+Vi, and let sign : V → S
+
+map each node to a signature from a set S. Then the signature product graph of (Gi)i∈{ 1,...,n } is the graph ˆG =
+
+ ˆV , ˆE
+
+
+
+with: 
+
+ˆV = {(v1, . . . , v n) ∈ V1 × . . . × Vn | sign (v1) = . . . = sign (vn)} and 
+
+ˆE =
+
+n
+
+(( v1, . . . , v n) , (v′
+
+> 1
+
+, . . . , v ′
+
+> n
+
+)) ∈ ˆV × ˆV | (v1, v ′
+
+> 1
+
+) ∈ E1 ∧ . . . ∧ (vn, v ′
+
+> n
+
+) ∈ En
+
+o
+
+A common path in a set of SysCDGs is a path in their signature product graph. Looking for common paths is more precise than just checking for the presence of an old path in a new graph: Consider the case of a path where information flows into a loop, from one iteration to the next, and then out after termination, where the iterations are separated by wait statements (i.e. are forming individual atomic blocks). If the amount of iterations is unknown when the first SysCDG is created, then the path found will contain e.g. one iteration. If, after refinement, the loop is known to be executed exactly four times, then that path is no longer present in the new SysCDG. However, there still is a commmon path in both SysCDGs, because the path with four iterations is also present in the old SysCDG – it just won’t be found by standard path finding algorithms, because it isn’t acyclic (and there are potentially infinitely many cyclic paths in a graph). Note that the definition of path signatures is irrelevant to the soundness of the cumulative procedure, only affecting its precision and performance: If a path is wrongfully considered to be resolved, then its reincarnation still appears in 
+
+violating_paths – it just isn’t recognized as the same. Therefore, in the worst case, a useless refinement is kept, worsening performance or (if to the point where the execution times out) leading to a false positive result of illegal information flow. If a path is thought to be recognized, even though it is actually a different path, then in the worst case a useful refinement is discarded, also possibly leading to a false positive result of illegal information flow. 14 J. Becker-Kupczok, L. Ernst, P. Herber 
+
+Table 1. Results of running our analysis on some examples. The first line per examples denotes the numbers of explored states, the second denotes the run-times of the analyses. A ✓ indicates correctly identified security, a × indicates a false positive. The values for information flow refinement are when combined with the ideal exploration refinement heuristic.                                                               
+
+> Exploration Refinement Information Flow Refinement Example none PDs splitters none cum. n.-cum. Priorities 24 24 24 24 ×147 ✓79 ✓
+> 0.01s 0.02s 0.02s 0.03s 0.13s 0.13s Many Slots 15 15 15 15 ×36 ✓36 ✓
+> 0.01s 0.02s 0.02s 0.03s 0.01s 0.01s Arbiter 43 43 48 43 ×48 ✓48 ✓
+> 0.01s 0.02s 0.03s 0.02s 0.04s 0.04s Transmitters 3528620 170 170 170 ✓170 ✓170 ✓
+> 130s 0.29s 0.15s 0.19s 0.18s 0.18s
+
+However, for the non-cumulative procedure, it is relevant to soundness that, if a common violating path exists (i.e. one that represents the same actually possible information flow), then it must be found by the analysis. Otherwise, we could erroneously report secure information flow. Overapproximating common paths on the other hand is fine for soundness, with the same consequences for performance or false positives as with the cumulative procedure. We believe that our approach with the signature product graph and program locations as node signatures is sound, but currently do not provide formal assurances of that. 
+
+# 4 Evaluation 
+
+To evaluate our approach, we have prototypically implemented it in Java for SystemC, and ran it on a couple of case studies of shared bus architectures. The implementation and a full reproduction package are available as an artifact [2]. The results are shown in Table 1. In the first case study ( Priorities ), values with different priorities are com-municated with different timing behaviors. This example does not require explo-ration refinement, but reports a false positive without information flow refine-ment. The same holds for our second case study ( Many Slots ), which models a bus with multiple slots where security levels are stored in addition to values. In both case studies, the false positives are eliminated by both the cumulative and non-cumulative refinements. They are equally efficient, but the non-cumulative approach sometimes finds abstractions with fewer states. In our third case study ( Arbiter ), the bus is dynamically allocated. Explo-ration refinement is not necessary here. The splitters heuristic even performs a slight overrefinement, however these additional states are required anyway to prove security, and are therefore also introduced by information flow refinement. Automated Abstraction Refinement for Information Flow Security in ES 15 
+
+Our fourth case study ( Transmitters ) has two transmitters of different secu-rity levels and with dynamic timing behavior. Without exploration refinement, this case study suffers greatly from the state space explosion problem. Both our exploration heuristics reduce the state space dramatically, also bringing down the exploration time by a factor of ≈ 100 . Trying to construct the SysCDG without exploration refinement lead to an OutOfMemoryError on our machine 1.The examples show that our heuristics can succeed in dramatically reduc-ing state space and analysis time and in excluding spurious information flow, strengthening the efficiency and precision of the IFA. The partial descendants and splitters heuristics deliver similar results. Cumulative and non-cumulative refinement are similarly efficient, but non-cumulative can lead to fewer states. 
+
+# 5 Related Work 
+
+Abstraction refinement is common in model checking and abstract interpreta-tion [6,19]. [12,18] refine abstractions using predicates relevant to shared state and inter-thread interference. While conceptually related to our splitters heuris-tic, their setting and refinement criteria are different and they do not target IFA. [27] uses probabilistic inference over constraints to infer specifications for information-flow problems, but is not geared towards embedded systems and only considers data flow. [22] proposes path slicing to remove statements irrele-vant to a counterexample trace before feasibility checking and refinement, which is related to our path-resolution heuristic in its use of dependence information for refinement, but targets safety rather than information flow. Path conditions often serve a similar purpose as our information flow re-finement, excluding spurious paths through dependence graphs by constructing SMT formulas capturing program executions and checking their satisfiability [36]. However, they become expensive or lose precision in the presence of loops, recursion, or concurrency, and are typically not geared towards embedded sys-tems. [4] proposes to use timed path conditions for automatic security hardening of embedded systems, but does not provide for the derivation of such conditions. [30] uses timed path conditions for IFA in the signal-flow oriented Simulink lan-guage, but is not applicable to control-flow oriented languages like SystemC. [37] refines path conditions automatically to improve the precision of an information-flow analysis. The approach is developed for Java bytecode and does not address embedded-system characteristics. Since candidate witnesses are val-idated by concrete program execution, non-termination of the analyzed program can also prevent the analysis from reaching a conclusive result. There are also numerous approaches for IFA on concurrent systems. Many of the recently developed ones are based on rely/guarantee reasoning [28,35] or separation logics [23,10], and as such require at least some manual effort with a high degree of expertise for most non-trivial cases. Among other approaches, e.g. [13,17], they also often ensure the absence of timing leaks, though often in   
+
+> 111th Gen Intel(R) i7-1165G7, 64GB RAM, Eclipse Temurin 25.0.3.9 JDK 16 J. Becker-Kupczok, L. Ernst, P. Herber
+
+part by restricting high-dependent branching or synchronization. Graph-based approaches [25,15] can be fully automated, but often sacrifice precision or incur higher computational effort. Also, none of these approaches account for the way timing-based synchronization, which is common in hardware designs, can rule out information flow, which is the main purpose of the approach from [3] that we build upon. [31] provide information flow control for Uppaal timed automata, but their approach is specifically tailored to that formalism. Hardware-level IFA has been addressed by gate-level and RTL information-flow tracking approaches [39,1], including recent work on quantitative timing-sensitive leakage at RTL [33]. These approaches are complementary to ours, which operates on SystemC models and refines symbolic-execution abstractions rather than propagating hardware security labels. Symbolic execution has been combined with IFA, e.g. in [32,34]. However, these approaches do not take timing and concurrency into account. It has also been applied to embedded systems [5,26,9], but not in the context of IFA. To the best of our knowledge, abstraction refinement has not yet been applied to information flow analyses of embedded systems. 
+
+# 6 Conclusion 
+
+In this paper, we presented an automated refinement approach for symbolic-execution-based information flow analysis of timed concurrent SystemC models. By dynamically adapting abstraction levels during the analysis, our approach substantially reduces the need for manually selected abstractions while preserv-ing the precision required to capture timing- and control-dependent information flow. To this end, we introduced two exploration refinement heuristics, partial descendants and splitters , which reduce the symbolic state space by identify-ing branching decisions whose refinement is expected to do so. In addition, we proposed the path resolution heuristic, which selectively refines the abstraction along paths containing potential illegal information flow to eliminate spurious flows introduced by overapproximation. We implemented the proposed refinement techniques and evaluated them on several shared bus architectures. The experimental results demonstrate that the proposed heuristics automatically derive abstractions that enable efficient and precise information flow analysis, significantly reducing the manual effort required from the user while maintaining scalability. In future work, we plan to optimize the analysis performance, explore ad-ditional refinement heuristics, and scale the approach to handle larger, more complex industrial designs. 
+
+# References 
+
+> 1. Ardeshiricham, A., Hu, W., Marxen, J., Kastner, R.: Register transfer level infor-mation flow tracking for provably secure hardware design. In: Design, Automation & Test in Europe Conf. & Exhibition, DATE. pp. 1691–1696 (2017)
+
+Automated Abstraction Refinement for Information Flow Security in ES 17 2. Becker-Kupczok, J., Ernst, L., Herber, P.: Artifact and reproduction package (2026), https://doi.org/10.5281/zenodo.21217808 
+
+3. Becker-Kupczok, J., Herber, P.: Symbolic execution for precise information flow analysis of timed concurrent systems. In: Software Engineering and Formal Meth-ods (SEFM). pp. 107–125 (2024) 4. Becker-Kupczok, J., Herber, P.: Towards automated security hardening using timed path conditions in shared bus systems. In: Int. Symp. on Leveraging Applications of Formal Methods, Verification and Validation. vol. 15222, pp. 115–131 (2024) 5. Cimatti, A., Griggio, A., Micheli, A., Narasamdya, I., Roveri, M.: Kratos - A software model checker for systemc. In: Computer Aided Verification - 23rd Inter-national Conference, CAV 2011. vol. 6806, pp. 310–316 (2011) 6. Clarke, E.M., Grumberg, O., Jha, S., Lu, Y., Veith, H.: Counterexample-guided abstraction refinement. In: Computer Aided Verification, 12th International Con-ference, CAV 2000. vol. 1855, pp. 154–169 (2000) 7. Cousot, P., Cousot, R.: Abstract interpretation: A unified lattice model for static analysis of programs by construction or approximation of fixpoints. In: ACM Symp. on Principles of Programming Languages. pp. 238–252 (1977) 8. Cytron, R., Lowry, A., Zadeck, F.K.: Code motion of control structures in high-level languages. In: Conference Record of the Thirteenth Annual ACM Symposium on Principles of Programming Languages. pp. 70–85 (1986) 9. Davidson, D., Moench, B., Ristenpart, T., Jha, S.: FIE on firmware: Finding vul-nerabilities in embedded systems using symbolic execution. In: USENIX Security Symp. pp. 463–478 (2013) 10. Eilers, M., Dardinier, T., Müller, P.: CommCSL: Proving information flow security for concurrent programs using abstract commutativity. Proc. ACM Program. Lang. 
+
+7(PLDI), 1682–1707 (2023) 11. Ernst, L.: Automated Abstraction Refinement for Information Flow Security in Embedded Systems. Master’s thesis, University of Münster (2026) 12. Flanagan, C., Qadeer, S.: Thread-modular model checking. In: Model Checking Software, 10th International SPIN Workshop. vol. 2648, pp. 213–224 (2003) 13. Gerking, C., Schubert, D., Bodden, E.: Model checking the information flow se-curity of real-time systems. In: Engineering Secure Software and Systems - Intl. Symp., ESSoS. vol. 10953, pp. 27–43 (2018) 14. Ghenassia, F.: Transaction-level modeling with SystemC: TLM concepts and ap-plications for embedded systems. Springer (2006) 15. Giffhorn, D., Snelting, G.: A new algorithm for low-deterministic security. Int. J. Inf. Sec. 14 (3), 263–287 (2015) 16. Goguen, J.A., Meseguer, J.: Security policies and security models. In: 1982 IEEE Symp. on Security and Privacy. pp. 11–20 (1982) 17. Hecker, M., Bischof, S., Snelting, G.: On time-sensitive control dependencies. ACM Trans. Program. Lang. Syst. 44 (1), 2:1–2:37 (2022) 18. Henzinger, T.A., Jhala, R., Majumdar, R., Qadeer, S.: Thread-modular abstraction refinement. In: Computer Aided Verification. vol. 2725, pp. 262–274 (2003) 19. Henzinger, T.A., Jhala, R., Majumdar, R., Sutre, G.: Lazy abstraction. In: Symp. on Principles of Programming Languages. pp. 58–70 (2002) 20. Hsieh, C.S., Unger, E.A., Mata-Toledo, R.A.: Using program dependence graphs for information flow control. Journal of Systems and Software 17 (3), 227–232 (1992) 21. IEEE Standards Association: Ieee standard for standard systemc® language ref-erence manual. IEEE Std 1666-2023 (Revision of IEEE Std 1666-2011) (2023) 22. Jhala, R., Majumdar, R.: Path slicing. In: ACM SIGPLAN Conference on Pro-gramming Language Design and Implementation. pp. 38–47 (2005) 18 J. Becker-Kupczok, L. Ernst, P. Herber 23. Karbyshev, A., Svendsen, K., Askarov, A., Birkedal, L.: Compositional non-interference for concurrent programs via separation and framing. In: Principles of Security and Trust - Intl. Conf., POST. vol. 10804, pp. 53–78 (2018) 24. King, J.C.: Symbolic execution and program testing. Commun. ACM 19 (7), 385– 394 (1976) 25. Krinke, J.: Context-sensitive slicing of concurrent programs. In: ACM SIGSOFT Symp. on Foundations of Software Engineering FSE. pp. 178–187 (2003) 26. Le, H.M., Große, D., Herdt, V., Drechsler, R.: Verifying systemc using an interme-diate verification language and symbolic simulation. In: The 50th Annual Design Automation Conference 2013, DAC ’13. pp. 116:1–116:6 (2013) 27. Livshits, V.B., Nori, A.V., Rajamani, S.K., Banerjee, A.: Merlin: specification in-ference for explicit information flow problems. In: ACM SIGPLAN Conference on Programming Language Design and Implementation, PLDI. pp. 75–86 (2009) 28. Mantel, H., Sands, D., Sudbrock, H.: Assumptions and guarantees for composi-tional noninterference. In: IEEE Computer Security Foundations Symp., CSF. pp. 218–232 (2011) 29. Mantel, H., Sudbrock, H.: Types vs. PDGs in information flow analysis. In: Logic-Based Program Synthesis and Transformation (LOPSTR). pp. 106–121 (2013) 30. Mikulcak, M., Herber, P., Göthel, T., Glesner, S.: Information flow analysis of com-bined simulink/stateflow models. In: IEEE Intl. Conf. on Enabling Technologies: Infrastructure for Collaborative Enterprises, WETICE. pp. 223–228 (2018) 31. Nielson, F., Nielson, H.R., Vasilikos, P.: Information flow for timed automata. In: Models, Algorithms, Logics and Tools - Essays Dedicated to Kim Guldstrand Larsen on the Occasion of His 60th Birthday. vol. 10460, pp. 3–21 (2017) 32. Phan, Q., Malacaria, P., Tkachuk, O., Pasareanu, C.S.: Symbolic quantitative in-formation flow. ACM SIGSOFT Softw. Eng. Notes 37 (6), 1–5 (2012) 33. Reimann, L.M., Prashar, A., Ghinami, C., Pelke, R., Sisejkovic, D., Merchant, F., Leupers, R.: QTFlow: Quantitative timing-sensitive information flow for security-aware hardware design on RTL. CoRR abs/2401.17819 (2024) 34. Ryan, K., Gregoire, M., Sturton, C.: SEIF: augmented symbolic execution for infor-mation flow in hardware designs. In: Intl. Workshop on Hardware and Architectural Support for Security and Privacy, HASP. pp. 1–9 (2023) 35. Schoepe, D., Murray, T., Sabelfeld, A.: VERONICA: expressive and precise con-current information flow security. In: IEEE Computer Security Foundations Symp., CSF. pp. 79–94 (2020) 36. Snelting, G., Robschink, T., Krinke, J.: Efficient path conditions in dependence graphs for software safety analysis. ACM Trans. Softw. Eng. Methodol. 15 (4), 410–457 (2006) 37. Taghdiri, M., Snelting, G., Sinz, C.: Information flow analysis via path condition refinement. In: Formal Aspects of Security and Trust - 7th International Workshop, FAST 2010. Revised Selected Papers. vol. 6561, pp. 65–79 (2010) 38. Tasche, P., Herber, P., Huisman, M.: Automated invariant generation for efficient deductive reasoning about embedded systems. In: Software Engineering and Formal Methods (SEFM). vol. 15280, pp. 404–422 (2024) 39. Tiwari, M., Wassel, H.M.G., Mazloom, B., Mysore, S., Chong, F.T., Sherwood, T.: Complete information flow tracking from the gates up. In: Architectural Support for Programming Languages and Operating Systems. pp. 109–120 (2009) 40. Volpano, D., Irvine, C., Smith, G.: A sound type system for secure flow analysis. Journal of computer security 4(2-3), 167–187 (1996) 41. Weiser, M.D.: Program slicing. IEEE Trans. Software Eng. 10 (4), 352–357 (1984)

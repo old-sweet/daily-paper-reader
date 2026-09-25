@@ -1,0 +1,920 @@
+Title: Enhancing Word-Level Property Directed Reachability with LLM-Driven Semantic Guidance
+
+URL Source: https://arxiv.org/pdf/2609.30131v1
+
+Published Time: Fri, 25 Sep 2026 01:43:22 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+> 1
+
+# Enhancing Word-Level Property Directed Reachability with LLM-Driven Semantic Guidance 
+
+Guangyu Hu *, Mingkai Miao *, Student Member, IEEE , Zhiyuan Yan , Member, IEEE ,Xiaofeng Zhou , Graduate Student Member, IEEE , Wei Zhang , Fellow, IEEE , and Hongce Zhang †, Member, IEEE 
+
+Abstract —Property Directed Reachability (PDR) is a promi-nent algorithm for hardware formal verification. However, bit-level PDR often struggles with datapath-heavy designs because bit-blasting obscures high-level semantics. While word-level PDR addresses this by reasoning over bit-vector and array theories, its performance remains bottlenecked by discovering proof-relevant word-level relations. We propose LLM4PDR , a framework leveraging Large Language Models (LLMs) to guide word-level PDR search through three mechanisms: (1) Predicate Generation , extracting state relationships as candidate predicates during inductive generalization; (2) Clause Generation , produc-ing candidate frame lemmas to accelerate convergence after formal validation; and (3) Assertion Generation , synthesizing helper assertions that strengthen the target property under counterexample-guided refinement. We implement LLM4PDR in the Pono model checker and evaluate it on arithmetic micro-benchmarks, HLS-generated pipelines, open-source RTL com-ponents, and hardware model checking competition (HWMCC) instances. Results show LLM-generated guidance improves both solved instances and runtime on datapath-heavy and control-plus-datapath designs. The strongest configuration solves 28 of 33 arithmetic benchmarks, compared to 13 for vanilla Pono and 11 for AVR. On HLS pipelines and open-source RTL, different modes provide complementary speedups: clause guidance is effective for deep pipelines and predicate guidance for bus and memory-controller designs. On HWMCC benchmarks, benefits are instance-dependent, demonstrating notable speedups and timeout avoidance on hard cases. These results suggest that LLM-generated, verifier-checked semantic hints can serve as a practical complement to conventional word-level PDR. 
+
+Index Terms —Hardware formal verification, property directed reachability, word-level model checking, large language models, invariant generation, inductive generalization. 
+
+I. I NTRODUCTION 
+
+The ever-increasing complexity of modern hardware designs poses significant challenges to functional verification. For-mal verification, particularly automated model checking, has emerged as a critical technology for ensuring the correctness 
+
+> *
+
+Guangyu Hu and Mingkai Miao contributed equally to this work. Guangyu Hu and Xiaofeng Zhou are with The Hong Kong Uni-versity of Science and Technology, Hong Kong SAR, China (e-mail: ghuae@connect.ust.hk; xzhoubu@connect.ust.hk). Mingkai Miao, Zhiyuan Yan, and Hongce Zhang are with the Microelectronics Thrust, Function Hub, Hong Kong University of Science and Technology (Guangzhou), Guangzhou 511458, China (e-mail: mmiao815@connect.hkust-gz.edu.cn; zyan760@connect.hkust-gz.edu.cn; hongcezh@hkust-gz.edu.cn). Wei Zhang is with the Department of Electronic and Computer Engineering, The Hong Kong University of Science and Technology, Hong Kong, China (e-mail: eeweiz@ust.hk). 
+
+> †
+
+Hongce Zhang is the corresponding author. Conventional IC3/PDR Helper-Guided IC3/PDR     
+
+> solver feedback only
+> Model IC3/PDR
+> CTIs Large Search Space
+> SAFE / UNSAFE
+> CTIs
+> SAFE / UNSAFE
+> semantic guidance + sound checks
+> Focused Search
+> Guided IC3/PDR
+> Model
+> Helpers
+> Predicates Clauses Assertions
+
+Fig. 1: Motivation for helper-guided PDR. Conventional PDR learns blocking clauses mainly from solver feedback during the proof search. LLM4PDR adds verifier-checked semantic helpers at the predicate, clause, and assertion levels, guiding the same proof search toward word-level relations while pre-serving soundness through model-checker-side checks. of these systems by exhaustively exploring possible behav-iors. Among model checking techniques, Property Directed Reachability (PDR), also known as IC3 [1], is a leading algorithm for hardware formal verification. Traditional bit-level PDR is highly effective for many control-centric de-signs, but modern designs often combine control logic with wide datapaths, arithmetic operations, and on-chip memories. Bit-blasting these word-level structures can break compact arithmetic and relational facts into many low-level Boolean constraints, obscuring the design intent that would otherwise guide the proof search. Word-level PDR addresses this limitation by reasoning directly over word-level theories, such as bit-vectors and arrays. A simple arithmetic relationship between two variables, which may require a long chain of Boolean clauses after bit-blasting, can be represented as a single word-level formula. This compact representation gives word-level PDR a natural advantage on datapath-heavy designs. At the same time, the verifier may operate on an intermediate transition-system representation such as BTOR2 [2], where source-level cues such as module boundaries, naming conventions, structural intent, and comments are reduced or absent. A relation that is otherwise apparent in the RTL can become hard for the proof engine to discover. This information loss creates a concrete obstacle for PDR. During the proof search, PDR learns blocking clauses from solver feedback and then tries to generalize them so that each arXiv:2609.30131v1 [cs.AR] 24 Sep 2026 2
+
+learned clause rules out a number of unreachable states at once. However, the feedback available to the engine typically expose only flat bit-vector terms or local signal assignments. For example, the proof may need the relation that two counters advance with a fixed offset, while the solver only exposes pairs of allowed values and it is difficult to discover a higher-level relation from such low-level value pairs. As a result, the engine may learn many weak local clauses instead of a compact word-level lemma. In this paper, we study the following research question: can external semantic insight of the hardware design guide the PDR engine toward useful word-level facts without compromising the soundness of the algorithm? Today’s Large Language Models (LLMs) are well suited for generating such semantic hints because they have been trained on large corpora of source-level hardware artifacts, including digital logic circuits modeled in hardware description languages, generator-produced hardware code, and formal specifications. They can recognize recurring design idioms (such as counters, pipeline stages, and handshake protocols), and propose candidate relations that those idioms suggest. However, these suggestions must not be trusted as proofs. To preserve soundness, the LLM can only act as a hint generator; the model checker remains responsible for accepting, rejecting, or refining every generated artifact. This paper introduces LLM4PDR , a framework that uses LLM-generated semantic hints to guide word-level PDR while leaving all proof decisions inside the verifier. Figure 1 illus-trates this shift: conventional PDR relies on solver feedback to discover blocking clauses, whereas LLM4PDR augments the same proof search with verifier-checked semantic helpers. The key observation is that semantic guidance can be useful at three verifier-side interfaces in the PDR workflow. First, before a bad-state proof obligation is generalized, a helper predicate 
+
+can add a word-level atom to the vocabulary from which PDR builds blocking lemmas. Second, before the main blocking loop starts, a helper clause can be checked as a candidate frame lemma. Third, during property checking, a helper as-sertion can temporarily strengthen the target property and then be removed if counterexamples show that it is invalid. These three roles correspond to predicate , clause , and assertion 1
+
+guidance, instantiated as LLM-guided predicate generation, clause generation, and assertion generation, respectively. In all cases, the LLM output is untrusted: generated artifacts are parsed, type-checked, validated, and either used or discarded by the model checker. Our contributions are summarized as follows.  
+
+> •
+
+Semantic-guided word-level PDR framework. We pro-pose LLM4PDR , a framework that utilizes LLM-generated semantic hints to guide word-level PDR without trusting the LLM as a proof oracle.  
+
+> •
+
+Three verifier-side guidance mechanisms. We identify three natural injection points in PDR and instantiate them as predicate-level guidance for inductive generaliza-       
+
+> 1Informally speaking, a predicate is a Boolean condition over state vari-ables, such as x < y ; a clause is a disjunction of such conditions or their negations, often learned by PDR as a lemma; an assertion is a safety property, or an auxiliary fact conjoined with it, that the verifier attempts to prove.
+
+tion, clause-level guidance for frame strengthening, and assertion-level guidance for property strengthening.  
+
+> •
+
+Unified helper interface and validation pipeline. To support these mechanisms uniformly, we design a re-stricted SMT-LIB2 [3] helper interface and a verifier-side pipeline that parses, type-checks, validates, and refines LLM-generated artifacts before they can affect the proof search.  
+
+> •
+
+Implementation and evaluation. We implement 
+
+LLM4PDR in Pono [4] and evaluate it on arithmetic, HLS-generated, open-source RTL, and HWMCC benchmarks. The results show complementary benefits across different structural classes, including a higher number of solved arithmetic cases and large speedups or timeout avoidance on several hard word-level instances. The remainder of this paper is organized as follows. Sec-tion II reviews the IC3/PDR algorithm and problem formula-tion. Section III motivates the need for LLM-guided reasoning with a concrete example. Section IV presents the three LLM-guided mechanisms and their integration into the PDR engine. Section V reports experimental results across four benchmark suites, including ablation studies that isolate the contribution of each mechanism. Finally, Section VI concludes the paper. II. P RELIMINARIES AND PROBLEM FORMULATION 
+
+A. Symbolic Transition Systems 
+
+A finite-state transition system S is defined by a tuple 
+
+(X, Y, I, T ), where X is a set of state variables, Y is a set of primary input variables, I(X) is a formula representing the initial states, and T (X, Y, X ′) is the transition relation, mapping current states and inputs to next states. A state can be regarded as an assignment to all variables in X,often represented as a cube (a conjunction of literals). A safety property P (X) asserts that only P -states (those whose assignments make P evaluate to true) are reachable. The model checking problem asks whether all reachable states of 
+
+S satisfy P . For a formula φ , we use the form φ′ to denote the case when each of its variable x ∈ X is replaced by the primed version x′ ∈ X′.
+
+B. The PDR Algorithm 
+
+PDR (a.k.a. IC3) [1], [5] is a SAT-based algorithm that proves safety properties by incrementally constructing an inductive invariant. The algorithm maintains a sequence of over-approximating frames F0, F 1, . . . , F k. Each frame Fi is a formula (a set of clauses that are conjuncted) whose models over-approximate the set of states reachable in at most i steps. The frame sequence satisfies the following invariants:  
+
+> •
+
+F0 = I. (initiation)  
+
+> •
+
+For all 0 ≤ i < k :1) Fi |= Fi+1 . (monotonicity) 2) Fi ∧ T |= F ′
+
+> i+1
+
+. (consecution) 3) Fi |= P . (safety) A counterexample to induction (CTI) is a state that is admitted by the current over-approximation but violates the target property. When a CTI is checked to be unreachable, a 3
+
+Algorithm 1 High-level IC3/PDR Algorithm  
+
+> 1:
+
+procedure PDR( I, T, P ) 
+
+> 2:
+
+if IsSat (I ∧ ¬ P ) then return false  
+
+> 3:
+
+F0 ← I; k ← 1; Fk ← P 
+
+> 4:
+
+while true do  
+
+> 5:
+
+while IsSat (Fk ∧ T ∧ ¬ P ′) do ▷ Blocking Phase  
+
+> 6:
+
+s ← GetState (Fk ∧ T ∧ ¬ P ′) 
+
+> 7:
+
+if not BLOCK (s, k ) then return false  
+
+> 8:
+
+k ← k + 1 ; Fk ← P ▷ Propagation Phase  
+
+> 9:
+
+for i ← 1 to k − 1 do  
+
+> 10:
+
+for each clause c ∈ Fi do  
+
+> 11:
+
+if not IsSat (Fi ∧ c ∧ T ∧ ¬ c′) then  
+
+> 12:
+
+Fi+1 ← Fi+1 ∪ { c} 
+
+> 13:
+
+if Fi = Fi+1 then return true 
+
+lemma will be conjuncted to the frame where the CTI was found. The structure of the frame gives the proof object a simple hierarchy. A predicate is a Boolean atom over state variables, such as y = x + 2 . A literal is a predicate or its negation, and a clause is a disjunction of literals. Since each frame is in the conjunctive normal form (CNF), a frame is, therefore, a conjunction of clauses. A proof is built gradually by adding clauses to frames; each clause may contain one or more predicates, with a unit clause being the special case that contains a single predicate. The algorithm operates by alternating between a blocking 
+
+phase and a propagation phase. Algorithm 1 outlines the high-level procedure. In the blocking phase, PDR searches for a CTI, namely a predecessor s of ¬P in Fk, i.e., Fk ∧ T ∧ ¬ P ′
+
+is satisfiable (Line 5). If such a state exists, the algorithm attempts to block it by recursively proving it unreachable from previous frames (Line 6). If the backward search reaches an initial state (Line 7), the property is violated. Otherwise, the propagation phase pushes clauses forward to subsequent frames (Line 8-12). If two consecutive frames become identi-cal ( Fi = Fi+1 ), a fixpoint is reached, and Fi constitutes an inductive invariant proving the property (Line 13). 
+
+C. Proof Obligation Handling and Inductive Generalization 
+
+When PDR identifies a CTI s at frame i, it generates a proof obligation (s, i ) and attempts to block it. Algorithm 2 illustrates this recursive blocking process. The B LOCK proce-dure checks if s has a predecessor in Fi−1. If a predecessor p
+
+exists, it recursively blocks p at frame i − 1. If no predecessor exists, ¬s is inductive relative to Fi−1.At this point, PDR performs inductive generalization to strengthen ¬s into a smaller clause c ⊆ ¬ s that remains in-ductive relative to Fi−1. This step is critical: a stronger clause (containing fewer literals) blocks a larger set of unreachable states, accelerating convergence. The minimal inductive clause (MIC) generalization [6] procedure iteratively attempts to drop literals from ¬s. For each candidate subclause g, the algorithm calls the DOWN subprocedure to verify and further minimize. The B LOCK procedure’s while loop eventually terminates because each successful recursive call to B LOCK adds a new clause to Fi−1, strengthening the frame and preventing the 
+
+Algorithm 2 Recursive Blocking and Minimal Inductive Clause (MIC) Generalization  
+
+> 1:
+
+procedure BLOCK (s, i ) 
+
+> 2:
+
+if i = 0 then return false  
+
+> 3:
+
+while SAT (Fi−1 ∧ ¬ s ∧ T ∧ s′) do  
+
+> 4:
+
+p ← GetPredecessor () ▷ Extract predecessor state  
+
+> 5:
+
+if not BLOCK (p, i − 1) then return false  
+
+> 6:
+
+c ← MIC (¬s, i ) ▷ Inductive Generalization  
+
+> 7:
+
+for j ← 1 to i do  
+
+> 8:
+
+Fj ← Fj ∪ { c} 
+
+> 9:
+
+return true  
+
+> 10:
+
+procedure MIC( c, i ) 
+
+> 11:
+
+req ← ∅ ▷ Literals that cannot be dropped  
+
+> 12:
+
+for each literal l ∈ c do  
+
+> 13:
+
+g ← c \ { l} 
+
+> 14:
+
+if DOWN (g, i, req ) then  
+
+> 15:
+
+c ← g 
+
+> 16:
+
+else  
+
+> 17:
+
+req ← req ∪ { l} 
+
+> 18:
+
+return c 
+
+> 19:
+
+procedure DOWN (g, i, req ) 
+
+> 20:
+
+while true do  
+
+> 21:
+
+if SAT (I ∧ ¬ g) then return false  
+
+> 22:
+
+if not SAT (Fi−1 ∧ T ∧ g ∧ ¬ g′) then ▷ Check consecution  
+
+> 23:
+
+core ← UnsatCore ()  
+
+> 24:
+
+gcore ← { literal m | ¬ m′ ∈ core } 
+
+> 25:
+
+while SAT (I ∧ ¬ gcore ) do ▷ Ensure initiation  
+
+> 26:
+
+pick l ∈ g \ gcore ; gcore ← gcore ∪ { l} 
+
+> 27:
+
+g ← gcore ▷ Drop literals not in UNSAT core  
+
+> 28:
+
+return true  
+
+> 29:
+
+else  
+
+> 30:
+
+s ← GetPredecessor () ▷ Extract predecessor state  
+
+> 31:
+
+if (g \ ¬ s) ∩ req ̸ = ∅ then return false  
+
+> 32:
+
+g ← g ∩ ¬ s ▷ Join operation to cover predecessor same predecessor p from being extracted again. The D OWN 
+
+procedure is the workhorse of MIC. It checks if g satisfies consecution relative to Fi−1 using a SAT query. If the query is unsatisfiable (UNSAT), the SAT solver returns an UNSAT core , namely a subset of the assumptions sufficient to cause the conflict. D OWN uses this core to simultaneously drop multiple unnecessary literals from g, significantly speeding up generalization. If the query is satisfiable (SAT), the solver has found a predecessor state s. To make the clause inductive, DOWN performs a join operation ( g ← g ∩ ¬ s), which drops literals from g to ensure the generalized cube covers the predecessor s.The effectiveness of PDR heavily relies on the quality of the generalized clauses. As shown in Algorithm 2, MIC’s literal-dropping order is determined either by an arbitrary fixed order or by the SAT solver’s UNSAT core extraction (Line 23), with no semantic understanding of the literals’ roles 4
+
+in the design. This reliance on SAT solver heuristics can result in generalizations that capture only local bit-level patterns, forcing the algorithm to explicitly enumerate and block many individual states, leading to deep backward searches and performance degradation [7], [8]. The same issue also appears at the representation level: a compact word-level fact may require a large number of bit-level clauses, making it difficult for PDR to discover and exploit the underlying word-level semantics. 
+
+D. Clause and Literal Explosion in PDR 
+
+Bit-level PDR represents each frame as a CNF formula over Boolean literals. This representation is sound and solver-friendly, but its size can grow significantly when the proof depends on a word-level relation. A simple relation, such as 
+
+a = b + c or x − y = 2 , is a single atom at the word level, but after bit-blasting, the same relation is now over the bit slices of the word-level variables, and PDR faces two kinds of blow-up. First, no single clause captures such a relation, so PDR has to learn many clauses, each ruling out only a small set of states; this is the clause explosion . Second, each such clause can also contain many literals, which is the literal explosion .Both effects make the proof larger and slow down every SAT query in PDR. Existing engines address this bottleneck mainly in two ways. One possibility is to remain at the bit level, exemplified by the work from the Luka and Vizel, who proposed the PdrER algorithm [9] that adds auxiliary variables and definitions to shorten the proof. On one buffer-allocation benchmark, ordinary PDR needs more than 65 ,000 invariant clauses, while the proof with auxiliary definitions is far smaller. However, PdrER generates these definitions according to fixed patterns rather than deriving them from the design semantics. The second approach reasons directly at the word level, as exem-plified by AVR [10]. Instead of bit-blasting the design, AVR derives additional terms and predicates from the transition system, symbolic post-images, interpolants, and predefined deduction rules. Although this approach can potentially avoid bit-level blow-up, its terms and predicates are still generated by hand-crafted rules and built-in heuristics. Consequently, both approaches may fail to discover relations unique to a particular design: an engine may explore many irrelevant terms before finding the crucial relation, or may never find it at all. Section III illustrates such a case. On the other hand, LLM4PDR takes a different approach. Instead of generating candidate facts from fixed rules, it uses an external LLM to read the static design (the RTL when it is available, and otherwise the BTOR2 transition system) and to propose helper predicates, clauses, or assertions in a strict SMT-LIB2 format. These suggestions are not trusted as invariants or assumptions. A helper predicate is used only as a candidate atom during generalization; a helper clause must pass frame-consistency checks before it is added to a frame; and a helper assertion is kept only if it survives counterexample-guided refinement. In this way, a relation that would otherwise need many bit-level clauses can enter the proof as one compact suggestion, while the verifier still makes every decision that affects soundness.                                                                                   
+
+> module top(input clk, input rst, input lden, input ps, input [15:0] ia, input [15:0] ib); reg [15:0] ra, rb, rai, rbi; always @(posedge clk) begin if (rst) begin ra <= 0; rb <= 0; rai <= 0; rbi <= 0; end else begin if (lden) begin ra <= ia; rb <= ib; rai <= ia; rbi <= ib; end else begin if (~ps) begin rai <= rai +1; rbi <= rbi +1; end end end end assert property (!(ra == 16’h1357 && rai == 16’h9356 && rb == 16’h2468 && rbi == 16’h2467)); // rai-ra =16’h7fff, rbi-rb =16’hffff endmodule
+
+Fig. 2: An example of a hard-to-prove property for existing SAT-based model checking algorithms. III. M OTIVATION 
+
+This section demonstrates a concrete example that remains challenging for the existing bit-level and word-level PDR engines. One recurring challenge in hardware model checking is the 
+
+discovery of effective, high-level inductive invariants required to prove a property. PDR provides a robust framework for formal proof, yet prior work has shown that its performance depends heavily on the quality of inductive generalization and on the auxiliary predicates or lemmas available to the engine [6]–[10]. Existing approaches derive such informa-tion through pre-coded rules, fixed templates, solver-feedback heuristics, or artifacts such as Craig interpolants [13]–[15]. But this strategy exposes a practical bottleneck: when the necessary arithmetic relationship is implicit in the update logic and does not match the engine’s built-in generation patterns, the search for an inductive invariant can stagnate. Consider the property checking problem in Figure 2 as an example. The design contains four 16-bit state variables ( ra , rai , rb , rbi ) and a safety property asserting that a particular state assignment is unreachable. Observe that rai and rbi are both incremented under identical guard conditions; consequently, the invariant 
+
+rai − ra = rbi − rb holds across all reachable states. A human designer recognizes this word-level relationship almost immediately. Yet at the bit level the subtraction rai − ra 
+
+alone expands into a chain of full-adder carry propagation across all 16 bits, producing an exponential blowup in the Boolean representation. A SAT-based engine must rediscover TABLE I: Results of different model checkers on the motivat-ing example for word widths from 16 to 20 bits.               
+
+> Model checker Result on 16–20-bit instances Berkeley-ABC [11] TO on all widths rIC3 [12] TO on all widths AVR [10] aTO on all widths PdrER [9] TO on all widths
+> TO : runtime exceeded the 3600-second limit for every tested width.
+> aThe better result of the SA and SA+UF configurations is reported. 5RTL
+> Hardware Model
+> BTOR2 / RTL
+> AI LLM
+> proposes helpers f
+> SMT-LIB2 Helpers
+> define-fun
+> declarations
+> Helper Parser
+> binds arguments to system variables
+> Predicates
+> Purpose
+> fragment of lemmas
+> Two-Phase MIC
+> •freeze helper predicates
+> •remove redundant predicates
+> Clauses
+> Purpose
+> candidate F1 lemmas
+> F1 Clause Injection
+> •init-cover check
+> •one-step induction check
+> Assertions
+> Purpose
+> property strengthening
+> Assertion Refinement
+> •check augmented property
+> •drop falsified assertions
+> IC3/PDR Engine Verification Result SAFE
+> + invariant
+> UNSAFE
+> + CEX
+
+Fig. 3: Overview of LLM4PDR . A hardware model is analyzed by an LLM or external tool to produce restricted SMT-LIB2 helper declarations. After parsing and binding helper terms to system variables, the verifier consumes predicates through two-phase MIC, clauses through F1 injection, and assertions through property-strengthening refinement before returning a safe proof with an invariant or an unsafe counterexample. this arithmetic structure and express it using the propositional logic, whose formula size scales poorly with word width. As table I shows, Berkeley-ABC [11], rIC3 [12], AVR [10], and PdrER [9] all fail to solve the instance within the one-hour timeout for every width from 16 to 20 bits. Once a relation such as rai − ra = rbi − rb is proposed, the verifier can check it using ordinary initiation and consecution queries. The hard part is that existing engines often do not synthesize this relation from the low-level encoding by themselves. This disparity calls for formal reasoning at a higher level. This limitation motivates augmenting rule-based lemma generation with externally proposed semantic hints. In this paper, we use large language models (LLMs) as semantic hint generators: given a static hardware description, the LLM can suggest proof-relevant relationships among state variables and emit candidate helper artifacts in a restricted SMT-LIB2 format that the verification engine can consume. This also differs from our prior work DreamMiner [16], which learns property augmentations from simulation traces and dynamic execution data, while LLM4PDR uses just the static design information. 
+
+LLM4PDR differs from fixed-rule word-level engines as the LLM is not limited to a pre-coded set of term-construction templates. It can use naming, structural context, and recurring RTL idioms to propose predicates, clauses, or assertions that are apparent to a designer but difficult for a heuristic term generator to synthesize. Importantly, this approach positions the LLM strictly as a semantic guide rather than a trusted proof oracle. Because the verifier independently checks every generated candidate using its mathematical proof obligations, our framework can accelerate the proof search while preserv-ing the soundness of the verification process.                                         
+
+> ;helper predicate: extra MIC predicates (define-fun |predicate.k| ((v1 S1) ... (vn Sn)) Bool <SMT-LIB2 Boolean term>) ;helper clause: candidate frame lemma (define-fun |clause.k| ((v1 S1) ... (vn Sn)) Bool <SMT-LIB2 Boolean term>) ;helper assertion: tentative property strengthening (define-fun |assertion.k| ((v1 S1) ... (vn Sn)) Bool <SMT-LIB2 Boolean term>)
+
+Fig. 4: Restricted SMT-LIB2 helper format. Each entry is an SMT-LIB2 define-fun ; the reserved prefix determines how the PDR engine may consume the term. IV. M ETHODOLOGY 
+
+Our framework, LLM4PDR , enhances Property Directed Reachability by integrating LLM guidance at three stages of the verification workflow. As shown in Figure 3, an LLM extracts high-level insights from the RTL description and emits them as restricted SMT-LIB2 [3] helper declarations (when RTL is not available, BTOR2 transition-system input is used instead). These insights become formal artifacts (predicates, clauses, and assertions), steering the PDR engine toward a more efficient proof search. 
+
+A. Restricted SMT-LIB2 Helper Interface 
+
+Before discussing individual mechanisms, we first describe the interface, through which the helper information enters the model checker. LLM4PDR uses a helper interface based on a restricted SMT-LIB2 file, rather than a separate domain-specific language. The LLM is expected to generate typed SMT-LIB2 definitions, where the reserved name prefixes tell the verifier the desired use cases of the hints. The interface bares no guarantee that the hints are useful and it does not 6…
+
+Hardware Context 
+
+> module example ( input …, input …, …output …); wire …; reg …; always … begin …end assert property (…); endmodule
+
+COI-Aware Prompt 
+
+> Cone of Influence
+
+COI filtered context Prompt Builder 
+
+> LLM Backend
+
+Predicate Clause Assertion               
+
+> Mode-specific Helper Artifacts [SYSTEM ROLE] You are an expert on Verilog ,BTOR2 ,SMT-LIB v2 and IC3/PDR verification . Your task is to craft helper artifacts .[FEW-SHOT EXAMPLE]
+> Verilog /BTOR2 snippet: …
+> COI filtered Var …Example predicate/clause/assertion: … [COI ANALYSIS] Input vars: … state vars: … COI analysis: … COI analysis completed - Found COI statevar x … [TASK DESCRIPTION] Given a target Verilog /BTOR2 …Given COI filtered variables …Generate <= 5 linear helper predicates/clauses/assertions … [STRICT OUTPUT FORMAT]
+> Only ;comments+(define-fun ...) declarations
+> No set-logic, check-sat, exit …
+> Exact BTOR names & bit-widths …
+
+Fig. 5: COI-aware prompt construction and helper synthesis in LLM4PDR . Given a verification problem, LLM4PDR uses RTL when available and otherwise the BTOR2 transition-system input. A cone-of-influence (COI) analysis extracts property-relevant variables and transition fragments, which are inserted into a fixed prompt template together with the system role, a few-shot helper example, a mode-specific task description, and strict SMT-LIB2 output constraints. The LLM backend then emits mode-specific helper artifacts, namely predicate.* , clause.* , or assertion.* declarations, which are later parsed, type-checked, and validated by the verifier before use. modify any part of the transition systems. It is rather a side input that carries structured hints into the PDR engine. Figure 4 shows the overall structure of this SMT-LIB2 file. The SMT-LIB2 format is beneficial, because the terms must already have precise bit-vector sorts and solver-level semantics under such format. The only extra convention is the reserved name prefixes. A predicate.* prefix indicates that the term follows should be placed in the helper-predicate pool 
+
+Pext and can be used as an additional predicate during MIC. A clause.* term is placed in the helper-clause pool Cext 
+
+and must respect the initiation, monotonicity and consecution requirements mentioned in Section II-B when it is used to strengthen a frame. An assertion.* term is placed in the helper-assertion pool Aext and is used as a tentative strengthening of the target property, with counterexamples used to remove helpers that turn out to be invalid. The distinction among helper predicates, helper clauses, and helper assertions follows the proof hierarchy from Sec-tion II-B. A helper predicate is an atom that MIC may use when it constructs a blocking clause for one proof obligation; it serves as a candidate atom for generalization. A helper clause is a candidate frame lemma. Before insertion into F1,it must pass such checks: the initial state predicate must imply the clause, and every one-step successor of an initial state must satisfy the primed clause. A helper assertion is a candidate strengthening of the target property and is filtered by counterexample-guided refinement. Thus the same word-level fact, such as y = x + 2 , can appear in three roles: as a predicate atom available to MIC, as a unit clause that can be checked for F1 insertion, or as an assertion conjoined with the target property. The processing path follows three steps. First, the parser checks that the helper file is syntactically valid SMT-LIB2. Second, elaboration binds every formal argument in a helper term to a state variable in the transition system and checks that their bit-vector widths match. Third, the prefix dispatches the term to the corresponding validation path. This structured interface gives the LLM a concrete way to communicate word-level information, while keeping soundness inside the verifier: helper information can guide search, but the predi-cates, clauses, and augmented properties all remain subject to verifier-side checks. 
+
+B. Prompt Construction and Helper Synthesis 
+
+The helper interface above defines what the verifier can con-sume, while prompt construction determines how LLM4PDR 
+
+asks the LLM to produce such helper artifacts. As shown in Figure 5, LLM4PDR builds a COI-aware prompt from a static hardware context and sends the instantiated prompt to an LLM backend, which returns mode-specific helper artifacts. For each target property, LLM4PDR starts from the hardware representation available to the verifier, namely the relevant RTL fragment when RTL is available, and otherwise the BTOR2 transition-system input. The prompt also includes the target property and the state variables that may participate in proof-relevant helper declarations. Before assembling the prompt, LLM4PDR applies cone-of-influence (COI) analysis with respect to the target property. COI identifies the state variables and transition fragments whose fan-in can affect the property. Variables and transition fragments outside this slice are omitted from the prompt, leaving the COI-filtered design context shown in Figure 5. This filtering reduces the prompt size and serves as a property-directed relevance filter, restricting the model context to design elements that can structurally influence the target property. It will not change the transition system, the target property, or any proof obligation checked by PDR. Empirically speaking, on representative HWMCC instances, this pruning removes between 52.35% and 82.49% of the state variables from the prompt, reducing both the prompt size and the space of irrelevant candidate helpers the model can propose. The prompt builder then instantiates a fixed prompt tem-plate, where the system role asks the model to act as a hardware-verification assistant and to emit helper artifacts in the restricted SMT-LIB2 format. The few-shot example provides a small RTL or BTOR2 fragment together with correctly typed helper declarations, so the model sees the expected types, reserved name prefixes, and the overall output structure before it generates helpers for the target instance. The 7                                   
+
+> module xp2(clk); input clk; reg [5:0] x=6’d0; reg [5:0] y=6’d2; wire stop; assign stop =(x == 6’d61); always @(posedge clk) begin if (!stop) begin x<= x+1; y<= y+1; end end always @* begin x_lt_y: assert(x <y); end endmodule // xp2
+
+Fig. 6: RTL code of the xp2 counter. The useful proof helper is a word-level relation between x and y, but after translation into the bit level, the proof obligations expose low-level bit-vector terms rather than the word-level relations. COI analysis supplies the property-directed design context, including the selected variables and transition fragments. The task description selects the guidance mode and asks the model to generate helper predicates, helper clauses, or helper asser-tions. Finally, the strict output-format instruction constrains the requirements for the SMT-LIB2 structure. In each run, the mode-specific task in Figure 5 asks for up to five declarations with one reserved prefix: predicate.* ,
+
+clause.* , or assertion.* . The prefix dispatches each declaration to the corresponding verifier-side path introduced in Section IV-A, where it is parsed, type-checked, and val-idated before it is used in the PDR procedure. Across all experiments, we use the same prompt template and per-request cap, so the three settings LLM2Predicate , LLM2Clause ,and LLM2Assert that will be detailed in the next three subsections differ only in how the verifier consumes the generated information. 
+
+C. LLM-Guided Predicate Generation 
+
+To help explain how helper predicates are used in our method, we start with a small example as shown by Figure 6. It is not hard to find that a word-level inductive invariant 
+
+y = x + 2 holds for x and y within the reachable-state bound 
+
+x ≤ 61 and it should be useful to prove the target property in this example. However, the bit-level IC3/PDR typically discovers CTIs as bit-level cubes: a state is represented by conjunction of literals, where each literal refer to a single bit in a multi-bit variable (written as a bit extraction). For example, a proof-obligation cube from an actual xp2 run states that all six bits of y are one and bit 1 of x is one: 
+
+B = {y[j] = 1 | 0 ≤ j ≤ 5} ∪ { x[1] = 1 }.
+
+Here v[i] denotes a single-bit slice of the bit-vector v, or term 
+
+extract (i, i, v ) in the SMT syntax. Here, we use s to refer to the corresponding state formula s def 
+
+= ( y = 63) ∧ (x[1] = 1) ,and each bit assignment (such as y[5] = 1 ) is in fact a literal. 
+
+Algorithm 3 Helper-Preserving Minimal Inductive Clause (MIC)  
+
+> 1:
+
+procedure SYNTHESIZE PREDICATES (D) 
+
+> 2:
+
+Praw ← QueryLLM (D) 
+
+> 3:
+
+return {p ∈ P raw | SAT (p) ∧ SAT (¬p)} ▷ filter out trivial predicates  
+
+> 4:
+
+procedure TWO PHASE MIC( Fi, T, c, Pext ) 
+
+> 5:
+
+B ← BitLiterals (c); Vc ← Vars (c) 
+
+> 6:
+
+H ← ∅ ▷ Helper literals determined by the CTI  
+
+> 7:
+
+for each p(⃗v) ∈ P ext with ⃗v ⊆ V c do  
+
+> 8:
+
+if c |= p then  
+
+> 9:
+
+H ← H ∪ { p} 
+
+> 10:
+
+else if c |= ¬p then  
+
+> 11:
+
+H ← H ∪ {¬ p} 
+
+> 12:
+
+B⋆ ← MINIMIZE BASE CUBE (Fi, T, H, B ) ▷ Phase 1: H is frozen  
+
+> 13:
+
+for each helper literal h ∈ H do ▷ Phase 2: Drop redundant helpers  
+
+> 14:
+
+Htmp ← H \ { h} 
+
+> 15:
+
+Q ← Htmp ∪ B⋆ 
+
+> 16:
+
+Φ ← Cube (Q); Φ′ ← Prime (Φ)  
+
+> 17:
+
+if SAT (I ∧ Φ) then  
+
+> 18:
+
+continue ▷ Keep h: cube reaches initial states  
+
+> 19:
+
+if SAT (Fi ∧ ¬ Φ ∧ T ∧ Φ′) then  
+
+> 20:
+
+continue ▷ Keep h: no longer inductive  
+
+> 21:
+
+H ← Htmp ▷ Drop redundant word-level helper  
+
+> 22:
+
+return ¬Cube (H ∪ B⋆) 
+
+> 23:
+
+procedure MINIMIZE BASE CUBE (Fi, T, H, B ) 
+
+> 24:
+
+Φ ← Cube (H ∪ B) 
+
+> 25:
+
+Γ ← Fi ∧ ¬ Φ ∧ T ∧ Cube (H′) ▷ Hard constraints  
+
+> 26:
+
+B⋆ ← { b ∈ B | b′ ∈ UNSAT CORE (Γ; B′)} ▷ Only B′ 
+
+> 27:
+
+return RESTORE INITIATION (I, H, B ⋆, B )
+
+▷ Restore literals as needed to exclude initial states As previously stated in Section II-C, inductive generation attempts to find a clause g to block a proof obligation s at a certain frame Fi when s is shown to be unreachable from the prior frame Fi−1. To maintain the requirements of the frame sequence, the clause g needs to satisfy the following requirements: 
+
+I ⇒ g (1) 
+
+g ∧ Fi−1 ∧ T ⇒ g′ (2) 
+
+g ⇒ ¬ s (3) The bit-level IC3/PDR implementation typically invokes the aforementioned MIC procedure (Algorithm 2) to remove the literals in B to form the clause g.However, those literals in CTI describe only one corner of the state space, and do not directly model the high-level arithmetic relation such as y = x + 2 that we need in the inductive invariant. This is where the LLM is useful. We ask LLM to read the low-level design representation and generate a8Two-Phase MiC Helper predicates (e.g., from LLM)                          
+
+> IC3/PDR Frames
+> Partial CTl cube
+> bit-level (extracts) word-level (helpers)
+> block CTl/ strengthen frame Compact blocking lemma
+> lemma = P 1OR P 2
+> F0= Init
+> F1
+> F2
+> CTI
+> Without Two-Phase MlC:
+> the core may keep a few bits and lose the useful word-level structure.
+> Phase 1: remove bit-level clutter Phase 2: remove redundant word-level helpers
+> Little word-level info
+> →weaker lemma, slower proof
+> extract(y,5) extract(x,1) extract(y,5) extract(x,1) extract(y,0) y = x + 2 x＜yy＜x + 3 lsb （x）=lsb （y）
+> lsb （x）=lsb （y）y＜x + 3 x＜yy = x + 2 y = x + 2 y＜x + 3 lsb （x）=lsb （y）x＜y
+> redundant essential
+> inductive test decide keep/drop y = x + 2 x＜yy＜x + 3 lsb （x）=lsb （y）
+> extract(y,5) extract(x,1) extract(y,0)
+> y = x + 2 y＜x + 3
+
+× 
+
+> p1：y = x + 2 p2：y＜x + 3
+> force-keep helper predicates
+> UNSAT core prunes extract bits
+> drop bits
+
+Fig. 7: Helper-predicate guided two-phase MIC. A CTI cube initially contains bit-level extract literals and matched word-level helper predicates. The first phase freezes helper predi-cates while pruning bit-level clutter; the second phase selec-tively removes redundant helper predicates through inductive checks, leaving a compact blocking lemma that preserves useful word-level structure. restricted SMT-LIB2 helper file with helper predicates (S YNTHESIZE PREDICATES in Algorithm 3 builds the candi-date pool once for the design). For xp2 , the generated helper file contains predicates such as: 
+
+p1 : y = x + 2 , p2 : x < y, p3 : x ≤ 61 .
+
+These predicates enrich the literal set available to the inductive generalization procedure. Because Formula (3) states that g ⇒¬s and g is a disjunction of literals, then every literal l in g
+
+should all follow the requirement that s ⇒ ¬ l. Therefore, we may evaluate each available predicate p under the CTI and use either p or ¬p as the candidate. If the outcome of the predicate is not fixed, then it means the candidate p does not follow the above requirement and should be discarded for this inductive generalization attempt. This selection is described by Lines 7– 11 in Algorithm 3. In the running example, suppose the CTI state matches a helper-predicate subset Hp from the generated file, so the working cube becomes: 
+
+C+ = B ∪ Hp.
+
+At first glance, one might simply give C+ to ordinary MIC to select the literals. In practice, however, MIC may only select a few bit-level literals in B while dropping all matched helper predicate candidates in Hp entirely. This is because ordinary MIC sees every element of C+ as a removable assumption, and the UNSAT core extraction in MIC has no direct control on which assumption to keep (it is totally dependent on the internal heuristics of the underlying SAT solver). Our solution is to make MIC work in two phases, as illustrated by TWO PHASE MIC in Figure 7. In the first phase (corresponding to Line 12 in Algorithm 3), the helper predicates in Hp are frozen. The solver is allowed to remove only bit-level literals from B, while the matched helper literals remain hard constraints. Consequently, UNSAT-core minimization (M INIMIZE BASE CUBE ) can shrink B to asmaller set B⋆, but does not discard any helper predicates. Operationally, the solver checks the usual initiation and consecution conditions while the candidate next-state helpers 
+
+Algorithm 4 Helper Clause Side-loading 
+
+Require: Transition system (Init , T ), PDR frames F0, F 1,Helper clauses Ccand 
+
+Ensure: F1 strengthened with sanity-checked helper clauses 
+
+1: procedure SIDE LOAD CLAUSES (Ccand )
+
+2: for each clause c ∈ C cand do 
+
+3: if c is not Boolean then continue 
+
+4: if SAT (Init ∧ ¬ c) then continue ▷ violates 
+
+F0 ⇒ F1
+
+5: c′ ← PRIME (c)
+
+6: if SAT (Init ∧ T ∧ ¬ c′) then continue ▷ violates 
+
+F0 ∧ T ⇒ F ′
+
+1
+
+7: F1 ← F1 ∧ c ▷ c is a valid first-frame lemma 
+
+8: while true do ▷ Main PDR loop 
+
+9: while Fk ∧ T ∧ ¬ P ′ is SAT with witness c do 
+
+10: if not BLOCK (c, k) then 
+
+11: return Unsafe 
+
+12: · · · ▷ Main PDR loop continues are asserted, so the core is allowed to explain only which bit-select literals are still needed. Then in the second phase (Lines 13–21), the helper predi-cates become removable. The engine tries iteratively dropping helpers from B⋆ ∪ Hp. If removing a helper still excludes initial states and remains inductive relative to the current frame (both checks remain UNSAT), the helper predicate is deemed redundant and can be dropped. This lets MIC keep the generated word-level facts that are actually needed for the CTI, while discarding generated facts that are merely implied by the remaining cube. The final lemma is therefore compact and word-level, instead of being a handful of bit-selects. Though LLM-generated predicates are used, the soundness of the IC3/PDR algorithm is preserved. The LLM never gets to add a fact directly to a frame. All external predicates are checked to ensure the resulted clause g follows the require-ments stated in Formula (1)–(3). 
+
+D. LLM-Guided Clause Generation 
+
+Helper clauses use the same LLM-proposed word-level re-lations at a different point in the PDR workflow. While helper predicates wait for a CTI and then give MIC an expanded set of candidate atoms, helper clauses are used earlier and more directly: before the main blocking loop starts, the verifier asks whether any generated formula is already strong enough to be placed in the first frame F1. This is referred to as the clause side-loading mechanism in the prior work [17]. It gives PDR a better initial frame sequence, without any change to either the transition system or the target property. The distinction matters in the xp2 example. Without side-loaded clauses, F1 in the the initial frame sequence is set to the target property, namely F1 = P , and the engine has to discover the arithmetic relation between x and y through CTIs. In practice, this produces many local bit-slice lemmas. Clause generation asks the LLM to propose complete frame lemmas 9
+
+(clauses) up front. For xp2 , the helper-clause file contains the desired relation 
+
+c∆ : y = x + 2 ,
+
+as well as other conjectures, such as 
+
+cpar : ( x & 1) = ( y & 1) , ci : ( y < x + 3) ∨ (x[2] ̸ = 0) .
+
+The formula c∆ will be treated as a unit clause after being loaded, which exposes the whole proof idea: if y = x + 2 
+
+is present in the frame, the property x < y is no longer something PDR must reconstruct from unrelated bit patterns. The other clauses illustrate why clause generation is not merely predicate generation under another name. For example, 
+
+ci is a disjunction-shaped frame lemma: it combines the arithmetic predicate y < x + 3 with a bit-level condition on 
+
+x[i] and rules out a family of nearby unreachable states. Such clauses can be inserted and propagated as complete lemmas, even when they are not single word-level atoms. Side-loading is only helpful when the injected clauses are good. A large set of irrelevant clauses can slow every SAT query and steer the search toward unproductive regions. There-fore LLM4PDR treats every formula in Cext as a candidate, not as a trusted invariant. After parsing and type-checking, the engine performs the two sanity checks required for a clause to live in F1:
+
+UNSAT (Init ∧ ¬ c), UNSAT (Init ∧ T ∧ ¬ c′).
+
+The first query checks that adding c preserves F0 ⇒ F1: no initial state may violate the side-loaded clause. The second checks that F0 ∧ T ⇒ F ′
+
+> 1
+
+: every one-step successor of an initial state must satisfy the primed clause. Algorithm 4 summarizes such validation path. After a candi-date passes both checks, the lemma object will be inserted into 
+
+F1. From that point on, the clause is handled by the ordinary PDR machinery. If it is relatively inductive at later frames, propagation will push it forward; if not, it stays behind and will not appear in the final inductive invariant. In the xp2 run, the relation y = x + 2 is side-loaded into F1 and then propagates with the proof, while clauses that only satisfy the first-frame checks are naturally filtered by subsequent propagations. The soundness boundary is the same as in helper-predicate generation. The LLM can propose a word-level lemma, but the verifier decides whether the lemma is legal at F1, and the existing propagation checks decide whether it survives beyond 
+
+F1. Thus clause generation gives PDR a head start with the checks to ensure the frame sequence is sound. 
+
+E. LLM-Guided Assertion Generation 
+
+Helper assertions use LLM-proposed word-level conjectures at the property level. While helper predicates and helper clauses do not change the transition system or the target property, the helper assertion instead attempts to strengthen the target property temporarily. The verifier asks PDR to prove 
+
+P ⋆ = P ∧ ^
+
+> a∈V
+
+a, 
+
+where V ⊆ A ext is the set of helper assertions that have not yet been invalidated. Since P ⋆ ⇒ P , proving the 
+
+Algorithm 5 CEX-Guided Helper Assertion Refinement 
+
+Require: Transition system (Init , T ), target property P ,helper assertions Acand 
+
+Ensure: Safe for P , or Unsafe with a real counterexample  
+
+> 1:
+
+procedure CHECK WITH ASSERTIONS (P, Acand ) 
+
+> 2:
+
+V ← A cand ▷ active helpers not yet invalidated  
+
+> 3:
+
+P ⋆ ← P ∧ V 
+
+> a∈V
+
+a 
+
+> 4:
+
+while true do  
+
+> 5:
+
+c ← GET BAD CUBE (P ⋆) 
+
+> 6:
+
+if c̸ = ⊥ then  
+
+> 7:
+
+if not BLOCK (c) then  
+
+> 8:
+
+if EVAL (P, c ) = false then  
+
+> 9:
+
+return Unsafe  
+
+> 10:
+
+V ← { a ∈ V | EVAL (a, c ) = true } ▷
+
+remove falsified helpers  
+
+> 11:
+
+P ⋆ ← P ∧ V 
+
+> a∈V
+
+a 
+
+> 12:
+
+RESTART WITH (P ⋆) 
+
+> 13:
+
+else  
+
+> 14:
+
+NEW FRAME 15: if PROPAGATE then  
+
+> 16:
+
+return Safe LLM helper assertions a1,a 2,a 3          
+
+> Strengthen property P+=P AND a 1AND a 2AND a 3
+> IC3/PDR checks P +
+> invariant proves P+=> P Counterexample to P +?
+> Only assertion consistent with counterexamples survive.
+> P is true, some a iare false DROP falsified assertions drop a 2
+> P is false
+> REAL counterexample
+> UNSAFE NO NO SAFE YES
+> restart with weaker p +
+> p+= p AND a 1AND a 3
+> YES: replay counterexample trace check original p and each a i
+> p: a1:a2:a3:true true true false
+
+×
+
+Fig. 8: Counterexample-guided refinement for helper asser-tions. The verifier checks the strengthened property P ⋆ =
+
+P ∧ V 
+
+> a∈V
+
+a. A counterexample to P ⋆ is replayed against the original property: if it violates P , it is a real counterexample; otherwise, only the falsified helper assertions are removed and PDR restarts with a weaker strengthened property. stronger property proves the original one, while giving PDR a more informative property frame to build from. Algorithm 5 summarizes this counterexample-guided refinement workflow. Lines 2–3 initialize the active helper set and construct the strengthened property. The xp2 example shows why this is useful. The target property is P : x < y . The LLM may propose the word-level relation 
+
+a∆ : ( y − x) = 2 .
+
+This formula is the same design fact that can be used by the predicate and clause mechanisms, but it is consumed differently when it works as a helper assertion. With helper predicates, (y−x) = 2 is only a candidate atom for MIC. With helper clauses, (y − x) = 2 must pass frame checks before being inserted into F1. With helper assertions, the verifier therefore uses the candidate to form the augmented property 10 
+
+P ⋆ = ( x < y ) ∧ (( y − x) = 2) , so the property frame already exposes the arithmetic relation that explains why x < y holds. This direct augmentation is powerful but unsafe if used blindly, because an LLM may propose a false assertion. We therefore follow the counterexample-guided refinement pattern in Algorithm 5. Whenever the strengthened property produces an unblockable bad cube c, the verifier first evaluates the orig-inal property P on that cube (Line 8). If P itself is false, the cube is a real counterexample and the design is unsafe. Oth-erwise, the counterexample only shows that the current helper set was too strong. The verifier removes exactly the helper assertions falsified by c (Line 10), rebuilds P ⋆ from the re-maining helpers (Line 11), and restarts the ordinary PDR loop. Figure 8 pictorially illustrates how invalid helper assertions are filtered without compromising the original proof obligation. For xp2 , the assertion a∆ is true on all reachable states, so no refinement is needed. The strengthened property exposes the arithmetic reason behind x < y immediately, and the proof can converge using the compact relation y − x = 2 
+
+instead of rediscovering it through many bit-level CTIs. If the LLM had proposed a wrong relation, such as y − x = 3 , the first counterexample satisfying x < y but violating that helper would simply delete the helper and continue with the original property. The soundness boundary is again kept inside the verifier. Helper assertions are not added to the transition relation and are not trusted as assumptions. They are tentative property augmentations. If they help, they become part of a proof to the target property; if they are contradicted by a counterexample, they will be removed. In the worst case, all helper assertions are filtered out and Algorithm 5 degenerates to ordinary PDR working on the original property P .V. E XPERIMENTAL EVALUATION 
+
+A. Setup and Baselines 
+
+We evaluate LLM4PDR on four benchmark suites that ex-ercise different sources of difficulty in word-level hardware model checking. The arithmetic suite isolates datapath-heavy reasoning over additions, multiplications, shifts, and extracts. The HWMCC suite contributes larger competition benchmarks with mixed control and datapath structure. The HLS–SEC suite contains fixed-point Kalman-filter kernels generated by high-level synthesis, where the properties encode bit-exact equiva-lence between independently pipelined implementations. The open-source RTL suite contains formally annotated bus inter-connects and DDR3 controllers, representing realistic control-rich SoC components. For all LLM4PDR runs, we use OpenAI GPT o3 [18] as the LLM backend. We use a fixed prompt template across all benchmarks and do not perform benchmark-specific prompt tuning. For each benchmark instance and each guidance mode, the LLM is asked to generate up to five helper artifacts in the restricted SMT-LIB2 helper format: five predicate.* 
+
+declarations for LLM2Predicate , five clause.* declara-tions for LLM2Clause , or five assertion.* declarations for LLM2Assert .
+
+B. Arithmetic Benchmarks 
+
+Across the suites, we compare against Pono [4] with the IC3bits engine (which uses the SMT-Switch backend to in-terface with the Bitwuzla SMT solver [19]), AVR [10] (the champion of the 2020’s HWMCC), and DreamMiner [16] (a recent reinforcement-learning-based property mining and argumentation baseline). As LLM4PDR is built upon a cus-tomized IC3 engine (IC3ng) that we implemented in Pono, we also include an Ablation configuration that runs Pono with IC3ng but disables all LLM-generated helper artifacts. This isolates the effect of the proposed guidance from the effect of changing the underlying PDR engine. We report three single-mechanism instantiations of LLM4PDR : LLM2Predicate ,
+
+LLM2Clause , and LLM2Assert . They enable predicate generation, clause generation, and assertion generation, respec-tively, as described in Section IV. Runtimes are wall-clock times; entries marked TO hit the timeout limits described in the corresponding table notes. The arithmetic suite contains 33 micro-benchmarks whose safety properties depend on word-level relationships among datapath signals. These instances are intentionally small, but difficult for engines that must rediscover arithmetic invariants through bit-level generalization. They therefore provide afocused test of whether LLM-generated helper artifacts can expose the equalities, bounds, and guarded relations that PDR needs for compact inductive invariants. Figure 9 summarizes the result for this set of problems. Pono and AVR solve 13 and 11 cases, respectively, while DreamMiner solves 19. All three LLM4PDR variants improve on these baselines: LLM2Predicate and LLM2Clause 
+
+each solve 23 cases, and LLM2Assert solves 28. The cactus plot shows the same pattern in runtime. LLM2Assert solves the most instances and has the lowest curve over most of the solved range, while LLM2Predicate and LLM2Clause 
+
+remain consistently below the deductive baselines. The arith-metic suite thus confirms that each helper-artifact interface can strengthen word-level PDR, with assertion-guided search providing the largest gain when the generated helper facts align closely with the target property. 
+
+C. HWMCC Benchmarks 
+
+To test larger designs, we selected twelve HWMCC in-stances [20] spanning accelerators, embedded CPU cores, a DSP kernel, peripheral/storage controllers, and a video interface. This mix stresses both arithmetic datapaths and control-dominated state machines. Table II reports the wall-clock runtime. The accelerator family marlann_cp_* shows the benefit of injecting helper artifacts into an already strong PDR engine. 
+
+LLM2Assert is fastest on two of the three accelerator instances, and LLM2Clause is fastest on the third; both variants consistently improve over Pono, DreamMiner, and the IC3ng ablation. The DSP instance intersymbol_conv is more decisive: Pono, AVR, and DreamMiner time out, the IC3ng ablation takes 613.64 s, and LLM2Predicate proves the property in 3.06 s. This case indicates that helper predicates 11 
+
+Fig. 9: Performance comparison on simple arithmetic benchmarks. TABLE II: Benchmark sizes and runtime comparison on HWMCC19–24 benchmarks. Runtimes are in seconds. a
+
+Category Benchmark Size e Pono b AVR c Ablation d DreamMiner 
+
+LLM2 Predicate LLM2 Assert LLM2 Clause 
+
+Accelerator marlann_cp_fail1_p2 693 / 1441 26 .64 2083 .95 25 .55 25 .63 23 .94 13 .50 21 .48 
+
+marlann_cp_fail2_p0 690 / 1441 23 .23 315 .02 6.92 9.07 6.46 8.39 6.20 
+
+marlann_cp_pass_p2 694 / 1441 26 .58 2439 .43 26 .07 35 .66 23 .21 13 .61 20 .89 
+
+Embedded CPU core picorv32_p01 
+
+1911 / 1878 5.99 0.50 2.78 10 .11 2.70 4.51 3.52 
+
+picorv32_p05 18 .00 0.64 4.32 17 .55 4.21 9.83 5.90 
+
+picorv32_p06 25 .22 0.71 5.60 75 .37 5.53 5.28 6.47 
+
+DSP / signal-estimation intersymbol_conv 308 / 59 TO TO 613 .64 TO 3.06 29 .80 3445 .22 
+
+Peripheral / storage ctrl. qspiflash_p164 3100 / 614 TO 2553 .76 1310 .61 TO 1220 .00 859 .80 TO qspiflash_p078 3098 / 613 TO TO 299 .92 TO 77 .27 100 .50 53 .89 
+
+Display / video interface vgasim_p89 2003 / 1010 TO 41 .60 815 .79 TO 110 .05 471 .30 757 .15 
+
+Embedded CPU core zipcpu_busdelay_p02 950 / 658 TO 1872 .35 1279 .06 TO 1243 .78 2806 .50 TO zipcpu_pfcache_p16 1818 / 3206 TO 3.27 1510 .29 TO 359 .62 19 .20 2404 .34  
+
+> a
+
+TO : solver hit the time-out limit ( ≥ 1 h).  
+
+> b
+
+Pono : results from the Pono model checker (IC3bits engine).  
+
+> c
+
+AVR : best of SA and SA+UF.  
+
+> d
+
+Ablation : results from the Pono model checker (IC3ng engine) without LLM assistance.  
+
+> e
+
+Size : LoC / state bits. LoC : number of BTOR model records; State bits : total bits in all BTOR state declarations. 
+
+can supply a compact word-level explanation that the unguided engine does not discover quickly. The HWMCC results are heterogeneous, as expected for competition benchmarks that mix accelerators, CPU cores, DSP kernels, storage controllers, and video interfaces, and therefore LLM guidance is not uniformly best on ev-ery small instance; for example, AVR remains strong on several picorv32 cases. However, the guided configu-rations provide large gains on several harder instances. On intersymbol_conv , Pono, AVR, and DreamMiner time out, the unguided IC3ng ablation takes 613.64 s, while LLM2Predicate proves the property in 3.06 s. 
+
+LLM2Assert and LLM2Clause also lead on different 
+
+qspiflash and zipcpu cases. These results indicate that the proposed helper artifacts are complementary: predicates, clauses, and assertions each benefit different structural classes rather than acting as a single universally dominant heuristic. TABLE III: HLS–SEC benchmark sizes and runtimes in seconds. a
+
+Case Size c Pono AVR Abl. DM Pred. b Assert b Clause b
+
+K1 506/84 24.90 1.49 13.35 3.33 18.41 24.63 1.97 K2 491/102 93.57 998.46 1217.89 6.47 20.45 24.64 25.01 K3 424/83 TO TO TO 5275.60 9912.86 5112.58 3990.83 K4 TO TO TO 5366.69 9741.71 5184.17 3664.56  
+
+> a
+
+K1–K4 : Kalman1–4. TO : ≥ 3 h. Abl. : IC3ng without LLM assistance. DM :DreamMiner.  
+
+> b
+
+Pred./Assert/Clause : LLM2Predicate, LLM2Assert, and LLM2Clause.  
+
+> c
+
+Size : RTL LoC / state bits. 
+
+D. HLS–SEC Safety Kernels 
+
+The HLS–SEC benchmarks are fixed-point Kalman-filter kernels whose top-level wrappers assert equivalence between two independently pipelined implementations. Their multipli-ers, adders, shifts, and long pipeline dependencies make them a stress test for arithmetic-aware verification. Table III shows a clear progression in difficulty. On 12 
+
+TABLE IV: Benchmark sizes and runtime comparison on open-source circuit designs with assertions. Runtimes are in seconds. a                                                                
+
+> Category Benchmark Size bPono AVR Ablation dreamminer
+> LLM2 Predicate LLM2 Assert LLM2 Clause
+> Bus interconnects, bridges, etc. axil2axis 1043 /1802 79 .18 TO 32 .01 80 .43 25 .37 69 .80 29 .43
+> wbm2axilite 391 /521 TO 2.58 47 .01 TO 25 .71 TO 36 .15
+> axildouble 1257 /2448 149 .25 TO 253 .19 155 .44 131 .60 161 .20 193 .30
+> DDR3 Controller multiconfig_ecc
+> 4136 /10130 436 .71 TO 293 .76 450 .28 147 .08 300 .60 237 .89
+> singleconfig 443 .23 TO 313 .21 441 .98 153 .03 328 .69 255 .23
+> multiconfig_default 600 .87 TO 418 .60 597 .62 124 .88 475 .10 139 .70
+> aTO : solver hit the time-out limit ( ≥1 h).
+> bSize : LoC / state bits. LoC : RTL source code lines; State bits : total bits in all BTOR state declarations.
+
+Kalman1 , AVR is fastest and LLM2Clause is close behind. On Kalman2 , DreamMiner achieves the best runtime, while 
+
+LLM2Predicate remains much faster than Pono, AVR, and the ablation. The harder Kalman3 and Kalman4 cases separate the approaches more clearly: Pono, AVR, and the ablation time out, while the LLM4PDR variants complete the proofs. Among our variants, LLM2Clause is fastest on both hard kernels, completing them in about one hour. These results suggest that side-loaded clauses are particularly effective for deep HLS pipelines, where useful arithmetic relations can be validated early and propagated through the PDR frame sequence. 
+
+E. Open-Source RTL Designs with Assertions 
+
+The open-source suite in Table IV contains two families of real-world RTL designs. The WB2AXIP cases include fully pipelined AXI4 and AXI-Lite bridges that allow multiple in-flight transactions, creating deep handshake logic. The DDR3 controller cases add rank-bank management, write levelling, read calibration, and optional SEC–DED error correction, yielding long control pipelines and wide datapaths. These designs are formally annotated, and their properties are chal-lenging for general-purpose model checkers. 
+
+LLM2Predicate is the strongest configuration on this suite. It obtains the best runtime on five out of six cases and remains competitive on wbm2axilite , where AVR is ex-ceptionally fast. On the AXI bridge cases, LLM2Predicate 
+
+outperforms Pono, the ablation, DreamMiner, and the other 
+
+LLM4PDR modes on axil2axis and axildouble ; it also solves wbm2axilite while Pono and DreamMiner time out. On the DDR3 controllers, AVR times out on all three cases, whereas LLM2Predicate gives roughly 3–5× speedups over Pono and clear improvements over the IC3ng ablation. This pattern is consistent with the nature of these designs: predicate guidance is well suited to repeated control/data relationships, such as handshake consistency and pipeline-state correspondence, that become useful during many MIC calls. 
+
+F. Ablation: IC3bits vs. IC3ng 
+
+To better exploit LLM-generated helpers, we use IC3ng, which extends IC3bits with the D OWN /MIC-style inductive generalization [1] and eager lemma propagation during block-ing, following the rationale of aggressive clause pushing [21]. These mechanisms support helper-guided proof search: the generalizer is extended to retain word-level helpers while 
+
+Fig. 10: Execution-time scatter plot comparing Pono IC3bits with Pono IC3ng without helper artifacts. reducing bit-level literals, and eager propagation makes the resulting lemmas available sooner in subsequent frames. To establish that our speedups cannot be explained by these engine changes alone, we disable all LLM-generated helpers while retaining the underlying IC3ng heuristics. Figure 10 compares this unguided configuration with IC3bits; the Ab-lation columns in the tables compare it with LLM4PDR on the same engine. Without helpers, IC3ng does not consistently outperform IC3bits: Figure 10 shows both improvements and regressions. Thus, the added heuristics alone do not establish a gen-eral performance advantage. Enabling helpers on the same IC3ng engine yields substantial additional speedups on sev-eral benchmarks; for example, LLM2Predicate reduces 
+
+intersymbol_conv from 613.64 s to 3.06 s. These results show that the engine changes alone cannot explain these gains: the LLM-generated semantic information makes an additional contribution when used together with the enhanced generalization and propagation procedures. VI. C ONCLUSION 
+
+This paper presents LLM4PDR , a framework for injecting LLM-generated semantic guidance into PDR-based hardware model checking. The key idea is to keep the LLM outside 13 
+
+the soundness boundary: it proposes predicates, clauses, and helper assertions, while the verifier parses, type-checks, vali-dates, and refines those artifacts through ordinary PDR proof obligations. This lets the engine benefit from high-level word-level relations without trusting the LLM as an oracle. Across arithmetic, HWMCC, HLS–SEC, and open-source RTL benchmarks, the three LLM4PDR modes improve differ-ent parts of the proof search. Assertion guidance is strongest on the arithmetic suite, clause guidance is especially effective on deep HLS pipelines, and predicate guidance performs best on open-source control-plus-datapath designs. The ablation against unguided IC3ng further shows that these gains come from the generated helper artifacts rather than from an en-gine swap alone. These results indicate that LLM-generated semantic hints can be a practical and sound complement to conventional PDR generalization. ACKNOWLEDGMENTS 
+
+The authors used Gemini 3.8 Flash only to improve the language and readability of the manuscript text. It was not used to generate technical ideas, results and figures. All suggested revisions were reviewed and verified by the authors, who take full responsibility for the final content. REFERENCES [1] A. R. Bradley, “SAT-based model checking without unrolling,” in 
+
+International Workshop on Verification, Model Checking, and Abstract Interpretation . Springer, 2011, pp. 70–87. [2] A. Niemetz, M. Preiner, C. Wolf, and A. Biere, “Btor2, BtorMC and Boolector 3.0,” in International Conference on Computer Aided Verification . Springer, 2018, pp. 587–595. [3] C. Barrett, A. Stump, and C. Tinelli, “The SMT-LIB standard – version 2.0,” in Proceedings of the 8th International Workshop on Satisfiability Modulo Theories (SMT ’10) , Jul. 2010, edinburgh, Scotland. [Online]. Available: http://theory.stanford.edu/~barrett/pubs/BST10.pdf [4] M. Mann, A. Irfan, F. Lonsing, Y. Yang, H. Zhang, K. Brown, A. Gupta, and C. Barrett, “Pono: a flexible and extensible SMT-based model checker,” in International Conference on Computer Aided Verification .Springer, 2021, pp. 461–474. [5] N. Eén, A. Mishchenko, and R. Brayton, “Efficient implementation of property directed reachability,” in 2011 Formal Methods in Computer-Aided Design (FMCAD) . IEEE, 2011, pp. 125–134. [6] A. R. Bradley and Z. Manna, “Checking safety by inductive generaliza-tion of counterexamples to induction,” in Formal Methods in Computer Aided Design (FMCAD’07) . IEEE, 2007, pp. 173–180. [7] Z. Hassan, A. R. Bradley, and F. Somenzi, “Better generalization in IC3,” in 2013 Formal Methods in Computer-Aided Design . IEEE, 2013, pp. 157–164. [8] A. Griggio and M. Roveri, “Comparing different variants of the IC3 algorithm for hardware model checking,” IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , vol. 35, no. 6, pp. 1026–1039, 2016. [9] A. Luka and Y. Vizel, “Property directed reachability with extended resolution,” in International Conference on Computer Aided Verification .Springer, 2025, pp. 258–280. [10] A. Goel and K. Sakallah, “AVR: Abstractly verifying reachability,” in 
+
+International Conference on Tools and Algorithms for the Construction and Analysis of Systems . Springer, 2020, pp. 413–422. [11] R. Brayton and A. Mishchenko, “ABC: An academic industrial-strength verification tool,” in International Conference on Computer Aided Ver-ification . Springer, 2010, pp. 24–40. [12] Y. Su, Q. Yang, Y. Ci, T. Bu, and Z. Huang, “The rIC3 hardware model checker,” in International Conference on Computer Aided Verification .Springer, 2025, pp. 185–199. [13] A. Goel and K. Sakallah, “Model checking of Verilog RTL using IC3 with syntax-guided abstraction,” in NASA Formal Methods Symposium .Springer, 2019, pp. 166–185. [14] H. Zhang, A. Gupta, and S. Malik, “Syntax-guided synthesis for lemma generation in hardware model checking,” in International Conference on Verification, Model Checking, and Abstract Interpretation . Springer, 2021, pp. 325–349. [15] K. L. McMillan, “Interpolation and SAT-based model checking,” in 
+
+International Conference on Computer Aided Verification . Springer, 2003, pp. 1–13. [16] Z. Yan and H. Zhang, “Word-level augmentation of formal proof by learning from simulation traces,” in Proceedings of the 43rd IEEE/ACM International Conference on Computer-Aided Design , 2024, pp. 1–9. [17] G. Hu, J. Tang, C. Yu, W. Zhang, and H. Zhang, “DeepIC3: Guiding IC3 algorithms by graph neural network clause prediction,” in 2024 29th Asia and South Pacific Design Automation Conference (ASP-DAC) . IEEE, 2024, pp. 262–268. [18] OpenAI, “OpenAI o3,” OpenAI API Documentation, 2025, accessed: 2026-05-27. [19] A. Niemetz and M. Preiner, “Bitwuzla,” in International Conference on Computer Aided Verification . Springer, 2023, pp. 3–17. [20] A. Biere, N. Froleyks, and M. Preiner, “Hardware model checking competition 2024,” in Proceedings of the 24th Conference on Formal Methods in Computer-Aided Design–FMCAD 2024 . TU Wien Aca-demic Press, 2024, pp. 7–7. [21] A. Ivrii and A. Gurfinkel, “Pushing to the top,” in 2015 Formal Methods in Computer-Aided Design (FMCAD) . IEEE, 2015, pp. 65–72. [22] M. Mann, A. Wilson, Y. Zohar, L. Stuntz, A. Irfan, K. Brown, C. Donovick, A. Guman, C. Tinelli, and C. Barrett, “SMT-Switch: a solver-agnostic C++ API for SMT solving,” in International Conference on Theory and Applications of Satisfiability Testing . Springer, 2021, pp. 377–386. 
+
+Guangyu Hu received the B.E. degree in soft-ware engineering from Xiamen University, Xiamen, China, in 2021. He received his PhD degree in Microelectron-ics, Individualized Interdisciplinary Program (IIP) of Hong Kong University of Science and Technology, Clear Water Bay, Hong Kong SAR. His research interests include hardware model checking and logic synthesis. 
+
+Mingkai Miao received the B.Eng. degree in elec-tronic and information engineering from the Uni-versity of Electronic Science and Technology of China, Chengdu, China, in 2021, and the M.Eng. degree in electrical and computer engineering from the University of Illinois Urbana-Champaign, Ur-bana, IL, USA, in 2024. He is currently pursu-ing the Ph.D. degree in microelectronics with the Hong Kong University of Science and Technology (Guangzhou), Guangzhou, China. His research inter-ests include hardware formal verification, IC3/PDR model checking, and machine learning and large language model techniques for electronic design automation. 
+
+Zhiyuan Yan received the B.Sc. degree in Elec-tronic Information Science and Technology from Henan University, Kaifeng, China, in 2020, and the master’s degree in Microelectronics from Nanyang Technological University, Singapore, in 2022. He is currently pursuing the Ph.D. degree with the Microelectronics Thrust, Hong Kong University of Science and Technology (Guangzhou), Guangzhou, China, advised by Prof. Hongce Zhang. His research lies in AI for EDA, especially machine learning-guided formal verification and SAT. 14 
+
+Xiaofeng Zhou received the B.Eng. degree in in-formation science and engineering from Southeast University, Nanjing, China, in 2020, and the Ph.D. degree in electronic and computer engineering from The Hong Kong University of Science and Technol-ogy, Hong Kong, in 2026. His research interests in-clude hardware formal verification, model checking, high-level synthesis, and FPGA-based acceleration. 
+
+Wei Zhang (Fellow, IEEE) received the Ph.D. de-gree from Princeton University, Princeton, NJ, USA, in 2009. She was an Assistant Professor with the School of Computer Engineering, Nanyang Technological University, Singapore, from 2010 to 2013. She joined The Hong Kong University of Science and Technology, Hong Kong, in 2013, where she is currently a Professor and she established the Re-configurable Computing System Laboratory. Her research interests include reconfigurable systems, field-programmable gate array-based design, low-power high-performance multicore systems, electronic design automation, embedded systems, and emerging technologies. 
+
+Hongce Zhang (Member, IEEE) received the B.S. degree in microelectronics from Shanghai Jiao Tong University, Shanghai, China, in 2015, and the Ph.D. degree from the Electrical and Computer Engineer-ing Department of Princeton University, NJ, USA, in 2021. He is currently an Assistant Professor with the Mi-croelectronics Thrust, Function Hub of Hong Kong University of Science and Technology (Guangzhou), Guangzhou, China, and is also affiliated with the Di-vision of Emerging Interdisciplinary Areas (EMIA) of the Hong Kong University of Science and Technology, Clear Water Bay, Hong Kong SAR. His research interests include formal verification and hardware model checking.
