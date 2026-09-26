@@ -1,6 +1,9 @@
 * <a class="dpr-sidebar-root-link" href="#/">首页</a>
 * <a class="dpr-sidebar-root-link dpr-sidebar-noactive-link" href="javascript:void(0)" data-dpr-hash="#/tutorial/README">使用教程</a>
 * Daily Papers
+  * 2026-09-26 <!--dpr-date:20260926-->
+    * 速读区
+      * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/26/2609.26830v1-validation-and-simulation-catch-different-errors-four-levels-of-evaluation-for-llm-generated-circuits" data-sidebar-item="{&quot;title&quot;: &quot;Validation and Simulation Catch Different Errors: Four Levels of Evaluation for LLM-Generated Circuits&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.26830v1-validation-and-simulation-catch-different-errors-four-levels-of-evaluation-for-llm-generated-circuits&quot;, &quot;score&quot;: &quot;6.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;通过验证与仿真对LLM生成电路做四级评估&quot;}">Validation and Simulation Catch Different Errors: Four Levels of Evaluation for LLM-Generated Circuits</a>
   * 2026-09-25 <!--dpr-date:20260925-->
     * 精读区
       * <a class="dpr-sidebar-item-link dpr-sidebar-item-structured" href="#/202609/25/2609.30131v1-enhancing-word-level-property-directed-reachability-with-llm-driven-semantic-guidance" data-sidebar-item="{&quot;title&quot;: &quot;Enhancing Word-Level Property Directed Reachability with LLM-Driven Semantic Guidance&quot;, &quot;link&quot;: &quot;https://arxiv.org/abs/2609.30131v1-enhancing-word-level-property-directed-reachability-with-llm-driven-semantic-guidance&quot;, &quot;score&quot;: &quot;10.0&quot;, &quot;tags&quot;: [{&quot;kind&quot;: &quot;query&quot;, &quot;label&quot;: &quot;llm-hw-fv&quot;}], &quot;evidence&quot;: &quot;LLM4PDR用大语言模型引导字级PDR硬件形式验证&quot;}">Enhancing Word-Level Property Directed Reachability with LLM-Driven Semantic Guidance</a>
