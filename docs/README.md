@@ -6,28 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-26
-- 运行时间：2026-09-26 21:44:12 UTC
+- 最新运行日期：2026-09-27
+- 运行时间：2026-09-27 22:01:32 UTC
 - 运行状态：成功
-- 本次总论文数：1
+- 本次总论文数：2
 - 精读区：0
-- 速读区：1
+- 速读区：2
 
 ### 今日简报（AI）
-今天速读了 1 篇 6.0 分论文，聚焦 LLM 生成电路的评测，无精读。
-
-最值得看的是它提出的四级评估框架：验证与仿真各自能抓到不同类型、彼此不重叠的错误，单靠一种手段会漏检。
-
-普通读者若关心 LLM 生成代码或电路的可信度，可留意这类"多手段交叉检查"思路，别把通过仿真当成完全正确。
-- 详情：[/202609/26/README](/202609/26/README)
+9月27日日报：2篇全部速读、精读为0，主线锁定形式化建模与可信编译器优化。  
+最值得先看7.0分的《Formal Model Construction Guided by Model-Based Proof Sketches》，另一篇6.0分则把LLM引导与形式控制带进编译器优化。  
+普通读者可先抓住“证明草图引导形式化建模”这个点，再按兴趣了解LLM如何为编译器优化加上可信保障。
+- 详情：[/202609/27/README](/202609/27/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Validation and Simulation Catch Different Errors: Four Levels of Evaluation for LLM-Generated Circuits](/202609/26/2609.26830v1-validation-and-simulation-catch-different-errors-four-levels-of-evaluation-for-llm-generated-circuits)  
+1. [Formal Model Construction Guided by Model-Based Proof Sketches](/202609/27/2609.29870v1-formal-model-construction-guided-by-model-based-proof-sketches)  
+   标签：评分：7.0/10、query:llm-hw-fv
+   evidence：以证明草图引导LLM自动形式化构建形式模型
+2. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/27/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：通过验证与仿真对LLM生成电路做四级评估
+   evidence：大模型引导重写结合形式等价检查反馈回路
 
 
 <div class="dpr-home-promo-card">
