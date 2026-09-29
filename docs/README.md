@@ -6,29 +6,29 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-27
-- 运行时间：2026-09-27 22:01:32 UTC
+- 最新运行日期：2026-09-29
+- 运行时间：2026-09-29 00:20:36 UTC
 - 运行状态：成功
 - 本次总论文数：2
 - 精读区：0
 - 速读区：2
 
 ### 今日简报（AI）
-9月27日日报：2篇全部速读、精读为0，主线锁定形式化建模与可信编译器优化。  
-最值得先看7.0分的《Formal Model Construction Guided by Model-Based Proof Sketches》，另一篇6.0分则把LLM引导与形式控制带进编译器优化。  
-普通读者可先抓住“证明草图引导形式化建模”这个点，再按兴趣了解LLM如何为编译器优化加上可信保障。
-- 详情：[/202609/27/README](/202609/27/README)
+今日速读双响：两篇编译器验证论文均6.0/10，精读暂缺。  
+最值得关注的是“LLM引导+形式化控制”的编译器优化验证，以及ML加速器编译映射验证，都聚焦AI编译的正确性保障。  
+普通读者可先看这两篇摘要，判断是否涉及你的AI编译器或硬件映射场景，再决定要不要精读。
+- 详情：[/202609/29/README](/202609/29/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Formal Model Construction Guided by Model-Based Proof Sketches](/202609/27/2609.29870v1-formal-model-construction-guided-by-model-based-proof-sketches)  
-   标签：评分：7.0/10、query:llm-hw-fv
-   evidence：以证明草图引导LLM自动形式化构建形式模型
-2. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/27/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
+1. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/29/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：大模型引导重写结合形式等价检查反馈回路
+   evidence：LLM引导重写并嵌入形式等价检查反馈环
+2. [Verification of Compiler-to-Accelerator Mappings for Machine Learning Accelerators](/202609/29/2609.30651v1-verification-of-compiler-to-accelerator-mappings-for-machine-learning-accelerators)  
+   标签：评分：6.0/10、query:fsh
+   evidence：基于形式化硬件语义验证编译器到加速器映射
 
 
 <div class="dpr-home-promo-card">
