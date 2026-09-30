@@ -6,39 +6,35 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-29
-- 运行时间：2026-09-29 23:08:52 UTC
+- 最新运行日期：2026-09-30
+- 运行时间：2026-09-30 22:38:14 UTC
 - 运行状态：成功
-- 本次总论文数：5
-- 精读区：1
+- 本次总论文数：4
+- 精读区：0
 - 速读区：4
 
 ### 今日简报（AI）
-今天共筛出5篇（精读1、速读4），主线集中在硬件设计与验证的智能体、编译器到加速器映射及规格理解。
-
-最值得看的是8.0分的《BEHAVE》，用功能行为建模让智能体在硬件设计与验证中自我改进；速读里《SpecRead》与《AG-CoT》分别关注模型是否真懂硬件规格、以及可验证的算法推理轨迹。
-
-建议普通读者先读BEHAVE摘要抓思路，再扫一眼SpecRead基准的评测维度，判断这类智能体离实用还有多远。
-- 详情：[/202609/29/README](/202609/29/README)
+今日速读4篇AI与形式化/符号方法交叉论文，聚焦编译器优化、NL-to-STL翻译和访问控制策略合成。
+最值得看的是“LLM+形式化控制”用于编译器优化，以及“闭环反馈/符号评估”提升NL-to-STL与访问控制策略合成的可靠性。
+普通读者可先扫读这三篇的摘要与评估方法，关注LLM如何被形式化或符号反馈约束，再决定是否深入。
+- 详情：[/202609/30/README](/202609/30/README)
 
 ### 精读区论文标签
-1. [BEHAVE: Functional Behavior Modeling Enables Self-Improving Agents for Hardware Design and Verification](/202609/29/2609.34785v1-behave-functional-behavior-modeling-enables-self-improving-agents-for-hardware-design-and-verification)  
-   标签：评分：8.0/10、query:llm-hw-fv
-   evidence：面向RTL设计与验证的智能体框架
+- 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Verification of Compiler-to-Accelerator Mappings for Machine Learning Accelerators](/202609/29/2609.30651v1-verification-of-compiler-to-accelerator-mappings-for-machine-learning-accelerators)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：通过功能等价形式验证编译器到加速器映射
-2. [AG-CoT: Verified Algorithmic Traces for LLM Program Synthesis on Clifford Circuits](/202609/29/2609.33192v1-ag-cot-verified-algorithmic-traces-for-llm-program-synthesis-on-clifford-circuits)  
+1. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/30/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：LLM 电路合成结合精确验证器反馈
-3. [SpecRead: A Benchmark for Measuring Whether Language Models Understand Hardware Specifications](/202609/29/2609.33699v1-specread-a-benchmark-for-measuring-whether-language-models-understand-hardware-specifications)  
+   evidence：结合形式等价性检查反馈回路的LLM引导重写
+2. [Feedback Makes Perfect: A Closed-Loop Framework for NL-to-STL Translation](/202609/30/2609.33287v1-feedback-makes-perfect-a-closed-loop-framework-for-nl-to-stl-translation)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：评测大模型理解硬件规约与规约-RTL一致性
-4. [Verifying Neural Networks with Reinforcement Learning](/202609/29/2609.34553v1-verifying-neural-networks-with-reinforcement-learning)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：用强化学习改进形式验证器中的分支启发式
+   evidence：用大语言模型将自然语言翻译为STL形式规约并闭环反馈
+3. [RAISE: Reinforcing Access Control Policy Synthesis in LLMs via Symbolic Evaluation](/202609/30/2609.33796v1-raise-reinforcing-access-control-policy-synthesis-in-llms-via-symbolic-evaluation)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：利用形式验证反馈训练大模型进行策略合成
+4. [LLM-Assisted Automatic Security Proofs for Cryptographic Protocols: How Far Are We?](/202609/30/2609.35434v1-llm-assisted-automatic-security-proofs-for-cryptographic-protocols-how-far-are-we)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：用LLM辅助符号形式验证并提出基于证明的度量
 
 
 <div class="dpr-home-promo-card">
