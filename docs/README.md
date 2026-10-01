@@ -6,35 +6,34 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-09-30
-- 运行时间：2026-09-30 22:38:14 UTC
+- 最新运行日期：2026-10-01
+- 运行时间：2026-10-01 23:18:32 UTC
 - 运行状态：成功
-- 本次总论文数：4
+- 本次总论文数：3
 - 精读区：0
-- 速读区：4
+- 速读区：3
 
 ### 今日简报（AI）
-今日速读4篇AI与形式化/符号方法交叉论文，聚焦编译器优化、NL-to-STL翻译和访问控制策略合成。
-最值得看的是“LLM+形式化控制”用于编译器优化，以及“闭环反馈/符号评估”提升NL-to-STL与访问控制策略合成的可靠性。
-普通读者可先扫读这三篇的摘要与评估方法，关注LLM如何被形式化或符号反馈约束，再决定是否深入。
-- 详情：[/202609/30/README](/202609/30/README)
+2026-10-01 日报速读3篇，聚焦LLM与形式化验证的交叉：编译器优化验证、时序规格修订认证、密码协议安全证明。
+
+三篇均获6.0分，最值得关注的是LLM如何与形式化控制结合，让编译器优化和密码协议证明更可信。
+
+普通读者可从"LLM辅助形式化验证"这一主线切入，先读密码协议安全证明那篇，门槛相对友好。
+- 详情：[/202610/01/README](/202610/01/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202609/30/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
+1. [Verified Learning for Compiler Optimization: An LLM-Guided Architecture with Formal Control](/202610/01/2609.27214v1-verified-learning-for-compiler-optimization-an-llm-guided-architecture-with-formal-control)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：结合形式等价性检查反馈回路的LLM引导重写
-2. [Feedback Makes Perfect: A Closed-Loop Framework for NL-to-STL Translation](/202609/30/2609.33287v1-feedback-makes-perfect-a-closed-loop-framework-for-nl-to-stl-translation)  
+   evidence：LLM生成重写并与形式等价检查构成反馈回路
+2. [Protected Cores Are Not Enough: Certifying AI-Proposed Revisions of Temporal Specifications](/202610/01/2609.33461v1-protected-cores-are-not-enough-certifying-ai-proposed-revisions-of-temporal-specifications)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：用大语言模型将自然语言翻译为STL形式规约并闭环反馈
-3. [RAISE: Reinforcing Access Control Policy Synthesis in LLMs via Symbolic Evaluation](/202609/30/2609.33796v1-raise-reinforcing-access-control-policy-synthesis-in-llms-via-symbolic-evaluation)  
+   evidence：由AI提出形式化时序规约修订、符号控制器进行认证
+3. [LLM-Assisted Automatic Security Proofs for Cryptographic Protocols: How Far Are We?](/202610/01/2609.35434v1-llm-assisted-automatic-security-proofs-for-cryptographic-protocols-how-far-are-we)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：利用形式验证反馈训练大模型进行策略合成
-4. [LLM-Assisted Automatic Security Proofs for Cryptographic Protocols: How Far Are We?](/202609/30/2609.35434v1-llm-assisted-automatic-security-proofs-for-cryptographic-protocols-how-far-are-we)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：用LLM辅助符号形式验证并提出基于证明的度量
+   evidence：系统评估LLM辅助符号化形式验证证明的能力
 
 
 <div class="dpr-home-promo-card">
