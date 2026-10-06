@@ -7,34 +7,25 @@
 
 ## 每次日报
 - 最新运行日期：2026-10-06
-- 运行时间：2026-10-06 00:27:05 UTC
+- 运行时间：2026-10-06 22:57:35 UTC
 - 运行状态：成功
-- 本次总论文数：4
-- 精读区：0
-- 速读区：4
+- 本次总论文数：2
+- 精读区：1
+- 速读区：1
 
 ### 今日简报（AI）
-今日日报共4篇、精读0篇，速读聚焦NL-to-STL闭环翻译、ROBDD优化与Lean可审计推理。
-
-最值得看的是闭环反馈提升NL
+今日精读1篇、速读1篇，聚焦芯片验证EDA基础设施与ROBDD优化两大方向。最值得看的是8.0分的《Back to the Future》，它重新审视面向智能体系统的EDA基础设施，值得优先阅读。普通读者可先读这篇精读文章，再快速浏览XBDD的变量翻转映射优化思路。
 - 详情：[/202610/06/README](/202610/06/README)
 
 ### 精读区论文标签
-- 本次无精读推荐。
+1. [Back to the Future: Rethinking EDA Infrastructure for Agentic Systems in Chip Design Verification](/202610/06/2610.06790v1-back-to-the-future-rethinking-eda-infrastructure-for-agentic-systems-in-chip-design-verification)  
+   标签：评分：8.0/10、query:llm-hw-fv
+   evidence：面向芯片设计验证与RTL调试的LLM智能体框架
 
 ### 速读区论文标签
-1. [Feedback Makes Perfect: A Closed-Loop Framework for NL-to-STL Translation](/202610/06/2609.33287v1-feedback-makes-perfect-a-closed-loop-framework-for-nl-to-stl-translation)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：LLM闭环生成用于验证的STL形式规约
-2. [XBDD: A Highly Optimized ROBDD with Per-Edge Variable-Flip Maps](/202610/06/2609.36778v2-xbdd-a-highly-optimized-robdd-with-per-edge-variable-flip-maps)  
-   标签：评分：6.0/10、query:fsh
-   evidence：面向电路等价性与可满足性检查的优化ROBDD
-3. [FORALL-LEAN-AGENT for Auditable Reasoning in Formal Mathematics and Software Verification](/202610/06/2610.00885v1-forall-lean-agent-for-auditable-reasoning-in-formal-mathematics-and-software-verification)  
-   标签：评分：6.0/10、query:llm-hw-fv
-   evidence：LLM智能体进行Lean形式证明与软件验证
-4. [Symbolic Execution of Constrained Horn Clauses](/202610/06/2610.03345v1-symbolic-execution-of-constrained-horn-clauses)  
-   标签：评分：6.0/10、query:fsh
-   evidence：面向CHC验证的符号执行与模型检查
+1. [XBDD: A Highly Optimized ROBDD with Per-Edge Variable-Flip Maps](/202610/06/2609.36778v2-xbdd-a-highly-optimized-robdd-with-per-edge-variable-flip-maps)  
+   标签：评分：6.0/10、query:ml-verify
+   evidence：面向电路等价与可满足性检查的优化BDD
 
 
 <div class="dpr-home-promo-card">
