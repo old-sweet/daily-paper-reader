@@ -1,0 +1,2002 @@
+Symbolic Execution of Constrained Horn Clauses
+Johannes Weiser1, Zafer Esen2, Philipp R¨ummer2,3
+1TU Vienna, Austria.
+2Uppsala University, Sweden.
+3University of Regensburg, Germany.
+Contributing authors: johannes.weiser@tuwien.ac.at;
+zafer.esen@it.uu.se; philipp.ruemmer@it.uu.se;
+Abstract
+Constrained Horn clauses (CHCs) are a fragment of first-order logic widely used
+as an intermediate language for verification. We study constrained resolution as
+a calculus for reasoning about the satisfiability of sets of CHCs. Constrained res-
+olution forms a simple alternative to model checking algorithms such as CEGAR
+and IC3 and is here shown to exhibit complementary features. We show that,
+when CHCs encode programs, forward symbolic execution corresponds to posi-
+tive unit hyper-resolution, and backward symbolic execution to SLD resolution,
+which are special cases of constrained resolution. We formalize forward and back-
+ward reasoning for linear and non-linear CHCs and transition systems, prove
+refutational completeness under fair strategies, and develop subsumption criteria
+for pruning redundant derivations. We moreover show that backward resolution
+with subsumption generalizes k-induction to non-linear CHCs, and that forward
+constrained resolution is related to the problem of constructing proofs in incor-
+rectness logic. Lastly, we provide an experimental evaluation in the Eldarica
+CHC solver on benchmarks from CHC-COMP.
+Keywords: Constrained Horn clauses, Symbolic execution, Software verification,
+Resolution, SLD, k-induction, Incorrectness logic
+1 Introduction
+Constrained Horn clauses (CHCs) are a fragment of first-order logic that has found
+wide use as an intermediate language for verification, with applications ranging from
+security analysis for smart contracts to the verification of programs in various lan-
+guages [1–9]. CHCs enable the modular construction of verification tools by decoupling
+1
+arXiv:2610.03345v1  [cs.LO]  2 Oct 2026
+
+
+the development of verification front-ends, which take care of parsing and processing
+programs, applying the rules of some program logic, from CHC solvers as verification
+back-ends that carry out the required semantic program analysis. When encoding a
+program using CHCs, predicates typically represent the required annotations, such as
+state invariants, loop invariants, or function contracts, while CHCs encode program
+transitions as well as all further constraints on the annotations. A program is safe
+when the corresponding set of CHCs is satisfiable.
+To
+analyze
+CHCs,
+CHC
+solvers
+such
+as
+Eldarica
+[10],
+Golem
+[11],
+Z3/Spacer [12], and LoAT [13] implement a variety of model checking algorithms, for
+instance IC3 [14], CEGAR [15], loop acceleration [16], bounded model checking [17], or
+transition power abstraction [18]. As a simple alternative to those algorithms, in this
+article we study constrained resolution [19], a logical proof rule that enables solvers to
+derive new clauses from a set of existing clauses in forward or backward direction. As
+our first insight, we show that strategies to apply constrained resolution correspond
+to symbolic execution, a widely used approach in program analysis in which some pro-
+gram variables are initialized with symbols that represent arbitrary values, rather than
+concrete ones [20, 21]. Although more limited for proving the correctness of programs
+than algorithms used in software model checking, for instance IC3 or CEGAR, con-
+strained resolution inherits the feature of symbolic execution of being very effective at
+discovering bugs in programs, which here corresponds to proving the unsatisfiability
+of CHCs. Since constrained resolution does not rely on relatively expensive steps such
+as Craig interpolation [22, 23], it can be implemented easily even in the context of
+complex theories like arrays or bit-vectors. We show that constrained resolution is also
+surprisingly effective at proving programs correct, reflecting experiences in software
+model checking [24].
+As our second insight, we show that there is a correspondence between different
+resolution strategies and known forms of symbolic execution: forward symbolic exe-
+cution corresponds to constrained positive unit hyper-resolution, whereas backward
+symbolic execution [25, 26] corresponds to SLD resolution [27] known from logic pro-
+gramming [28]. Discussion of this correspondence goes back to the work of Kowalski,
+who observed that resolution steps over Horn clauses can be interpreted as procedure
+invocations [29], and to work in constraint logic programming [30]. We extend this view
+to constrained resolution with background theories and make the connection to sym-
+bolic execution explicit. We formalize both forward and backward resolution strategies
+over linear and non-linear CHCs, prove their correctness, and study subsumption for
+pruning redundant derivations.
+Our third insight is that backward resolution combined with subsumption gen-
+eralizes k-induction, a proof rule for invariants in which the consecution condition
+assumes k correct iterations of a loop [31]. It is known that k-induction is a very effec-
+tive rule for proving safety properties in both hardware and software verification (e.g.,
+[31–33]). We show that backward reasoning through constrained resolution has the
+effect of implicitly constructing the conditions that need to be checked when applying
+k-induction. A similar observation was made for the relationship between k-induction
+and backward symbolic execution in [34]. Constrained resolution is more general than
+k-induction, however, since it applies also in the case of non-linear clauses.
+2
+
+
+As our fourth insight, we study the relationship between constrained resolution
+and incorrectness logic, which is a logic that is dual to Hoare logic for reasoning
+about failing executions of programs [35]. We show that forward resolution proofs for
+CHCs encoding a program naturally translate to proofs in incorrectness logic, making
+it possible, in particular, to automatically construct non-ground incorrectness proofs
+automatically. The relationship between CHC proofs and incorrectness reasoning also
+makes it possible to translate bespoke incorrectness proof rules, for instance for loop
+acceleration, to the CHC world.
+The main contributions of this article are:
+(1) A formalization of symbolic execution as constrained resolution over CHCs,
+including subsumption criteria for CHCs (Section 3 and Section 7).
+(2) A study of forward and backward exploration strategies over both linear and
+non-linear CHCs (Section 4 and Section 5).
+(3) Discussion how the k-induction proof rule can be reduced to backward resolution
+with clause subsumption (Section 6) and of the connection between constrained
+resolution and incorrectness logic (Section 8).
+(4) An experimental evaluation on CHC-COMP benchmarks (Section 9).
+1.1 Motivating Example
+Consider the program in Figure 1 (left side). The variable x is initialized to a nonde-
+terministic value, and the while (*) loop, which may iterate any number of times,
+alternates between adding 2 and subtracting 1 in each iteration. The program refers
+to a placeholder predicate P(x, x0), which will later be replaced with the formulas
+x = x0 and x >= x0. We can observe that the program is safe if P(x, x0) is inter-
+preted as x >= x0: the loop body increases x by a net 1 per two iterations, so x >=
+x0 holds whenever the loop is left. If P(x, x0) is interpreted as x = x0, the assertion
+fails in every execution in which the loop iterates at least once.
+The translation of the program to a set of CHCs is shown in Figure 1 (right side).
+The encoding uses four clauses: a fact (1), representing the set of states at program
+entry, rules (2) and (3) representing the loop body, and a goal (4) encoding the
+assertion. The predicate q represents a loop invariant and has three arguments: the
+current value of x, the flag b, and the initial value of x stored in x0.
+To analyze the CHCs, we use constrained resolution [19], a variant of resolution [36]
+in which syntactic unification is replaced by equality constraints:
+p(¯s) ←B1 ∧φ1
+H ←p(¯t) ∧B2 ∧φ2
+H ←B1 ∧B2 ∧¯s = ¯t ∧φ1 ∧φ2
+The rule derives a new clause by replacing the matched atom p(¯t) in the body of
+the right premise with the body and constraints of the left premise. The equality
+¯s = ¯t is used instead of syntactic unification because clause terms may involve theory-
+interpreted symbols, such as in x + 2, whose equality is delegated to a theory solver.
+The clause bodies B1, B2 are (possibly empty) conjunctions of atoms, and φ1, φ2 are
+3
+
+
+1
+int x := ∗, b := 0;
+2
+int x0 := x;
+3
+while (∗) {
+4
+if (b = 0) x := x + 2;
+5
+else
+x := x - 1;
+6
+b := 1 - b;
+7
+}
+8
+assert(P(x, x0));
+q(x, b, x0) ←x = x0 ∧b = 0
+(1)
+q(x + 2, 1, x0) ←q(x, b, x0) ∧b = 0
+(2)
+q(x −1, 0, x0) ←q(x, b, x0) ∧b = 1
+(3)
+P(x, x0) ←q(x, b, x0)
+(4)
+Fig. 1: A program with a nondeterministic loop that either adds 2 to or subtracts 1
+from x in each iteration (left), with its CHC encoding (right). The construct while (*)
+denotes a loop that may execute any number of times. The variable x is initialized to
+a nondeterministic value, and x0 records its initial value. Predicate q(x, b, x0) repre-
+sents the set of states at the loop head, with x0 tracking the initial value of x. The
+assertion contains a placeholder formula P(x, x0) in the program; in (4) the formula
+is represented by the predicate P(x, x0), which is instantiated as x = x0 in Figure 2,
+and as x ≥x0 in Figures 3, 4.
+q(x0, 0, x0)
+q(x0 + 2, 1, x0)
+(1)
+(2)
+x = x0 ←x = x0
+x = x0 ←x = x0 + 2
+(4)
+(4)
+Fig. 2: Forward execution with P(x, x0) ≡(x = x0). The clause x = x0 ←x = x0 + 2
+(thick red border) is unsat, corresponding to an assertion violation after one iteration.
+constraints over the background theory; in the examples, the clauses are formulated
+over linear integer arithmetic (LIA) as the background theory.
+Choosing P(x, x0) ≡(x = x0), the program has a bug: the assertion can fail
+because after one loop iteration the value of x changes and is no longer equal to x0.
+Such a failing execution can be found using forward symbolic execution, running the
+program with symbolic initial value x and checking whether any feasible paths to
+a failing assertion can be found. The resolution diagram in Figure 2 illustrates how
+constrained resolution mimics forward symbolic execution, discovering the bug in two
+steps. Each arrow in the figure represents an application of the constrained resolution
+rule; for readability, the diagram shows simplified constraints in which equalities have
+been inlined. Resolving (1) with (2) yields the derived clause q(x0 +2, 1, x0); resolving
+this clause with (4) produces x = x0 ←x = x0 + 2. Since x0 + 2̸ = x0 and the
+variables x, x0 are implicitly universally quantified, the clause obtained in this last step
+is unsatisfiable; the resolution proof shows that the CHCs (1), (2), (4) are unsatisfiable,
+which is equivalent to the program having failing executions.
+There is a direct correspondence between the applied resolution steps and the
+execution of program statements: the unit clause q(x0, 0, x0) is the symbolic initial
+4
+
+
+q(x0, 0, x0)
+q(x0+2, 1, x0)
+q(x0+1, 0, x0)
+q(x0+3, 1, x0)
+· · ·
+(1)
+(2)
+(3)
+(2)
+x≥x0 ←x= x0
+x≥x0 ←x= x0+2
+x≥x0 ←x= x0+1
+x≥x0 ←x= x0+3
+· · ·
+(4)
+(4)
+(4)
+(4)
+Fig. 3: Forward execution with P(x, x0) ≡(x ≥x0). Every check holds (green), but
+the chain grows indefinitely.
+x ≥x0 ←q(x, b, x0)
+(4)
+x ≥x0+1 ←q(x, b, x0) ∧b=1
+x ≥x0−1 ←q(x, 0, x0)
+(3)
+(2)
+x ≥x0−2 ←q(x, b, x0) ∧b=0
+(2)
+x ≥x0 ←x= x0 ∧b=0
+x ≥x0+1 ←x= x0 ∧b=0 ∧b=1
+(1)
+(1)
+Fig. 4: Backward execution with P(x, x0) ≡(x ≥x0). Clauses in dashed nodes are
+subsumed by (4). All derivable clauses are satisfiable, proving that the set of clauses
+is satisfiable and that the program is safe.
+state of the program, while q(x0 + 2, 1, x0) is the symbolic state after one loop iter-
+ation. Branches in the symbolic execution, i.e., symbolic states in which multiple
+program statements are feasible, correspond to branches in the resolution diagram.
+The forward resolution diagram corresponds exactly to the symbolic execution tree of
+a program [21].
+We now consider the safe case P(x, x0) ≡(x ≥x0), for which a resolution diagram
+is shown in Figure 3. We can observe that none of the derived clauses is unsatisfiable,
+but the chain of derived clauses grows indefinitely. Forward resolution can conclude
+neither safety nor unsafety for this program.
+Figure 4 applies backward resolution to the same property P(x, x0) ≡(x ≥x0).
+Starting from the goal (4), resolving with (3) yields x ≥x0 + 1 ←q(x, b, x0) ∧b = 1:
+for any predecessor state where b = 1, i.e., where the subtraction branch was taken,
+x must be at least x0 + 1 to ensure x −1 ≥x0 after the step. Resolving the original
+clause with (2) yields x ≥x0 −2 ←q(x, b, x0) ∧b = 0 (dashed node). This clause is
+subsumed by (4): the body of (4) is more general, since it places no constraint on b,
+and its constraint x ≥x0 entails x ≥x0 −2. Every state that can reach an assertion
+violation through the subsumed clause can also reach it through (4), so the subsumed
+clause adds no information. The same holds for x ≥x0 −1 ←q(x, 0, x0), obtained
+by resolving the second derived clause with (2). We define subsumption formally in
+Section 7.
+The two checks against (1) (green nodes) confirm that no contradiction can be
+derived when taking the initial state into account. Resolving (4) with (1) gives the
+5
+
+
+clause x ≥x0 ←x = x0 ∧b = 0, which holds since x0 ≥x0. Resolving the second
+derived clause with (1) gives x ≥x0 + 1 ←x = x0 ∧b = 0 ∧b = 1, which is vacuously
+valid since b = 0 ∧b = 1 is unsatisfiable. All derived clauses are either subsumed or
+discharged, so backward resolution terminates and proves safety.
+Each backward resolution step unwinds the transition relation by one step from
+the assertion. This corresponds to k-induction [31, 34]: the base case verifies that the
+property holds at the initial state, and the induction step verifies that no new proof
+obligations arise beyond those already covered. In this example, two backward steps
+suffice (k = 2). We formalize this correspondence in Section 6.
+2 Preliminaries
+2.1 First-Order Logic
+We work in a many-sorted first-order logic setting. A signature is a tuple Σ =
+(S, F, P, δ), where S is a set of sorts, F is a set of function symbols, P is a set of
+predicate symbols, and δ provides the sort signatures for functions and predicates. We
+assume a countably infinite set of sorted variables X. A term is either a variable or the
+application of a function symbol to terms of appropriate sorts. An atomic formula (or
+atom) is the application of a predicate symbol to terms of appropriate sorts. An atom
+is ground if it contains no variables. Formulas are constructed from atoms using stan-
+dard logical connectives (¬, ∧, ∨, →) and quantifiers (∀, ∃). A literal is an atom or its
+negation. A clause is a disjunction of n ≥0 literals. If n = 0, the clause is the empty
+clause (⊥). If n = 1, the clause is a unit clause. A unit clause with a non-negated
+literal is positive, and one with a negated literal is negative. A clause that contains
+only negated literals is a goal clause. A sentence is a formula with no free-variables,
+i.e. every variable is quantified.
+A Σ-structure M = (U, I) is given by a domain U = S
+S∈S US and an interpretation
+I s.t. for any sort S ∈S, I(S) = US, for any predicate symbol P ∈P of type Qn
+i=1 Si,
+I(P) ⊆Qn
+i=1 USi and for any function symbol f ∈F of type Qn
+i=1 Si →S, I(f) is in
+Qn
+i=1 USi →US. If Σ1 ⊆Σ2, we can extend each Σ1-structure M to a Σ2 structure M ′
+in the natural way by adding the necessary interpretations of sorts, function symbols
+and predicate symbols.
+A variable assignment β is a function from X to U mapping variables to elements
+of the appropriate sorts. Given a structure M and a variable assignment β, the eval-
+uation function valM,β, mapping terms to elements of the domain and formulas to
+{true, false} is defined as usual. If F is a formula and valM,β(F) = true, we write
+M, β ⊨F. If M, β ⊨F for all variable assignments β, then M ⊨F. Note that the
+evaluation of a sentence γ is independent of the variable assignment β as there are no
+free variables. If Γ is a set of sentences and M ⊨γ for every γ ∈Γ, we write M ⊨Γ.
+A theory T is given by a signature ΣT and a class MT of ΣT -structures. Given
+a signature Σ∗⊇ΣT , a set of Σ∗-sentences Γ and a Σ∗-formula F, we write Γ ⊨T F
+if for every M ∈MT and every extension M ′ of M to a Σ∗-structure, it holds that
+M ′ ⊨F. Throughout the article, we fix a background theory T that includes the
+equality operator = and write ⊨as shorthand for ⊨T .
+6
+
+
+2.2 Constrained Horn Clauses (CHCs)
+A Constrained Horn Clause (CHC) is a clause with at most one positive literal and a
+constraint over the background theory T . In implication form, a CHC is written as:
+∀¯x. H ←B ∧φ
+where H (the head) is either an atom or ⊥, B (the body) is a possibly empty con-
+junction of uninterpreted atoms p1(¯t1) ∧· · · ∧pn(¯tn), φ is a T -constraint, and ¯x is the
+tuple of all variables occurring in the clause.
+All variables in a CHC are implicitly universally quantified, we usually omit the ∀¯x
+prefix for brevity. Whenever two CHCs are involved in a resolution step, we assume
+that their variable sets are disjoint. This convention is implicit in all inference rules
+presented in this article.
+CHCs are classified as follows. A unit clause is a clause H ←B ∧φ in which the
+head H and body B together contain exactly one atom. A fact or positive unit clause
+is a unit clause whose body contains no atoms, i.e., it has the form H ←φ. A rule is
+a CHC whose head is an atom (not ⊥) and whose body contains at least one atom.
+A goal is a clause whose head is ⊥, and a negative unit clause is a goal that is also
+a unit clause. We sometimes write goals as ψ ←B, where ψ is a constraint, which is
+equivalent to ⊥←B ∧¬ψ.
+A CHC is linear if its body contains at most one uninterpreted atom, and non-
+linear otherwise. A set of CHCs is linear if each of its elements is linear. Non-linear
+CHCs arise naturally when encoding programs with function calls: the body of the
+clause at the call site contains both the predicate for the called function and the
+predicate for the continuation after the call. Non-recursive functions can be inlined to
+recover linearity, but recursive functions inherently result in non-linear clauses.
+We work with a strict notion of semantics [37] and say that a set C of CHCs is
+T -satisfiable (or just satisfiable) if C̸ |= false, i.e., if it is satisfiable in the sense of
+first-order logic.
+2.3 Calculi and Resolution
+The article studies several variants of the classical resolution calculus [36, 38] for
+CHCs. In general, we say that a calculus is sound if every derived clause is a logical
+consequence of the premises. Deriving the empty clause (⊥) then establishes that the
+original set of clauses is unsatisfiable. The calculus is refutation-complete (referred to
+as complete in the rest of this article) if, for every unsatisfiable set of clauses, the
+empty clause can be derived by finite applications of the calculus rules.
+Resolution is an inference system for establishing the unsatisfiability of a set of
+clauses. The propositional resolution principle is based on a simple logical observation:
+given two clauses C ∨A and D ∨¬A, where A is an atomic proposition, one can infer
+the resolvent C ∨D since A and ¬A cannot be true at the same time. If repeatedly
+resolving clauses eventually produces the empty clause ⊥, the original set of clauses
+is proven unsatisfiable.
+7
+
+
+First-Order Resolution
+In first-order logic, the two literals being resolved need not be identical; it suffices
+that they can be made identical through unification [36], a syntactic operation that
+substitutes variables with terms. Let Aσ denote the application of a substitution σ to
+an atom A. A substitution σ is a unifier of two atoms A and A′ if Aσ = A′σ. It is a
+most general unifier (MGU), denoted σ = mgu(A, A′), if for every other unifier θ of
+A and A′, there exists a substitution γ such that θ = σγ. The first-order resolution
+rule generalizes propositional resolution using unification:
+C ∨A
+D ∨¬A′
+(C ∨D)σ
+σ = mgu(A, A′)
+(5)
+where the two premise clauses are assumed to share no variables.
+Example 1 Consider the clauses r(x)∨p(f(x), y) and s(y)∨¬p(f(a), b). The atoms p(f(x), y)
+and p(f(a), b) have the most general unifier σ = {x 7→a, y 7→b}. Applying (5) to these
+clauses using σ yields the resolvent r(a) ∨s(b).
+Constrained Resolution
+When clauses involve a background theory T , terms may contain theory-interpreted
+function symbols (e.g., terms like x + 1, select(a, i)) for which syntactic unification is
+not sufficient. Constrained resolution [19] extends first-order resolution by replacing
+the MGU computation with an equality constraint: instead of computing a unifier,
+the rule adds a constraint that the arguments must be equal, and delegates the task
+of checking the satisfiability of this equality to a T -solver, usually an SMT solver. In
+the context of CHCs, the rule becomes:
+p(¯s) ←B1 ∧φ1
+H ←p(¯t) ∧B2 ∧φ2
+H ←B1 ∧B2 ∧¯s = ¯t ∧φ1 ∧φ2
+(6)
+where φ1 and φ2 are T constraints, ¯s = ¯t is the equality constraint, and the clauses
+must again not share any variables.
+Example 2 Consider the fact q(x, b, x0) ←x=x0 ∧b=0 ((1) from Figure 1) and the rule
+q(x′+2, 1, x′
+0) ←q(x′, b′, x′
+0) ∧b′=0 ((2) with renamed variables). Constrained resolution
+matches the head of (1) against the body atom of (2), adding the equality constraints x′=x∧
+b′=b ∧x′
+0=x0. The resolvent is:
+q(x′+2, 1, x′
+0) ←x=x0 ∧b=0 ∧x′=x ∧b′=b ∧x′
+0=x0 ∧b′=0
+Simplifying by substituting the equalities yields the fact q(x0+2, 1, x0) ←⊤, which is the
+first derived clause in Figure 2.
+8
+
+
+1
+int x := ∗;
+2
+assume(x > 0);
+3
+while (x > 0) {
+4
+if (∗) x := x - 2;
+5
+else
+x := x - 1;
+6
+}
+7
+assert(x = 0);
+p(x) ←x > 0
+(7)
+p(x −2) ←p(x) ∧x > 0
+(8)
+p(x −1) ←p(x) ∧x > 0
+(9)
+x = 0 ←p(x) ∧x ≤0
+(10)
+[x 7→x0]
+PC : x0 > 0
+[x 7→x0]
+PC : x0 > 0
+∧x0 ≤0
+[x 7→x0−2]
+PC : x0 > 0
+[x 7→x0−2]
+PC : x0 > 0
+∧x0 ≤2
+...
+...
+[x 7→x0−1]
+PC : x0 > 0
+...
+x=0 ?
+x=0 ?
+(a) Depth-first symbolic execution.
+p(x)
+←x > 0
+x = 0
+←⊥
+p(x−2)
+←x > 0
+x = 2
+←x > 0
+∧x ≤2
+...
+...
+p(x−1)
+←x > 0
+...
+(10)
+(8)
+(10)
+(9)
+(7)
+(b) Depth-first forward unit resolution.
+Fig. 5: (a) Each node shows a symbolic store and path condition (PC). The PC accu-
+mulates branch conditions. At green and red nodes, it is checked whether the property
+x = 0 holds in the symbolic state. The leftmost green node has an unsatisfiable PC,
+corresponding to exiting the loop immediately, which means that the assertion can-
+not be reached on this path. The thick red node shows a feasible path on which the
+asserted property can be violated, a counterexample is x0 = 1, x = −1. (b) Clauses
+encode the symbolic store as arguments of predicates and the PC as the constraint.
+An infeasible path yields clauses with unsatisfiable constraint. The goal clause (10) is
+resolved with every fact, including (7) and any resolvents, and the search terminates
+if a contradiction is derived (thick red node). Both for symbolic execution and depth-
+first forward unit resolution, completeness depends on the strategy: for instance, DFS
+would not terminate if the rightmost branch (line 5 in the program, or (9)) were chosen
+in every iteration.
+3 Symbolic Execution as Resolution
+Symbolic execution explores a program by maintaining a symbolic store, which is a
+mapping from program variables to symbolic expressions, and a path condition that
+accumulates branch conditions along the explored path [21]. At each branch point,
+execution splits into one child per branch, producing a tree in which every path from
+the root to a leaf represents a class of concrete executions sharing the same control
+flow. At assertion points, it is checked whether the asserted property can be violated
+in the symbolic program state; a positive result yields a failing program execution.
+9
+
+
+Symbolic execution is illustrated in Figure 5 (a) for a program that is similar
+to the motivating example. The initial symbolic program state is represented by the
+root of the tree, whereas the intermediate nodes represent possible states reached by
+the program during its execution. Nodes with unsatisfiable path condition represent
+infeasible paths that cannot occur in concrete program execution. Red nodes mark
+feasible symbolic states at which an assertion can be violated. In general, the symbolic
+execution tree of a program is finitely branching, but might contain infinite paths
+corresponding to non-terminating program executions.
+Figure 5 (b) shows the resolution diagram corresponding to the symbolic execu-
+tion tree. In the CHC encoding assumed in this example, each predicate represents
+the set of states that must hold at a program location, with the predicate arguments
+corresponding to the program variables in scope at that location. Facts represent the
+program entry points and state preconditions or fixed initial values of variables. Rules
+encode transitions between program locations, while goals encode the asserted pro-
+gram properties. Comparing the symbolic execution tree with the resolution diagram,
+it can be seen that the symbolic program states correspond to CHCs that can be
+derived using constrained unit resolution, i.e., the constrained resolution rule restricted
+to applications in which at least one of the premises is a unit clause. The initial and
+intermediate symbolic program states translate to positive unit clauses, while clauses
+without any predicate atoms occur when checking the program assertion. An assertion
+failure corresponds to an unsatisfiable clause being derived, i.e., a closed resolution
+proof showing that the set of CHCs is unsatisfiable. One difference between symbolic
+execution and constrained resolution is that derived clauses do not capture the rela-
+tionship between initial and intermediate program states: in symbolic execution, the
+value of variable x is expressed in terms of the initial value x0, whereas the derived
+clauses only describe the set of reachable intermediate states. It is possible to record the
+relationship to initial states also in the resolution diagram by adding ghost variables
+storing the initial program state.
+Since symbolic execution trees can be large or infinite, different search strate-
+gies are applied in symbolic execution to systematically traverse the tree and explore
+possible program behavior. Classical strategies include breadth-first search (BFS),
+depth-first search (DFS), and iterative deepening. Many other strategies have been
+developed in the symbolic execution literature, such as generational search [39] and
+concolic execution [40], as well as various heuristic-guided approaches such as KLEE’s
+coverage-optimized search [41]. Such strategies translate to constrained resolution. It
+can easily be seen, however, that applying constrained resolution in DFS manner is
+incomplete for non-linear clauses, whereas fair strategies like BFS are refutationally
+complete (Section 4). Using fair saturation of a given set of CHCs in combination with
+subsumption criteria, unit resolution is moreover an effective method for proving that
+a set of CHCs is satisfiable by constructing the least model of the clauses; in this way,
+constrained resolution can often be used to prove the correctness of programs, even
+in the presence of unbounded loops. This article surveys some of these calculi and
+strategies under the unified view of symbolic execution and resolution over CHCs.
+Resolution can also proceed from goals. Applying resolution backward from goals
+corresponds to symbolically executing the program in reverse from the error states,
+10
+
+
+deriving proof obligations that must hold at earlier program locations, i.e., back-
+ward symbolic execution [26, 34]. Backward symbolic execution can be modeled by
+constrained unit resolution, now applying the resolution rule to derive negative unit
+clauses starting from the goals. As illustrated in Section 1.1, backward strategies are
+often able to show the satisfiability of CHCs in cases where forward strategies diverge.
+It is (again) easy to see, however, that constrained unit resolution applied in back-
+ward direction is incomplete for non-linear clauses, even for fair application strategies.
+A more appropriate version of resolution is SLD resolution known from logic pro-
+gramming [27, 29]; in fact, forward resolution corresponds to bottom-up evaluation in
+logic programming, while backward resolution corresponds to top-down evaluation.
+We study backward resolution in Section 5.
+4 Forward Execution by Unit Hyper-Resolution
+As mentioned in Section 3, Forward Execution (FE) is a kind of bottom-up evaluation
+and corresponds to symbolically executing a program, starting from the initial state.
+In this section, we introduce the calculus of unit hyper-resolution with a loose notion
+of subsumption, define a fairness criterion for strategies and show that the resulting
+algorithm is still refutationally complete. Moreover, we give examples of unsatisfiable
+sets of CHCs with the proofs of their unsatisfiability and a way to extract models from
+a set of facts that is saturated w.r.t. our subsumption criterion.
+4.1 The Algorithm of FE
+The core of FE is the inference rule of unit hyper-resolution:
+H ←φ ∧
+n
+^
+i=1
+Pi(si)
+P1(t1) ←ι1
+. . .
+Pn(tn) ←ιn
+H ←φ ∧
+n
+^
+i=1
+(ιi ∧ti = si)
+(11)
+The inference rule is a combination of constrained resolution (Section 2) with hyper-
+resolution and guarantees that any consequence obtained by applying it is a fact. It
+is well-known that unit hyper-resolution is refutationally complete if it is equipped
+with a fair search strategy, meaning that all possible branches are explored and the
+strategy does not go down some branch indefinitely [42]. Thus, unit hyper-resolution
+is a suitable basis for proving the unsatisfiability of clause sets.
+However, we might apply the algorithm to some satisfiable set of clauses and thus,
+will never derive a contradiction. In such a case, it would be nice if the algorithm
+terminated as well and gave us the result SAT. Intuitively, what we need for this is
+a redundancy-criterion that tells us whether facts that can be derived with hyper-
+resolution are already entailed by the current set of facts. We can stop deriving facts,
+when all facts that can be derived are redundant w.r.t. this criterion. For propositional
+logic, there is a simple redundancy criterion: a fact is redundant if it is already an
+element of the clause set. This works because for propositional facts, which are just
+11
+
+
+propositional atoms, semantic entailment is equivalent to semantic equality, which in
+turn is equivalent to syntactic equality. For first order-logic, this is much more subtle:
+consider the (semantically equivalent) facts P(x) ←x ≥0 and P(x) ←x + x ≥0.
+Unfortunately, semantic entailment in first order logic is undecidable in general, so we
+cannot use it directly in our algorithm. For our purposes, it suffices to assume that we
+have a procedure subsumes with the following properties:
+1. subsumes takes two arguments, a set of constrained Horn clauses C and some
+constrained Horn clause D, and returns a Boolean value {true, false};
+2. subsumes always terminates;
+3. If D ∈C, then subsumes(C, D) = true;
+4. If subsumes(C, D) = true, then V
+C∈C C ⊨D.
+Informally, these properties of subsumes ensure that subsumes is a sound and decid-
+able approximation of semantic entailment that, at the very least, recognizes syntactic
+equality/membership. Beyond that, we do not make any assumptions about subsumes
+as different versions have different advantages. In Section 7, there is a detailed
+discussion about subsumption and we also give examples for such a procedure.
+Now that we have all ingredients for our FE-algorithm, we still need a bit of notation
+before we can give the algorithm:
+• For a set of facts F and a set of rules R, HR(R, F) denotes the set of hyper-
+resolvents F obtained by resolving clauses of C with facts of F
+• For a set of facts F and a set of rules R, HRsubsumes(R, F) denotes the set {F ∈
+HR(R, F) | subsumes(F, F) = false}
+• For a set of goal clauses G and a set of facts F, Conf (G, F) denotes the set of
+hyper-resolvents ⊥←φ(x) obtained by resolving goals from G with facts from F
+s.t. ⊨∃x.φ(x)
+We can now give the abstract transition system of FE for sets of CHCs C = F ∪R ∪G
+given as the disjoint union of facts F, rules R and goals G:
+Unfold
+F | R | G ⇒F ∪{F} | R | G
+if F ∈HRsubsumes(R, F)
+UNSAT
+F | R | G ⇒return UNSAT
+if Conf (G, F)̸ = ∅
+SAT
+F | R | G ⇒return SAT
+if Conf (G, F) = ∅= HRsubsumes(R, F)
+Fig. 6: The Abstract Transition System for FE
+4.2 Refutational Completeness of FE
+The abstract transition system in Figure 6 gives us a non-deterministic algorithm for
+FE, but leaves room for various strategies to decide which facts to add. In this section,
+12
+
+
+we are not interested in the precise strategy, but we do care about the strategy being
+fair.
+Definition 1 An execution of FE is fair if for every state F
+|
+R
+|
+G and F
+∈
+HRsubsumes(R, F), eventually some state F | R | G′ is reached, where subsumes(F′, F) =
+true. A strategy for FE that ensures that every execution is fair is called a fair strategy.
+Note that we can easily ensure fair executions by stratifying the clauses of
+HRsubsumes(R, F).
+As mentioned above, it is a well-known fact that unit hyper-resolution equipped
+with a fair strategy is refutationally complete. One might be inclined to use this as
+an argument for reasoning that FE equipped with a fair strategy is also refutationally
+complete. While this is intuitive, it is a-priori not clear that we did not sacrifice
+refutational completeness by adding the redundancy criterion. The following theorem,
+however, shows that our intuition is correct:
+Theorem 1 If FE is equipped with a fair strategy, then it is refutationally complete, i.e. FE
+terminates on C with UNSAT if and only if C is unsatisfiable.
+Proof It is clear that if FE terminates with UNSAT, then C is unsatisfiable. We only have to
+show that if C is unsatisfiable, then FE terminates with UNSAT if it is run with a fair strategy.
+Assume that we are given a set of clauses C = F ∪R ∪G. It follows inductively that
+for every fact F that can be derived from C with hyper-resolution, FE reaches a state
+F′ | R | G s.t. subsumes(F′, F) = true. Assume that C is unsatisfiable. Since hyper-
+resolution is refutationally complete, there is a goal ⊥←Vn
+i=1 Pi(xi) ∧ϕ(x1, . . . , xn)
+in G and facts F1, . . . , Fn with Fi : PI(xi) ←ιi(xi) that can be derived with hyper-
+resolution s.t. ⊨∃x1, . . . , xn
+Vn
+i=1 ιi(xi) ∧ϕ(x1, . . . , xn). There is a state F∗| R | G s.t.
+subsumes(F∗, Fi) = true for all Fi. Pick any a1, . . . , an s.t. ⊨Vn
+i=1 ιi(ai) ∧ϕ(a1, . . . , an).
+There are facts F ∗
+i
+∈F∗s.t. F ∗
+i
+: Pi(xi) ←ι∗
+i (xi) and ⊨ι∗
+i (ai) for all i. In particular,
+⊨∃x1, . . . , xn
+Vn
+i=1 ι∗
+i (xi)∧ϕ(x1, . . . , xn). Thus, Conf (G, F∗) is not empty and FE terminates
+with UNSAT.
+□
+4.3 Constructing Models from FE
+Theorem 1 implies that FE is sound, which means that a set of clauses C is unsatisfiable
+if FE terminates with UNSAT and satisfiable if FE terminates with SAT. Moreover, the
+last state of the algorithm before terminating with SAT allows us to extract a model
+of C quite easily.
+Definition 2 Let F be a finite set of facts and P a predicate symbol. We define FP = {ι(x) |
+P(x) ←ι(x) ∈F}. W.l.o.g., we assume that all ι ∈FP have the same free variables. We
+define P(F) = W
+ι∈FP ι.
+The following theorem is standard and thus, we state it without proof:
+13
+
+
+Theorem 2 Let C = F ∪R∪G be a set of CHCs. If FE terminates with SAT on C and the last
+state of FE before terminating is F∗| R | G, then the least model of C is given by interpreting
+each P with P(F∗).
+5 Backward Execution by Hyper-SLD-Resolution
+In Section 4, we considered FE, which derives new facts, until the set of facts either
+stabilizes or an error is found. This corresponds to symbolically executing a program
+from the start. Symbolic execution can also be performed in the other direction: we
+start with an initial set of error states and iteratively add the states that lead to an
+error in one step. In the setting of Horn clauses, this corresponds to starting with
+an initial set of goals and adding new goals by resolving with rules. This approach
+has been successfully employed in the unconstrained case as the calculus underlying
+Prolog. However, we can easily adapt this to our setting of CHCs and define the
+constrained version of SLD-resolution:
+5.1 The Algorithm of BE
+Similar to FE there is a single inference rule underlying BE. Generalizing SLD-resolution
+from the unconstrained setting (e.g. Prolog) to CHCs yields the following, constrained,
+version of SLD:
+⊥←P(s) ∧B(t) ∧φ
+P(q) ←B′(r) ∧ψ
+⊥←B(t) ∧B′(r) ∧φ ∧ψ ∧q = s,
+(12)
+Similarly to Section 4, we will add a redundancy criterion, so that we can deal with
+satisfiable clause-sets. However, in order to prove that the resulting algorithm is still
+refutationally complete, we need a slightly more general version of SLD-resolution,
+which we call hyper-SLD-resolution:
+⊥←
+n
+^
+i=1
+Pi(si) ∧B ∧φ
+P1(t1) ←A1 ∧ψ1
+. . .
+Pn(tn) ←An ∧ψn
+⊥←B ∧
+n
+^
+i=1
+Ai ∧φ ∧
+n
+^
+i=1
+(ψi ∧si = ti),
+(13)
+Note that the SLD-resolution rule is a special instance of hyper-SLD-resolution with
+n = 1. On the other hand, every hyper-SLD-derivation can easily be transformed into
+an SLD-derivation. Note that, in contrast to hyper-resolution, hyper-SLD-resolution
+does not have to yield a unit clause, nor do we have to resolve all atoms of
+the body. Hyper-SLD-resolution simply allows us to perform several SLD-resolution
+simultaneously, but in a very controlled way.
+Similarly to hyper-resolution, SLD resolution is known to be refutationally com-
+plete if it is equipped with a fair strategy [42]. In particular, hyper-SLD-resolution
+is refutationally complete and therefore, it is a suitable basis for proving the unsat-
+isfiability of clause sets. In order to add a redundancy criterion, we assume to have
+a procedure subsumes with the same properties as in Section 4. Before giving the
+algorithm, we need a little bit of notation:
+14
+
+
+• For a set of goal clauses G and a set of rules R, HSLD(R, G) denotes the set of
+resolvents G that are obtained by applying hyper-SLD resolution to goals of G
+and rules of R
+• For a set of goal clauses G and a set of rules R, HSLDsubsumes(R, G) denotes the
+set {G ∈HSLD(R, G) | subsumes(G, G) = false}
+• For a set of goal clauses G and a set of facts C, Conf (G, F) is defined as in section 4
+We can now give the abstract transition system for BE for a set of CHCs C = F ∪R∪G
+given as the disjoint union of facts F, rules R and goals G:
+Unfold
+F | R | G ⇒F | R | G ∪{G}
+if G ∈HSLDsubsumes(R, G)
+UNSAT
+F | R | G ⇒return UNSAT
+if Conf (G, F)̸ = ∅
+SAT
+F | R | G ⇒return SAT
+if Conf (G, F) = ∅= HSLDsubsumes(R, G)
+Fig. 7: The Abstract Transition System for BE
+Example 3 Consider the following CHCs that define the non-negative even and odd numbers
+with the non-linear goal (18):
+Even(a) ←a = 0
+(14)
+Odd(a) ←a = 1
+(15)
+Even(a) ←Even(b) ∧a = b + 2
+(16)
+Odd(a) ←Odd(b) ∧a = b + 2
+(17)
+⊥←Even(a) ∧Odd(b) ∧b + a ≥9
+(18)
+The clause set is unsatisfiable, since the sum in the goal will eventually exceed 9. Figure 8
+shows the backward resolution tree. Resolving Even(a) in (18) with (14) eliminates Even,
+yielding the linear goal ⊥←Odd(a) ∧a ≥9. The branch then continues resolving with
+(17), eventually deriving a contradiction. The right branch from (16) is also explored but not
+shown.
+5.2 Refutational Completeness of BE
+Similarly to Section 4 the abstract transition system from Figure 7 leaves some freedom
+w.r.t. the strategy for which goals to add. Again, the concrete strategy does not matter,
+only fairness:
+Definition 3 An execution of BE is fair if for every state F
+|
+R
+|
+G and G
+∈
+HSLDsubsumes(R, G), eventually some state F | R | G′ is reached, where subsumes(G′, G) =
+true. A strategy for BE that ensures that every execution is fair is called a fair strategy.
+15
+
+
+⊥←Even(a) ∧Odd(b) ∧b+a ≥9
+(18)
+⊥←Odd(a) ∧a ≥9
+(14)
+(16)
+...
+⊥←a=1 ∧a ≥9
+⊥←Odd(a) ∧a ≥7
+(15)
+(17)
+⊥←a=1 ∧a ≥7
+⊥←Odd(a) ∧a ≥5
+(15)
+(17)
+⊥←a=1 ∧a ≥5
+⊥←Odd(a) ∧a ≥3
+(15)
+(17)
+⊥←a=1 ∧a ≥3
+⊥←Odd(a) ∧a ≥1
+(15)
+(17)
+⊥←a=1 ∧a ≥1
+(15)
+Fig. 8: Backward resolution for Example 3.
+Note that we can easily ensure fair executions by stratifying the clauses of
+HSLDsubsumes(R, G).
+Similarly to Section 4, one might find it intuitive that BE is refutationally complete
+because SLD-resolution is. Once again, this intuition will turn out to be correct, but
+goal clauses, in particular non-linear ones, are more peculiar than facts, so this is not
+as trivial as it was for FE.
+First, we need to think about sets of goals and consequences of SLD-resolution.
+Interestingly enough, SLD-resolution is not monotone w.r.t. logical entailment, as the
+following example shows:
+Example 4 Assume we have one rule R : P(x) ←Q(x) and the following two goals G1 :
+⊥←P(x) ∧P(y) ∧x ≥y and G2 : ⊥←P(x). It holds that ⊨G1 ↔G2 and in particular,
+G1 ⊨G2. Let Si be the set of all possible SLD-resolvents of Gi and R. We have that
+S1 = {⊥←P(x)∧Q(y)∧x ≥y, ⊥←Q(x)∧P(y)∧x ≥y} and S2 = {⊥←Q(x)}. It follows
+that G1, S1 ⊭V
+G∈S2 G.
+The example above might give some idea, why we failed working with SLD-
+resolution and introduced hyper-SLD-resolution. The following lemma shows that
+hyper-SLD-resolution is monotone w.r.t. logical entailment:
+16
+
+
+Lemma 3 Let G1 and G2 be sets of goal clauses and R be a set of rules. If G1 ⊨G
+for any G ∈G2, then G1, HSLD(R, G1) ⊨G for any G ∈HSLD(R, G). In particular,
+G1, HSLDsubsumes(R, G1) ⊨G for any G ∈HSLD(R, G).
+Proof Take any goal G : ⊥←B(x) ∧Vn
+i=1 Ai(yi) ∧ψ(x, z1, . . . , zn) ∧Vn
+i=1 τi(yi, zi) in
+HSLD(R, G2). There is a goal G′ : ⊥←B(x) ∧Vn
+i=1 Pi(zi) ∧ψ(x, z1, . . . , zn) ∈G2 and rules
+R1, . . . , Rn ∈R with Ri : Pi(zi) ←Ai(yi) ∧τi(yi, zi). Pick any model M of the background
+theory T that interprets the uninterpreted predicate symbols as well. We must show that
+for any a and b1, c1, . . . , bn, cn, there is a goal ⊥←B∗(u) ∧ϕ(u) in G1 ∪HSLD(R, G1) s.t.
+M ⊨
+ B(a) ∧Vn
+i=1 Ai(bi) ∧ψ(a, c1, . . . , cn) ∧Vn
+i=1 τi(bi, ci)
+
+→(∃u.B∗(u) ∧ϕ(u)).
+If M ⊨¬(B(a) ∧Vn
+i=1 Ai(bi) ∧ψ(a, c1, . . . , cn) ∧Vn
+i=1 τi(bi, ci)), then we are done.
+Assume that M ⊨B(a) ∧Vn
+i=1 Ai(bi) ∧ψ(a, c1, . . . , cn) ∧Vn
+i=1 τi(bi, ci). Since G1 ⊨
+G′, there is a goal G′′ : ⊥←B′′(u) ∧ϕ′′(u) ∈G1 with M ⊨B(a) ∧Vn
+i=1 Pi(ci) ∧
+ψ(a, c1, . . . , cn) →∃u.B′′(u) ∧ϕ′′(u). Since B′′ consists of uninterpreted predicate sym-
+bols only, it follows that the witness of u uses only elements of a, c1, . . . , cn. Thus,
+w.l.o.g., G′′ has the form ⊥←B′′(v, u1, . . . , un) ∧ϕ′′(v, u1, . . . , un) and M ⊨B(a) ∧
+Vn
+i=1 Pi(ci) ∧ψ(a, c1, . . . , cn) →B′′(a, c1, . . . , cn) ∧ϕ′′(a, c1, . . . , cn). In particular, M ⊨
+ψ(a, c1, . . . , cn) →ϕ(a, c1, . . . , cn). We are almost done. The only problem is that B′′
+might contain the predicate symbol Pi s.t. B′′(a, c1, . . . , cn) contains Pi(ci). However, we
+can use one application of the hyper-SLD-rule to cut all such atoms with the respective
+rule Ri. Note that we do not necessarily cut all atoms containing Pi(x), but only those
+where x is substituted with ci. After applying this resolution, we obtain a goal ⊥←
+B∗(u)∧ϕ(u, v1, . . . , vn)∧Vn
+i=1 τi(wi, vi) with M ⊨
+ B(a) ∧Vn
+i=1 Pi(ci) ∧ψ(a, c1, . . . , cn)
+
+→
+ B∗(a, c1, . . . , cn) ∧ϕ(a, c1, . . . , cn) ∧Vn
+i=1 τi(bi, ci)
+
+.
+□
+Theorem 4 If BE is run with a fair strategy, then it is refutationally complete, i.e. BE
+terminates with UNSAT on input C if and only if C is unsatisfiable.
+Proof It is clear that if BE terminates with UNSAT, then C is unsatisfiable. We only need to
+show that if a clause set is unsatisfiable, then BE terminates with UNSAT.
+Assume that C is unsatisfiable and define the sets Gi inductively: Gi = G, Gi+1 = Gi ∪
+HSLD(R, Gi). There is some i0, a goal G : ⊥←Vn
+k=1 Pk(xk) ∧ϕ(x1, . . . , xn) in Gi0 and
+facts Fk : Pk(xk) ←ιk(xk) in F s.t. ⊨∃x1, . . . , xn.(Vn
+k=1 ιk(xk ∧ϕ(x1, . . . , xn)). From
+Lemma 3 it follows that every fair execution of BE reaches a state F | R | G∗s.t. G∗⊨G.
+Pick any model M and any a1, . . . , ak s.t. M ⊨Vn
+k=1 ιk(ak) ∧ϕ(a1, . . . , an). There is a goal
+G∗: ⊥←Vm
+k=1 Qk(yk) ∧ψ(y1, . . . , ym) in G∗s.t. M ⊨(Vn
+k=1 Pk(ak) ∧ϕ(a1, . . . , an)) →
+∃y1, . . . , ym. Vm
+k=1 Qk(yk)∧ψ(y1, . . . , ym). It follows that every Qk is some Pl and that there
+is some substitution θ mapping yk to xl s.t. ψ∗(x1, . . . , xn) ≡ψθ has the property that
+M ⊨ϕ(a1, . . . , an) →ψ∗(a1, . . . , an). By hyper-resolving every Qk with the appropriate Pl,
+we obtain the clause ⊥←Vk
+i=1 ιk(xk) ∧ψ(y1, . . . , ym) ∧Vm
+k=1 yk = ykθ. It follows that
+M ⊨∃x1, . . . , xn, y1, . . . , ym.(Vk
+i=1 ιk(xk) ∧ψ(y1, . . . , ym) ∧Vm
+k=1 yk = ykθ). Since M was
+arbitrary, BE terminates with UNSAT.
+□
+17
+
+
+5.3 Constructing Models from BE
+In section 4, we were able to give a nice method to construct models from saturated
+sets of facts after executing FE. Maybe surprisingly, this is much more intricate for BE.
+The two main factors contributing to this are non-linearity of goals and the potential
+non-existence of greatest fixed points. Assume that we are given a set of CHCs C =
+F ∪R ∪G.
+One view of FE is that we under-approximate the set of states that is necessarily
+contained in every solution of C by deriving facts until the set of facts stabilizes,
+meaning that we reached the least fixed point of F ∪R. If we have not derived a
+contradiction in the process, then the least fixed point of F ∪R is a model of C.
+Moreover, we can write it down explicitly as the disjunction of the facts. This is
+possible because the facts are linear and therefore do not display any dependencies
+between different predicate symbols.
+If we instead use BE, then we over-approximate the set of states that are necessarily
+not contained in any solution of of C by deriving new goals. Intuitively, we aim for the
+greatest fixed point of C. However, there does not have to be a greatest fixed point of
+C and, more importantly, BE can also terminate with SAT on a clause set if it does not
+possess a greatest fixed point. This begs the question, which fixed point we would even
+like to define. The obstacle that prevents us from constructing any solution explicitly
+is non-linearity: A goal like ⊥←P(x) ∧Q(x) tells us that P and Q are disjoint in
+any model. In particular, the interpretations of P and Q depend on each other and we
+cannot define them separately as it was the case with FE. Nonetheless, if the saturated
+set of goals only contains linear clauses, then we can extract a model in a way that is
+dual to what we did with FE.
+Definition 4 Let G be a finite set of linear goals and P a predicate symbol. We define
+GP = {ϕ(x) | ⊥←P(x) ∧ϕ(x) ∈G}. W.l.o.g., we assume that all ϕ ∈GP have the same free
+variables. We define P(G) = V
+ϕ∈GP ¬ϕ.
+The following theorem is standard and thus, we state it without proof:
+Theorem 5 Let C = F ∪R ∪G be a set of CHCs. If BE terminates with SAT on C and the
+last state of BE before terminating is F | R | G∗s.t. every goal in G is a linear clause, then
+the greatest model of C is given by interpreting each P with P(G∗).
+The theorem above only deals with the case of linear goals. We leave the question
+of model construction in the general case for future research.
+6 Backward Execution vs. k-Induction
+So far, we have only considered CHCs as representation for programs and imposed no
+syntactic restrictions on them to run FE or BE. However, there is a plethora of other
+ways to represent programs, some of which allow us to employ methods to prove their
+safety that might not be suited for arbitrary sets of CHCs. In this section, we present
+18
+
+
+k-induction for a restricted fragment of CHC-sets and show that BE can be considered
+to be a natural extension of k-induction in the setting of arbitrary sets of CHCs.
+The notion k-induction was first introduced in [31] for transition systems. Transi-
+tion systems can easily be translated to set of CHCs, but we can also simply define
+k-induction for sets of CHCs directly if we restrict the sets of CHCs that we consider.
+Assume that we are given a set of CHCs C of the following form:
+{P(x) ←ι(x), P(y) ←P(x) ∧τ(x, y), ⊥←P(x) ∧β(x)}.
+(19)
+Note that we can translate any transition system into a set of the form (19). We can
+now verify that C is safe by finding some k > 0 s.t. the following two statements hold:
+Base case All paths of length at most k starting from an initial state are safe.
+Induction step Every path of length k + 1 whose prefix of length k is safe is also safe.
+More formally, these two statements correspond to the following logical formulas:
+⊨
+ 
+ι(x1) ∧
+k−1
+^
+i=1
+τ(xi, xi+1)
+!
+→
+k^
+i=1
+¬β(xi)
+(20)
+⊨
+ k^
+i=1
+¬β(xi) ∧
+k^
+i=1
+τ(xi, xi+1)
+!
+→¬β(xk+1)
+(21)
+Evidently, k-induction is sound: If no error-state is reachable in k steps and whenever
+we have a chain of k safe states, every state we add to the chain is safe as well, then
+every reachable state is safe. The motivating example in Figure 4 illustrates this with
+k = 2.
+While this formulation is straightforward for clause sets that have the form of (19),
+it is difficult to define a similar satisfiability criterion for more general cases. Although
+non-linearity in rules can be dealt with, there is no formulation of k-induction for
+non-linear goals that we are aware of.
+Let us now go back to BE: Applying BE to C for k-steps yields a set of goals of
+the form Gk = {⊥←P(x1) ∧Vl−1
+i=1 τ(xi, xi+1) ∧β(xl) | l ≤k}. Note the following:
+Checking that Conf (Gk, F) = ∅corresponds precisely to checking that (20) holds.
+Moreover, if HSLDsubsumes(R, Gk) = ∅, then this implies that (21) holds. If we require
+that subsumes is not only sound, but also complete for this special fragment of goal
+clauses, then the converse holds: If (21) holds, then HSLDsubsumes(R, Gk) = ∅. Thus,
+in this case, we have a precise match between k-induction and BE, which justifies our
+view to consider BE as a generalization of k-induction in the case or arbitrary Horn
+clauses.
+Note that this connection between k-induction and BE is not new and was already
+observed in the paper introducing k-induction [31]. A similar observation was made
+by Chalupa and Strejˇcek [34] for backward symbolic execution, and by Bjørner et
+al. [37] who recast k-induction as a fold-unfold transformation on linear Horn clauses.
+However, classical k-induction and these formulations are restricted to linear clauses.
+19
+
+
+Backward resolution is not: it applies to arbitrary sets of CHCs, including non-linear
+ones.
+7 Subsumption
+In Section 4 and Section 5, we have assumed to have a procedure subsumes that
+is a sound and decidable approximation of logical entailment between a finite set of
+clauses and another clause. The reason we did this is twofold: On the one hand, we
+would like to be able to check for logical entailment, in order to add some redundancy
+criterion to our algorithms and be able to derive that some clause set is satisfiable. On
+the other hand, we cannot work with logical entailment directly as first-order logic is
+famously undecidable. In this section, we will give examples of decidable subsumption
+criteria with varying strength, meaning that some are better approximations of logical
+entailment than others at the expense of being more complicated. Each of these criteria
+naturally leads to a procedure subsumes with the desired properties from Section 4.
+Moreover, we will see that there are notions of subsumption that are not only sound,
+but also complete if we only consider (sets of) facts or (sets of) goals.
+Starting from syntactic equality, the first non-trivial version of subsumption that
+we consider is commonly known as θ-subsumption:
+Definition 5 Let C1 and C2 be two constrained Horn clauses with Ci : Hi ←Bi ∧ϕi. C1
+θ-subsumes C2 if there is a variable substitution θ with the following properties:
+1. H1θ ⊇H2
+2. B1θ ⊆B2
+3. ⊨ϕ2 →ϕ1θ
+Note that θ-subsumption only deals with the question of whether one clause C1
+entails another clause C2. We can easily lift it to our setting, where we ask the question
+if a whole clause set C entails some clause C, by checking if there is any clause C′ in C
+s.t. C′ θ-subsumes C. Clearly, if C θ-subsumes C, then C ⊨C. However, the converse
+is not necessarily the case:
+Example 5 Consider the clauses C1 : ⊥←E(z) ∧z%2 = 1 and C2 : ⊥←E(x) ∧E(y) ∧
+(x + y)%2 = 1. Then, C1 ⊨C2, but C1 does not subsume C2 because for no substitution θ
+does it hold that (x + y)%2 = 1 ⊨(z%2 = 1)θ. Informally, one could say that if the sum of
+two numbers is odd, then one of summands is odd as well, but you do not know which one
+beforehand.
+The example above illustrates the potential shortcomings of plain subsumption: It
+is uniform in the sense that there has to be one θ that works for all cases. We can use
+this as a motivation to define more general versions of subsumption that cover more
+cases, where uniformity is too much to ask for:
+20
+
+
+Definition 6 Let C1 and C2 be constrained Horn clauses with Ci : Hi ←Bi ∧ϕi. A
+substitution θ is C1-C2-feasible if the following holds
+1. H1θ ⊇H2
+2. B1θ ⊆B2
+Let Θ(C1, C2) be the set of all C1-C2-feasible substitutions. C1 disjunctively subsumes C2 if
+it holds that
+⊨ϕ2 →
+_
+θ∈Θ(C1,C2)
+ϕ1θ
+Note that Θ(C1, C2) is finite and the formulas above are well-formed. Again, we
+can lift disjunctive subsumption to the our setting by checking it for each clause in
+the set and it holds that if C disjunctively subsumes C, then C ⊨C, meaning that
+disjunctive subsumption is sound. Moreover, the notion disjunctive subsumption is
+strictly stronger than regular subsumption as the Example 5 shows. However, there
+are still some cases, where a clause C is entailed by a clause set C, but C does not
+disjunctively subsume C. Moreover, there are cases that seem easy enough that we
+would want our notion of subsumption to hold. Consider the following example:
+Example 6 Consider the clauses C1 : P(x) ←Q(x) ∧0 ≤x ≤7, C2 : P(y) ←Q(y) ∧2 ≤y ≤
+10 and C3 : P(z) ←Q(z) ∧0 ≤z ≤10. It holds that C1 ∧C2 ⊨C3, but neither C1 nor C2
+(disjunctively) subsume C3.
+In the example above, the problem is not uniformity, but that the conjunction of
+the clauses C1 and C2 contains more information than C1 and C2 separately and both
+pieces of information are necessary to prove the entailment. We can easily fix this by
+extending our notion of disjunctive subsumption:
+Definition 7 Let C∗: H∗←B∗∧ϕ∗be a constrained Horn clause and C a finite set
+constrained Horn clauses with C : HC ←BC ∧ϕC for C in C. C disjunctively subsume C∗if
+it holds that
+⊨ϕ∗→
+_
+C∈C
+_
+θ∈Θ(C,C∗)
+ϕCθ
+Note that this definition coincides with the previous definition of disjunctive sub-
+sumption if n = 1. Thus, we replace the previous definition of disjunctive subsumption
+with this more general one. Disjunctive subsumption is still sound and it captures
+very natural cases like Example 6. However, there are still examples of clause sets that
+logically entail another clause, but where disjunctive subsumption fails:
+Example 7 Consider the clauses C1 : P(x) ←x = 0, C2 : Q(y) ←P(y) and C3 : Q(x) ←x =
+0. Then C1 ∧C2 ⊨C3, but {C1, C2} does not disjunctively subsume C3 since Θ(C1, C3) =
+Θ(C2, C3) = ∅and the constraint of C3 is satisfiable.
+21
+
+
+The example above shows that any version of subsumption defined so far does not
+fully capture logical entailment. Moreover, as mentioned above, any attempt to fully
+capture logical entailment while staying decidable is doomed to fail. Thus, we will
+not try to refine our notion subsumption anymore. We close this section by proving
+that disjunctive subsumption as defined above, while generally for all clause sets, is
+complete if we restrict the setting to goals or facts:
+Proposition 6 Let F be finite set of facts and F ∗some fact. It holds that F ⊨F ∗if and
+only if F disjunctively subsumes F ∗.
+Proof Assume that F ⊨F ∗and that F ∗has the form P(x) ←ι∗(x). There are two cases: If
+⊨∀x.¬ι∗(x), then F trivially disjunctively subsumes F ∗. Otherwise, we can assume w.l.o.g.,
+that all F ∈F have the form P(xF ) ←ιF (xF ), i.e. they all have the same predicate in the
+head. Since F ⊨F ∗, it holds that for any model M and any a, there is some F ∈F with
+M ⊨ι∗(a) →ιF (a). Since M and a were arbitrary, it follows that ⊨ι∗(x) →W
+F ∈F ιF (x).
+By defining the substitution θF = {xF 7→x}, this is equivalent to ⊨ι∗→W
+F ∈F ιF θF , which
+fits our definition of disjunctive subsumption.
+□
+Proposition 7 Let G be a finite set of goal clauses and G∗some goal clause. It holds that
+G ⊨G∗if and only if G disjunctively subsume G∗.
+Proof Assume that every goal G in G has the form ⊥←BG ∧ψG. Assume that G ⊨G∗and
+that G∗has the form ⊥←B∗(x) ∧ϕ∗(x). Since G ⊨G∗, it holds that for every model M
+and every a, there is some goal G : ⊥←BG(y) ∧ψG(y) ∈G with M ⊨(B∗(a) ∧ϕ∗(a)) →
+∃y(BG(y) ∧ψG(y)). Since BG contains only uninterpreted predicate symbols, there is G-
+G∗-feasible substitution θ s.t. M ⊨(B∗(a) ∧ϕ∗(a)) →(BG ∧ψG)θ(a). Since M and a
+were arbitrary, it holds that ⊨(B∗∧ϕ∗) →W
+G∈G
+W
+θ∈Θ(G,G∗)(BG ∧ψG)θ. In particular,
+⊨ϕ∗→W
+G∈G
+W
+θ∈Θ(G,G∗) ψGθ, which proves the claim.
+□
+8 Symbolic Execution and Incorrectness Logic
+Incorrectness logic is a program logic to reason about failing program executions; it
+has been proposed as a formalism for contracts documenting cases in which a function
+is supposed to terminate with an error, or to concisely represent counterexamples to
+correctness [35]. Incorrectness logic can be seen as the dual of Hoare logic.
+{p(¯x)} S {q(¯x)}
+(22)
+[p(¯x)] S [q(¯x)]
+(23)
+For a Hoare triple (22) to be valid, it has to be the case that the postcondition q(¯x)
+holds in every final state ¯x′ of the statement S when started in a state ¯x satisfying the
+precondition p(¯x) [43]; in other words q(¯x) is implied by the strongest postcondition of
+p(¯x) and S. In contrast, an incorrectness logic triple (23) is valid if for every state ¯x′
+satisfying the result q(¯x), there is some state ¯x satisfying the presumption p(¯x) from
+22
+
+
+which the statement S terminates in state ¯x′; the result q(¯x) has to imply the strongest
+postcondition. If the semantics of the statement S is represented as a formula TS(¯x, ¯x′)
+over two copies of the state variables, then the meaning of a Hoare triple is expressed
+by (24) and the meaning of an incorrectness triple by (25):
+∀¯x.∀¯x′. p(¯x) ∧TS[¯x, ¯x′] →q(¯x′)
+(24)
+∀¯x′. q(¯x′) →∃¯x. p(¯x) ∧TS[¯x, ¯x′]
+(25)
+Since (24) is Horn, it can naturally be encoded in the form of CHCs, making it
+possible to infer pre- and postconditions using CHC solvers. It is therefore tempting to
+ask whether a similar encoding is possible for incorrectness logic, so that the existing
+machinery of CHC can be put to use also for reasoning about incorrectness?
+The existential quantifier in (25) indicates that such an encoding is not straightfor-
+ward. Indeed, it is easy to see that in the special case of a statement S being injective,
+i.e., ∀¯x, ¯x′
+1, ¯x′
+2. TS(¯x, ¯x′
+1) ∧TS(¯x, ¯x′
+2) →¯x′
+1 = ¯x′
+2, formula (25) can be expressed as a
+CHC. In the general case, to express (25) an extended language of Horn clauses with
+existential quantifiers would be needed, which is beyond the scope of CHC and cannot
+be handled by existing CHC solvers.
+We would like to advocate an alternative perspective on the nature of incorrect-
+ness logic. For this, observe that no abstraction takes place in the translation from a
+Hoare triple (22) to a Horn formula (24), the formula expresses exactly the semantics
+of the program and the meaning of pre- and postconditions. It is then not clear why
+different translations to logic would be needed for correctness vs. incorrectness reason-
+ing, instead the reasoning approach itself can be replaced. It is well-known that the
+construction of Hoare logic proofs can be automated with the help of model construc-
+tion for sets of CHCs. We claim that the construction of incorrectness proofs can be
+supported through clausal proofs about CHCs, for instance with the help of the proof
+rules introduced in this article:
+Logic
+Reasoning used for automation
+Hoare logic
+Model construction for sets of CHCs
+Incorrectness logic
+Proof construction for sets of CHCs
+Consider a forward proof rule for CHCs corresponding to (22), in which postS is
+some procedure approximating the post-image of φ under the statement S:
+p(¯x) ←φ[¯x]
+q(¯x′) ←p(¯x) ∧TS[¯x, ¯x′]
+q(¯x′) ←ψ[¯x′]
+ψ = postS(φ)
+(26)
+For the proof rule to be sound, i.e., for the entailment
+{∀¯x. (p(¯x) ←φ[¯x]), ∀¯x, ¯x′. (q(¯x′) ←p(¯x) ∧TS[¯x, ¯x′])} |= ∀¯x′. (q(¯x′) ←ψ[¯x′])
+(27)
+to hold, it is necessary that the constraints φ[¯x], ψ[¯x′], TS[¯x, ¯x′] are in relationship:
+23
+
+
+Lemma 8 Proof rule (26) is sound if and only if ψ[¯x′] ⇒∃¯x. φ[¯x] ∧TS(¯x, ¯x′).
+Proof “⇒” Assume that (27) holds, which means that it holds in particular for structures
+satisfying p(¯x) ↔φ[¯x] and q(¯x′) ↔∃¯x. φ[¯x] ∧TS(¯x, ¯x′). The antecedent of (27) is valid in
+such structures, while the consequence is ∀¯x′. ψ[¯x′] →∃¯x. φ[¯x] ∧TS(¯x, ¯x′).
+“⇒” Observe that the entailment holds when adding ∀¯x′. ψ[¯x′] →∃¯x. φ[¯x] ∧TS(¯x, ¯x′) to
+the antecedent.
+□
+The necessary and sufficient condition ψ[¯x′] ⇒∃¯x. φ[¯x] ∧TS(¯x, ¯x′) for (26) to
+be sound corresponds to the incorrectness formula (25). This implies that forward
+symbolic execution proofs, such as the ones constructed in Section 4, can directly be
+translated to proofs in incorrectness logic by using the derived constrained positive unit
+clauses (facts) as the result of incorrectness triples. Since backward proofs (Section 5)
+can be translated to forward proofs, the same holds for backward symbolic execution.
+This kind of reasoning is not limited to ground proofs, since symbolic execution
+naturally produces proofs that do not refer to concrete values, and hence gives rise
+to symbolic incorrectness proofs as well. CHC proofs can also be extended with the
+more specialized proof rules that have been introduced for incorrectness logic. As an
+example, consider the following “Backwards Variant” incorrectness rule:
+[p(n) ∧n ≥0] S [p(n + 1) ∧n ≥0]
+[p(0)] while (*) S [∃n. p(n) ∧n ≥0] n : Z fresh
+(Backwards Variant)
+The rule expresses that a loop while (*) S can be accelerated if it can be shown that
+p(n) is a “variant” of the loop; p(n) is required to decrease when executing the loop
+body S backwards. We can formulate a corresponding unit propagation rule on CHCs,
+which enables the calculus to generalize a fact p(¯x) ←φ[¯x, 0] to p(¯x) ←φ[¯x, n]∧n ≥0
+if it can be shown, through a side condition, that φ[¯x, n] is a variant of S:
+p(¯x) ←φ[¯x, 0]
+p(¯x′) ←p(¯x) ∧TS[¯x, ¯x′]
+p(¯x) ←φ[¯x, n] ∧n ≥0
+n : Z fresh,
+φ[¯x, n + 1] ∧n ≥0 ⇒postS(φ[¯x, n])
+(28)
+A more refined version of the proof rule could recover the condition φ[¯x, n+1]∧n ≥0
+⇒postS(φ[¯x, n]) from the clausal proof itself. Whenever a proof contains a derivation
+of p(¯x) ←φ[¯x, k + 1] from p(¯x) ←φ[¯x, k], for some k ∈N, it can be checked whether
+the derivation can be generalized to a variable n. In this case, thanks to Lemma 8,
+the derivation can be lifted to produce the more general consequence p(¯x) ←φ[¯x, n]∧
+n ≥0. Experimenting with calculi of this kind is left as future work.
+9 Experiments
+We implemented forward and backward symbolic execution in Eldarica [10] and
+evaluate them against Eldarica’s CEGAR engine on benchmarks from the CHC-
+COMP benchmark suite [44].
+24
+
+
+Table 1: Number of satisfiable / unsatisfiable instances solved per category.
+Best values for each category across configurations are shown in bold.
+Category
+#
+CEGAR
+CEGAR−
+FEBFS
+FEDFS
+BEBFS
+ADT-LIA
+1131
+76 /
+158
+55 / 165
+11 / 155
+–
+20 / 148
+ADT-LIA-Arrays
+3607
+2256 / 1123
+2254 / 1122
+1498 / 1070
+–
+2030 / 1090
+BV
+96
+33 /
+42
+31 /
+43
+8 /
+26
+–
+2 /
+33
+LIA
+1287
+633 /
+378
+571 / 378
+91 / 365
+–
+166 / 293
+LIA-Arrays
+1738
+1029 /
+684
+1029 / 684
+709 / 622
+–
+955 / 665
+BV-Lin
+512
+97 /
+152
+74 / 152
+45 / 148
+33 / 99
+28 / 152
+LIA-Lin
+1406
+540 /
+293
+466 / 293
+151 / 282
+56 / 48
+195 / 262
+LIA-Lin-Arrays
+139
+53 /
+23
+48 /
+23
+17 /
+22
+12 / 11
+14 /
+20
+LRA-Lin
+277
+27 /
+13
+30 /
+13
+34 /
+13
+2 / 4
+28 /
+13
+9.1 Setup
+We evaluate five configurations:
+• CEGAR: Eldarica’s CEGAR engine with default settings.
+• CEGAR−: Eldarica’s CEGAR engine with interpolation abstraction disabled.
+• FEBFS: Forward execution (FE, Section 4) via constrained positive unit hyper-
+resolution with BFS strategy.
+• FEDFS: Forward execution with DFS strategy. This configuration only supports
+linear CHCs.
+• BEBFS: Backward execution (BE, Section 5) via SLD resolution with BFS strategy.
+The symbolic execution configurations do not yet implement subsumption beyond
+checking whether an identical resolvent already exists.
+We evaluate on nine categories from the CHC-COMP 2026 benchmark suite [44].1
+The categories are: ADT-LIA, ADT-LIA-Arrays, BV, BV-Lin, LIA, LIA-Arrays, LIA-
+Lin, LIA-Lin-Arrays, and LRA-Lin. Categories suffixed with “Lin” contain only linear
+CHCs.
+Experiments were run on the Pelle cluster at UPPMAX, Uppsala University
+(80 nodes, AMD EPYC 9454P 48-core Zen4, 768 GB RAM per node). Each benchmark
+was allocated 1 CPU core and 6 GB of memory, with a wall-time limit of 180 seconds.
+9.2 Results and Discussion
+Table 1 summarizes the number of satisfiable and unsatisfiable instances solved by each
+configuration. Tables 2 and 3 show pairwise comparison matrices: each entry shows
+the number of satisfiable/unsatisfiable instances solved by the row configuration but
+not the column configuration.
+The results show that forward and backward symbolic execution are often com-
+plementary: each strategy solves instances the other cannot in many categories. For
+satisfiability, BEBFS is often more effective than FEBFS. While we expected symbolic exe-
+cution to solve some unsatisfiable instances that CEGAR cannot, in many categories
+1https://github.com/chc-comp/chc-comp-2026
+25
+
+
+Table 2: Comparison matrices for non-linear categories. Each entry shows sat/unsat
+instances solved by the row configuration but not by the column configuration.
+ADT-LIA
+ADT-LIA-Arrays
+CEGAR
+CEGAR−
+FEBFS
+BEBFS
+CEGAR
+—
+22/1
+65/13
+56/14
+CEGAR−
+1/8
+—
+44/14
+35/17
+FEBFS
+0/10
+0/4
+—
+0/10
+BEBFS
+0/4
+0/0
+9/3
+—
+CEGAR
+CEGAR−
+FEBFS
+BEBFS
+CEGAR
+—
+2/1
+769/56
+226/34
+CEGAR−
+0/0
+—
+767/56
+224/34
+FEBFS
+11/3
+11/4
+—
+20/8
+BEBFS
+0/1
+0/2
+552/28
+—
+BV
+LIA
+CEGAR
+CEGAR−
+FEBFS
+BEBFS
+CEGAR
+—
+3/0
+25/17
+31/10
+CEGAR−
+1/1
+—
+23/17
+29/10
+FEBFS
+0/1
+0/0
+—
+7/2
+BEBFS
+0/1
+0/0
+1/9
+—
+CEGAR
+CEGAR−
+FEBFS
+BEBFS
+CEGAR
+—
+68/1
+542/25
+469/86
+CEGAR−
+6/1
+—
+480/25
+408/86
+FEBFS
+0/12
+0/12
+—
+41/76
+BEBFS
+2/1
+3/1
+116/4
+—
+LIA-Arrays
+CEGAR
+CEGAR−
+FEBFS
+BEBFS
+CEGAR
+—
+0/0
+320/62
+74/19
+CEGAR−
+0/0
+—
+320/62
+74/19
+FEBFS
+0/0
+0/0
+—
+2/5
+BEBFS
+0/0
+0/0
+248/48
+—
+Table 3: Comparison matrices for linear categories. Entry format as in Table 2.
+BV-Lin
+LIA-Lin
+CEGAR
+CEGAR−
+FEBFS
+FEDFS
+BEBFS
+CEGAR
+—
+24/0
+67/7
+78/56
+70/3
+CEGAR−
+1/0
+—
+47/7
+54/56
+46/3
+FEBFS
+15/3
+18/3
+—
+12/53
+33/3
+FEDFS
+14/3
+13/3
+0/4
+—
+22/5
+BEBFS
+1/3
+0/3
+16/7
+17/58
+—
+CEGAR
+CEGAR−
+FEBFS
+FEDFS
+BEBFS
+CEGAR
+—
+80/3
+409/42
+484/245
+360/49
+CEGAR−
+6/3
+—
+338/41
+413/245
+294/49
+FEBFS
+20/31
+23/30
+—
+95/234
+72/27
+FEDFS
+0/0
+3/0
+0/0
+—
+13/1
+BEBFS
+15/18
+23/18
+116/7
+152/215
+—
+LIA-Lin-Arrays
+LRA-Lin
+CEGAR
+CEGAR−
+FEBFS
+FEDFS
+BEBFS
+CEGAR
+—
+5/0
+37/1
+41/12
+39/3
+CEGAR−
+0/0
+—
+33/1
+36/12
+34/3
+FEBFS
+1/0
+2/0
+—
+5/12
+3/2
+FEDFS
+0/0
+0/0
+0/1
+—
+0/2
+BEBFS
+0/0
+0/0
+0/0
+2/11
+—
+CEGAR
+CEGAR−
+FEBFS
+FEDFS
+BEBFS
+CEGAR
+—
+0/0
+4/0
+25/9
+3/0
+CEGAR−
+3/0
+—
+5/0
+28/9
+5/0
+FEBFS
+11/0
+9/0
+—
+32/9
+8/0
+FEDFS
+0/0
+0/0
+0/0
+—
+0/0
+BEBFS
+4/0
+3/0
+2/0
+26/9
+—
+some satisfiable instances could only be solved by the symbolic execution configura-
+tions. For instance, 11 satisfiable instances in ADT-LIA-Arrays and 20 in LIA-Lin
+could only be solved by FEBFS.
+DFS (FEDFS) solves fewer instances overall; however, it occasionally solves unsatis-
+fiable instances that other strategies cannot. This is because DFS can find refutations
+deep within the branches it explores, but it can also get stuck exploring an infinitely
+deep branch that does not lead to a refutation.
+Overall, the results demonstrate that symbolic execution of CHCs, even with-
+out subsumption beyond syntactic identity checks and without search heuristics, is a
+26
+
+
+viable approach for CHC solving, while being substantially simpler to implement than
+CEGAR or IC3-based algorithms.
+10 Related Work
+We discuss the most closely related work on CHC solving algorithms and on resolution
+in logic programming.
+10.1 CHC Solving and Software Model Checking
+Most CHC solvers rely on algorithms that synthesize invariants. Z3/Spacer [12]
+extends the IC3 framework [14] to CHCs, maintaining over-approximate procedure
+summaries computed using interpolation, and under-approximate reachability facts
+computed using model-based projection. Eldarica [10] implements CEGAR with
+predicate abstraction [15]. Golem [11] supports several engines, including transition
+power abstraction (TPA) [18]. TPA maintains a sequence of relations where the n-th
+relation over-approximates up to 2n transition steps, computed using interpolation,
+allowing safety checks at exponentially increasing depth.
+Constrained resolution, as studied in this article, avoids invariant synthesis. In
+forward execution, derived clauses encode reachable states; in backward execution,
+they encode proof obligations. Eldarica implements both forward and backward
+symbolic execution of CHCs, currently without subsumption beyond syntactic identity
+after simplification. Golem implements forward symbolic execution for linear CHCs,
+following the description in [45]. In [45], Abdulla et al. build on top of the symbolic
+execution engine in Eldarica formalized in the present article, adding graph neural
+network-guided search heuristics.
+Bjørner et al. discusses both backward and forward derivations for CHCs, and
+recast k-induction as a fold/unfold transformation on linear CHCs [37]. Backward
+resolution with subsumption, as studied in this article, generalizes k-induction and
+applies to non-linear clauses without requiring a separate transformation step.
+Acceleration-driven clause learning [16], implemented in the LoAT tool [13] is a
+calculus for linear CHCs that is based on resolution. Loop acceleration techniques
+compute quantifier-free formulas characterizing the N-fold closure of a recursive clause,
+and the resulting accelerated clauses are added to the clause set. Resolution with
+an accelerated clause simulates arbitrarily many applications of the original recursive
+clause in a single step. Our approach shares the property with acceleration-driven
+clause learning of being refutationally complete and can prove satisfiability, but does
+not necessarily terminate.
+In the context of software model checking, [24] compares two approaches for
+predicate extraction in CEGAR: one based on Craig interpolation and one based
+on symbolic execution using strongest postconditions. The symbolic execution-based
+approach can be competitive, consistent with our finding that constrained resolution
+can be effective without interpolation.
+27
+
+
+10.2 Resolution and Logic Programming
+Constrained resolution [19] extends first-order resolution [36] by replacing syntactic
+unification with equality constraints over a background theory, delegating satisfiability
+checks to a constraint solver. In theory resolution [46], specialized reasoning procedures
+are instead incorporated directly into the resolution rule, which resolves on sets of
+literals whose conjunction is determined T-unsatisfiable by a decision procedure for
+the theory T. A survey of CHC analysis and transformation techniques from the
+constraint logic programming perspective is given in [47].
+Forward execution corresponds to bottom-up evaluation of logic programs, and
+backward execution to top-down evaluation. SLD resolution [27, 29], the computa-
+tional mechanism of Prolog, is a restriction of backward resolution to definite clauses
+with a selection rule. In Prolog, the goal is typically to compute answer substitutions
+for a query; extracting invariants or counterexamples is not a concern. In our setting,
+we are also interested in models and refutation proofs. Models of the CHCs serve as
+correctness proofs for programs, and refutation proofs correspond to concrete failing
+executions that can be used as proofs of bugs and for test-case generation. CHCs
+also involve a background theory, which makes semantic entailment between clauses
+undecidable in general and requires the subsumption approximations described in
+Section 7.
+11 Conclusion
+We studied constrained resolution as a framework for symbolic execution of CHCs.
+Several directions remain for future work. Concolic execution [40] is a natural strat-
+egy to consider, but adapting it to CHCs is not straightforward: unlike programs,
+CHCs do not have a fixed notion of input variables to concretize. One option is to
+strengthen constraints when the SMT solver cannot decide satisfiability within a time
+limit. Other search strategies such as iterative deepening and generational search [39]
+could be explored. In many cases checking subsumption could be useful, but the cost
+of subsumption checks depends on the background theory and can be expensive in
+practice. Bidirectional strategies that combine forward and backward execution could
+also be effective, since the two directions are complementary in practice. We hope that
+the unified view of symbolic execution and resolution over CHCs developed in this
+article can serve as a foundation for exploring these and other directions.
+Acknowledgements.
+The work was supported by the Swedish Research Council
+through grants 2021-06327 and 2025-06185, and by the Ethereum Foundation under
+grant FY25-2124. The experimental evaluation was enabled by resources in project
+UPPMAX 2026/1-126 provided by Uppsala University at UPPMAX.
+References
+[1] S. Kalra, S. Goel, M. Dhawan, S. Sharma, ZEUS: Analyzing Safety of Smart
+Contracts, in 25th Annual Network and Distributed System Security Symposium,
+28
+
+
+NDSS 2018, San Diego, California, USA, February 18-21, 2018 (The Inter-
+net Society, 2018). URL https://www.ndss-symposium.org/wp-content/uploads/
+2018/02/ndss2018 09-1 Kalra paper.pdf
+[2] K. Britikov, I. Zlatkin, G. Fedyukovich, L. Alt, N. Sharygina, SolTG: A
+CHC-Based Solidity Test Case Generator, in Computer Aided Verification -
+36th International Conference, CAV 2024, Montreal, QC, Canada, July 24-27,
+2024, Proceedings, Part I, ed. by A. Gurfinkel, V. Ganesh (Springer, 2024),
+Lecture Notes in Computer Science, pp. 466–479.
+https://doi.org/10.1007/
+978-3-031-65627-9 23. URL https://doi.org/10.1007/978-3-031-65627-9 23
+[3] S. Grebenshchikov, N.P. Lopes, C. Popeea, A. Rybalchenko, Synthesizing soft-
+ware verifiers from proof rules, in ACM SIGPLAN Conference on Programming
+Language Design and Implementation, PLDI ’12, Beijing, China - June 11 - 16,
+2012, ed. by J. Vitek, H. Lin, F. Tip (ACM, 2012), pp. 405–416. https://doi.org/
+10.1145/2254064.2254112. URL https://doi.org/10.1145/2254064.2254112
+[4] A. Gurfinkel, T. Kahsai, A. Komuravelli, J.A. Navas, The SeaHorn Verifica-
+tion Framework, in Computer Aided Verification - 27th International Conference,
+CAV 2015, San Francisco, CA, USA, July 18-24, 2015, Proceedings, Part I,
+ed. by D. Kroening, C.S. Pasareanu (Springer, 2015), Lecture Notes in Com-
+puter Science, pp. 343–361. https://doi.org/10.1007/978-3-319-21690-4 20. URL
+https://doi.org/10.1007/978-3-319-21690-4 20
+[5] Y. Matsushita, T. Tsukada, N. Kobayashi, RustHorn: CHC-Based Verification
+for Rust Programs, in Programming Languages and Systems - 29th European
+Symposium on Programming, ESOP 2020, Held as Part of the European Joint
+Conferences on Theory and Practice of Software, ETAPS 2020, Dublin, Ireland,
+April 25-30, 2020, Proceedings, ed. by P. M¨uller (Springer, 2020), Lecture Notes in
+Computer Science, pp. 484–514. https://doi.org/10.1007/978-3-030-44914-8 18.
+URL https://doi.org/10.1007/978-3-030-44914-8 18
+[6] H. Ogawa, T. Sekiyama, H. Unno, Thrust: A prophecy-based refinement type
+system for rust. Proc. ACM Program. Lang. 9(PLDI), 2056–2080 (2025). https:
+//doi.org/10.1145/3729333. URL https://doi.org/10.1145/3729333
+[7] T. Kahsai, R. Kersten, P. R¨ummer, M. Sch¨af, Quantified Heap Invariants for
+Object-Oriented Programs, in LPAR-21, 21st International Conference on Logic
+for Programming, Artificial Intelligence and Reasoning, Maun, Botswana, May 7-
+12, 2017, ed. by T. Eiter, D. Sands (EasyChair, 2017), EPiC Series in Computing,
+pp. 368–384. https://doi.org/10.29007/ZRCT. URL https://doi.org/10.29007/
+zrct
+[8] S. Wolff, E. Gupta, Z. Esen, H. Hojjat, P. R¨ummer, T. Wies, Arithmetizing Shape
+Analysis, in Computer Aided Verification - 37th International Conference, CAV
+2025, Zagreb, Croatia, July 23-25, 2025, Proceedings, Part I, ed. by R. Piskac,
+29
+
+
+Z. Rakamaric (Springer, 2025), Lecture Notes in Computer Science, pp. 56–
+80. https://doi.org/10.1007/978-3-031-98668-0 3. URL https://doi.org/10.1007/
+978-3-031-98668-0 3
+[9] R. Sato, N. Iwayama, N. Kobayashi, Combining higher-order model checking with
+refinement type inference, in Proceedings of the 2019 ACM SIGPLAN Workshop
+on Partial Evaluation and Program Manipulation, PEPM@POPL 2019, Cascais,
+Portugal, January 14-15, 2019, ed. by M.V. Hermenegildo, A. Igarashi (ACM,
+2019), pp. 47–53. https://doi.org/10.1145/3294032.3294081. URL https://doi.
+org/10.1145/3294032.3294081
+[10] H. Hojjat, P. R¨ummer, The ELDARICA Horn Solver, in 2018 Formal Meth-
+ods in Computer Aided Design, FMCAD 2018, Austin, TX, USA, October 30
+- November 2, 2018, ed. by N.S. Bjørner, A. Gurfinkel (IEEE, 2018), pp. 1–
+7.
+https://doi.org/10.23919/FMCAD.2018.8603013.
+URL https://doi.org/10.
+23919/FMCAD.2018.8603013
+[11] M. Blicha, K. Britikov, N. Sharygina, The Golem Horn Solver, in Computer
+Aided Verification - 35th International Conference, CAV 2023, Paris, France,
+July 17-22, 2023, Proceedings, Part II, ed. by C. Enea, A. Lal (Springer, 2023),
+Lecture Notes in Computer Science, pp. 209–223.
+https://doi.org/10.1007/
+978-3-031-37703-7 10. URL https://doi.org/10.1007/978-3-031-37703-7 10
+[12] A. Komuravelli, A. Gurfinkel, S. Chaki, SMT-Based Model Checking for Recur-
+sive Programs, in Computer Aided Verification - 26th International Conference,
+CAV 2014, Held as Part of the Vienna Summer of Logic, VSL 2014, Vienna,
+Austria, July 18-22, 2014. Proceedings, ed. by A. Biere, R. Bloem (Springer,
+2014), Lecture Notes in Computer Science, pp. 17–34. https://doi.org/10.1007/
+978-3-319-08867-9 2. URL https://doi.org/10.1007/978-3-319-08867-9 2
+[13] F. Frohn, J. Giesl, Proving Non-Termination and Lower Runtime Bounds with
+LoAT (System Description), in Automated Reasoning - 11th International Joint
+Conference, IJCAR 2022, Haifa, Israel, August 8-10, 2022, Proceedings, ed. by
+J. Blanchette, L. Kov´acs, D. Pattinson (Springer, 2022), Lecture Notes in Com-
+puter Science, pp. 712–722. https://doi.org/10.1007/978-3-031-10769-6 41. URL
+https://doi.org/10.1007/978-3-031-10769-6 41
+[14] A.R. Bradley, SAT-Based Model Checking without Unrolling, in Verification,
+Model Checking, and Abstract Interpretation - 12th International Conference,
+VMCAI 2011, Austin, TX, USA, January 23-25, 2011. Proceedings, ed. by
+R. Jhala, D.A. Schmidt (Springer, 2011), Lecture Notes in Computer Science,
+pp. 70–87. https://doi.org/10.1007/978-3-642-18275-4 7. URL https://doi.org/
+10.1007/978-3-642-18275-4 7
+[15] E.M. Clarke, O. Grumberg, S. Jha, Y. Lu, H. Veith, Counterexample-Guided
+Abstraction Refinement, in Computer Aided Verification, 12th International Con-
+ference, CAV 2000, Chicago, IL, USA, July 15-19, 2000, Proceedings, ed. by E.A.
+30
+
+
+Emerson, A.P. Sistla (Springer, 2000), Lecture Notes in Computer Science, pp.
+154–169. https://doi.org/10.1007/10722167 15. URL https://doi.org/10.1007/
+10722167 15
+[16] F. Frohn, J. Giesl, ADCL: Acceleration Driven Clause Learning for Constrained
+Horn Clauses, in Static Analysis - 30th International Symposium, SAS 2023,
+Cascais, Portugal, October 22-24, 2023, Proceedings, ed. by M.V. Hermenegildo,
+J.F. Morales (Springer, 2023), Lecture Notes in Computer Science, pp. 259–
+285.
+https://doi.org/10.1007/978-3-031-44245-2 13.
+URL https://doi.org/10.
+1007/978-3-031-44245-2 13
+[17] A. Biere, A. Cimatti, E.M. Clarke, Y. Zhu, Symbolic Model Checking without
+BDDs, in Tools and Algorithms for Construction and Analysis of Systems, 5th
+International Conference, TACAS ’99, Held as Part of the European Joint Con-
+ferences on the Theory and Practice of Software, ETAPS’99, Amsterdam, The
+Netherlands, March 22-28, 1999, Proceedings, ed. by R. Cleaveland (Springer,
+1999), Lecture Notes in Computer Science, pp. 193–207. https://doi.org/10.1007/
+3-540-49059-0 14. URL https://doi.org/10.1007/3-540-49059-0 14
+[18] M. Blicha, G. Fedyukovich, A.E.J. Hyv¨arinen, N. Sharygina, Transition Power
+Abstractions for Deep Counterexample Detection, in Tools and Algorithms for the
+Construction and Analysis of Systems - 28th International Conference, TACAS
+2022, Held as Part of the European Joint Conferences on Theory and Practice of
+Software, ETAPS 2022, Munich, Germany, April 2-7, 2022, Proceedings, Part I,
+ed. by D. Fisman, G. Rosu (Springer, 2022), Lecture Notes in Computer Science,
+pp. 524–542. https://doi.org/10.1007/978-3-030-99524-9 29. URL https://doi.
+org/10.1007/978-3-030-99524-9 29
+[19] H. B¨urckert, A resolution principle for constrained logics. Artif. Intell. 66(2),
+235–271 (1994). https://doi.org/10.1016/0004-3702(94)90027-2. URL https://
+doi.org/10.1016/0004-3702(94)90027-2
+[20] J.C. King, A New Approach to Program Testing, in Programming Methodology,
+4th Informatik Symposium, IBM Germany, Wildbad, September 25-27, 1974,
+ed. by C. Hackl (Springer, 1974), Lecture Notes in Computer Science, pp. 278–
+290. https://doi.org/10.1007/3-540-07131-8 30. URL https://doi.org/10.1007/
+3-540-07131-8 30
+[21] J.C. King, Symbolic execution and program testing. Commun. ACM 19(7), 385–
+394 (1976).
+https://doi.org/10.1145/360248.360252.
+URL https://doi.org/10.
+1145/360248.360252
+[22] W. Craig, Linear reasoning. A new form of the Herbrand-Gentzen theorem. J.
+Symb. Log. 22(3), 250–268 (1957). https://doi.org/10.2307/2963593
+[23] P. R¨ummer, Craig interpolation in program verification. CoRR abs/2602.08532
+(2026). https://doi.org/10.48550/ARXIV.2602.08532. URL https://doi.org/10.
+31
+
+
+48550/arXiv.2602.08532. 2602.08532
+[24] D. Dietsch, M. Heizmann, B. Musa, A. Nutz, A. Podelski, Craig vs. Newton
+in software model checking, in Proceedings of the 2017 11th Joint Meeting on
+Foundations of Software Engineering, ESEC/FSE 2017, Paderborn, Germany,
+September 4-8, 2017, ed. by E. Bodden, W. Sch¨afer, A. van Deursen, A. Zis-
+man (ACM, 2017), pp. 487–497. https://doi.org/10.1145/3106237.3106307. URL
+https://doi.org/10.1145/3106237.3106307
+[25] S. Chandra, S.J. Fink, M. Sridharan, Snugglebug: a powerful approach to
+weakest preconditions, in Proceedings of the 2009 ACM SIGPLAN Conference
+on Programming Language Design and Implementation, PLDI 2009, Dublin,
+Ireland, June 15-21, 2009, ed. by M. Hind, A. Diwan (ACM, 2009), pp. 363–
+374.
+https://doi.org/10.1145/1542476.1542517.
+URL https://doi.org/10.1145/
+1542476.1542517
+[26] S. Gulwani, S. Juvekar, Bound analysis using backward symbolic execution. Tech.
+Rep. MSR-TR-2009-156, Microsoft Research (2009)
+[27] K.R. Apt, M.H. van Emden, Contributions to the theory of logic programming.
+J. ACM 29(3), 841–862 (1982). https://doi.org/10.1145/322326.322339. URL
+https://doi.org/10.1145/322326.322339
+[28] R.A. Kowalski, D. Kuehner, Linear resolution with selection function.
+Artif.
+Intell. 2(3/4), 227–260 (1971).
+https://doi.org/10.1016/0004-3702(71)90012-9.
+URL https://doi.org/10.1016/0004-3702(71)90012-9
+[29] R.A. Kowalski, Predicate Logic as Programming Language, in Information Pro-
+cessing, Proceedings of the 6th IFIP Congress 1974, Stockholm, Sweden, August
+5-10, 1974, ed. by J.L. Rosenfeld (North-Holland, 1974), pp. 569–574
+[30] J. Jaffar, J. Lassez, Constraint Logic Programming, in Conference Record of the
+Fourteenth Annual ACM Symposium on Principles of Programming Languages,
+Munich, Germany, January 21-23, 1987 (ACM Press, 1987), pp. 111–119. https:
+//doi.org/10.1145/41625.41635. URL https://doi.org/10.1145/41625.41635
+[31] M. Sheeran, S. Singh, G. St˚almarck, Checking Safety Properties Using Induction
+and a SAT-Solver, in Formal Methods in Computer-Aided Design, Third Inter-
+national Conference, FMCAD 2000, Austin, Texas, USA, November 1-3, 2000,
+Proceedings, ed. by W.A.H. Jr., S.D. Johnson (Springer, 2000), Lecture Notes in
+Computer Science, pp. 108–125. https://doi.org/10.1007/3-540-40922-X 8. URL
+https://doi.org/10.1007/3-540-40922-X 8
+[32] A.F. Donaldson, L. Haller, D. Kroening, P. R¨ummer, Software Verification Using
+k-Induction, in Static Analysis - 18th International Symposium, SAS 2011,
+Venice, Italy, September 14-16, 2011. Proceedings, ed. by E. Yahav (Springer,
+2011), Lecture Notes in Computer Science, pp. 351–368. https://doi.org/10.1007/
+32
+
+
+978-3-642-23702-7 26. URL https://doi.org/10.1007/978-3-642-23702-7 26
+[33] D. Beyer, M. Dangl, P. Wendler, Boosting k-Induction with Continuously-Refined
+Invariants, in Computer Aided Verification - 27th International Conference,
+CAV 2015, San Francisco, CA, USA, July 18-24, 2015, Proceedings, Part I,
+ed. by D. Kroening, C.S. Pasareanu (Springer, 2015), Lecture Notes in Com-
+puter Science, pp. 622–640. https://doi.org/10.1007/978-3-319-21690-4 42. URL
+https://doi.org/10.1007/978-3-319-21690-4 42
+[34] M. Chalupa, J. Strejcek, Backward Symbolic Execution with Loop Folding, in
+Static Analysis - 28th International Symposium, SAS 2021, Chicago, IL, USA,
+October 17-19, 2021, Proceedings, ed. by C. Dragoi, S. Mukherjee, K.S. Namjoshi
+(Springer, 2021), Lecture Notes in Computer Science, pp. 49–76. https://doi.org/
+10.1007/978-3-030-88806-0 3. URL https://doi.org/10.1007/978-3-030-88806-0
+3
+[35] P.W. O’Hearn, Incorrectness logic. Proc. ACM Program. Lang. 4(POPL), 10:1–
+10:32 (2020). https://doi.org/10.1145/3371078. URL https://doi.org/10.1145/
+3371078
+[36] J.A. Robinson, A machine-oriented logic based on the resolution principle. J.
+ACM 12(1), 23–41 (1965). https://doi.org/10.1145/321250.321253. URL https:
+//doi.org/10.1145/321250.321253
+[37] N.S. Bjørner, A. Gurfinkel, K.L. McMillan, A. Rybalchenko, Horn Clause Solvers
+for Program Verification, in Fields of Logic and Computation II - Essays Ded-
+icated to Yuri Gurevich on the Occasion of His 75th Birthday, ed. by L.D.
+Beklemishev, A. Blass, N. Dershowitz, B. Finkbeiner, W. Schulte (Springer,
+2015), Lecture Notes in Computer Science, pp. 24–51. https://doi.org/10.1007/
+978-3-319-23534-9 2. URL https://doi.org/10.1007/978-3-319-23534-9 2
+[38] M. Davis, H. Putnam, A computing procedure for quantification theory. J. ACM
+7(3), 201–215 (1960). https://doi.org/10.1145/321033.321034. URL https://doi.
+org/10.1145/321033.321034
+[39] P. Godefroid, M.Y. Levin, D.A. Molnar, Automated Whitebox Fuzz Testing,
+in Proceedings of the Network and Distributed System Security Symposium,
+NDSS 2008, San Diego, California, USA, 10th February - 13th February 2008
+(The Internet Society, 2008). URL https://www.ndss-symposium.org/ndss2008/
+automated-whitebox-fuzz-testing/
+[40] P. Godefroid, N. Klarlund, K. Sen, DART: directed automated random testing,
+in Proceedings of the ACM SIGPLAN 2005 Conference on Programming Lan-
+guage Design and Implementation, Chicago, IL, USA, June 12-15, 2005, ed.
+by V. Sarkar, M.W. Hall (ACM, 2005), pp. 213–223. https://doi.org/10.1145/
+1065010.1065036. URL https://doi.org/10.1145/1065010.1065036
+33
+
+
+[41] C. Cadar, D. Dunbar, D.R. Engler, KLEE: Unassisted and Automatic Generation
+of High-Coverage Tests for Complex Systems Programs, in 8th USENIX Sympo-
+sium on Operating Systems Design and Implementation, OSDI 2008, December
+8-10, 2008, San Diego, California, USA, Proceedings, ed. by R. Draves, R. van
+Renesse (USENIX Association, 2008), pp. 209–224.
+URL http://www.usenix.
+org/events/osdi08/tech/full papers/cadar/cadar.pdf
+[42] J. Harrison, Handbook of Practical Logic and Automated Reasoning (Cambridge
+University Press, 2009)
+[43] C.A.R. Hoare, An axiomatic basis for computer programming. Communications
+of the ACM 12(10), 576–580, 583 (1969). https://doi.org/10.1145/363235.363259.
+URL https://doi.org
+[44] E. De Angelis, H.G.V. K., CHC-COMP 2023: Competition Report, in Proceed-
+ings 18th International Workshop on Logical and Semantic Frameworks, with
+Applications and 10th Workshop on Horn Clauses for Verification and Synthe-
+sis, LSFA/HCVS 2023, and 10th Workshop on Horn Clauses for Verification and
+Synthesis, Rome, Italy & Paris, France, July 1-2, 2023 & April 23, 2023, ed. by
+T. Kutsia, D. Ventura, D. Monniaux, J.F. Morales (2023), EPTCS, pp. 83–104.
+https://doi.org/10.4204/EPTCS.402.10. URL https://doi.org/10.4204/EPTCS.
+402.10
+[45] P.A. Abdulla, C. Liang, P. R¨ummer, Boosting Constrained Horn Solving by
+Unsat Core Learning, in Verification, Model Checking, and Abstract Interpreta-
+tion - 25th International Conference, VMCAI 2024, London, United Kingdom,
+January 15-16, 2024, Proceedings, Part I, ed. by R. Dimitrova, O. Lahav,
+S. Wolff (Springer, 2024), Lecture Notes in Computer Science, pp. 280–302.
+https://doi.org/10.1007/978-3-031-50524-9 13.
+URL https://doi.org/10.1007/
+978-3-031-50524-9 13
+[46] M.E. Stickel, Automated deduction by theory resolution. J. Autom. Reason. 1(4),
+333–355 (1985). https://doi.org/10.1007/BF00244275. URL https://doi.org/10.
+1007/BF00244275
+[47] E. De Angelis, F. Fioravanti, J.P. Gallagher, M.V. Hermenegildo, A. Pet-
+torossi, M. Proietti, Analysis and transformation of constrained horn clauses
+for program verification.
+Theory Pract. Log. Program. 22(6), 974–1042
+(2022). https://doi.org/10.1017/S1471068421000211. URL https://doi.org/10.
+1017/S1471068421000211
+34

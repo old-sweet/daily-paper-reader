@@ -1,0 +1,1874 @@
+1
+XBDD: A Highly Optimized ROBDD with Per-Edge Variable-Flip
+Maps
+Yinglong Gan, Jintao Yu, Shenggang Ying, Yusen Li, and Xin Hong
+Abstract—The Reduced Ordered Binary Decision Diagram
+(ROBDD) is a canonical representation of Boolean functions and
+is widely used in tasks such as equivalence checking and satis-
+fiability checking of combinational circuits. Classical ROBDD
+packages greatly improve the efficiency of building ROBDDs
+through a series of optimization techniques, and compress the
+node scale of the ROBDD through complement edges. However,
+existing implementations do not take into account the local
+polarity differences of isomorphic Boolean functions, and still
+produce a distinct node for each polarity combination, thereby
+causing an explosion in the number of nodes. This paper
+proposes XBDD, a highly optimized ROBDD that, on the basis
+of fully implementing complement edges and their accompanying
+engineering techniques, introduces a per-edge variable-flip map.
+XBDD attaches a flip map to each edge to indicate which input
+variables must be negated when that edge is followed. This allows
+nodes that differ only in local input polarities to be merged,
+further reducing the node count. For certain function families,
+this sharing even yields exponential compression. We also propose
+methods that use a bitmap and a map pool to substantially
+reduce the extra overhead brought by the map, and propose
+normalization and cofactor operators for the map. In addition,
+XBDD implements several other engineering optimizations to
+further improve both time and space efficiency. Experiments
+show that XBDD trades a controllable time cost for a significant
+space gain, validating the effectiveness of the per-edge variable-
+flip map.
+Index Terms—Boolean functions, reduced ordered binary de-
+cision diagram, complement edges, per-edge variable-flip map,
+combinational circuits.
+I. INTRODUCTION
+E
+FFICIENT representation and manipulation of Boolean
+functions are fundamental to many electronic design
+automation (EDA) tasks, such as logic synthesis and for-
+mal verification. Reduced Ordered Binary Decision Diagrams
+(ROBDDs) provide a canonical graph-based representation
+under a fixed variable order [1], [2]. Once constructed,
+equivalent functions have identical root references, enabling
+constant-time equivalence checking [3], [4]. Satisfiability is
+This work was supported in part by the Quantum Science and Technology—
+National Science and Technology Major Project under Grant 2024ZD0300502,
+and in part by the National Natural Science Foundation of China under Grant
+6267073710 and Grant 62272252. (Corresponding authors: Yusen Li; Xin
+Hong.)
+Y.
+Gan
+and
+Y.
+Li
+are
+with
+the
+College
+of
+Computer
+Science,
+Nankai University, Tianjin 300350, China (e-mail: ganyl@nbjl.nankai.edu.cn;
+liyusen@nbjl.nankai.edu.cn).
+J. Yu is with Arclight Quantum Computing Inc., Beijing, China (e-mail:
+yujt@arclightquantum.com).
+S. Ying and X. Hong are with the Key Laboratory of System Software
+(Chinese Academy of Sciences), Beijing 100190, China, and also with the
+Institute of Software, Chinese Academy of Sciences, Beijing 100190, China
+(e-mail: yingsg@ios.ac.cn; hongxin@ios.ac.cn).
+likewise determined by comparing the root with the constant-
+0 representation [5]. As circuit complexity grows, the cost of
+constructing and storing these representations becomes critical.
+Mature ROBDD packages combine several engineering op-
+timizations [6]. One important technique among these is called
+complement edges, which allow a function and its complement
+to share the same underlying nodes. Instead of constructing
+another graph for f, a complement edge stores a single bit
+indicating whether the output of f should be inverted. In
+this way, ROBDDs exploit sharing between identical sub-
+functions, while complement edges further extend sharing to
+complementary sub-functions.
+Despite these optimizations, existing ROBDD representa-
+tions may still miss important opportunities for node sharing.
+In particular, complement edges capture differences in output
+polarity, but cannot directly capture differences in input po-
+larity. Consider the following two Boolean functions:
+f1(a, b) = a ∧b,
+f2(a, b) = a ∧b.
+(1)
+The two functions are neither identical nor complements of
+each other. Therefore, conventional ROBDD reduction and
+complement edges cannot directly merge their representations.
+However, their computations are highly similar:
+f2(a, b) = f1(a, b).
+(2)
+More generally, a sub-function may appear in many input-
+polarity variants that are neither identical nor complementary.
+Representing these variants separately limits sharing. This
+motivates encoding input-polarity differences on edges, just
+as complement edges encode output polarity.
+To address this problem, we propose XBDD, an extension
+of ROBDD that associates a variable-flip map with each edge.
+The map records which input variables should be interpreted in
+the opposite polarity when the edge is followed. Consequently,
+sub-functions that differ only in selected input polarities
+can reuse the same underlying nodes, with their differences
+represented compactly on the incoming edges. Conceptually,
+XBDD extends the sharing capability of complement edges
+from output-polarity variants to input-polarity variants.
+Two challenges arise. First, different combinations of nodes,
+complement bits, and flip maps may represent the same
+function. XBDD uses normalization and map-aware cofactor
+operations to establish constructive uniqueness under a fixed
+variable order, preserving equivalence checking by root-edge
+comparison for generated representations.
+Second, map storage and manipulation may offset the
+sharing benefits. XBDD combines bitmap encoding and map
+interning with compact pointer-free nodes, level-partitioned
+arXiv:2609.36778v2  [cs.DS]  2 Oct 2026
+
+
+2
+unique tables, and adaptive caching and garbage collection
+to control this overhead.
+Variable-flip maps provide both theoretical and practical
+benefits. For a class of polarity-sensitive Boolean functions,
+XBDD reduces the representation size from exponential to lin-
+ear compared with complement-edge-based ROBDDs. Exper-
+imental results on representative Boolean circuit benchmarks
+further demonstrate its practical effectiveness: compared with
+CUDD [7], a mature complement-edge-based ROBDD pack-
+age, XBDD achieves up to 93% reduction in final node count
+and 61% reduction in memory consumption, with construction
+time ranging from 24% faster to 41% slower. These results
+demonstrate that input-polarity similarity exposes substantial
+sharing opportunities that are missed by existing ROBDD
+representations.
+The main contributions of this work are summarized as
+follows:
+• We identify input-polarity redundancy as an important
+source of missed structural sharing in existing ROBDD
+representations. To exploit this opportunity, we introduce
+a per-edge variable-flip map that enables sub-functions
+differing only in input polarities to share the same under-
+lying nodes.
+• We develop normalization and map-aware cofactor op-
+erations to integrate variable-flip maps into the conven-
+tional ROBDD construction framework, and establish
+constructive uniqueness under a fixed variable order. We
+further show that, for a class of polarity-sensitive Boolean
+functions, XBDD reduces the representation size from
+exponential to linear.
+• We develop a memory-efficient XBDD implementation
+that combines compact bitmap encoding and map intern-
+ing with optimized node, unique-table, and computed-
+cache structures, keeping the additional memory and
+runtime overhead low.
+• We evaluate XBDD against CUDD on IWLS’93 circuit
+benchmarks [8]. The results show substantial reductions
+in node count and memory consumption with modest
+runtime overhead, while also validating the effectiveness
+of map reuse and the predicted exponential-to-linear
+reduction.
+The remainder of this paper is organized as follows. Sec-
+tion II reviews ROBDD fundamentals, ITE-based construc-
+tion, and complement edges. Section III presents the XBDD
+design, including per-edge variable-flip maps, normalization,
+construction, uniqueness, and the theoretical compression re-
+sult. Section IV describes the memory-efficient data struc-
+tures and runtime optimizations used in the implementation.
+Section V evaluates XBDD experimentally and analyzes its
+space–time tradeoff, map interning efficiency, and exponential-
+compression case study. Section VI discusses related decision-
+diagram representations and implementations, and Section VII
+concludes the paper.
+II. BACKGROUND AND MOTIVATION
+This section first reviews the basic concepts and reduction
+rules of ROBDDs. We then introduce ITE-based ROBDD
+construction. Finally, we discuss complement edges and their
+role in increasing node sharing, which motivates our work.
+A. Basic Concepts of ROBDD
+A Binary Decision Diagram (BDD) represents a Boolean
+function as a rooted directed acyclic graph. Each non-terminal
+node is associated with a Boolean variable and tests whether
+the variable is assigned 0 or 1. Based on the assignment,
+evaluation proceeds along either the low (0) edge or the high
+(1) edge. This process continues until reaching a terminal node
+labeled 0 or 1, which determines the value of the Boolean
+function.
+For example, consider the Boolean function f(a, b) = a ∧
+b. Its BDD first checks a. If a = 0, the result must be 0,
+regardless of b. If a = 1, the result depends on b, so the graph
+continues to the node for b. In this sense, a BDD evaluates a
+Boolean function through a sequence of simple decisions.
+The important difference between a BDD and an ordinary
+decision tree is that a BDD can share repeated parts of
+the computation. Consider two branches of a larger Boolean
+function that eventually need to evaluate the same sub-function
+g. A decision tree may contain two separate copies of g,
+whereas a BDD can let both branches point to the same
+node for g. The graph can therefore be much smaller than
+the corresponding decision tree.
+An Ordered BDD (OBDD) requires variables to be tested
+in the same order along every path. An OBDD is further
+reduced using two simple rules. The first is the elimination
+rule: if the low and high edges of a single node point to
+the same child, the tested variable cannot affect the result,
+so that node is removed and its incoming edges are redirected
+to the common child. The second is the merging rule: if two
+distinct nodes test the same variable and have identical low
+children and identical high children, the nodes represent the
+same sub-function and are replaced by one shared node. Thus,
+the first rule removes a redundant variable test within one
+node, whereas the second merges duplicate nodes. An OBDD
+to which neither rule applies is called a Reduced Ordered BDD
+(ROBDD).
+These reduction rules give ROBDDs an important property:
+under a fixed variable order, each Boolean function has a
+unique ROBDD representation [1]. Therefore, whenever the
+same sub-function appears multiple times, all occurrences can
+share one node. Modern BDD packages maintain a unique
+table to detect such equivalent nodes during construction, and
+use a computed table to reuse previously computed Boolean
+operations.
+B. ROBDD Construction with ITE
+The reduction rules described above define the canonical
+structure of an ROBDD. In practice, however, a BDD package
+must maintain this structure while constructing new Boolean
+functions. A widely used approach is to express Boolean
+operations through a common recursive primitive, the If-Then-
+Else (ITE) operator [6]. For three Boolean functions F, G, and
+H, ITE is defined as
+ite(F, G, H) = F · G + F · H,
+(3)
+
+
+3
+which returns G when F = 1 and H when F = 0.
+ITE provides a unified construction interface because com-
+mon Boolean operations can be expressed in terms of it, as
+shown in Table I. For example, F ∧G can be written as
+ite(F, G, 0), while F can be written as ite(F, 0, 1). Therefore,
+rather than implementing a separate recursive procedure for
+each Boolean operator, a BDD package can construct most
+Boolean expressions through the same ITE engine.
+TABLE I
+BOOLEAN OPERATIONS EXPRESSED AS ITE
+Operation
+ITE form
+F AND G
+ite(F, G, 0)
+F OR G
+ite(F, 1, G)
+F XOR G
+ite(F, G, G)
+NOT(F)
+ite(F, 0, 1)
+F NAND G
+ite(F, G, 1)
+F NOR G
+ite(F, 0, G)
+The recursive construction of ITE follows from Shannon
+expansion. Let v be the highest variable, according to the fixed
+variable order, that appears in F, G, or H. We refer to v as the
+top variable. For a Boolean function F, Shannon expansion
+with respect to v gives
+F = v · Fv + v · Fv,
+(4)
+where Fv = F
+
+v=1 and Fv = F
+
+v=0 denote the cofactors
+of F with respect to v, respectively. Applying the same
+decomposition to the three arguments of ITE gives
+ite(F, G, H) = F · G + F · H
+= v ·
+ FvGv + FvHv
+
++ v ·
+ FvGv + FvHv
+
+= ite
+ v, ite(Fv, Gv, Hv), ite(Fv, Gv, Hv)
+
+.
+(5)
+Equation (5) directly gives the recursive construction pro-
+cedure. ITE first computes the cofactors of F, G, and H with
+respect to the top variable v. It then recursively evaluates the
+two branches, producing
+T = ite(Fv, Gv, Hv)
+(6)
+for v = 1 and
+E = ite(Fv, Gv, Hv)
+(7)
+for v = 0. If T = E, the test on v is redundant and the result
+is simply T. Otherwise, a node labeled by v with children E
+and T is required.
+For a conventional ROBDD, cofactor extraction is partic-
+ularly simple. If the root variable of an input node is v, its
+low and high edges directly give the cofactors for v = 0 and
+v = 1, respectively. If its root variable lies below v in the
+variable order, the represented sub-function is independent of
+v at the current level, and the same node is used for both
+cofactors.
+The newly obtained pair (E, T) is then reduced and canon-
+icalized during node construction. If E = T, the node is
+eliminated by the ROBDD reduction rule. Otherwise, the
+unique table is queried using (v, E, T) as the structural key.
+An existing node is reused whenever the same key has already
+been created; only a previously unseen key causes a new node
+to be allocated. In this way, equivalent sub-functions con-
+structed through different recursive paths converge to the same
+ROBDD node. A computed table further caches previously
+evaluated ITE calls and avoids repeating the same recursive
+computation.
+The standard ITE construction algorithm is given in [6,
+Fig. 2]. Terminal cases and computed-table lookups terminate
+the recursion whenever the result is already known. Otherwise,
+ITE repeatedly performs three key steps: cofactor extraction,
+recursive construction, and reduction and canonicalization
+through the unique table.
+C. Complement Edges in ROBDDs
+The ROBDD construction described above maximizes shar-
+ing among identical sub-functions: once a node representing
+a sub-function has been created, all later occurrences can
+reuse the same node through the unique table. However, two
+sub-functions that differ only in their output polarity are still
+treated as different Boolean functions. For example, if one
+part of a graph requires a function g while another requires
+its complement g, a conventional ROBDD would in general
+need separate representations for the two.
+Complement edges extend this sharing capability by moving
+the output polarity difference from the graph structure to the
+edge [6]. Instead of constructing a separate graph for g, an
+edge carries an additional complement bit. When the bit is 0,
+the target node is interpreted normally as g; when it is 1, the
+output of the target node is complemented and interpreted as
+g. Therefore, g and g can share exactly the same underlying
+nodes.
+For example, suppose a node represents
+g(a, b) = a ∧b.
+(8)
+An ordinary incoming edge refers to g(a, b), whereas a com-
+plemented incoming edge refers to
+g(a, b) = a ∧b.
+(9)
+No additional nodes are required for the complemented func-
+tion.
+The benefit of complement edges is that a very small amount
+of edge metadata can eliminate potentially large duplicated
+subgraphs. More importantly, they illustrate a general principle
+for increasing structural sharing in decision diagrams: when
+two functions have the same underlying structure but differ
+by a simple transformation, the difference can sometimes be
+encoded on the incoming edge rather than in separate nodes.
+However, complement edges capture only differences in
+output polarity. They cannot directly merge sub-functions that
+have the same underlying structure but differ in the polarity
+of one or more input variables. This remaining form of
+redundancy motivates the variable-flip maps introduced in the
+next section.
+III. XBDD DESIGN
+Complement edges extend ROBDD sharing to functions
+with opposite output polarities, but they do not capture struc-
+tural similarity caused by differences in input polarity. XBDD
+
+
+4
+addresses this limitation by encoding input-polarity transfor-
+mations on edges, allowing a broader class of structurally
+similar sub-functions to share the same nodes.
+This section presents the design of XBDD. We first define
+the per-edge variable-flip map and the semantics of the ex-
+tended edge representation. We then introduce normalization
+and map-aware cofactor operations, and show how they are
+integrated into the conventional ITE construction framework.
+Next, we establish the constructive uniqueness of XBDD under
+a fixed variable order and analyze the node-sharing benefits
+enabled by variable-flip maps.
+A. Per-Edge Variable-Flip Map
+Complement edges improve node sharing by encoding an
+output-polarity difference on an edge. XBDD follows the same
+general principle, but extends it to input-polarity differences.
+Instead of constructing separate nodes for sub-functions that
+have the same Boolean structure but interpret some input
+variables with opposite polarities, XBDD stores the polarity
+transformation on the incoming edge.
+To represent such transformations, each XBDD edge carries
+a variable-flip map. Let
+V = {x1, . . . , xn}
+(10)
+be the Boolean variable set. A flip map M ⊆V specifies the
+variables whose values are interpreted in the opposite polarity
+when an edge is followed. For example,
+M = {x2, x5}
+(11)
+means that x2 and x5 are flipped, while all other variables are
+interpreted normally.
+An XBDD edge is represented by the triple
+e = (u, p, M),
+(12)
+where u is the target node, p ∈{0, 1} is the conventional
+complement bit, and M is the variable-flip map. The two edge
+attributes have complementary roles: M transforms selected
+inputs before the target node is evaluated, whereas p optionally
+complements the output afterward.
+More formally, let Φu denote the Boolean function repre-
+sented by node u, and let χM be the bit vector whose set bits
+correspond to the variables in M. The function represented by
+edge e = (u, p, M) is
+[[e]](x) = p ⊕Φu(x ⊕χM).
+(13)
+Thus, following an XBDD edge can be understood as three
+conceptual steps: first flip the variables specified by M, then
+evaluate the target node u, and finally complement the result
+if p = 1.
+This definition naturally generalizes conventional comple-
+ment edges. When M = ∅, Eq. (13) reduces to
+[[(u, p, ∅)]](x) = p ⊕Φu(x),
+(14)
+which is exactly the semantics of a complement edge. XBDD
+therefore preserves output-polarity sharing while additionally
+enabling input-polarity sharing.
+For example, suppose node u represents
+Φu(a, b) = a ∧b.
+(15)
+Then the same node can represent several polarity variants
+through different incoming edges:
+(u, 0, ∅) →a ∧b,
+(u, 1, ∅) →a ∧b,
+(u, 0, {a}) →a ∧b.
+(16)
+The first two forms are already supported by complement-edge
+ROBDDs. The third illustrates the additional sharing enabled
+by XBDD: the polarity of a changes, but the underlying node
+structure is reused.
+An XBDD object consists of a shared node DAG G and a
+root edge:
+X = (G, eroot),
+eroot = (uroot, proot, Mroot).
+(17)
+The root edge has no source node and determines the Boolean
+function represented by the XBDD. Different XBDD objects,
+such as different outputs of a multi-output circuit, may use
+different root edges while sharing the same underlying nodes.
+Fig. 1 illustrates this organization.
+XBDD uses a single terminal node ⊤. The edge (⊤, 0, ∅)
+represents constant 1, whereas (⊤, 1, ∅) represents constant
+0. Since a constant does not depend on any input variable,
+attaching a variable-flip map to a terminal edge has no
+semantic effect. Terminal edges are therefore normalized as
+(⊤, p, M) →(⊤, p, ∅).
+(18)
+To further reduce the number of equivalent structural forms,
+XBDD uses a normalized internal-node representation. For
+every nonterminal node, the low edge is required to be regular
+and carries neither a complement bit nor a flip map. A node
+whose decision variable is v therefore has the form
+u = (v, l, h, q, D),
+(19)
+where l and h are the low and high child nodes, respectively,
+and (q, D) are the complement bit and variable-flip map
+associated with the high edge. Equivalently, the low edge is
+(l, 0, ∅) and the high edge is (h, q, D).
+This asymmetric representation does not reduce expressive-
+ness: common complement and flip information from the two
+outgoing edges can be moved to the incoming edge of the
+node. More importantly, it gives XBDD a standard structural
+form that can be used as the key of the unique table. The next
+subsection describes how XBDD transforms arbitrary pairs of
+cofactors into this normalized form and how the corresponding
+flip information is recovered during recursive construction.
+B. Normalization and Cofactor
+Introducing variable-flip maps increases the number of
+ways in which the same underlying Boolean structure can be
+represented. For example, two Shannon branches may appear
+in opposite orders because the polarity of the current variable
+is reversed, or the two outgoing edges may carry common
+complement or flip information that can be moved to the
+
+
+5
+�
+�
+�
+...
+... ...
+...
+(�, �1, �1)
+(�, �2, �2)
+(�, �3, �3)
+(�, �4, �4)
+��� �
+�����1
+�����2
+(����1)
+(����2)
+Fig. 1.
+Structure of XBDD objects. Each XBDD object maintains its own
+root edge, while multiple root edges may reference nodes in the same shared
+DAG G. Every edge is represented by a target node, a complement bit, and
+a variable-flip map.
+incoming edge. If these equivalent forms are inserted into the
+unique table directly, structurally equivalent sub-functions may
+still be stored as different nodes.
+XBDD therefore normalizes every newly constructed node
+before the unique-table lookup. The goal of normalization is
+to separate the shared structure of a node from the transfor-
+mations applied to that structure. Branch ordering is fixed
+deterministically, while common output-polarity and input-
+polarity transformations are lifted from the outgoing edges
+to the incoming edge. As a result, functions that differ only
+by such transformations can reach the same structural key and
+reuse the same node.
+We denote this normalization operator by Norm. Suppose
+the low and high cofactors of variable v are represented by
+e0 = (l, pl, Ml),
+e1 = (h, ph, Mh).
+(20)
+Norm(v, e0, e1) constructs an XBDD representation of the
+Shannon combination
+F = xv[[e0]] + xv[[e1]].
+(21)
+The child nodes l and h are assumed to lie below v in the
+variable order, and v /∈Ml ∪Mh. This condition is naturally
+satisfied during recursive construction because the cofactor
+operation removes the current variable from the incoming map.
+Conceptually, normalization performs four main transfor-
+mations: redundancy elimination, branch ordering, attribute
+lifting, and structural interning.
+a) Redundancy elimination: If the two input edges are
+identical, i.e., e0 = e1, the Shannon test on v is redundant and
+Norm simply returns e0.
+b) Branch ordering: Input-polarity reversal of the current
+variable exchanges the two Shannon branches. To ensure that
+both branch orders lead to the same node structure, XBDD
+imposes a deterministic order on the two child nodes. Each
+node is assigned a unique identifier, and the terminal ⊤is
+treated as having the smallest identifier. If the low child has a
+larger identifier than the high child, the two edges are swapped.
+Let
+s =
+(
+1,
+if the two branches are swapped,
+0,
+otherwise.
+(22)
+Swapping the branches changes the interpretation of the
+current variable. XBDD restores the original semantics in
+Step c according to the recorded value of s. In this way, two
+functions that differ only in the polarity of v can share the
+same ordered pair of child nodes.
+c) Attribute lifting: After the branches have been or-
+dered, XBDD removes transformations that are common to
+both outgoing edges and moves them to the incoming edge.
+For complement bits, the complement bit of the low edge is
+lifted:
+pout = pl,
+q = ph ⊕pl.
+(23)
+The low edge therefore becomes regular, while the high edge
+stores only the complement difference q relative to the low
+edge.
+The same principle is applied to variable-flip maps. In the
+general case,
+Mout = Ml,
+D = Ml△Mh,
+(24)
+where △denotes symmetric difference. Thus, the incoming
+edge carries the transformation of the low branch, while the
+high edge keeps only the map difference relative to it.
+When the ordered low child is the terminal node ⊤and the
+high child is nonterminal, the low branch is independent of all
+variables. Its map therefore provides no meaningful reference
+transformation. In this case, XBDD instead lifts the map of
+the high branch:
+Mout = Mh,
+D = ∅.
+(25)
+We refer to this rule as constant low-child lifting.
+Finally, if the branches were swapped during branch order-
+ing, i.e., s = 1, the current variable is added to the incoming
+map:
+Mout ←Mout ∪{v}.
+(26)
+This records the branch reversal as an input-polarity transfor-
+mation rather than as a different node structure.
+d) Structural interning: After normalization, the low
+edge has the canonical form (l, 0, ∅) and the high edge has
+the form (h, q, D). The node can therefore be identified by the
+structural key
+(v, l, h, q, D).
+(27)
+XBDD looks up this key in the unique table. If an identical key
+already exists, the corresponding node is reused; otherwise, a
+new node is created. The normalized result is returned through
+the incoming edge
+eout = (u, pout, Mout).
+(28)
+The normalization procedure preserves the represented
+Boolean function.
+Theorem 1 (Semantics preservation). For any valid inputs e0
+and e1,
+[[Norm(v, e0, e1)]] = xv[[e0]] + xv[[e1]].
+(29)
+
+
+6
+Proof. Lifting the same complement transformation from both
+branches to the incoming edge does not change the represented
+function. Similarly, Ml△Mh records exactly the input-polarity
+difference remaining after the transformation Ml has been
+lifted to the incoming edge. If the two branches are exchanged,
+adding v to the incoming flip map reverses the interpretation
+of xv and therefore restores the original Shannon decompo-
+sition. In the constant low-child case, the terminal branch is
+independent of all input variables, so lifting the high-branch
+map leaves the semantics unchanged.
+Map-aware cofactor. Normalization combines two cofactors
+into one normalized XBDD edge. Recursive construction also
+requires the reverse operation: given an edge e = (u, p, M),
+we must obtain the sub-function produced by fixing the current
+variable xv to either 0 or 1. We denote this operation by
+Cof(e, v, c), where c ∈{0, 1}.
+The important difference from a conventional ROBDD is
+that the incoming flip map may reverse which outgoing branch
+corresponds to a given value of xv. Let
+b = [v ∈M].
+(30)
+When computing the cofactor for xv = c, the branch seen by
+node u is therefore
+j = c ⊕b.
+(31)
+Thus, when v /∈M, the conventional branch c is selected;
+when v ∈M, the low and high branches are exchanged.
+If the root variable of u lies below v, then the node itself
+does not test xv. In this case, fixing xv only consumes the
+corresponding flip information, and
+Cof(e, v, c) = (u, p, M \ {v}).
+(32)
+If u = ⊤, the terminal normalization rule further clears the
+map, yielding (⊤, p, ∅).
+Now consider the case where the root variable of u is exactly
+v. Recall that the normalized node has low edge (l, 0, ∅) and
+high edge (h, q, D). Let u0 = l and u1 = h. After selecting
+branch j according to Eq. (31), the cofactor is
+Cof(e, v, c) =
+ uj, p ⊕[j = 1]q,
+ M△[j = 1]D
+
+\ {v}
+
+,
+(33)
+where [j = 1]q denotes q when the high branch is selected
+and 0 otherwise, while [j = 1]D denotes D when the high
+branch is selected and ∅otherwise. If the selected child is the
+terminal node, its map is again cleared according to Eq. (18).
+Equation (33) can be interpreted in three steps. First, the
+incoming map determines whether the requested cofactor
+selects the low or high branch. Second, if the high branch is
+taken, its relative complement bit and flip map are composed
+with those of the incoming edge. Finally, v is removed from
+the map because its value has already been fixed.
+The operators Norm and Cof therefore play complementary
+roles. Norm combines two cofactors into a normalized shared
+structure, while Cof recovers the corresponding branches
+during recursive construction. This relationship is the basis
+of the XITE algorithm introduced in the next subsection.
+Algorithm 1 XITE(F, G, H)
+1: if terminal case then
+2:
+return result
+3: else if computed-table has entry {F, G, H} then
+4:
+return cached result
+5: else
+6:
+let v be the top variable of {F, G, H}
+7:
+Fv, Gv, Hv ←Cof(F, v, 1), Cof(G, v, 1), Cof(H, v, 1)
+8:
+Fv, Gv, Hv ←Cof(F, v, 0), Cof(G, v, 0), Cof(H, v, 0)
+9:
+T ←XITE(Fv, Gv, Hv)
+10:
+E ←XITE(Fv, Gv, Hv)
+11:
+R ←Norm(v, E, T)
+12:
+INSERT COMPUTED TABLE({F, G, H}, R)
+13:
+return R
+14: end if
+C. XBDD Construction
+With the edge representation and the two operations Norm
+and Cof defined above, XBDD can be constructed within
+the same recursive framework as a conventional ROBDD. In
+particular, XBDD retains the ITE operator as its common
+construction primitive and expresses Boolean operations using
+the same ITE forms listed in Table I.
+The key difference is that the two operations in conventional
+ITE that directly manipulate BDD edges must now account
+for variable-flip maps. First, ordinary cofactor extraction is
+replaced by the map-aware operator Cof, which determines
+the correct branch after considering the incoming flip map
+and composes the edge attributes accordingly. Second, the
+two recursively constructed branches are not inserted into
+the unique table directly. Instead, they are first passed to
+Norm, which removes redundant transformations, imposes a
+canonical branch ordering, and returns a normalized edge
+whose underlying node can be shared through the unique table.
+In other words, the recursive structure of ITE remains
+unchanged. We refer to the ITE procedure specialized for
+XBDD as XITE. Algorithm 1 summarizes the construction.
+Given three XBDD edges F, G, and H, XITE first handles ter-
+minal cases and checks the computed table, as in conventional
+ITE. Otherwise, it selects the top variable v among the three
+arguments. In XBDD, variables at higher levels are closer to
+the root; thus, selecting the top variable amounts to selecting
+the variable with the largest level. The map-aware cofactors
+for v = 1 and v = 0 are then computed using Cof, and the
+two resulting subproblems are solved recursively. Finally, the
+two recursive results are combined by Norm(v, E, T). Here,
+both the Cof and Norm operators are defined in Section III-B.
+XBDD does not require a separate construction algorithm
+for each Boolean operator. AND, OR, XOR, NOT, and other
+operators are translated into XITE calls in exactly the same
+way that they are translated into ITE calls for conventional
+ROBDDs. Thus, the variable-flip map extends the representa-
+tion and the local edge operations without changing the high-
+level Boolean construction interface.
+The normalization performed at the end of every nontermi-
+nal XITE call also provides the foundation for representation
+
+
+7
+uniqueness. In the next subsection, we show that, under a
+fixed variable order, edges generated through this construction
+procedure have a unique representation for their Boolean
+functions.
+D. Constructive Uniqueness
+A key property of conventional ROBDDs is canonicity:
+under a fixed variable order, each Boolean function has a
+unique reduced representation. Variable-flip maps make this
+property more subtle. Because an XBDD edge contains a target
+node, a complement bit, and a flip map, the same Boolean
+function may admit multiple syntactically valid edge triples.
+XBDD therefore does not claim construction-independent
+strong canonicity over all possible well-formed XBDD edges.
+Instead, it guarantees constructive uniqueness: every Boolean
+function built through the XITE construction procedure has
+a unique generated edge. This guarantee is sufficient for
+normal package use, because all Boolean expressions exposed
+through the XBDD interface are constructed through XITE.
+Consequently, equivalence between two constructed functions
+can still be determined by comparing their root edges.
+Let G denote the set of all edges generated by XBDD
+construction. It contains the normalized constant and variable
+edges, all results returned by XITE, and all intermediate edges
+returned by recursive XITE calls. The uniqueness result below
+is stated only for edges in G.
+The proof relies on one central property of the construction:
+normalization and cofactor extraction are mutually consistent.
+In particular, a generated nonterminal edge can be recon-
+structed uniquely from its two cofactors.
+Lemma 1 (Reconstruction of a generated edge). Let R ∈G
+be a nonterminal edge whose root variable is v. Define
+Rc = Cof(R, v, c),
+c ∈{0, 1}.
+(34)
+Then R0, R1 ∈G, and
+R = Norm(v, R0, R1).
+(35)
+Proof. A nonterminal edge generated by XITE is obtained by
+recursively constructing two branch results and then applying
+Norm(v, ·, ·). By the definition of Cof, applying Cof(R, v, 0)
+and Cof(R, v, 1) reverses the transformations introduced by
+normalization: it restores any branch exchange, composes
+the relative complement and flip attributes, and removes the
+current variable from the map. Therefore, the two cofactors
+recovered from R are exactly the two recursive branch results
+used to construct it.
+Applying Norm to these recovered cofactors performs
+the same deterministic branch ordering, attribute lifting, and
+unique-table lookup as in the original construction, and there-
+fore returns the same generated edge R.
+We can now establish uniqueness for all generated XBDD
+edges.
+Theorem 2 (Constructive uniqueness of XBDD). Under a
+fixed variable order, for any two generated edges R, S ∈G,
+R = S
+⇐⇒
+[[R]] = [[S]].
+(36)
+Proof. The forward direction is immediate: identical edges
+have identical semantics.
+For the reverse direction, suppose that R and S represent
+the same Boolean function. We prove, by induction on the
+variable level k, that the claim holds for all generated edges
+whose root variables lie at or below level k, with terminal
+edges treated as lying below all variable levels.
+For the base case, both edges are terminal. XBDD uses a
+single terminal node ⊤, and terminal normalization removes
+all flip-map information. Hence constant 1 is represented only
+by (⊤, 0, ∅) and constant 0 only by (⊤, 1, ∅). Therefore,
+two generated edges representing the same constant must be
+identical.
+Now assume that the statement holds below level k, and
+consider generated edges R and S whose root variables lie at
+or below level k. If both root variables lie below level k, the
+result follows directly from the induction hypothesis.
+Suppose next that exactly one root variable, say that of R,
+is at level k, and let it be v. Since the root variable of S lies
+below v, and flip maps do not introduce variable dependencies,
+[[S]] is independent of v. Let
+Rc = Cof(R, v, c),
+c ∈{0, 1}.
+(37)
+By Lemma 1, R0, R1 ∈G and their root variables lie below
+level k. Because R and S have the same semantics and S is
+independent of v,
+[[R0]] = [[R1]].
+(38)
+The induction hypothesis gives R0 = R1. The redundancy-
+elimination rule of Norm and Lemma 1 then imply R =
+Norm(v, R0, R1) = R0, contradicting that the root variable
+of R is at level k. Hence this case is impossible.
+It remains to consider the case where both root variables are
+at level k. Under the fixed variable order, both are the same
+variable v. Define
+Rc = Cof(R, v, c),
+Sc = Cof(S, v, c),
+c ∈{0, 1}.
+(39)
+By Lemma 1, these cofactors belong to G and have root
+variables below level k. Since R and S have the same
+semantics, the semantics of Cof gives
+[[Rc]] = [[Sc]],
+c ∈{0, 1}.
+(40)
+By the induction hypothesis, R0 = S0 and R1 = S1. Using
+Lemma 1,
+R = Norm(v, R0, R1)
+= Norm(v, S0, S1)
+= S.
+(41)
+Hence two generated edges represent the same Boolean func-
+tion if and only if they are identical.
+The theorem directly preserves the main practical benefit
+of ROBDD canonicity. A user expression is translated into a
+sequence of XITE calls, so its result belongs to G. Therefore,
+once two functions have been constructed, checking whether
+they are equivalent requires only a comparison of their root
+edges.
+
+
+8
+Constructive uniqueness is intentionally weaker than requir-
+ing every syntactically valid XBDD edge for a function to
+be identical. For example, some node functions may possess
+input/output polarity symmetries, allowing different combina-
+tions of complement bits and flip maps to denote the same
+function. Eliminating all such equivalent edge forms would
+require detecting these symmetries during node construction
+and selecting a globally preferred representative. Such checks
+would make normalization substantially more expensive and
+would be placed on the critical path of every XITE call.
+XBDD instead uses lightweight local normalization and
+guarantees uniqueness for all representations produced through
+its construction interface. This design preserves constant-time
+equivalence checking for normally constructed XBDD objects
+while avoiding expensive global symmetry analysis.
+E. Node Compression with Variable-Flip Maps
+Variable-flip maps extend node sharing beyond identical
+and complementary sub-functions. In particular, sub-functions
+that differ only in the polarities of selected input variables
+can reuse the same underlying nodes, with their differences
+encoded in the incoming edge maps. We first illustrate this
+mechanism with a small example and then show that the
+resulting compression can become asymptotically significant.
+Consider the variable order x3 ≻x2 ≻x1 and the two
+functions
+f1 = x1x2x3,
+f2 = x1x2x3,
+(42)
+which differ only in the polarity of x2. Splitting them on x3
+produces the high cofactors x1x2 and x1x2. These two co-
+factors are neither identical nor complementary and therefore
+require distinct nodes in an ROBDD with complement edges.
+In XBDD, however, normalization moves their input-polarity
+difference to the incoming edge map. Both cofactors therefore
+share the same underlying node h:
+C(x1x2) = (h, 1, ∅),
+C(x1x2) = (h, 1, {x2}).
+(43)
+The structural representation is identical; only the edge map
+records that x2 is interpreted with the opposite polarity in the
+second cofactor.
+The same sharing propagates to the next level. Since both
+f1 and f2 have the constant-0 low cofactor with respect to x3,
+normalizing the two pairs of children again produces the same
+underlying node u. Consequently,
+C(f1) = (u, 1, ∅),
+C(f2) = (u, 1, {x2}).
+(44)
+Thus, a polarity difference that would otherwise require dis-
+tinct subgraphs is represented entirely by an edge attribute in
+XBDD. Fig. 2 illustrates this additional sharing.
+Although the example above saves only a few nodes, the
+same mechanism can repeat across many variables and lead
+to an asymptotic reduction in representation size. Consider the
+following family of Boolean functions:
+Fk(c1, . . . , ck, x1, . . . , xk) =
+k^
+j=1
+(xj ⊕cj),
+(45)
+�1�2
+�= 1
+ℎ1
+�1�2
+ℎ2
+�1
+�2
+⊤
+ℎ1
+ℎ2
+�= 1
+�= 1
+�= 1
+�1
+�2
+first level
+second level
+(a)
+ℎ
+�
+⊤
+ℎ
+first level
+second level
+�1
+�2
+�1�2
+�1�2
+�= 1
+�= 1
+�= {�2}
+�= 1
+�= {�2}
+�= 1
+(b)
+Fig. 2.
+Node sharing for functions with different input polarities: (a) an
+ROBDD with complement edges requires separate nodes for the polarity
+variants, whereas (b) XBDD records the polarity difference in an edge map
+and allows the underlying nodes to be shared.
+under the variable order
+c1 ≻c2 ≻· · · ≻ck ≻x1 ≻x2 ≻· · · ≻xk.
+(46)
+Here, each cj determines the polarity in which xj is inter-
+preted. After assigning the k variables c1, . . . , ck, the remain-
+ing function takes the form
+k^
+j=1
+(xj ⊕bj),
+(b1, . . . , bk) ∈{0, 1}k.
+(47)
+Hence, the upper part of the diagram can expose 2k different
+polarity variants of the same conjunction structure.
+Proposition 1. Under the variable order in (46), a complement-
+edge ROBDD for Fk requires Ω(2k) nodes, whereas Fk admits
+an XBDD representation with O(k) nodes.
+Proof sketch. For every assignment (b1, . . . , bk) to the c vari-
+ables, the corresponding residual function is the conjunction in
+(47). These 2k residual functions are pairwise distinct. More-
+over, for k > 1, no two such conjunctions are complements of
+each other. Complement edges therefore cannot collapse them
+into a common representation, yielding exponentially many
+distinct residual structures.
+In XBDD, all these residual functions share the same
+conjunction structure over x1, . . . , xk. Their only differences
+are the input polarities specified by (b1, . . . , bk), which can be
+encoded in the variable-flip maps of their incoming edges. The
+shared conjunction requires only a linear number of nodes. The
+decisions on c1, . . . , ck likewise require only a linear number
+of nodes, with their effects propagated through edge maps.
+Therefore, the complete XBDD representation contains O(k)
+nodes.
+□
+This family demonstrates that variable-flip maps do more
+than provide local node savings: when polarity variants repeat-
+edly occur across multiple levels, they can reduce an exponen-
+tial number of structurally similar sub-functions to a linear-size
+
+
+9
+TABLE II
+COMMON OPERATIONS ON THE BITMAP REPRESENTATION.
+Operation
+Implementation
+Complexity
+A△B
+word-wise XOR
+O(w)
+Equality
+word-wise comparison
+O(w)
+Insert/erase/test
+bit operation
+O(1)
+Hash
+word-wise folding
+O(w)
+shared representation. Section V-E experimentally validates
+this exponential-to-linear behavior. For general circuits, the
+achievable reduction naturally depends on how frequently sub-
+functions differ primarily in input polarity.
+IV. IMPLEMENTATION
+The variable-flip map enables XBDD to exploit additional
+structural sharing, but it also introduces extra metadata and
+map operations during XBDD construction. A practical imple-
+mentation must therefore ensure that the cost of maintaining
+these transformations does not offset the memory savings
+obtained from node reduction. To this end, XBDD combines
+compact map encoding, memory-efficient core data structures,
+and several runtime optimizations.
+A. Compact Variable-Flip Map Representation
+Variable-flip maps are frequently manipulated during nor-
+malization and cofactor computation and may appear in a large
+number of nodes and cache entries. Directly storing a set of
+variable identifiers on each edge would therefore introduce
+considerable storage and lookup overhead. XBDD addresses
+this issue through bitmap encoding and map interning.
+Bitmap encoding. Since variable identifiers occupy a contigu-
+ous range [0, n), a flip map can be represented naturally as a
+bitmap. For n variables, XBDD stores it in w =
+ n
+64
+
+machine
+words of 64 bits each, where bit i is set if and only if variable
+xi belongs to the map.
+This representation makes the common map operations
+inexpensive. Symmetric difference, which is heavily used by
+normalization and cofactoring, becomes a word-wise XOR.
+Equality is implemented by word-wise comparison, whereas
+insertion, deletion, and membership testing require only a
+bit operation on the corresponding word. The costs of these
+operations are summarized in Table II.
+When n ≤64, the entire map fits into one machine word,
+making the major map operations effectively constant-time.
+Map interning. Although bitmap encoding makes individual
+maps compact, repeatedly storing the same bitmap on many
+edges would still incur substantial memory overhead. In prac-
+tice, many edges reuse the same flip patterns. XBDD therefore
+maintains a global map pool, where each distinct bitmap is
+stored once and assigned a 32-bit handle ι(M), with ι(∅) = 0.
+Nodes and computed-cache entries store only this handle
+rather than the complete bitmap. Besides reducing duplicate
+storage, interning also turns map equality into an integer
+comparison:
+M1 = M2 ⇐⇒ι(M1) = ι(M2).
+(48)
+The empty map is handled as a common fast path. Since its
+handle is zero, an edge without an input-polarity transforma-
+tion can be identified without accessing the map pool.
+This representation is especially useful because maps occur
+not only in nodes but also in computed-cache keys and results.
+Section V-D evaluates the map reuse rate and the effectiveness
+of interning in practice.
+B. Memory-Efficient Core Data Structures
+XBDD construction may generate millions of nodes and
+hash-table entries, so even a small increase in per-object
+storage can lead to substantial memory overhead. XBDD
+therefore organizes its node pool and unique table around
+compact fixed-width representations.
+Compact node representation. All nodes are stored in a
+contiguous node pool and referenced using 32-bit NodeIds
+rather than 64-bit memory pointers. The terminal node is
+fixed at index 0, making terminal detection a simple integer
+comparison.
+The complement flag is packed into the high bit of the child
+identifier, so the target node and output polarity occupy a sin-
+gle 32-bit field. Moreover, the normalized node representation
+described in Section III-B guarantees that the low edge carries
+an empty variable-flip map. Therefore, an internal node stores
+only one 32-bit map handle for the relative high-edge map.
+Together with a 16-bit reference counter and a 16-bit
+variable-level field, each XBDD node occupies 16 bytes. The
+reference counter is saturating: once the maximum value is
+reached, the node is conservatively treated as permanently
+referenced rather than allowing the counter to overflow.
+An important consequence is that normalization serves not
+only to obtain a deterministic representation but also to reduce
+implementation cost. Without the normalized low edge, each
+node would require two independent map handles instead of
+one.
+Level-partitioned unique table. As in conventional ROBDD
+packages, XBDD uses a unique table to ensure that structurally
+identical normalized nodes are stored only once. Rather than
+maintaining a single global table, XBDD partitions the unique
+table by variable level.
+Each level owns an independent open-addressing hash table.
+For a fixed level, a node is identified by
+(low, high, q, ι(D)),
+(49)
+where low and high are child identifiers, q is the relative
+complement bit, and ι(D) is the handle of the relative high-
+edge map. Since the variable level is implicit in the selected
+partition, it does not need to be included in the lookup key.
+Partitioning also improves implementation efficiency. Table
+growth and rehashing affect only one level rather than the
+entire unique table, and recursive XBDD construction often
+accesses nodes from the same or nearby levels consecutively,
+providing better memory locality.
+
+
+10
+C. Runtime Optimizations
+The compact representations above control the memory
+overhead introduced by variable-flip maps. Runtime overhead,
+however, may still arise from memoization, recursive Boolean
+operations, and reclamation of temporary nodes. XBDD there-
+fore applies several optimizations to these common execution
+paths.
+Compact and adaptive computed cache. Recursive Boolean
+operations repeatedly encounter identical sub-problems, mak-
+ing memoization essential for efficient construction. XBDD
+represents each edge in the cache using a 32-bit node/com-
+plement field and a 32-bit map handle. Consequently, an ITE
+cache entry containing three input edges and one result edge
+occupies 32 bytes.
+The cache is direct-mapped: each key hashes to one slot, and
+a collision simply replaces the existing entry. This organization
+avoids pointer chasing and complex replacement policies. Its
+capacity is adjusted according to the scale of the current
+construction and cache behavior, so small instances do not
+reserve excessive memory while larger instances can benefit
+from a larger memoization space.
+To reduce random memory accesses on cache misses,
+XBDD additionally maintains a one-byte partial-hash tag for
+each cache slot. A lookup first checks this tag; a mismatch
+immediately indicates a miss without loading the complete 32-
+byte entry. Only a matching tag triggers full-key comparison.
+Since the tag array is much smaller than the main cache, it
+has better cache locality and acts as a lightweight filter for
+miss-dominated accesses.
+Adaptive garbage collection. XBDD manages node lifetime
+using reference counting. When the reference count of a node
+reaches zero, the node becomes dead but is not immediately
+removed from the unique table. Retaining recently dead nodes
+allows them to be reused if the same intermediate sub-
+function reappears shortly afterward, avoiding unnecessary
+reconstruction.
+Garbage collection is triggered when the number of dead
+nodes exceeds an adaptive threshold. The threshold is adjusted
+according to the effectiveness of previous collections: ineffec-
+tive collections postpone the next cleanup, while collections
+that reclaim a large fraction of nodes allow more aggressive
+reclamation. The threshold also scales with the number of
+live nodes to prevent excessive collection frequency for large
+XBDDs.
+The map pool is reclaimed together with node and cache
+cleanup. Maps referenced by surviving nodes or valid cache
+entries are retained, while unreferenced maps can be removed
+without requiring a separate full reclamation pass.
+Skipping transient cache entries. Not every intermediate
+recursive result benefits from memoization. Some operands
+exist only along the current recursion path and are unlikely to
+be reused. Caching such sub-problems introduces additional
+hashing and memory accesses while potentially replacing more
+useful entries.
+XBDD uses reference counts as a lightweight heuristic for
+identifying these cases. When all operands of an operation
+have reference count one, the operation is treated as transient
+and bypasses both cache lookup and cache insertion. This
+reduces cache traffic for short-lived intermediate states and
+preserves cache capacity for more reusable sub-functions.
+Overall, these optimizations are designed to keep the addi-
+tional metadata and runtime cost of variable-flip maps small.
+Bitmap encoding and interning compact the map representa-
+tion, fixed-width node and unique-table layouts limit memory
+overhead, and cache and recursion optimizations reduce the
+additional work introduced during construction. The resulting
+space–time tradeoff is evaluated in Section V.
+V. EVALUATION
+We evaluate XBDD from four perspectives. First, we ex-
+amine whether the additional sharing enabled by variable-
+flip maps reduces node count and memory consumption on
+practical circuits. Second, we study the runtime cost associated
+with this more expressive representation. Third, we evalu-
+ate whether flip maps exhibit sufficient reuse to make map
+interning effective. Finally, we validate the exponential-to-
+linear compression predicted in Section III-E on the polarity-
+sensitive function family introduced there.
+A. Experimental Setup
+We evaluate XBDD on nine circuits from the IWLS’93
+benchmark suite [8] and compare it with CUDD [7], a widely
+used and mature BDD package. The evaluated circuits include
+C1355, C1908, C3540, C499, C880, cm150a, comp,
+mux, and my_adder, covering circuits with different sizes
+and different degrees of polarity-related structural sharing.
+Both implementations construct BDDs from the same BLIF
+circuit descriptions. To isolate the effect of the representation
+itself, dynamic variable reordering is disabled, and both imple-
+mentations use the same fixed variable order. Both are pinned
+to the same CPU core to reduce scheduling interference. Each
+experiment is repeated 50 times, and the average result is
+reported.
+We evaluate four primary metrics. Final nodes measures
+the number of nodes required to represent all output functions
+after construction and therefore directly reflects representation
+compactness. Peak nodes measures the maximum number of
+nodes allocated during construction, capturing the pressure
+caused by intermediate results. Memory reports the total mem-
+ory occupied by the BDD package, including the node pool,
+unique table, computed cache, and, for XBDD, the map pool.
+Wall time measures the complete BDD construction time.
+B. Overall Performance
+Table III summarizes the overall results. The most important
+observation is that XBDD consistently reduces space con-
+sumption, although the magnitude of the reduction depends
+strongly on the structure of the circuit.
+The reduction in final nodes directly demonstrates the
+additional sharing enabled by variable-flip maps. The strongest
+examples are C1355 and C499, where XBDD requires only
+7% of the nodes used by CUDD, corresponding to a reduction
+
+
+11
+TABLE III
+OVERALL COMPARISON BETWEEN CUDD AND XBDD ON IWLS’93. RATIOS ARE XBDD/CUDD; SMALLER VALUES ARE BETTER.
+Circuit
+Time (ms)
+Peak Nodes
+Final Nodes
+Memory (MB)
+CUDD
+XBDD
+Ratio
+CUDD
+XBDD
+Ratio
+CUDD
+XBDD
+Ratio
+CUDD
+XBDD
+Ratio
+C1355
+42.99
+60.39
+1.41
+187026
+13312
+0.07
+45922
+3257
+0.07
+16.23
+8.94
+0.55
+C1908
+76.50
+98.21
+1.28
+164542
+44032
+0.27
+36007
+12633
+0.35
+15.50
+9.65
+0.62
+C3540
+2224.03
+2505.77
+1.13
+2907590
+2311168
+0.79
+604559
+477635
+0.79
+162.60
+120.81
+0.74
+C499
+35.35
+49.11
+1.39
+145124
+12288
+0.08
+45922
+3257
+0.07
+14.86
+8.92
+0.60
+C880
+620.41
+712.46
+1.15
+1370502
+1199104
+0.87
+346660
+330622
+0.95
+79.68
+60.98
+0.77
+cm150a
+83.73
+108.00
+1.29
+231994
+128000
+0.55
+131071
+82701
+0.63
+17.86
+11.30
+0.63
+comp
+272.75
+206.98
+0.76
+673498
+267264
+0.40
+458698
+262141
+0.57
+40.60
+15.71
+0.39
+mux
+95.01
+115.80
+1.22
+229950
+126976
+0.55
+131071
+82701
+0.63
+17.80
+11.26
+0.63
+my adder
+219.44
+212.12
+0.97
+656124
+394240
+0.60
+327677
+327677
+1.00
+32.07
+18.39
+0.57
+of approximately 93%. XBDD also substantially reduces the
+final node count on C1908, cm150a, comp, and mux. The
+benefit is smaller on C880, while my_adder has the same
+final node count in both representations.
+This variation is expected. A flip map does not guarantee
+compression for every Boolean function; it creates additional
+sharing only when sub-functions differ primarily in the po-
+larity of their inputs. Circuits containing more such structures
+therefore benefit more strongly.
+Peak node counts exhibit a similar trend, but reveal an
+additional benefit. Even for my_adder, where the final node
+count is unchanged, XBDD reduces the peak node count from
+656,124 to 394,240. Therefore, variable-flip sharing can reduce
+intermediate structures during construction even when it does
+not reduce the final representation.
+The reduction in node count, together with the compact 16-
+byte node representation described in Section IV-B, translates
+into lower overall memory consumption. Across all evaluated
+circuits, XBDD uses only 39%–77% of the memory consumed
+by CUDD. This shows that the additional map metadata
+does not eliminate the space benefit obtained from structural
+sharing.
+The itemized data also reveals another phenomenon: on
+smaller circuits, the memory of XBDD is dominated by the
+fixed-capacity computed cache—the initial fixed capacity of
+262144 slots alone occupies about 8 MB. For example, on
+C1355 and C499, although the node count drops by about
+93%, the memory only drops by about 40%; the reason is
+that when the node pool is compressed to an extremely small
+size, the drop in memory touches the lower bound determined
+by fixed overheads such as the computed cache, and thus no
+longer decreases in the same proportion as the node count.
+C. Space–Time Tradeoff
+The main cost of XBDD is additional computation during
+construction. Compared with CUDD, every recursive operation
+may require map membership tests, symmetric differences, and
+map interning, and both the unique table and the computed
+table additionally require hashing over the maps. The key
+question is therefore whether the resulting space reduction
+justifies this runtime overhead.
+Fig. 3 summarizes this tradeoff by plotting, for each circuit,
+the normalized wall time against the normalized memory
+consumption. Both values are normalized to CUDD, so (1, 1)
+represents the CUDD baseline. Points below the horizontal
+line at 1 consume less memory, while points to the left of the
+vertical line at 1 are also faster than CUDD.
+All evaluated circuits lie below the memory baseline, con-
+firming that XBDD consistently provides a net space saving.
+For smaller circuits such as C1355 and C499, this saving
+comes with a relatively visible runtime overhead: XBDD is
+41% and 39% slower, respectively. However, these circuits
+also exhibit the strongest structural compression, with their
+final node counts reduced by approximately 93%.
+The relative runtime overhead becomes smaller on larger
+circuits. For example, XBDD is only 13% slower on C3540,
+while reducing its memory consumption by 26%. The reason
+is that, as the construction grows, operations such as node
+allocation, table expansion, and hash-table access account for
+a larger fraction of the total runtime, reducing the relative
+weight of map manipulation.
+In some cases, structural compression can even compensate
+for the map overhead. On my_adder, XBDD and CUDD
+have nearly identical construction times, while XBDD uses
+only 57% of the memory. On comp, XBDD is 24% faster and
+uses only 39% of the memory. The reduction in intermediate
+nodes can decrease node-pool and table expansions, partially
+or completely offsetting the additional cost of map operations.
+These results indicate that XBDD does not simply exchange
+memory for a fixed runtime penalty. Instead, the tradeoff
+depends on the amount of structural sharing exposed by the
+flip maps and on the scale of the BDD construction. The
+runtime overhead is most visible on small circuits, whereas
+larger constructions tend toward parity and may occasionally
+benefit from the reduced number of intermediate nodes.
+D. Map Interning Efficiency
+Map interning is intended to prevent the additional edge
+attribute from becoming a new source of memory overhead.
+Its effectiveness depends on a simple assumption: although
+maps may be referenced frequently, the number of distinct
+maps should remain relatively small.
+To examine this property, we record the number of distinct
+maps stored in the map pool, the total number of map
+references before deduplication, and the dynamic map-pool
+hit rate. Table IV summarizes the results.
+The results show substantial map reuse across all evaluated
+circuits. Interning eliminates between 89.84% and 99.95%
+of duplicate map instances. In several circuits, hundreds of
+thousands of map references collapse into only a few hundred
+
+
+12
+0.7
+0.8
+0.9
+1.0
+1.1
+1.2
+1.3
+1.4
+1.5
+Normalized wall time (XBDD / CUDD)
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+1.1
+Normalized memory (XBDD / CUDD)
+faster and smaller
+smaller but slower
+Space-Time Tradeoff
+C1355
+C1908
+C3540
+C499
+C880
+cm150a
+comp
+mux
+my_adder
+CUDD baseline
+Fig. 3. Space–time tradeoff of XBDD relative to
+CUDD.
+64
+128
+192
+256
+320
+384
+Variable Count n
+2
+4
+6
+8
+10
+12
+14
+16
+Map Memory (MB)
+Flip-Map Memory Comparison
+Without interning
+With interning
+Fig. 4.
+Total flip-map storage for C1355 as a
+function of the variable count n.
+14
+15
+16
+17
+18
+19
+20
+K
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+Final Nodes
+1e6 Final Node Count Comparison
+CUDD
+XBDD
+Fig. 5. Final node count of XBDD and CUDD for
+the polarity-sensitive function family Fk.
+TABLE IV
+COMPRESSION AND REUSE ACHIEVED BY MAP INTERNING.
+Circuit
+Pool
+Total
+Comp.
+Hit
+Entries
+Maps
+Ratio
+Rate
+C1355
+15024
+342888
+95.62%
+98.27%
+C1908
+5159
+197907
+97.39%
+98.84%
+C3540
+4754
+575384
+99.17%
+99.85%
+C499
+15231
+281071
+94.58%
+97.82%
+C880
+3309
+312072
+98.94%
+99.84%
+cm150a
+303
+480294
+99.94%
+99.96%
+comp
+34855
+817152
+95.73%
+98.71%
+mux
+199
+436628
+99.95%
+99.98%
+my adder
+65567
+645115
+89.84%
+96.24%
+or a few thousand distinct maps. For example, mux contains
+436,628 map references but only 199 distinct maps.
+This high reuse rate directly supports the use of compact
+handles. Instead of storing a complete bitmap at every oc-
+currence, nodes and cache entries store only a 32-bit map
+identifier, while each distinct bitmap is stored once in the
+global pool.
+The dynamic hit rate is also consistently high, ranging
+from 96.24% to 99.98%. Thus, most interning requests find
+an existing map rather than creating a new one. The map
+pool consequently remains small, and map interning introduces
+limited allocation and rehashing overhead.
+The storage consequence of this reuse grows with the
+variable count. Because a map is stored as an integral number
+of 64-bit words, its exact size is b = 8
+ n
+64
+
+bytes. Without
+interning, every one of the M map references stores a full
+bitmap, for M · b bytes in total. With interning, a reference
+stores only a 32-bit handle and each of the P distinct bitmaps
+is stored once in the pool, for 4M + P · b bytes. Fig. 4
+instantiates both expressions with the C1355 counters of
+Table IV (M = 342,888, P = 15,024). The uninterned cost
+grows with the full reference count and reaches 15.7 MB at
+n = 384, whereas the interned cost grows with the pool size
+only and stays below 2.1 MB, a 7.9× reduction. Since the two
+slopes differ by the factor M/P, the gap widens linearly in n:
+interning replaces a per-reference dependence on the variable
+count with a constant 4-byte handle, leaving the pool as the
+only n-dependent term.
+Overall, these results confirm that flip maps are highly
+repetitive in practice. Map interning therefore converts what
+could have been a substantial per-edge storage cost into a small
+shared metadata structure.
+E. Exponential Compression Case Study
+The benchmark results above demonstrate that variable-flip
+maps provide substantial compression on practical circuits. We
+finally examine whether they can also produce the asymptotic
+compression predicted in Section III-E.
+Recall the function family
+Fk(c1, . . . , ck, x1, . . . , xk) =
+k^
+j=1
+(xj ⊕cj),
+(50)
+under the fixed variable order
+c1 ≻· · · ≻ck ≻x1 ≻· · · ≻xk.
+(51)
+The cj variables determine the polarities of the xj variables.
+A complement-edge-only BDD cannot directly share all these
+polarity variants, whereas XBDD can encode their differences
+in edge maps.
+We construct Fk for k = 14, . . . , 20 using both XBDD
+and CUDD, with dynamic variable reordering disabled and
+the same fixed variable order. Fig. 5 reports the resulting final
+node counts.
+The two representations exhibit fundamentally different
+growth trends. The CUDD node count approximately doubles
+as k increases, consistent with exponential growth. In contrast,
+the XBDD node count grows only linearly.
+At k = 20, CUDD requires 3,145,725 nodes, whereas
+XBDD requires only 60 nodes. The difference is therefore not
+merely a constant-factor reduction. The experiment confirms
+the structural result from Section III-E: for this function family,
+per-edge variable-flip maps reduce the representation from
+exponential to linear size.
+This case study also explains why the gains on practical
+circuits vary. Real circuits do not necessarily exhibit this
+polarity structure at every level, but whenever similar local
+structures occur, XBDD can exploit the same sharing mecha-
+nism. The practical benchmark results can therefore be viewed
+as different degrees of this underlying structural opportunity.
+
+
+13
+VI. RELATED WORK
+Decision-diagram representations. Since Bryant established
+ROBDDs as a canonical representation of Boolean functions
+[1], [2], many decision-diagram variants have been proposed
+to exploit different types of structure. Zero-suppressed BDDs
+(ZBDDs) are particularly effective for representing sparse sets
+[9], while multi-terminal BDDs extend terminal values beyond
+Boolean constants [10]. Free BDDs relax the global variable-
+order restriction [11], and sentential decision diagrams ex-
+ploit structured decompositions to provide a more general
+canonical representation [12]. Decision diagrams have also
+been extended to other domains. For example, QMDDs and
+TDDs represent quantum states and circuits [13], [14], while
+LIMDDs and LimTDDs attach local transformations to edges
+to expose additional equivalences between quantum substruc-
+tures [15], [16]. These approaches change the representation
+to exploit application-specific forms of redundancy. XBDD
+instead remains within the ROBDD framework and targets
+a specific redundancy that frequently appears in Boolean
+functions: sub-functions that share the same structure but differ
+in the polarities of some input variables.
+Edge-augmented BDDs. A particularly relevant line of re-
+search increases sharing by attaching additional information
+to BDD edges. Complement edges are the most widely used
+example: a single complement bit allows a node represent-
+ing f to also represent f, avoiding a separate graph for
+the complementary function [6]. Such edges have become a
+standard component of mature BDD implementations. More
+general edge annotations have also been explored. Typed
+edges and shared BDDs associate different transformations
+with edges, including output inversion, input inversion, and
+variable shifting [17], [18]. Other approaches encode reduction
+information on edges, such as chain-reduced BDDs, tagged
+BDDs, and edge-specified reduction techniques [19]–[22].
+XBDD is closely related to this general idea of mov-
+ing structural differences from nodes to edges, but focuses
+specifically on local input-polarity differences. A conventional
+complement edge encodes one output transformation f(x) →
+f(x) whereas the variable-flip map considered in this work
+describes transformations of the form f(x) →f(x ⊕p)
+where p may specify an arbitrary subset of input variables.
+More importantly, XBDD integrates this representation into
+the ROBDD construction framework by providing normal-
+ization and cofactor operations that preserve a canonical
+representation, together with a compact implementation based
+on bitmap encoding and map interning. This enables input-
+polarity variants to share the same underlying nodes while
+retaining the constant-time equivalence property of canonical
+BDD representations.
+Efficient BDD implementations. A complementary body of
+work focuses on improving the efficiency of BDD construc-
+tion without fundamentally changing the represented Boolean
+function. Mature packages such as CUDD and BuDDy employ
+techniques including unique tables, computed caches, comple-
+ment edges, reference counting, and garbage collection [7],
+[23]. Subsequent work has improved memory locality and data
+layout through memory-hierarchy-aware and cache-conscious
+designs [24]–[26], as well as pointerless representations that
+reduce node-storage overhead [27]. Parallel implementations
+exploit multi-core processors, GPUs, and external-memory
+systems to scale BDD manipulation to larger problems [28]–
+[30]. Other work reduces the number of temporary nodes gen-
+erated during construction [31]. Variable ordering is another
+orthogonal direction because it can dramatically affect BDD
+size; dynamic techniques such as sifting search for improved
+orders during construction [32].
+VII. CONCLUSION
+This paper presents XBDD, an extension of ROBDD that
+exploits input-polarity redundancy through per-edge variable-
+flip maps. While complement edges allow functions with
+opposite output polarities to share the same nodes, XBDD
+further enables sub-functions that differ only in selected input
+polarities to reuse the same underlying structure. Normaliza-
+tion and map-aware cofactor operations guarantee constructive
+uniqueness of the generated edges, while bitmap encoding,
+map interning, and compact data structures keep the additional
+overhead small.
+Experiments on IWLS’93 circuits show that XBDD sub-
+stantially reduces both node count and memory consumption
+compared with CUDD, while introducing a moderate runtime
+overhead that decreases as construction scale grows. For
+polarity-sensitive functions, XBDD can further reduce the
+representation from exponential to linear size. Future work will
+study the interaction between variable-flip maps and dynamic
+variable ordering, as well as their applicability to larger and
+parallel BDD workloads.
+ACKNOWLEDGMENT
+During the preparation of this manuscript, we used Chat-
+GPT, a generative AI tool, to assist with grammar checking
+and language polishing.
+REFERENCES
+[1] R. E. Bryant, “Graph-based algorithms for Boolean function manipula-
+tion,” IEEE Transactions on Computers, vol. C-35, no. 8, pp. 677–691,
+Aug. 1986.
+[2] ——, “Symbolic Boolean manipulation with ordered binary-decision
+diagrams,” ACM Computing Surveys, vol. 24, no. 3, pp. 293–318, Sep.
+1992.
+[3] S. Malik, A. Wang, R. Brayton, and A. Sangiovanni-Vincentelli, “Logic
+verification using binary decision diagrams in a logic synthesis envi-
+ronment,” in [1988] IEEE International Conference on Computer-Aided
+Design (ICCAD-89) Digest of Technical Papers, 1988, pp. 6–9.
+[4] M. Fujita, H. Fujisawa, and N. Kawato, “Evaluation and improvement
+of Boolean comparison method based on binary decision diagrams,”
+in [1988] IEEE International Conference on Computer-Aided Design
+(ICCAD-89) Digest of Technical Papers, 1988, pp. 2–5.
+[5] R. E. Bryant and M. J. H. Heule, “Generating extended resolution proofs
+with a BDD-based SAT solver,” ACM Transactions on Computational
+Logic, vol. 24, no. 4, pp. 1–28, Jul. 2023.
+[6] K. S. Brace, R. L. Rudell, and R. E. Bryant, “Efficient implementation
+of a BDD package,” in Proceedings of the 27th ACM/IEEE Design
+Automation Conference, 1990, pp. 40–45.
+[7] F. Somenzi, CUDD: CU Decision Diagram Package Release 3.0.0,
+University of Colorado at Boulder, Boulder, CO, USA, 2015.
+[8] K. McElvain, “IWLS’93 benchmark set: Version 4.0,” Mentor Graphics,
+Tech. Rep., May 1993, distributed as part of the IWLS’93 benchmark
+set.
+
+
+14
+[9] S. Minato, “Zero-suppressed BDDs for set manipulation in combi-
+natorial problems,” in Proceedings of the 30th International Design
+Automation Conference, 1993, pp. 272–277.
+[10] M. Fujita, P. C. McGeer, and J. C.-Y. Yang, “Multi-terminal binary
+decision diagrams: An efficient data structure for matrix representation,”
+Formal Methods in System Design, vol. 10, no. 2, pp. 149–169, Apr.
+1997.
+[11] J. Gergov and C. Meinel, “Efficient Boolean manipulation with OBDD’s
+can be extended to FBDD’s,” IEEE Transactions on Computers, vol. 43,
+no. 10, pp. 1197–1209, Oct. 1994.
+[12] A. Darwiche, “SDD: A new canonical representation of propositional
+knowledge bases,” in Proceedings of the 22nd International Joint
+Conference on Artificial Intelligence (IJCAI), 2011, pp. 819–826.
+[13] P. Niemann, R. Wille, D. M. Miller, M. A. Thornton, and R. Drechsler,
+“QMDDs: Efficient quantum function representation and manipulation,”
+IEEE Transactions on Computer-Aided Design of Integrated Circuits
+and Systems, vol. 35, no. 1, pp. 86–99, Jan. 2016.
+[14] X. Hong, X. Zhou, S. Li, Y. Feng, and M. Ying, “A tensor network
+based decision diagram for representation of quantum circuits,” ACM
+Transactions on Design Automation of Electronic Systems (TODAES),
+vol. 27, no. 6, pp. 1–30, Nov. 2022.
+[15] L. Vinkhuijzen, T. Coopmans, D. Elkouss, V. Dunjko, and A. Laarman,
+“LIMDD: A decision diagram for simulation of quantum computing
+including stabilizer states,” Quantum, vol. 7, p. 1108, Sep. 2023.
+[16] X. Hong, A. Dai, D. Gao, S. Li, Z. Ji, and M. Ying, “LimTDD: A
+compact decision diagram integrating tensor and local invertible map
+representations,” 2025, arXiv:2504.01168.
+[17] J.-C. Madre and J.-P. Billon, “Proving circuit correctness using formal
+comparison between expected and extracted behaviour,” in Proceedings
+of the 25th ACM/IEEE Design Automation Conference, 1988, pp. 205–
+210.
+[18] S.-i. Minato, N. Ishiura, and S. Yajima, “Shared binary decision diagram
+with attributed edges for efficient Boolean function manipulation,” in
+Proceedings of the 27th ACM/IEEE Design Automation Conference,
+1990, pp. 52–57.
+[19] R. E. Bryant, “Chain reduction for binary and zero-suppressed decision
+diagrams,” Journal of Automated Reasoning, vol. 64, no. 7, pp. 1361–
+1391, Jul. 2020.
+[20] T. van Dijk, R. Wille, and R. Meolic, “Tagged BDDs: Combining
+reduction rules from different decision diagram types,” in Proceedings
+of the 17th Conference on Formal Methods in Computer-Aided Design,
+2017, pp. 108–115.
+[21] J. Babar, C. Jiang, G. Ciardo, and A. Miner, “Binary decision diagrams
+with edge-specified reductions,” in International Conference on Tools
+and Algorithms for Construction and Analysis of Systems (TACAS),
+2019, pp. 303–318.
+[22] J. Babar, G. Ciardo, and A. Miner, “CESRBDDs: Binary decision
+diagrams with complemented edges and edge-specified reductions,”
+International Journal on Software Tools for Technology Transfer, vol. 24,
+no. 1, pp. 89–109, Feb. 2022.
+[23] J. Lind-Nielsen, “BuDDy: A binary decision diagram package,” De-
+partment of Information Technology, Technical University of Denmark,
+Technical report, 1999.
+[24] J. V. Sanghavi, R. K. Ranjan, R. K. Brayton, and A. Sangiovanni-
+Vincentelli, “High performance BDD package by exploiting memory
+hierarchy,” in Proceedings of the 33rd Annual Design Automation
+Conference, 1996, pp. 635–640.
+[25] D. E. Long, “The design of a cache-friendly BDD library,” in Proceed-
+ings of the 1998 IEEE/ACM International Conference on Computer-
+Aided Design, 1998, pp. 639–645.
+[26] S. Pastva and T. Henzinger, “Binary decision diagrams on modern
+hardware,” in Proceedings of the 23rd Conference on Formal Methods
+in Computer-Aided Design, 2023, pp. 122–131.
+[27] G. Janssen, “Design of a pointerless BDD package,” in 10th Interna-
+tional Workshop on Logic and Synthesis, 2001, pp. 310–315.
+[28] T. van Dijk and J. van de Pol, “Sylvan: Multi-core framework for deci-
+sion diagrams,” International Journal on Software Tools for Technology
+Transfer, vol. 19, no. 6, pp. 675–696, Nov. 2017.
+[29] M. N. Velev and P. Gao, “Efficient parallel GPU algorithms for BDD
+manipulation,” in 19th Asia and South Pacific Design Automation
+Conference (ASP-DAC), 2014, pp. 750–755.
+[30] S. C. Sølvsten, J. van de Pol, A. B. Jakobsen, and M. W. B. Thomasen,
+“Adiar: Binary decision diagrams in external memory,” in Tools and
+Algorithms for the Construction and Analysis of Systems (TACAS), 2022,
+pp. 295–313.
+[31] R. Krauss, M. Goli, and R. Drechsler, “Efficient binary decision diagram
+manipulation by reducing the number of intermediate nodes,” in 26th
+International Symposium on Design and Diagnostics of Electronic
+Circuits and Systems (DDECS), 2023, pp. 73–78.
+[32] R. Rudell, “Dynamic variable ordering for ordered binary decision dia-
+grams,” in Proceedings of 1993 International Conference on Computer
+Aided Design (ICCAD), 1993, pp. 42–47.
