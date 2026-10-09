@@ -6,34 +6,41 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-10-07
-- 运行时间：2026-10-07 23:32:29 UTC
+- 最新运行日期：2026-10-08
+- 运行时间：2026-10-09 00:04:26 UTC
 - 运行状态：成功
-- 本次总论文数：3
+- 本次总论文数：6
 - 精读区：0
-- 速读区：3
+- 速读区：6
 
 ### 今日简报（AI）
-今日速读 3 篇论文，聚焦形式化验证与强化学习理论：无 MEC 的 MDP 可达性 Q-learning、程序规约智能合成、张量加速器验证框架。
-
-其中 Q-Learning 可达性分析与 SpecAgent 的规约合成最值得关注，均指向"自动生成可验证证据"这一趋势；vTen 则为领域加速器提供张量级验证思路。
-
-普通读者可优先看 SpecAgent 了解 AI 如何辅助写形式规约，其余两篇按需选读。
-- 详情：[/202610/07/README](/202610/07/README)
+- 今日共生成 6 篇推荐（精读 0 篇，速读 6 篇）
+- 速读：《LeanSide: A Formally Verified Co-Reasoning System for Natural-language Proofs》（6.0/10）, 《FORALL-LEAN-AGENT for Auditable Reasoning in Formal Mathematics and Software Verification》（6.0/10）, 《Symbolic Execution of Constrained Horn Clauses》（6.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202610/08/README](/202610/08/README)
 
 ### 精读区论文标签
 - 本次无精读推荐。
 
 ### 速读区论文标签
-1. [Q-Learning for Reachability in MEC-Free MDPs](/202610/07/2610.01781v1-q-learning-for-reachability-in-mec-free-mdps)  
-   标签：评分：6.0/10、query:ml-verify
-   evidence：面向可达性规范的强化学习，类似模型检查
-2. [SpecAgent: Empowering Program Verification with Agentic Synthesis of Formal Program Specifications](/202610/07/2610.05132v1-specagent-empowering-program-verification-with-agentic-synthesis-of-formal-program-specifications)  
+1. [LeanSide: A Formally Verified Co-Reasoning System for Natural-language Proofs](/202610/08/2610.00760v2-leanside-a-formally-verified-co-reasoning-system-for-natural-language-proofs)  
    标签：评分：6.0/10、query:llm-hw-fv
-   evidence：大模型智能体合成形式规约以辅助验证
-3. [vTen: Tensor-Centric Verification Framework for Domain-Specific Accelerators](/202610/07/2610.08372v1-vten-tensor-centric-verification-framework-for-domain-specific-accelerators)  
+   evidence：大语言模型辅助推理并由形式化证明后端机器校验
+2. [FORALL-LEAN-AGENT for Auditable Reasoning in Formal Mathematics and Software Verification](/202610/08/2610.00885v1-forall-lean-agent-for-auditable-reasoning-in-formal-mathematics-and-software-verification)  
+   标签：评分：6.0/10、query:llm-hw-fv
+   evidence：面向Lean定理证明的可审计LLM编码智能体
+3. [Symbolic Execution of Constrained Horn Clauses](/202610/08/2610.03345v1-symbolic-execution-of-constrained-horn-clauses)  
    标签：评分：6.0/10、query:fsh
-   evidence：面向领域专用加速器的硬件验证框架
+   evidence：符号执行与模型检测用于验证
+4. [Generalised Bit-Vector Abstractions for Formal Verification of Quantum Error-Detection and Entanglement Circuits over {H,X,C-NOT}: CSS Constructions, Soundness, and Mutation-Based Validation](/202610/08/2610.03794v1-generalised-bit-vector-abstractions-for-formal-verification-of-quantum-error-detection-and-entanglement-circuits-over-hxc-not-css-constructions-soundness-and-mutation-based-validation)  
+   标签：评分：6.0/10、query:fsh
+   evidence：基于位向量抽象的量子电路形式化验证
+5. [RESOLVE: Language-Agnostic Validation of GPU Kernels Through Testing, Reduction, and Proof](/202610/08/2610.05683v1-resolve-language-agnostic-validation-of-gpu-kernels-through-testing-reduction-and-proof)  
+   标签：评分：6.0/10、query:fsh
+   evidence：结合测试与形式验证的混合验证流程
+6. [CircuitGate: Logic-Consistent Circuit-Level Functional Modeling for And-Inverter Graphs](/202610/08/2610.09549v1-circuitgate-logic-consistent-circuit-level-functional-modeling-for-and-inverter-graphs)  
+   标签：评分：6.0/10、query:ml-verify
+   evidence：面向逻辑综合与验证中AIG的GNN表示学习
 
 
 <div class="dpr-home-promo-card">

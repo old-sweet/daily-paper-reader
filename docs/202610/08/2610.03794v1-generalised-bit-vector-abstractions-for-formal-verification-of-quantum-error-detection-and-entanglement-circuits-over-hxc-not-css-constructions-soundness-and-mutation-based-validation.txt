@@ -1,0 +1,806 @@
+Title: Generalised Bit-Vector Abstractions for Formal Verification of Quantum Error-Detection and Entanglement Circuits over H,X,C-NOT: CSS Constructions, Soundness, and Mutation-Based Validation
+
+URL Source: https://arxiv.org/pdf/2610.03794v1
+
+Published Time: Tue, 06 Oct 2026 00:02:57 GMT
+
+Number of Pages: 48
+
+Markdown Content:
+# Generalised Bit-Vector Abstractions for Formal Verification of Quantum Error-Detection and Entanglement Circuits over 
+
+# {H, X, C-NOT }: CSS Constructions, Soundness, and Mutation-Based Validation 
+
+Arun Govindankutty 
+
+Abstract 
+
+Formal verification of quantum circuits becomes increasingly difficult as circuit size increases, since exhaustive reasoning over the underlying Hilbert space is computationally expensive. In previous work [1], we introduced a bit-vector abstraction that separates the tracking of superpo-sition from basis-state behaviour, enabling SMT-based verification of fixed-size error-detection and entanglement circuits constructed from H, X, and C-NOT gates. This paper extends that framework in five directions. First, we generalise the correctness properties to parametrised repetition and concatenated phase-flip codes with up to 101 logical elements. Second, we ver-ify syndrome extraction for CSS codes specified by arbitrary parity-check matrices, including the Steane code, the [[15 , 7, 3]] quantum Hamming code, the [[15 , 1, 3]] quantum Reed-Muller code, and rotated surface codes with distances up to 101. The verification considers arbitrary error patterns, error detection up to a specified weight, and recovery using a classical decoder. Counterexamples are obtained for errors beyond the correction or detection capability of the respective codes. Third, we characterise the fragment of {H, X, C-NOT } circuits for which the abstraction faithfully represents the corresponding Hilbert-space semantics. We prove soundness for this fragment, demonstrate the necessity of the stated conditions through counterexamples, validate the characterisation by differential testing against state-vector simulation, and prove the six lemmas established in the original work. Fourth, we conduct a mutation study using 13 mutation operators and automatically identify equivalent mutants. Within the evaluated fault model, the approach detects all 622 non-equivalent mutants. Fifth, we implement the ap-proach directly using the Z3 API and verify GHZ circuits with up to 262,144 qubits across three topologies on a 16 GB laptop. The evaluation includes repeated measurements and a controlled ablation of the encoding pipeline and solver version. Experiments with random H+C-NOT networks show that verification cost increases steeply with circuit depth when outputs depend on a large number of inputs. The approach is not intended to cover general stabiliser circuits, Y -type stabilisers, fault-tolerant protocols, or physical noise. We identify the extensions required to address these cases. 
+
+Keywords: Bell state, CSS codes, Entanglement, Formal Verification, GHZ state, Mutation test-ing, Quantum Circuits, Quantum Error Correction, SMT, Soundness, Steane code, Surface code 
+
+# 1 Introduction 
+
+Quantum computing has the potential to outperform classical computing in several application domains, including communication, optimization, machine learning, and materials science [2–6]. Achieving this potential depends on two fundamental capabilities: the generation and preservation of quantum entanglement across multiple qubits, and the reliable detection and correction of errors 1arXiv:2610.03794v1 [quant-ph] 1 Oct 2026 arising from noise and decoherence in quantum hardware [7–10]. These capabilities are realized through quantum circuits whose correctness is essential for the reliability of larger quantum al-gorithms and protocols. Even a small implementation error, such as an omitted controlled-NOT (C-NOT) gate, an incorrectly placed Hadamard gate, or an improperly connected ancilla qubit, may alter the intended circuit behaviour. Such faults can invalidate entanglement generation or compromise error-detection mechanisms, thereby affecting the correctness of subsequent quantum computations. Verifying the functional correctness of quantum circuits remains challenging because quantum computation differs fundamentally from classical computation. The state space of an n-qubit system grows exponentially with the number of qubits, measurement outcomes are inherently probabilistic and disturb the quantum state, and arbitrary quantum states generally do not admit compact clas-sical representations. Formal verification techniques provide a systematic alternative to simulation by reasoning about all possible behaviours of a circuit rather than individual executions [11–13]. De-spite this advantage, the scalability of existing verification methods remains limited. Rewrite-rule-based verification using dyadic arithmetic has been demonstrated for circuits of up to 96 qubits, with scalability constrained by integer-overflow issues [14]. Decision-diagram-based property checking has been reported for circuits containing up to 10 qubits [15], while equivalence-checking approaches based on trusted reference circuits have been evaluated for circuits of up to 128 qubits, relying on Hilbert-space representations whenever binary-space reductions are not applicable [16, 17]. Our previous work [1] introduced an abstraction framework for a restricted but practically relevant class of quantum circuits composed solely of Hadamard (H), Pauli-X (X), and C-NOT gates. Within this gate set, the superposition status of each qubit and its computational-basis behaviour can be represented independently using two compact bit vectors. This representation transforms verification from reasoning over an exponentially large Hilbert space into a polynomial-sized satisfiability problem that can be solved using an off-the-shelf SMT solver. The approach was evaluated on Bell-state generation, GHZ-state generation, and the 2-qubit, 3-qubit, and Shor 9-qubit error-detection codes. In particular, GHZ-state circuits containing up to 8,192 qubits were verified in less than three minutes. Although the initial study demonstrated the feasibility of the abstraction, several important questions remained unanswered. First, it was unclear whether the abstraction extends beyond the specific code sizes evaluated previously or generalises to arbitrary circuit families. Second, its applicability to quantum error-correcting codes with more complex parity-check structures, such as CSS codes, had not been investigated. Third, the correctness lemmas underlying the abstraction were stated without complete proofs, and the class of circuits for which the abstractions remain faithful was not characterised. Moreover, the effectiveness of the properties in detecting implementation faults had not been systematically validated. Finally, the extent to which the reported scalability resulted from the abstraction itself, rather than from implementation-specific aspects of the SMT encoding or from the particular circuit structure, required further investigation. This article addresses these questions and extends our previous work [1]. Table 1 gives a detailed comparison between the two studies. The main contributions of this article are as follows. 1. Generalisation of correctness properties and circuit families. We extend the bit-flip error-detection property from fixed-size repetition codes to arbitrary n-qubit repetition codes with n − 1 syndrome ancillas. Similarly, the phase-flip property is extended from fixed in-stances to arbitrary k-block concatenated codes. Both circuit families are verified for values of n and k up to 101. 2. Verification of CSS syndrome extraction. We extend the abstraction framework to the 2[[7 , 1, 3]] Steane code, based on the classical Hamming(7 , 4) parity-check matrix, and more generally to CSS codes defined by arbitrary parity-check matrices HX and HZ . Within the restricted {H, X, C-NOT } gate set, we formally verify bit-flip and phase-flip syndrome ex-traction for the Steane code, the [[15 , 7, 3]] quantum Hamming code, the [[15 , 1, 3]] quantum Reed-Muller code, and rotated surface codes with distances up to 101. 3. Detection, identification, and recovery. Beyond the single-error properties considered in [1], we verify syndrome extraction for arbitrary error patterns, error detection up to a spec-ified error weight, and recovery using a classical decoder followed by a classically controlled correction. For each code, we also check the expected boundary cases. The positive case is verified, while the negative case produces an undetectable or incorrectly corrected error pattern from the solver. 4. Formal soundness and complete proofs. We define a fragment F of {H, X, C-NOT }
+
+circuits for which the abstraction is faithful to the corresponding Hilbert-space semantics. We prove soundness on this fragment using an explicit invariant (Theorem 1) and provide counterexamples showing that each condition defining F is necessary. The result is further checked through differential testing against exact state-vector simulation. We also provide complete proofs of Lemmas 1-6 from [1], which were previously stated without proof. In this article, these lemmas are presented as exact characterisations of the modifications detected by the abstraction. 5. Empirical validation through fault injection. We develop a mutation-testing frame-work covering 12 circuit families and using 13 mutation operators. These operators include missing, additional, re-wired, reordered, and control/target-exchanged C-NOT gates, as well as missing and additional Hadamard gates and incorrectly initialised ancillas. Equivalent mutants are identified automatically using an SMT miter and excluded from the evaluation. Within the evaluated fault model, all 622 non-equivalent mutants are detected. 6. Improved implementation and scalability. We reimplement the verification framework using the Z3 Python API instead of the SMT-LIB text-generation pipeline used previously. With this implementation, GHZ-state circuits containing up to 262,144 qubits are verified on a 16 GB laptop for three circuit topologies. The evaluation includes repeated measurements and records memory usage for each instance. A controlled ablation using the same hardware indicates that neither the encoding pipeline nor the solver version accounts for the improve-ment over [1]. Experiments with random H+C-NOT networks also show that verification becomes increasingly expensive as circuit depth increases. 7. Scope and limitations of the abstraction. We identify the classes of stabilizer codes that can be handled by the proposed abstraction and those that remain outside its current scope. In particular, we discuss non-CSS stabilizer codes that require genuine Y -type stabilizers, including the 5-qubit perfect code, as well as fault-tolerance issues such as hook errors. We also outline a possible roadmap for extending the framework to these cases. The remainder of the article is organised as follows. Section 2 reviews the background on quantum computing, formal verification, and the classical coding theory needed for CSS codes. It 3Table 1: Contributions of the preliminary conference paper [1] and of this article. 
+
+Aspect Preliminary work [1] This article Abstraction semantics Definitions 1-5 Unchanged gate semantics. Saturating tag explained, two readings of q0 made explicit, fragment F defined (Def. 12), classically controlled X for recovery (Def. 11) Correctness properties Properties 1-3 for fixed sizes Parametrised Properties 4, 5; CSS Properties 6, 7; multi-error, detection and recovery Properties 8-10 Circuit families 2-, 3-qubit, Shor 9-qubit codes; Bell; GHZ (star) 
+
+n-qubit repetition and k-block concatenated codes ( n, k ≤ 101); Steane, [[15 , 7, 3]], [[15 , 1, 3]], surface codes; GHZ with star, chain and tree topologies; random H+C-NOT networks Soundness Not stated Theorem 1 on F with invariant-based proof, necessity counterexamples, differential validation Lemmas 1-6 Stated without proof Proved; restated as exact characterisations Mutation testing None 13 operators, 12 families, automatic equivalent-mutant identification Implementation SMT-LIB text generation Direct Z3 Python API; controlled pipeline and solver-version ablation Evaluation platform 24-core workstation, 192,GB Apple M1 laptop, 16,GB Largest GHZ instance 8,192 qubits 262,144 qubits (three topologies) 
+
+also establishes the terminology used for error detection and correction. Section 3 discusses related work. Section 4 presents the extended abstraction framework, together with the new correctness properties and their proofs. Section 5 describes the verification methodology and the mutation-testing framework. Section 6 presents the experimental results. Section 7 discusses the applicability, limitations, and threats to validity of the approach. Finally, Section 8 concludes the article and outlines directions for extending the framework towards the verification of general stabiliser codes. 
+
+# 2 Theoretical Background 
+
+This section provides the quantum-computing concepts required for the remainder of the article. More comprehensive treatments of quantum computation can be found in [18, 19]. A quantum bit (qubit) is represented by a unit vector in a two-dimensional complex Hilbert space. Its state can be written as 
+
+|ψ⟩ = α|0⟩ + β|1⟩,
+
+where 
+
+|0⟩ =
+
+10
+
+
+
+, |1⟩ =
+
+01
+
+
+
+,α, β ∈ C, and |α|2 + |β|2 = 1. An n-qubit system is described by a state vector in a 2 n-dimensional Hilbert space, 
+
+|Ψ⟩ = X
+
+> x∈{ 0,1}n
+
+αx|x⟩, (1) 4where the probability of observing basis state x after measurement is given by Pr( x) = |αx|2.Quantum computation is performed by applying unitary operators, referred to as quantum gates, to the quantum state. A quantum circuit is an ordered sequence of such gates that transforms the input state into the desired output state [20]. Since the dimension of the state space increases exponentially with the number of qubits, direct analysis of quantum circuits rapidly becomes com-putationally expensive, making scalable verification particularly challenging. 
+
+2.1 Entanglement: Bell and GHZ states 
+
+Entanglement is one of the distinguishing features of quantum computation. A multi-qubit state is said to be entangled if it cannot be expressed as the tensor product of the states of its individual qubits. The Bell state, 
+
+|Φ+⟩ = 1
+
+√2 (|00 ⟩ + |11 ⟩) , (2) provides the simplest example of a maximally entangled two-qubit state. It is generated by applying a Hadamard gate to one qubit followed by a C-NOT gate controlled by that qubit. The Greenberger-Horne-Zeilinger (GHZ) state extends this construction to multiple qubits [21], 
+
+|GHZ ⟩ = 1
+
+√2
+
+ |0⟩⊗m + |1⟩⊗m , (3) where m > 2. A GHZ state is created by applying a Hadamard gate to a single control qubit followed by a sequence of m − 1 C-NOT gates that entangle the remaining qubits with the control. Because entangled states cannot be decomposed into independent single-qubit states, they present additional challenges for functional verification that are absent in classical circuits [21]. 
+
+2.2 Quantum errors and repetition codes 
+
+Current quantum hardware is susceptible to errors originating from imperfect gate operations, decoherence, leakage, and measurement noise [22, 23]. Quantum error correction mitigates these effects by encoding logical information across multiple physical qubits. The simplest encoding strategy is based on the classical repetition code. A logical qubit is redundantly represented by multiple physical qubits, for example, 
+
+|0⟩L 7 → | 00 ⟩, |1⟩L 7 → | 11 ⟩,
+
+for the two-qubit code, and 
+
+|0⟩L 7 → | 000 ⟩, |1⟩L 7 → | 111 ⟩,
+
+for the three-qubit code [24, 25]. Bit-flip errors are detected by computing parity checks between selected pairs of physical qubits using ancilla qubits and C-NOT gates without directly measuring the encoded logical state. Table 2 summarizes the syndrome values for the three-qubit repetition code, where ancilla qubits q1A and q2A compute the parity values q0 ⊕ q1 and q0 ⊕ q2, respectively. The Hadamard and C-NOT gates used throughout this work are represented by 
+
+H = 1
+
+√2
+
+1 11 −1
+
+
+
+, C-NOT = 
+
+
+
+1 0 0 00 1 0 00 0 0 10 0 1 0
+
+ . (4) 5Table 2: Syndrome table for the 3-qubit bit-flip code (ancilla value q2Aq1A). Ancilla value Qubit state Inference 00 |000 ⟩ + |111 ⟩ No error 11 |001 ⟩ + |110 ⟩ 1st qubit flip 01 |010 ⟩ + |101 ⟩ 2nd qubit flip 10 |100 ⟩ + |011 ⟩ 3rd qubit flip The Shor nine-qubit code [7] extends the repetition-code principle by combining bit-flip and phase-flip protection. Three repetition-code blocks are first transformed into the Hadamard basis, after which parity checks are performed across the blocks using two additional ancilla qubits. The qubits are then transformed back to the computational basis. A single phase-flip error within any block produces a unique two-bit syndrome analogous to that of the three-qubit repetition code, but at the level of encoded blocks rather than individual qubits. 
+
+2.3 Classical linear codes and the CSS construction 
+
+The repetition codes considered in Section 2.2 are examples of a broader class of quantum error-correcting codes constructed from classical binary linear codes. The Calderbank-Shor-Steane (CSS) construction was introduced by Calderbank and Shor [26] and, independently, by Steane [27] [28]. It is the only part of classical coding theory required in this work. A classical binary linear code C ⊆ { 0, 1}N with dimension Kc can be represented by a parity-check matrix H ∈ { 0, 1}r×N such that C = ker H over GF(2). If a codeword x ∈ C is affected by an error pattern e, the received word is x ⊕ e. Its syndrome is 
+
+H(x ⊕ e) = He (mod 2) ,
+
+because Hx = 0. Thus, the syndrome depends only on the error pattern. For example, a single error on bit j produces the jth column of H as its syndrome. If all columns of H are distinct and non-zero, as for the Hamming(7 , 4) code, each single-bit error has a different syndrome. More generally, a code with minimum distance d detects every non-zero error of weight at most d − 1and uniquely corrects every error of weight at most ⌊(d − 1) /2⌋.A CSS code on N qubits is described by two parity-check matrices, HX and HZ . Their rows specify the supports of the X-type and Z-type stabilizer generators, respectively. For the stabilizers to commute, the matrices must satisfy 
+
+HX HT 
+
+> Z
+
+= 0 (mod 2) . (5) The number of logical qubits encoded by the code is 
+
+K = N − rank HX − rank HZ .
+
+The logical computational-basis states can be viewed as superpositions of classical words x ∈
+
+ker HZ . After applying the Hadamard transform, the corresponding description uses words u ∈
+
+ker HX .This construction gives two classical parity-checking problems within the quantum code. An 
+
+X-type, or bit-flip, error pattern e is detected by the Z-type checks, which produce the syndrome 
+
+HZ e. Similarly, a Z-type, or phase-flip, error acts as a bit flip in the Hadamard basis and is detected by the X-type checks, giving the syndrome HX e. In both cases, C-NOT gates accumulate 6the parity of the checked data qubits onto syndrome ancillas. This is the same parity-accumulation mechanism used by the repetition codes and captured by the bit-vector abstraction considered in this article. For the Steane code, HX = HZ = H, where H is the parity-check matrix of the Hamming(7 , 4) code. Equation (5) is satisfied because the Hamming code contains its dual. The other codes considered in Section 6 include the [[15 , 7, 3]] quantum Hamming code [29], the [[15 , 1, 3]] quantum Reed-Muller code [30], for which HX̸ = HZ , and rotated surface codes [31, 32]. Not all stabilizer codes have the CSS form. For example, the five-qubit perfect code [33] contains stabilizer generators with Y -type factors and therefore cannot be represented by two separate binary parity-check matrices for the X and Z components. Such codes are naturally described using additive codes over GF(4), or equivalently as self-orthogonal subspaces of GF(2) 2N under the symplectic inner product [28, 34]. Capturing this additional algebraic structure would be necessary to extend the abstraction to general stabilizer codes, as discussed in Section 8. 
+
+2.4 Error detection, identification, decoding, recovery, and fault tolerance 
+
+The terms used for error handling can have different meanings, so we use the following defini-tions throughout the article. Error detection means that every error pattern in the specified class produces a non-zero syndrome. Error identification means that the measured syndrome uniquely determines the error pattern, up to multiplication by a stabilizer, within the considered class. De-coding is the classical procedure that maps a measured syndrome to a correction. Recovery is the subsequent application of this correction to the data qubits. Thus, in this article, error correction 
+
+refers to the complete process of syndrome extraction, decoding, and recovery. 
+
+Fault tolerance is a stronger requirement. It requires the syndrome-extraction and recovery cir-cuits themselves to tolerate faults, such as errors on ancilla qubits or C-NOT gates, without allowing these faults to spread into uncorrectable errors on the data qubits [7, 35]. The properties intro-duced in [1] establish correct syndrome extraction and identification for single errors. Section 4.5 extends these properties to arbitrary error patterns, detection up to a specified error weight, and decoding followed by recovery. Fault tolerance is not addressed by the present abstraction and remains outside its scope, as discussed in Section 7. 
+
+2.5 Formal verification 
+
+Formal verification establishes system correctness by proving that a design satisfies its specification over all possible behaviours rather than validating selected execution scenarios. It has been widely adopted for hardware and software systems [36–38]. Extending formal verification techniques to quantum circuits remains an active area of research because of the exponential growth of the quantum state space and the probabilistic nature of quantum measurement [12, 39]. The work presented in this article builds on the abstraction framework introduced in [1], which reduces verification of quantum circuits composed of Hadamard, Pauli-X, and C-NOT gates to a bit-vector satisfiability problem that can be solved using an SMT solver [40]. The following sections extend this framework to generalized circuit families and CSS quantum error-correcting codes, and evaluate its effectiveness through formal verification and mutation-based validation. 
+
+# 3 Related Work 
+
+Formal verification of quantum circuits has attracted increasing attention as quantum hardware and algorithms continue to advance. Existing verification techniques differ in their underlying 7representations and verification strategies, resulting in different trade-offs between expressiveness and scalability. The approaches most closely related to this work can be grouped into rewrite-rule-based verification, decision-diagram methods, equivalence checking, symbolic abstractions, and quantum program logics. Rewrite-rule-based verification has been investigated by Amy [14], who proposed a framework based on dyadic arithmetic and rewrite rules implemented within a Haskell theorem prover. The method supports verification of universal quantum circuits but relies on dyadic representations whose arithmetic becomes increasingly difficult to manage as circuit size grows. Reported experi-ments demonstrate verification for circuits containing up to 96 qubits, with larger instances limited by integer-overflow issues. Decision-diagram representations have also been explored for quantum circuit verification. Seiter et al. [15] employed multiple-valued decision diagrams to verify properties of quantum circuits, including implementations of Grover’s algorithm. Although decision diagrams provide compact representations for many classes of circuits, their effectiveness decreases as the amount of entanglement increases, and the reported evaluation is limited to circuits containing up to 10 qubits. A different line of research focuses on equivalence checking, in which the implementation under verification is compared with a trusted reference circuit. Burgholzer and Wille [16] and Yamashita and Markov [17] developed equivalence-checking techniques for quantum circuits using this strategy. These approaches assume the availability of a correct reference implementation and rely on Hilbert-space representations when binary-space reductions cannot be applied. Experimental evaluations reported in these studies include circuits containing up to 128 qubits. Symbolic abstractions provide an alternative by reducing quantum-circuit verification to rea-soning over compact symbolic representations. Our earlier work introduced symbolic, rotational, and superposition-based abstractions for quantum circuits represented as bit vectors [41–44]. These abstractions were applied to the verification of the Quantum Fourier Transform, its inverse, quan-tum data-encoding circuits, and quantum phase-estimation circuits. The abstraction framework presented in [1] extended this approach to entanglement-generation circuits and quantum error-detection circuits composed of Hadamard, Pauli-X, and C-NOT gates. That study demonstrated the feasibility of the abstraction for Bell-state generation, GHZ-state generation, and the 2-qubit, 3-qubit, and Shor 9-qubit error-detection codes, but it considered only fixed code sizes and presented the underlying correctness lemmas without formal proofs. A closely related, but different, line of work concerns the efficient simulation of stabilizer circuits. The Gottesman-Knill theorem [45] shows that circuits composed of Clifford gates, including H,
+
+X, and C-NOT, together with computational-basis measurements, can be simulated classically in polynomial time. The tableau method of Aaronson and Gottesman [46] requires O(n2) bits for n
+
+qubits, with O(n) time per gate and O(n2) time per measurement. Stim [47] provides a highly optimised implementation that is widely used in quantum error-correction studies. Simulation and the SMT-based verification considered in this article serve different purposes. A simulator evaluates the behaviour of a circuit for a particular input, or samples its behaviour under sampled noise. In contrast, an SMT query checks whether a property holds for all admissible inputs and error patterns, or produces a counterexample when it does not. Error patterns are represented symbolically, so a single query can cover, for example, all 2 N error patterns considered by Property 8. The scalability results in Section 6 should therefore not be interpreted as showing that the proposed abstraction is more efficient than stabilizer simulation. Stabilizer simulation applies in polynomial time to the full Clifford group, whereas the abstraction considered here is limited to the fragment F defined in Definition 12. Instead, the results show that the universally quantified verification queries generated by the abstraction remain tractable for the circuit families evaluated in this study. 8Formal reasoning about quantum programs has also been studied from the perspective of pro-gram logics. Liu et al. [11] proposed a quantum Hoare logic for verifying the correctness of quantum algorithms, including amplitude-amplification procedures. This line of work is complementary to circuit-level functional verification, as it focuses on proving algorithmic correctness rather than ver-ifying the structural correctness of specific quantum circuit implementations. Broader surveys of formal verification techniques for quantum programs and circuits have been presented by Chareton 
+
+et al. [12], Quist et al. [39], and Govindankutty [13], highlighting the diversity of existing approaches and the continuing challenges associated with scalable verification. The work in this article directly extends the abstraction framework introduced in [1]. Table 1 in Section 1 gives a detailed comparison of the material carried over from [1] and the new contributions. The present work extends the verification methodology to arbitrary repetition-code families and to CSS codes defined by arbitrary parity-check matrices. It also defines the circuit fragment for which the abstraction is sound and provides a proof of soundness, together with a systematic evaluation based on mutation-based fault injection. Mutation testing has been used for many years to evaluate verification and testing techniques in software and hardware systems, following the original work of DeMillo, Lipton, and Sayward [48]; a survey is given in [49]. One challenge in mutation testing is the equivalent-mutant problem: a mutant may be functionally identical to the original system and therefore cannot be distinguished from it by any test. In general, determining equivalence is undecidable [49, 50]. For the finite-state abstract circuits considered in this article, however, equivalence is decidable. We therefore identify equivalent mutants automatically using an SMT miter, as described in Section 5.2. 
+
+# 4 Verification Framework 
+
+The verification framework adopted in this work builds upon the abstraction introduced in our earlier study [1]. Sections 4.1, and 4.2 briefly summarise the underlying abstraction and its three original correctness properties. The remainder of this section presents the extensions introduced in this work: generalised correctness properties for parametrised code families (Section 4.3), the formalisation of the Steane code, and of general CSS syndrome extraction (Section 4.4), properties for multiple simultaneous errors, detection, and recovery (Section 4.5), and the soundness theorem together with complete proofs of the previously stated lemmas (Sections 4.6–4.7). 
+
+4.1 Base abstraction 
+
+The proposed verification framework represents quantum circuits using a compact bit-vector ab-straction. Each qubit is modelled by two bit vectors that capture the information required for reasoning about superposition and computational-basis behaviour under the restricted gate set considered in this work. 
+
+Definition 1 (Abstract Qubit) . An abstract qubit Q is represented by the tuple ( s, q ), where 
+
+s is a 3-bit vector encoding the qubit’s superposition status and q is a 2-bit vector encoding its measurement status and computational-basis value. The least significant bit of q stores the basis value, whereas the most significant bit records the measurement status (0 for unmeasured and 1 for measured). The abstraction models the action of the Hadamard, Pauli-X, and C-NOT gates directly on these bit-vector representations. 9Definition 2 (Abstract H Gate) . The abstract Hadamard gate is defined as 
+
+H(Q(s, q )) = 
+
+(  (s + b′001) mod 2 3, q , if s ∈ { b′000 , . . . , b ′110 },
+
+(b′110 , q ), if s = b′111 .
+
+Here, + denotes unsigned integer addition of 3-bit vectors. Since the first case is used only when 
+
+s ≤ b′110, the modulo operation does not cause a wrap-around. The tag therefore records up to seven applications of the Hadamard gate. The gate changes only the superposition tag s and leaves the basis-value bit q unchanged. An even value of s represents a qubit that is not in superposition, while an odd value represents a qubit that has undergone an odd number of Hadamard operations and is therefore in superposition. When s = b′111, the tag is saturated rather than allowed to wrap around. Further Hadamard gates make the tag alternate between b′110 and b′111. This preserves the parity of s, which is the information used by the semantics in Theorem 1, regardless of the number of Hadamard gates applied. It also keeps s = b′000 as the unique value representing a qubit to which no Hadamard gate has been applied. This is important because the correctness properties use s = b′000 to express the absence of Hadamard gates. Without saturation, eight Hadamard applications would produce the same tag as zero applications. In the benchmark circuits, s never exceeds b′010; the value s = b′011 occurs only in mutants that contain an additional Hadamard gate. 
+
+Definition 3 (Abstract X Gate) . The abstract Pauli-X gate is defined as 
+
+X(Q(s, q )) = Q(s, q 1¬q0),
+
+where the basis-value bit q0 is complemented, while the superposition vector s and the measurement-status bit q1 remain unchanged. 
+
+Definition 4 (Abstract C-NOT Gate) . For a control-target pair ( Qc, Q t), 
+
+C(Qc, Q t) = 
+
+(
+
+(Qc, Q t), if qc0 = 0 ,
+
+(Qc, Q (st, q t1¬qt0)) , if qc0 = 1 .
+
+The control qubit is unaffected by the operation. The basis-value bit of the target qubit is comple-mented if and only if the control qubit has basis value 1. 
+
+Two readings of the basis-value bit. For a qubit with an even tag, q0 represents its computational-basis value. For a qubit with an odd tag, the meaning of q0 depends on how the abstraction is being used. The soundness result in Theorem 1 specifies the conditions under which each interpretation is valid. In the branch reading , a qubit enters superposition when a Hadamard gate is applied to a free input variable and can then participate in C-NOT or X gates. In this case, q0 represents the basis value of the qubit in each branch of the superposition. Universal quantification over the free input variable therefore represents both branches. This is the interpretation used for the Bell and GHZ circuits. In the frame reading , a qubit is placed between two Hadamard gates and does not participate in any other gate. Here, q0 represents the label of the state in the Hadamard basis {| +⟩, |−⟩} .Complementing q0 therefore represents a phase-flip ( Z) error, following the interpretation used in [1]. This is the interpretation used for phase-flip detection. The two readings cannot be used interchangeably. For example, under the frame reading, a physical bit-flip ( X) leaves the states |+⟩ and |−⟩ unchanged up to a global phase. However, 10 Definition 3 would complement q0 and therefore represent the operation as a phase flip. Such a gate is consequently excluded from the circuit fragment for which Theorem 1 is established (Definition 12). The corresponding counterexample is given in Remark 1. In several correctness properties presented later in this section, it is necessary to determine whether a bit vector contains exactly one asserted bit. This is captured by the following auxiliary function. 
+
+Definition 5 (Singular Function) . For a bit vector m = ( m0, . . . , m n−1), the singular function is defined as 
+
+S(m) = 1 if and only if exactly one element mi is equal to 1. Otherwise, 
+
+S(m) = 0 .
+
+4.2 Base correctness properties 
+
+The abstraction described in the Section 4.1 is used to express the expected functional behaviour of the quantum circuits considered in this work. Following [1], three correctness properties are defined to capture the behaviour of bit-flip error-detection circuits, phase-flip error-detection circuits, and entanglement-generation circuits, respectively. 
+
+Property 1 (Bit-flip Correctness) . Assume that all ancilla and logical qubits are initially in the computational basis, i.e., sin Ai = sin Li = b′000. The circuit satisfies the bit-flip correctness property if the following conditions hold: 1. The superposition status of both ancilla and logical qubits is preserved throughout the circuit, such that sout Ai = sout Li = b′000. 2. Every ancilla qubit is initialized to qin Ai = b′00 and remains unmeasured until the final mea-surement stage. 3. The measured ancilla values encode the parity relationships 
+
+qout A0 = b′11 ⇔ qL00̸ = qL10 ,
+
+and 
+
+qout A1 = b′11 ⇔ qL00̸ = qL20 .
+
+Property 2 (Phase-flip Correctness) . Assume that all ancilla and logical qubits initially satisfy 
+
+sin Ai = sin Li = b′000. The phase-flip detection circuit is correct if the following conditions are satisfied: 1. Ancilla qubits remain outside superposition throughout the computation, yielding sout Ai =
+
+b′000, while each logical qubit undergoes exactly one Hadamard transformation at the begin-ning and one at the end of its computational path, resulting in s1 
+
+> Li
+
+= b′001 and sout Li = b′010. 2. Every ancilla qubit is initialized to b′00 and remains unmeasured until the final measurement stage. 3. If exactly one of the logical qubits qL0, . . . , q L8 is affected by a flip, the resulting two-bit ancilla syndrome uniquely identifies the logical block containing the error, using the same syndrome mapping as Property 1 applied at the block level. 11 Property 3 (Entanglement Correctness) . Consider a quantum system Q = {Q1, . . . , Q m}. The circuit correctly generates entanglement if the following conditions hold: 1. The first qubit ( Q1) is initially outside superposition, with sin  
+
+> 1
+
+= b′000, and enters superpo-sition after the application of a single Hadamard gate, resulting in s11 = b′001. 2. No Hadamard gate is applied to any remaining qubit, and therefore the superposition tag of each qubit Qi, i > 1, remains b′000 throughout the circuit. 3. For qin  
+
+> 1
+
+∈ b′00 , b ′01 and qin i = b′00 for all i̸ = 1, the circuit produces identical output basis values for all qubits, namely 
+
+qout  
+
+> 1
+
+= qout  
+
+> 2
+
+= · · · = qout m .
+
+4.3 Generalised properties for parametrised code families 
+
+The correctness properties introduced above describe fixed circuit instances corresponding to the 2-qubit, 3-qubit, and 9-qubit codes studied in [1]. To support verification of scalable circuit families, these properties are extended here to parametrised repetition and concatenated-code constructions. Their verification results are presented in Section 6. 
+
+Definition 6 (Generalised n-qubit repetition code) . Consider an n-qubit repetition code, where 
+
+n ≥ 2, with data qubits q0, . . . , q n−1 sharing a common pre-error basis value c and containing at most one bit-flip error ek on qubit k (0 ≤ k ≤ n − 1). Define n − 1 ancilla qubits ai (0 ≤ i ≤ n − 2), where each ancilla computes the parity 
+
+ai ← qi ⊕ qi+1 ,
+
+using two C-NOT operations as specified in Definition 4. For n = 3 this uses adjacent pairs, (q0 ⊕ q1, q 1 ⊕ q2), rather than the pairs ( q0 ⊕ q1, q 0 ⊕ q2) of Table 2. Both choices identify every single error uniquely. 
+
+Property 4 (Generalised Bit-flip Correctness) . For the generalised repetition code defined in Definition 6, assuming at most one bit-flip error, the following conditions must hold: 1. No Hadamard gate is applied within the detection circuit, and therefore every superposition tag remains b′000 throughout the computation. 2. All ancilla qubits are initialised to b′00 and are measured only after syndrome computation has completed. 3. An ancilla value satisfies ai = 1 if and only if the error occurs at position k ∈ { i, i + 1 };otherwise, ai = 0. Consequently, the syndrome forms a single domain wall centred on the error location, extending the syndrome behaviour shown in Table 2 for the case n = 3 to arbitrary values of n.
+
+Definition 7 (Generalised k-block concatenated code) . Consider a concatenated code with k ≥
+
+3 logical blocks. Each block is represented by one abstract block-qubit carrying the common Hadamard-basis label c of the code word. Each block-qubit is first acted on by a Hadamard gate, may then undergo a phase-flip error, represented as an abstract bit flip when its superposition tag is b′001, following [1], and is finally returned to the computational basis by a second Hadamard gate. The circuit then uses k − 1 ancilla qubits to compute the parity between adjacent blocks: 
+
+ai ← bi ⊕ bi+1 , 0 ≤ i ≤ k − 2.
+
+12 Each parity is computed using two C-NOT gates (Definition 4). Thus, the resulting syndrome is the repetition-code syndrome from Definition 6, applied at the block level. 
+
+Property 5 (Generalised Phase-flip Correctness) . For the generalised concatenated code in Defi-nition 7, assume that at most one logical block contains an error. The following conditions then hold: 1. Each block-qubit undergoes exactly two Hadamard operations and therefore has superposi-tion tag b′010 at the end of the circuit. The ancilla qubits retain the tag s = b′000. 2. All ancilla qubits are initialised to b′00 and are measured after the parity checks have been computed. 3. The syndrome bit satisfies 
+
+ai = 1 ⇐⇒ block i or block i + 1 contains the error .
+
+Thus, the syndrome is all zero when there is no error and uniquely identifies the erroneous block when exactly one block is affected. The phase-flip property for the 9-qubit Shor code in Property 2 is a special case of Property 5 with k = 3. In this case, the circuit has two ancilla qubits, giving the same syndrome representation as in [1]. 
+
+4.4 The Steane [[7 , 1, 3]] CSS code 
+
+and general CSS syndrome extraction The generalised repetition and concatenated-code properties introduced in Section 4.3 extend the verification framework to parametrised circuit families while retaining the underlying repetition-code structure. This subsection further extends the framework by formalising the [[7 , 1, 3]] Steane code, a Calderbank-Shor-Steane (CSS) quantum error-correcting code, within the existing {H, X, C-NOT }
+
+abstraction, and then the construction of arbitrary CSS parity-check matrices. Let H ∈ { 0, 1}3×7 denote the parity-check matrix of the classical Hamming(7 , 4) code. Column 
+
+i + 1, corresponding to qubit i (i = 0 , . . . , 6), is given by the 3-bit binary representation of i + 1: 
+
+H =
+
+
+
+0 0 0 1 1 1 10 1 1 0 0 1 11 0 1 0 1 0 1
+
+ , (6) where the rows represent the three parity checks, indexed by j ∈ { 0, 1, 2} from the bottom row (least significant bit of the column oindex) to the top. For each parity check, the participating qubits are defined by row j = {i : Hj,i = 1 }, yielding row 0 = {0, 2, 4, 6}, row 1 = {1, 2, 5, 6}, and row 2 = {3, 4, 5, 6}.
+
+Definition 8 (Steane bit-flip ancilla) . Consider data qubits q0, . . . , q 6 satisfying the valid-codeword condition M  
+
+> i∈row j
+
+qi0 = 0 ,
+
+13 for every parity check j, and assume that at most one bit-flip error ek is present. Three ancilla qubits, b0, b1, and b2, are computed according to 
+
+bj ← M  
+
+> i∈row j
+
+qi,
+
+where each parity computation is implemented by a sequence of |row j | = 4 C-NOT gates (Defini-tion 4). This construction follows the same abstraction used in Definition 6, with the parity-check rows of H replacing the adjacent-qubit parity relations. 
+
+Definition 9 (Steane phase-flip ancilla) . The phase-flip detection circuit uses the same construction as Definition 8. Each data qubit is first acted on by a Hadamard gate, giving it the superposition tag s = b′001. A phase-flip error is then represented by an abstract bit flip in this representation, following Property 2 and the frame reading described in Section 4.1. A second Hadamard gate returns each data qubit to the computational basis, giving s = b′010. The parity checks specified by the rows of H are then computed using three ancilla qubits. The relation HZH = X means that a phase flip occurring between the two Hadamard gates is represented as a bit flip after the second Hadamard gate. The ancilla parities therefore measure the corresponding X-type stabilizers of the Steane code. 
+
+Property 6 (Steane CSS Correctness) . Under Definitions 8 and 9, assume that at most one bit-flip error occurs at qubit position k, or equivalently that at most one phase-flip error occurs at position 
+
+k. The resulting three-bit syndrome ( b2, b 1, b 0) is equal to 0 in the absence of an error and is equal to the binary representation of k + 1, corresponding to column k of the parity-check matrix H,when qubit k is in error. Additionally, the data tags are b′000 (bit-flip circuit) or b′010 (phase-flip circuit), and the ancillas satisfy clauses 1 and 2 of Property 4. Property 6 directly reflects the single-error-correction capability of the classical Hamming(7 , 4) code within the proposed bit-vector abstraction. Each ancilla computes the XOR parity of the basis values of the participating data qubits, as defined by Definition 4. Since XOR is a linear operation, the syndrome associated with a corrupted codeword can be expressed as the XOR of the syndrome of the original codeword and the syndrome of the error. Because a valid codeword has zero syndrome, the resulting syndrome is equal to the corresponding column of H associated with the erroneous qubit, namely (syndrome of codeword) ⊕ (syndrome of error) = 0 ⊕ (column k of H).
+
+Nothing in Definitions 8 and 9 depends on the particular choice of the Hamming matrix. For an arbitrary CSS code (Section 2.3), the same construction can be used with HZ for bit-flip errors and HX for phase-flip errors. 
+
+Definition 10 (CSS syndrome extraction) . Let HX and HZ satisfy Eq. (5). For the bit-flip circuit ,the data labels v ∈ { 0, 1}N satisfy HZ v = 0. A bit-flip error pattern e is then introduced using the abstract X gate. For each row of HZ , one ancilla is used to accumulate the corresponding parity through |row j | C-NOT gates. For the phase-flip circuit , the Hadamard-basis labels satisfy HX v = 0. Each data qubit is sur-rounded by two Hadamard gates, with a possible phase-flip error between them, as in Definition 9. One ancilla is used for each row of HX to accumulate the corresponding parity. 
+
+Property 7 (CSS Syndrome Correctness) . Consider the circuits in Definition 10, with H equal to either HZ or HX , and assume that at most one error occurs. The measured ancilla vector is then 
+
+He . The data tags are b′000 for the bit-flip circuit and b′010 for the phase-flip circuit. The ancillas also satisfy clauses 1 and 2 of Property 4. For the Steane code, this property reduces to Property 6. 14 4.5 Multiple errors, detection, and recovery 
+
+The properties above consider at most one error and show that the resulting syndrome identifies that error. We also consider multiple errors in order to distinguish the different notions introduced in Section 2.4. Only the first property below requires no additional gate semantics. 
+
+Property 8 (Syndrome Correctness under Arbitrary Errors) . For the repetition, concatenated, and CSS circuits, consider every error pattern e ∈ { 0, 1}N , without restricting its weight. The measured ancilla vector must equal He modulo 2. The corresponding single-error property must also satisfy clauses 1 and 2, and the data basis values after syndrome extraction must be the same as after error injection. Thus, the syndrome-extraction circuit must not introduce additional changes to the data. For the repetition code, the syndrome is 
+
+He = ( ei ⊕ ei+1 )i.
+
+The single-error properties constrain the ancillas and the superposition tags, whereas this property also requires preservation of the data values. 
+
+Property 9 (Detection up to Weight w). Every error pattern with 1 ≤ | e| ≤ w
+
+must produce a non-zero syndrome. Recovery requires one additional operation that depends only on the measured syndrome. 
+
+Definition 11 (Classically-controlled X) . Let κ be a Boolean condition on the measured ancilla values. The classically controlled operation Xκ is defined by 
+
+Xκ(Q(s, q )) = 
+
+(
+
+X(Q(s, q )) , if κ holds ,Q(s, q ), otherwise .
+
+The operation is applied only to qubits with an even tag. 
+
+Property 10 (Recovery up to Weight w). After syndrome extraction, a classical decoder uses the measured syndrome to determine a correction. The correction is then applied using the operation defined in Definition 11. For every error pattern with |e| ≤ w, the corrected data labels must match the error-free labels: c for the repetition code and v for the CSS codes. For the repetition code, we use a minimum-weight decoder. It reconstructs the error pattern from the domain walls and complements the reconstructed pattern when its weight is greater than 
+
+n/ 2. For CSS codes whose check matrix has distinct non-zero columns, we use a look-up decoder that corrects qubit j when the measured syndrome is equal to column j of the check matrix. For the phase-flip circuit, the correction is applied after the second Hadamard gate. At this point, an 
+
+X correction represents a Z correction on the encoded data. For a code with distance d, Property 9 is expected to hold for w = d − 1 and to fail for w = d.Similarly, Property 10 is expected to hold for w = ⌊(d − 1) /2⌋ and to fail for w = ⌊(d − 1) /2⌋ + 1. Section 6.4 verifies both the positive and negative cases. For the negative cases, the solver produces an error pattern that is either undetectable or incorrectly corrected. 15 4.6 Soundness of the abstraction 
+
+The correctness properties introduced above are defined entirely in terms of the proposed bit-vector abstraction. Before using these properties for verification, we need to establish when the abstraction correctly represents the underlying quantum circuit. The abstraction is not faithful for every circuit over {H, X, C-NOT } (Remark 1). We therefore first define the circuit fragment for which the soundness result holds. 
+
+Definition 12 (Fragment F). Consider a circuit over {H, X, C-NOT } with computational-basis inputs, where phase-flip errors may also be injected. The circuit belongs to F if every qubit has one of the following three roles. 1. Computational qubits receive no Hadamard gate. 2. Branch qubits receive exactly one Hadamard gate, and this gate is applied before the qubit participates in any C-NOT gate. The input basis value of the qubit is a free variable in the verification query. After the Hadamard gate, the qubit may participate in arbitrary X and C-NOT gates. 3. Frame qubits receive an even number of Hadamard gates arranged in consecutive pairs. Be-tween the two Hadamard gates in each pair, called a frame segment , the qubit does not participate in any gate other than an injected phase-flip error, represented by complementing 
+
+q0. Outside these frame segments, the qubit may participate in arbitrary X and C-NOT gates. Measurements (Definition 1) and classically controlled X gates (Definition 11) are applied only to qubits with an even tag, and only after all gates acting on those measured qubits have been completed. Membership in F is a syntactic condition and can be checked by scanning the gate list once. All circuits evaluated in this article belong to F. The bit-flip repetition and CSS circuits use only computational qubits. The concatenated and CSS phase-flip circuits use frame qubits with one frame segment. The Bell and GHZ circuits use one branch qubit. The random networks in Section 6.7 use both branch and computational qubits. 
+
+Theorem 1 (Soundness on F). Let C ∈ F be a circuit on n qubits, let B be its set of branch qubits, and let bC be its abstraction according to Definitions 1–4. For input basis values x ∈ { 0, 1}n and an assignment e of the error indicators, let y(x, e) ∈ { 0, 1}n and s(x, e) denote the output basis bits 
+
+q0 and tags produced by bC. Let Ce denote the corresponding concrete circuit in which each injected phase-flip error is represented by a Z gate. Then, before measurement, 
+
+Ce|x⟩ = 2 −| B|/2 X   
+
+> x′:x′
+> i=xi∀i / ∈B
+
+ω(x′) y(x′, e) , |ω(x′)| = 1 , (7) 
+
+where the 2|B| basis states y(x′, e) are pairwise distinct. Moreover, the tag of qubit i is odd if and only if i ∈ B, and its value equals the number of Hadamard gates applied to that qubit whenever this number is at most seven. 
+
+16 Proof. Consider a prefix containing the first t gates of the circuit. Let Bt ⊆ B be the branch qubits whose Hadamard gate has already occurred, and let Ot be the frame qubits that are currently inside an open frame segment. For z ∈ { 0, 1}n, let |z⟩Ot denote the product state in which each qubit 
+
+i ∈ Ot is in the Hadamard-basis state H|zi⟩, while all other qubits are in the computational-basis state |zi⟩.We prove by induction on t the invariant 
+
+I(t) : C(t) 
+
+> e
+
+|x⟩ = 2 −| Bt|/2 X   
+
+> x′:x′
+> i=xi∀i / ∈Bt
+
+ωt(x′) |y(t)(x′, e)⟩Ot ,
+
+where y(t) denotes the abstract basis bits after the prefix. The terms in the sum are pairwise distinct, and the tag of qubit i is odd exactly when i ∈ Bt ∪ Ot.
+
+Base case. For t = 0, no gates have been applied, so B0 = O0 = ∅. All tags are b′000, and both sides of the invariant are equal to |x⟩.
+
+Inductive step. Assume that I(t) holds and consider the next gate. By linearity, it is enough to consider one term |z⟩Ot , where z = y(t)(x′, e). 1. X gate on qubit i / ∈ Ot. The gate maps 
+
+X|zi⟩ = |zi ⊕ 1⟩,
+
+which is exactly the update specified by Definition 3. The tag is unchanged. 2. C-NOT with control c and target u, both outside Ot. By Definition 12, a C-NOT cannot act on a qubit inside an open frame segment. For the remaining qubits, C-NOT |zc, z u⟩ = |zc, z u ⊕ zc⟩,
+
+which agrees with Definition 4. The X and C-NOT gates only permute basis states, so distinct terms remain distinct. 3. Hadamard gate on a branch qubit i. The qubit has not previously participated in a C-NOT gate. Therefore its value can be written as zi = xi ⊕ β, where β is the parity of the X gates applied to it. The variable xi does not occur in any other component of z. Hence 
+
+H|zi⟩ = 2 −1/2 X
+
+> r∈{ 0,1}
+
+(−1) zir|r⟩.
+
+The abstraction retains q0 = zi, while x′ 
+
+> i
+
+ranges over both values. The resulting sum is therefore represented by the new free variable x′
+
+> i
+
+. The phase factor ( −1) zir is absorbed into 
+
+ωt+1 , and Bt+1 = Bt ∪ { i}. The tag becomes odd. 4. Hadamard gate opening a frame segment on qubit i. The state changes from 
+
+|zi⟩ 7 −→ H|zi⟩.
+
+Thus, qubit i enters Ot+1 with Hadamard-basis label zi. The abstraction retains q0 = zi, and the tag becomes odd. 5. Phase-flip error on i ∈ Ot. Using ZH = HX , we obtain 
+
+ZH |zi⟩ = HX |zi⟩ = H|zi ⊕ 1⟩.
+
+Thus, the phase-flip complements the Hadamard-basis label, which is exactly how the error is represented in the abstraction. 17 6. Hadamard gate closing a frame segment on qubit i. The two Hadamard gates cancel: 
+
+HH |zi⟩ = |zi⟩.
+
+The qubit therefore leaves Ot+1 with computational-basis value zi = q0, and its tag becomes even. In every case, the invariant holds for t + 1. The statement about the tags follows from Defini-tion 2: each Hadamard gate increments the tag, while saturation preserves its parity. At the end of the circuit, all frame segments have been closed, so Ot = ∅ and Bt = B. This gives Eq. (7). 
+
+Corollary 1. Let P be a property of the abstract components (s, q ) of a circuit bC, where C ∈ F .Suppose that the SMT query for ¬P is unsatisfiable, so that P holds for every assignment of the free input and error variables allowed by the query preconditions. Then, for every admissible computational-basis input and error assignment, every computational-basis state in the support of the concrete output satisfies the basis-value conditions of P . The tag conditions also hold with the interpretation given by Theorem 1. If P fixes a measured ancilla as a function only of the error variables, as is the case for all syndrome properties considered here, the measurement outcome is deterministic and equal to that value. The measurement therefore does not disturb the encoded superposition. By linearity, the same result applies to any superposition of admissible basis inputs, including a logical state that is a superposition of code words. Remark 1 (Scope of Theorem 1 and counterexamples) . The abstraction is sound on F, but it is not complete. It is also not sound for circuits outside F. The following four circuits each violate one condition of Definition 12 and show why these conditions are required. For each circuit, the abstraction gives a different result from the exact state-vector simulation, as verified by the differential test in Section 6.9. C1 H; X; H on |0⟩. Here, a physical bit flip occurs inside a frame segment. Since HXH = Z, the exact output is |0⟩, whereas the abstraction gives q0 = 1. This is the composability restriction discussed in Section 4.1. C2 H(q0); C-NOT( q0, q 1); H(q0). Here, a second Hadamard gate is applied after q0 has partici-pated in an entangling C-NOT. The exact output is a uniform superposition of all four basis states, whereas the abstraction gives q0 = q1 with an even tag on q0.C3 C-NOT( q0, q 1); H(q0) with q0 free. The Hadamard gate is applied after the qubit has already interacted with another qubit. In the exact circuit, q0 is uniformly random and independent of q1. The abstraction instead makes the branch of q0 depend on the value of q1.C4 H(q0); C-NOT( q0, q 1); Z(q0); H(q0). Here, a C-NOT acts inside a frame segment. The abstraction is incomplete for two main reasons. First, it does not represent the relative phases ω in Eq. (7). Consequently, states such as ( |00 ⟩ + |11 ⟩)/√2 and ( |00 ⟩ − | 11 ⟩)/√2 are represented in the same way. Second, the tags count Hadamard gates. Therefore, even a functionally redundant pair of consecutive Hadamard gates changes the tag and can be reported as a violation by a property requiring a particular tag value. This is a conservative false alarm rather than a missed fault. Supporting phase-sensitive gates such as S, and therefore genuine Y -type stabilizers, would require the relative phase information ω to be represented explicitly, as discussed in Section 8. 18 4.7 Proofs of Lemmas 1-6 
+
+The preliminary version of this work [1] stated six lemmas connecting circuit modifications with vi-olations of the corresponding correctness properties, but did not provide their proofs. The complete proofs are given below. Lemmas 3–6 are also stated more precisely than in [1]. A modification that does not change the function computed by the circuit, such as swapping the order of two C-NOT gates acting on the same ancilla or re-wiring a GHZ C-NOT to a control that already carries the GHZ value, is not a functional fault and cannot be detected by a functional property. The lemmas therefore characterise which modifications are detected by the proposed properties. All lemmas consider circuits in F and are proved in the abstract domain. Corollary 1 then transfers the results to the corresponding concrete circuits. We use the following observation throughout the proofs. In every circuit family considered here, the basis bit of a qubit at any point in a circuit containing only X and C-NOT gates is an affine 
+
+function over GF(2) of the free input and error variables. Hadamard gates do not change q. For ancilla j, this function can be written as 
+
+fj (·) = αj · d ⊕ γj ,
+
+where d is the vector of data basis values after error injection. For the repetition code, these variables are c ⊕ ei, while for CSS codes they are v ⊕ e. The vector αj ∈ { 0, 1}N is the parity set 
+
+of ancilla j, namely the set of data qubits whose values reach the ancilla an odd number of times. The value γj is the initial value of the ancilla. In the intended circuit, αj is the jth row of the relevant check matrix and γj = 0. 
+
+Lemma 1. If an ancilla is incorrectly initialised or one or more Hadamard gates are applied to an ancilla, then Properties 1, 2, 4, 5, and 7 are violated. Proof. An incorrect initialisation qin Aj = b′01 gives γj = 1. For the error-free input, which is allowed by every property, ancilla j therefore has value 1 instead of 0. This violates the syndrome condition. For an applied Hadamard gate, the properties require an ancilla initialised with sin Aj = b′000 to retain sout Aj = b′000. By Definition 2, each Hadamard gate increases the tag, and saturation at 
+
+b′111 never returns it to b′000. Thus, any number h ≥ 1 of Hadamard gates gives sout Aj ̸ = b′000 and violates clause 1. In particular, two consecutive Hadamard gates produce sout Aj = b′010. The pair is functionally redundant because H2 = I. It is therefore an example of the conservative behaviour described in Remark 1: the modification is reported even though the circuit still computes the intended syndrome. 
+
+Lemma 2. A missing or additional Hadamard gate on a logical qubit, whether a data or block qubit, violates Properties 1, 2, 4, 5, and 7. Proof. The phase-flip properties require each logical qubit to follow the sequence 
+
+s = b′000 → b′001 → b′010 ,
+
+which corresponds to exactly two Hadamard operations. Since the tag records the number of Hadamard gates (Definition 2), removing either gate or adding another one changes the final tag from b′010 and therefore violates clause 1. For the bit-flip properties, logical qubits must not receive any Hadamard gate. Consequently, applying an H gate changes the required output tag from sout Li = b′000 and violates the property. 19 Lemma 3. For bit-flip detection, a modification to the C-NOT gates in the syndrome-extraction cir-cuit, including a missing, additional, re-wired, or control/target-exchanged C-NOT, violates Prop-erties 1, 4, and 7 if and only if it changes the parity set αj of at least one ancilla. Proof. If all parity sets remain unchanged, every ancilla computes the intended function. Since the properties constrain the ancilla values and tags, they continue to hold. Conversely, suppose that αj̸ = α∗ 
+
+> j
+
+for some ancilla j, where α∗ 
+
+> j
+
+is the intended parity set. Choose a qubit 
+
+i ∈ αj △ α∗
+
+> j
+
+from their symmetric difference. Consider the admissible input consisting of the error-free code word 0, that is, c = 0 for the repetition code or v = 0 for the CSS code, together with a single error on qubit i. The resulting data vector d is the ith unit vector. The value computed by ancilla 
+
+j then differs from the intended value α∗ 
+
+> j
+
+· d by one, so the syndrome condition is violated. A missing C-NOT removes a qubit from the parity set. An additional C-NOT can change the parity set, and a re-wired C-NOT replaces one qubit by another. Exchanging the control and target also removes the data qubit from the parity set. In addition, such an exchange can corrupt the target data qubit, which is detected by the data-preservation condition of Property 8. By contrast, reordering the C-NOT gates acting on the same ancilla does not change its parity set. It is therefore not detected, since the reordered circuit is functionally equivalent to the intended circuit. 
+
+Lemma 4. The statement of Lemma 3 also holds for the phase-flip detection circuits and Proper-ties 2, 5, and 7. Proof. In the phase-flip circuits, the ancillas are computed after the second Hadamard gate of each data or block qubit. At this point, the tags are even and q0 represents the computational-basis value vi ⊕ ei for CSS codes, or c ⊕ ei for the concatenated code (Theorem 1, case 6). The argument of Lemma 3 therefore applies directly. For Property 5, the parity sets are defined over logical blocks rather than individual data qubits. 
+
+Lemma 5. A modification to a Bell-state or GHZ-state generation circuit, including a missing, additional, or incorrectly placed Hadamard gate, or a missing, additional, or incorrectly connected C-NOT gate, violates Property 3 if and only if it changes the Hadamard count of a qubit or changes the function computed by the basis bit of a qubit. In the intended circuit, the latter function is 
+
+qout  
+
+> 0
+
+= x1 for every qubit. Proof. Clauses 1 and 2 of Property 3 fix the required Hadamard count for every qubit. Therefore, any change in these counts violates the property. The only free variable is the input value x1 of the first qubit. Every output basis bit is con-sequently an affine function of x1, namely one of 0, 1, x1, or x1 ⊕ 1. Clause 3 requires all output functions to equal the function of the first qubit, which is x1 unless a C-NOT targets the first qubit. If a qubit computes a different affine function, that function differs from x1 for at least one value of x1, and the solver produces a counterexample. A missing C-NOT leaves its target at 0. Exchanging the control and target also leaves the target at 0 because the control qubit initially has value 0 and does not change the first qubit. A re-targeted C-NOT can leave its intended target at 0 or flip another qubit twice. An additional C-NOT from a qubit carrying x1 to another qubit carrying x1 resets that qubit to 0. These cases therefore violate clause 3. In contrast, re-wiring a C-NOT to another control that already carries x1 leaves all computed functions unchanged. Such a circuit is still a valid GHZ circuit. The three topologies considered in Section 6.5 differ in this way, so the modification is correctly not reported. 20 Lemma 6. Let a circuit be obtained from an intended circuit by any combination of the modifica-tions considered in Lemmas 1–5. The resulting circuit violates the corresponding property among Properties 1–3, 4, 5, 6, and 7 if and only if the combination changes the Hadamard count of some qubit, the initial value of an ancilla, or the affine function computed by an observed qubit. The latter includes the parity set of an ancilla and the basis bit of a qubit in a Bell or GHZ circuit. Proof. The conditions in Lemmas 1-5 are expressed in terms of the Hadamard counts, initial values, and affine functions of the resulting circuit, rather than in terms of individual modifications. The same arguments therefore apply after any combination of the considered modifications. For the “if” direction, each changed quantity gives an admissible counterexample, as established by the preceding lemmas. For the “only if” direction, the properties constrain only these quantities. Consequently, two modifications can cancel each other. For example, two identical additional C-NOT gates acting on the same ancilla leave its parity unchanged. The resulting circuit is therefore functionally equivalent to the intended circuit and is not reported. The SMT solver checks each property for all admissible assignments. Hence, a single counterex-ample is sufficient to reject a circuit. The mutation experiments in Section 6.10 provide empirical confirmation of this characterisation for the implemented encoding. 
+
+# 5 Verification Methodology 
+
+This section describes the SMT-based verification workflow, the size of the generated constraint system, the mutation-based validation strategy used to evaluate the proposed properties, and the experimental environment in which all evaluations were conducted. 
+
+5.1 SMT encoding and verification 
+
+Each circuit family introduced in Section 4 is encoded directly using the Z3 Python API [40]. This avoids the intermediate SMT-LIB representation used in our earlier implementation. Each abstract qubit is represented by two fixed-width BitVec terms for its ( s, q ) components. The abstract gates defined in Definitions 2-4 are encoded as equality constraints between fresh output bit-vectors and the corresponding input bit-vectors. Conditional behaviour is represented using Z3’s If expressions. Constant inputs, such as ancillas initialised to b′00, are represented by bit-vector literals. Similarly, the tags of qubits that do not receive a Hadamard gate remain literals throughout the encoding. Faults and error locations are represented by free 1-bit variables. For properties that restrict the number of errors, these variables are constrained by a cardinality condition P 
+
+> i
+
+ei ≤ w, encoded using Z3’s native pseudo-Boolean constraint AtMost . Code-word preconditions ( HZ v = 0 or HX v =0) are encoded as XOR constraints over the free data variables. Given a correctness property P ,verification asserts the circuit constraints together with its negation, ¬P , and invokes the solver using check() . An unsat result shows that the property holds for all valid assignments of the symbolic variables. For circuits in F, Corollary 1 then transfers this result to the corresponding concrete circuit. Conversely, a sat result provides a counterexample, namely an assignment that violates the property. 
+
+Size of the constraint system. Consider a circuit with n qubits, gH Hadamard gates, gX Xgates or error injections, and gC C-NOT gates. The encoding introduces one fresh 3-bit variable for each Hadamard gate and one fresh 2-bit variable for each X gate, error injection, C-NOT gate and measurement, together with one equality constraint for each. Thus, the number of SMT variables and assertions is O(n + gH + gX + gC ). It is independent of the circuit depth except through 21 the number of gates. Each constraint is a fixed-width If /XOR relation involving at most three bit-vectors of width at most three. After bit-blasting, this gives a constant number of clauses per gate, so the propositional encoding also has O(n + gH + gX + gC ) clauses. The property itself is the main source of non-constant-size constraints, with one conjunct for each checked qubit. The cardinality constraint over the N error variables is handled by Z3’s pseudo-Boolean reasoning; for the clause counts reported below, the card2bv tactic compiles this constraint into O(N log N ) clauses. The code-word preconditions contribute O(nnz( H)) XOR terms. For a GHZ circuit with m qubits, the encoding therefore contains m + 1 variables and m gate constraints for all three topologies. For a CSS circuit, the size is O(N + nnz( H)). Section 6.6 reports the measured numbers of variables, assertions and CNF clauses after Z3’s 
+
+simplify , card2bv , bit-blast and tseitin-cnf tactics. These measurements show the expected linear growth of the encoding. Linear encoding size, however, does not imply linear solving time. In general, deciding the validity of such formulas is co-NP-complete, and solver performance depends on the structure of the constraints. Section 6.7 shows that dense XOR dependencies, such as those produced by deep random C-NOT networks, are considerably harder to solve than the sparse dependencies in the code and GHZ circuits. Cardinality constraints provide a second source of difficulty. For large surface codes, the single-error query is slower than the arbitrary-error query of Property 8, even though the latter implies it. Decoders that compare error weights also make recovery queries more expensive (Section 6.4). 
+
+5.2 Mutation-based fault injection 
+
+To complement the formal proofs in Section 4.7, we evaluate the fault-detection capability of the proposed framework using mutation testing. Each circuit-construction routine accepts an optional mutation operator and its target location, allowing faulty circuit variants to be generated automat-ically. The operators, their target locations and the circuit families to which they apply are listed in Table 3. They cover the fault classes considered in Lemmas 1-5, including missing, additional and incorrectly connected gates, as well as incorrect ancilla initialisation. Each operator is applied at every valid location in every circuit instance. The resulting distri-bution of mutants is therefore determined by the circuit structure rather than selected manually. This avoids selection bias and makes the complete sweep exactly reproducible. 
+
+Equivalent and non-generated mutants. A mutant that produces exactly the same abstract outputs as the original circuit for every admissible input cannot be detected by any functional property. Following standard mutation-testing practice [48, 49], such mutants are excluded. Rather than identifying them by inspection, we determine equivalence mechanically using an SMT miter .The original circuit and the mutant are constructed using the same input and error variables but separate internal variables, together with the admissibility constraints. The solver then searches for an assignment for which any output component ( s, q ) of any qubit differs between the two circuits. An unsat result proves equivalence, whereas a sat result proves non-equivalence. Since the ab-stract circuits are finite-state, this procedure is complete, so no equivalent mutant remains uniden-tified among the evaluated mutants. Only mutants proved to be non-equivalent by the miter are evaluated against the correctness property. If a mutation location does not exist, the mutant is reported as not generated rather than silently replacing it with the unmutated circuit. For example, this occurs when the C-NOT of the last GHZ qubit is re-targeted to a non-existent next qubit. The equivalent mutant reported in the submitted version of this article was of this type: for the 3-qubit repetition code, the re-wiring 22 Table 3: Mutation operators. “Ancilla” operators are applied to every ancilla (parity check) of every instance, “data” operators to every data or block qubit, and GHZ operators at positions 1, 
+
+m/ 2 and m − 1.                      
+
+> Operator Modification Applies to
+> drop cnot omit the last C-NOT of an ancilla’s parity computation ancilla
+> wrong wire re-wire the last C-NOT of an ancilla to a data qubit outside the check ancilla
+> extra cnot add a C-NOT from a data qubit outside the check ancilla
+> swapped cnot exchange control and target of the last C-NOT of an ancilla ancilla
+> reorder cnot reverse the order of an ancilla’s C-NOT gates (equivalent by construction) ancilla
+> mis init initialise the ancilla to q=b′01 instead of b′00 ancilla
+> extra h anc add a Hadamard gate on the ancilla before measurement ancilla
+> missing h1 ,
+> missing h2
+> omit the first or second Hadamard gate of a data/block qubit data (phase-flip)
+> extra h add a third Hadamard gate on a data/block qubit data (phase-flip)
+> missing h ,
+> extra h
+> omit, or duplicate, the Hadamard gate of a Bell/GHZ circuit Bell, GHZ
+> missing cnot omit the C-NOT that entangles a given qubit Bell, GHZ
+> swapped cnot exchange control and target of that C-NOT Bell, GHZ
+> wrong target apply that C-NOT to the next qubit instead GHZ
+
+target of the second ancilla did not exist. With the cyclic choice of re-wiring target used here, this mutation exists and is detected. For every generated mutant, the corresponding correctness property is verified again. A mutant is considered detected when the solver returns sat , showing that the injected fault violates the property. The detection rate for a group of mutants is the proportion of non-equivalent mutants that are detected. 
+
+Relationship with the formal proofs. Lemmas 1-6 establish, in the abstract domain, which modifications violate the corresponding properties. The mutation study is therefore not an in-dependent validation of soundness, which is addressed by Theorem 1 and the differential test in Section 6.9. Instead, it is used to validate the implementation of the properties and circuit encodings against the lemmas. 
+
+5.3 Experimental setup 
+
+All experiments were performed using Z3 version 4.13.4 [40], installed as the z3-solver 4.13.4.0 Python package, and Python 3.13.5 on a MacBook with an Apple M1 processor (4 performance and 4 efficiency cores) and 16 GB of memory, running macOS 27.0. For the solver-version ablation in Section 6.8, Z3 5.1.0 with Python 3.10.11 was used on the same machine. Z3 was run with its default configuration through Solver() , using a single thread and no custom tactics. No timeout was used except for the random networks in Section 6.7, for which a 600s timeout was applied. All experiments were run sequentially, with one process at a time. 23 Timing protocol. For each benchmark instance, one warm-up run was discarded, followed by 
+
+R independent repetitions. We used R = 10 for all instances except GHZ circuits with more than 16,384 qubits and surface codes with more than 2,601 data qubits, for which R = 5, surface codes with more than 5,041 data qubits, for which R = 3, and the multi-error properties in Section 6.4, for which R = 3. Each repetition rebuilds the circuit and creates a fresh solver, so no solver state is shared between repetitions. We report the median, mean, standard deviation, minimum and maximum. 
+
+Solve time is the wall-clock time required for solver creation, constraint assertion and check() .
+
+Build time , which covers the Python-side construction of the circuit terms, is reported separately because it dominates the end-to-end time for the largest instances. In the random-network experiment, each configuration was run once for each of three random seeds. Peak memory is the peak resident-set size ( getrusage , ru maxrss ) of a fresh Python process that builds and verifies a single instance. We report the median over three processes, together with the baseline memory usage of the interpreter with Z3 loaded. Unlike the preliminary study [1], which used a 24-core workstation with 192 GB of memory, the experiments reported here were conducted on a commodity laptop. This configuration was chosen to assess the practicality of the proposed abstraction under hardware resources representative of a typical research and software-development environment. 
+
+# 6 Experimental Results 
+
+This section evaluates the proposed verification framework experimentally. We first reproduce the baseline results from the original study, followed by experiments on the generalised repetition and concatenated phase-flip code families. We then evaluate CSS syndrome extraction, including the Steane [[7 , 1, 3]] code, together with the multiple-error, detection and recovery properties. Finally, we study scalability using GHZ circuits with three topologies, random networks of increasing depth, measurements of encoding size, and a controlled ablation of the encoding pipeline. We also report the differential soundness test and the mutation study. The measurement protocol is described in Section 5.3. 
+
+6.1 Baseline reproduction 
+
+As an initial validation, we reproduced the verification experiments reported in [1] using the im-plementation described in Section 5. Although the experiments were run on different hardware and use direct Z3 API encoding rather than SMT-LIB generation, all benchmark circuits were successfully verified. Table 4 summarises the results. Each circuit is verified in about one millisec-ond, with standard deviations of a few percent of the median. The first query included the one-off initialisation time of the solver library, and is excluded here by using a warm-up run. Table 4: Baseline verification results for the fixed-size benchmark circuits (10 repetitions after one warm-up run).                                    
+
+> Circuit Qubits Verified Median (ms) Mean ±s.d. (ms) Min–max (ms) 2-qubit bit-flip 3Yes 0.809 0.824 ±0.041 0.789–0.923 3-qubit bit-flip 5Yes 1.04 1.05 ±0.038 0.984–1.11 9-qubit Shor phase-flip 11 Yes 1.18 1.18 ±0.031 1.11–1.22 Bell-state generation 2Yes 0.398 0.400 ±0.009 0.387–0.417
+
+24 6.2 Generalised repetition and concatenated phase-flip codes 
+
+The generalised repetition code (Property 4) and the generalised concatenated phase-flip code (Property 5) were verified for increasing values of the size parameters n and k, from the original fixed-size instances up to codes containing 101 logical elements. The results are given in Table 5, and Figure 1 shows the corresponding runtime trends. All instances satisfy their respective correctness property. Verification time increases approximately linearly with code size, which is consistent with the linear number of parity constraints. The largest instances complete in 32.8ms and 38.0ms, respectively. The concatenated-code results use the corrected encoding described in Section 5.2. Its ancilla parities are computed using 2( k − 1) C-NOT gates. It therefore has the same order of cost as the repetition code, rather than the nearly constant cost obtained with the submitted implementation. Table 5: Solve time for the generalised repetition and concatenated phase-flip codes (median ±
+
+standard deviation over 10 repetitions). The concatenated code is modelled with one abstract block-qubit per three-qubit block; the physical-equivalent count is 3 k + ( k − 1).                                                                                                                                                
+
+> Repetition code ( n)Concatenated phase-flip code ( k)
+> n/kQubits Median ±s.d. (ms) Abstract qubits Physical equiv. Median ±s.d. (ms) 230.763 ±0.025 –––351.02 ±0.041 511 1.15 ±0.063 471.21 ±0.049 –––591.41 ±0.049 919 1.63 ±0.028 713 1.80 ±0.074 13 27 2.19 ±0.095 917 2.24 ±0.048 17 35 2.76 ±0.053 11 21 2.59 ±0.077 21 43 3.22 ±0.044 15 29 3.39 ±0.093 29 59 4.08 ±0.094 21 41 4.89 ±0.152 41 83 5.60 ±0.091 31 61 7.57 ±0.177 61 123 8.66 ±0.284 41 81 10.4 ±0.468 81 163 11.9 ±0.316 51 101 13.3 ±0.351 101 203 15.8 ±0.488 63 125 17.5 ±0.608 125 251 19.5 ±0.665 81 161 24.7 ±0.866 161 323 27.6 ±0.788 101 201 32.8 ±1.27 201 403 38.0 ±1.57
+
+25 0 20 40 60 80 100 Code size parameter ( n / k)0.000 0.005 0.010 0.015 0.020 0.025 0.030 0.035 0.040 Solve time (s), median and min-max  Repetition bit-flip code ( n data qubits) Concatenated phase-flip code ( k blocks) Figure 1: Solve time as a function of code size for the generalised repetition and concatenated phase-flip codes (median; bars show minimum and maximum over 10 repetitions). 
+
+6.3 CSS syndrome extraction 
+
+To test whether the abstraction also applies beyond repetition-based constructions, we verified bit-flip and phase-flip syndrome extraction (Definition 10) for four CSS code families with different parity-check structures: the Steane code ( HX = HZ , weight-4 checks); the [[15 , 7, 3]] quantum Hamming code ( HX = HZ , weight-8 checks); the [[15 , 1, 3]] quantum Reed-Muller code ( HX̸ = HZ ,with 4 X-type and 10 Z-type checks of weights 8 and 4, and distances dX = 7, dZ = 3); and rotated surface codes ( HX̸ = HZ , with local weight-2 and weight-4 checks on a two-dimensional lattice and degenerate syndromes). The matrices are generated programmatically. The experiment checks the CSS condition (5), the number of logical qubits and, for codes with N ≤ 25, the distances by exhaustive enumeration before verification. Tables 6 and 7 report the results for the single-error property (Properties 6 and 7) and the arbitrary-error property (Property 8). All syndrome-extraction circuits satisfy their properties. The Steane circuits are verified in about 4.50ms. The surface-code family was verified up to distance 101, corresponding to 15,301 data and ancilla qubits, in 160s (Figure 2). For surface codes with d > 11, only the arbitrary-error property was verified. This property implies the single-error property, while its cardinality constraint makes the latter slower for large d (Section 5.1). For this family, solve time grows faster than linearly with the number of qubits, from 0.278s at d = 21 to 160s at d = 101. These results show that the abstraction can represent parity-check computations defined by arbitrary CSS check matrices, including cases with unequal HX and HZ
+
+and local two-dimensional check structures, without changing the underlying gate abstraction. 26 Table 6: Verification of CSS syndrome extraction for the Steane, quantum Hamming and quantum Reed-Muller codes. “Checks” is the number of rows of HZ (bit-flip) or HX (phase-flip). “Arbitrary” refers to Property 8. 
+
+Code Frame N Checks Errors Verified Qubits Median ± s.d. (ms) Steane [[7,1,3]] bit 7 3 ≤ 1 error Yes 10 4.39 ± 0.357 Steane [[7,1,3]] bit 7 3 arbitrary Yes 10 5.29 ± 0.757 Steane [[7,1,3]] phase 7 3 ≤ 1 error Yes 10 4.61 ± 0.369 Steane [[7,1,3]] phase 7 3 arbitrary Yes 10 4.38 ± 1.19 Hamming [[15,7,3]] bit 15 4 ≤ 1 error Yes 19 75.7 ± 26.0 Hamming [[15,7,3]] bit 15 4 arbitrary Yes 19 81.2 ± 53.7 Hamming [[15,7,3]] phase 15 4 ≤ 1 error Yes 19 58.2 ± 13.9 Hamming [[15,7,3]] phase 15 4 arbitrary Yes 19 84.0 ± 85.0 Reed-Muller [[15,1,3]] bit 15 10 ≤ 1 error Yes 25 30.1 ± 2.09 Reed-Muller [[15,1,3]] bit 15 10 arbitrary Yes 25 143 ± 60.2 Reed-Muller [[15,1,3]] phase 15 4 ≤ 1 error Yes 19 70.0 ± 21.4 Reed-Muller [[15,1,3]] phase 15 4 arbitrary Yes 19 59.6 ± 30.2 
+
+Table 7: Verification of syndrome extraction for rotated surface codes of distance d (d2 data qubits and ( d2 −1) /2 ancillas for the checks of one frame). All instances are verified. “Reps” is the number of repetitions. 
+
+≤ 1 error, median (s) Arbitrary errors, median (s) 
+
+d Data Qubits bit phase bit phase Reps 3 9 13 0.0037 0.0044 0.0028 0.0032 10 5 25 37 0.0162 0.0189 0.0078 0.0092 10 7 49 73 0.0422 0.0464 0.0149 0.0165 10 9 81 121 0.0998 0.104 0.0256 0.0285 10 11 121 181 0.214 0.218 0.0415 0.0462 10 15 225 337 – – 0.0941 0.104 10 21 441 661 – – 0.260 0.278 10 31 961 1,441 – – 1.28 1.25 10 51 2,601 3,901 – – 9.51 10.5 10 71 5,041 7,561 – – 35.1 29.6 5101 10,201 15,301 – – 160 154 3
+
+27 10 1 10 2 10 3 10 4
+
+Data + ancilla qubits ( d2 + ( d2 − 1)/2 )10 −2
+
+10 −1
+
+10 0
+
+10 1
+
+10 2
+
+> Solve time (s)
+> surface code, bit-fl ip extraction (arbitrary errors) surface code, phase-fl ip extraction (arbitrary errors)
+
+Figure 2: Solve time of the arbitrary-error syndrome property for rotated surface codes (median; bars show minimum and maximum). 28 6.4 Multiple errors, detection, and recovery 
+
+Table 8 reports Properties 8-10 for the repetition codes and the three small CSS codes. For each property, the table includes both the largest error weight for which the property is expected to hold and the next weight. All 60 outcomes agree with coding theory. Syndrome extraction is correct for every error pattern. Detection holds up to weight d−1 ( n−1for the repetition code), while at weight d the solver returns an undetectable error pattern. For the Steane code, for example, this is a weight-3 pattern that corresponds to a logical operator. Recovery holds up to weight ⌊(d − 1) /2⌋. At the next weight, the solver returns an error pattern that the decoder miscorrects. For example, for the Steane code, two bit flips can produce a syndrome equal to the column associated with a third qubit. The quantum Reed-Muller code shows the expected asymmetry: bit-flip errors are detected up to weight 6, whereas phase-flip errors are detected only up to weight 2. Recovery queries for the repetition code are substantially more expensive than the other queries because the minimum-weight decoder compares error weights. For n = 21, the solve time is 69.2s. In a preliminary run, n = 31 did not finish within 120s. Thus, verifying weight-based decoders at larger scales remains a limitation of the current encoding. Look-up and syndrome-only properties remain inexpensive. 29 Table 8: Multi-error properties (median of 3 repetitions after a warm-up run). “Violated” rows are the expected failures beyond the capability of the code. The counterexample column lists the erroneous qubits of the pattern returned by the solver. 
+
+Circuit Property w Result Median (ms) Counterexample Repetition, n = 3 Prop. 8 any verified 9.47 Repetition, n = 3 Prop. 9 2 verified 7.64 Repetition, n = 3 Prop. 9 3 violated 8.60 {0, 1, 2}
+
+Repetition, n = 3 Prop. 10 1 verified 11.1 Repetition, n = 3 Prop. 10 2 violated 10.5 {1, 2}
+
+Repetition, n = 5 Prop. 8 any verified 10.8 Repetition, n = 5 Prop. 9 4 verified 9.80 Repetition, n = 5 Prop. 9 5 violated 9.64 {0, . . . , 4}
+
+Repetition, n = 5 Prop. 10 2 verified 12.1 Repetition, n = 5 Prop. 10 3 violated 11.2 {0, 1, 2}
+
+Repetition, n = 7 Prop. 8 any verified 11.3 Repetition, n = 7 Prop. 9 6 verified 9.22 Repetition, n = 7 Prop. 9 7 violated 9.75 {0, . . . , 6}
+
+Repetition, n = 7 Prop. 10 3 verified 19.3 Repetition, n = 7 Prop. 10 4 violated 13.3 {0, 1, 3, 4}
+
+Repetition, n = 9 Prop. 8 any verified 11.2 Repetition, n = 9 Prop. 9 8 verified 10.2 Repetition, n = 9 Prop. 9 9 violated 10.3 {0, . . . , 8}
+
+Repetition, n = 9 Prop. 10 4 verified 47.4 Repetition, n = 9 Prop. 10 5 violated 11.1 {0, . . . , 4}
+
+Repetition, n = 15 Prop. 8 any verified 10.7 Repetition, n = 15 Prop. 9 14 verified 10.7 Repetition, n = 15 Prop. 9 15 violated 10.8 {0, . . . , 14 }
+
+Repetition, n = 15 Prop. 10 7 verified 1,546 Repetition, n = 15 Prop. 10 8 violated 16.0 {0, . . . , 7}
+
+Repetition, n = 21 Prop. 8 any verified 12.6 Repetition, n = 21 Prop. 9 20 verified 11.5 Repetition, n = 21 Prop. 9 21 violated 11.6 {0, . . . , 20 }
+
+Repetition, n = 21 Prop. 10 10 verified 69,204 Repetition, n = 21 Prop. 10 11 violated 16.4 {0, . . . , 10 }
+
+Steane, bit Prop. 8 any verified 11.4 Steane, bit Prop. 9 2 verified 14.9 Steane, bit Prop. 9 3 violated 14.2 {1, 3, 5}
+
+Steane, bit Prop. 10 1 verified 15.9 Steane, bit Prop. 10 2 violated 12.4 {2, 5}
+
+Steane, phase Prop. 8 any verified 13.9 Steane, phase Prop. 9 2 verified 17.6 Steane, phase Prop. 9 3 violated 14.9 {1, 3, 5}
+
+Steane, phase Prop. 10 1 verified 18.7 Steane, phase Prop. 10 2 violated 13.4 {1, 2}
+
+[[15,7,3]], bit Prop. 8 any verified 72.1 [[15,7,3]], bit Prop. 9 2 verified 80.3 [[15,7,3]], bit Prop. 9 3 violated 15.5 {4, 7, 12 }
+
+[[15,7,3]], bit Prop. 10 1 verified 111 [[15,7,3]], bit Prop. 10 2 violated 14.5 {12 , 14 }
+
+[[15,7,3]], phase Prop. 8 any verified 117 [[15,7,3]], phase Prop. 9 2 verified 79.0 [[15,7,3]], phase Prop. 9 3 violated 17.9 {3, 7, 11 }
+
+[[15,7,3]], phase Prop. 10 1 verified 144 [[15,7,3]], phase Prop. 10 2 violated 16.7 {7, 10 }
+
+[[15,1,3]], bit Prop. 8 any verified 139 [[15,1,3]], bit Prop. 9 6 verified 49.3 [[15,1,3]], bit Prop. 9 7 violated 18.4 {0, 5, 6, 7, 8, 13 , 14 }
+
+[[15,1,3]], bit Prop. 10 1 verified 47.6 [[15,1,3]], bit Prop. 10 2 violated 16.5 {2, 10 }
+
+[[15,1,3]], phase Prop. 8 any verified 193 [[15,1,3]], phase Prop. 9 2 verified 92.5 [[15,1,3]], phase Prop. 9 3 violated 16.7 {0, 7, 8}
+
+[[15,1,3]], phase Prop. 10 1 verified 112 [[15,1,3]], phase Prop. 10 2 violated 15.8 {8, 13 }
+
+30 6.5 Scalability for GHZ-state verification 
+
+To evaluate scalability, we verified GHZ-state generation circuits ranging from 4 to 262,144 qubits using three topologies. The star topology used in [1] has all C-NOT gates controlled by the first qubit. The chain topology uses nearest-neighbour C-NOT gates with depth m − 1, so the value of each qubit is propagated through all preceding qubits. The tree topology uses fan-out with logarithmic depth ⌈log 2 m⌉.Selected results are given in Table 9, while Figure 3 summarises the overall scaling behaviour, including peak memory. All instances are verified. The largest star circuit, with 262,144 qubits, requires 9.01s of solve time, while the chain and tree circuits require 13.0s and 12.3s, respectively. Across the evaluated range, solve time grows approximately linearly with circuit size for all three topologies, consistent with the linear number of constraints discussed in Section 6.6. The topology changes the solve time by less than 50%, with the chain being the slowest and the star the fastest. Compared with the largest GHZ-state experiment reported in [1], which used 8,192 qubits, the present implementation verifies substantially larger circuits with fewer computational resources. The ablation study in Section 6.8 shows that this difference is not explained by the encoding pipeline or the solver version. The comparison with [1] is therefore observational only, as discussed in Section 7.5. For the largest instances, end-to-end time is dominated by Python-side construction of the constraint terms rather than by solving. For m = 262 , 144 in the star topology, construction takes 46.1s on average, compared with 9.01s of solve time. Peak memory is also reached during term construction. Measured in a fresh process for each instance, it grows linearly from the 47.0MiB baseline of the interpreter with Z3 loaded to 1,397MiB for 262,144 qubits in the star topology. This corresponds to about 5.3KiB per qubit, which on the 16 GB machine would allow instances of about three million qubits before memory is exhausted. Table 9: GHZ-state verification for three topologies (solve time: median ± s.d. over 10 repetitions, 5 for m > 16 , 384; build: mean Python-side construction time; peak RSS: median of three fresh processes per instance, including the interpreter baseline).                                                                                                           
+
+> Solve time, median ±s.d. (s) Build (s) Peak RSS (MiB)
+> mstar chain tree star star tree 40.0038 ±0.0002 0.0032 ±0.0003 0.0035 ±0.0007 0.0007 50 50 256 0.0102 ±0.0002 0.0122 ±0.0001 0.0139 ±0.0004 0.0410 51 51 4,096 0.0911 ±0.0013 0.133 ±0.0037 0.0985 ±0.0021 0.675 60 61 8,192 0.184 ±0.0033 0.258 ±0.0056 0.201 ±0.0051 1.33 86 88 16,384 0.364 ±0.0062 0.468 ±0.0169 0.415 ±0.0061 2.69 137 142 65,536 1.44 ±0.0213 1.93 ±0.0610 1.76 ±0.0350 11.2 428 442 131,072 3.14 ±0.0805 4.58 ±0.0555 3.70 ±0.167 22.7 838 876 262,144 9.01 ±0.455 13.0 ±0.667 12.3 ±0.779 46.1 1,397 1,416
+
+31 10 1 10 2 10 3 10 4 10 5      
+
+> Number of qubits m
+> 10 −3
+> 10 −2
+> 10 −1
+> 10 0
+> 10 1
+> Time (s)
+> (a) veri fi cation time (median, min-max)
+> star: build (Python) chain: build (Python) tree: build (Python) star: solve chain: solve tree: solve
+> 10 110 210 310 410 5
+> Number of qubits m
+> 10 2
+> 10 3
+> Peak resident memory (MiB)
+> (b) peak memory, fresh process per instance
+> star: peak RSS chain: peak RSS tree: peak RSS
+
+Figure 3: GHZ-state verification versus qubit count for three topologies. (a) Solve time (median, minimum-maximum bars) and mean Python-side build time. (b) Peak resident memory of a fresh process per instance. The dashed line marks the largest GHZ circuit reported in [1]. 
+
+6.6 Encoding size 
+
+Table 10 reports the numbers of SMT variables, assertions and CNF clauses after bit-blasting for representative instances. All three quantities grow linearly with the number of qubits, in agreement with the analysis in Section 5.1. For GHZ circuits, the encoding produces about 6.5 clauses per qubit for the star topology and about 7.0 clauses per qubit for the chain and tree topologies. 32 Table 10: Size of the verification queries: SMT variables and assertions as generated, and CNF clauses after Z3’s simplify , card2bv , bit-blast and tseitin-cnf tactics. Single-error properties for the code families, arbitrary-error property for the surface code (bit-flip frame).                                                                                                                              
+
+> Family Size Qubits SMT variables Assertions CNF clauses GHZ-star 16 16 17 17 103 GHZ-star 64 64 65 65 419 GHZ-star 256 256 257 257 1,675 GHZ-star 1,024 1,024 1,025 1,025 6,669 GHZ-star 4,096 4,096 4,097 4,097 26,671 GHZ-star 16,384 16,384 16,385 16,385 106,574 GHZ-chain 16,384 16,384 16,385 16,385 114,684 GHZ-tree 16,384 16,384 16,385 16,385 114,678 repetition 3513 11 83 repetition 917 43 35 320 repetition 21 41 103 83 844 repetition 51 101 253 203 2,183 repetition 101 201 503 403 4,470 concatenated phase-flip 3519 17 197 concatenated phase-flip 917 61 53 662 concatenated phase-flip 21 41 145 125 1,642 concatenated phase-flip 51 101 355 305 4,121 concatenated phase-flip 101 201 705 605 8,291 surface (bit, syndrome) 313 43 30 271 surface (bit, syndrome) 537 127 90 863 surface (bit, syndrome) 9121 427 306 3,043 surface (bit, syndrome) 15 337 1,207 870 8,803 surface (bit, syndrome) 21 661 2,383 1,722 17,551 surface (bit, syndrome) 31 1,441 5,223 3,782 38,771
+
+6.7 Random H+C-NOT networks 
+
+GHZ, repetition and surface-code circuits produce sparse XOR relations, where each output depends on only a small number of variables. To examine less favourable constraint structures, we also verified random networks. Each network applies Hadamard gates to a random half of the qubits as the first gate (branch qubits), followed by D layers of C-NOT gates acting on random disjoint qubit pairs with random orientations, together with sparse X gates. The property requires each output basis bit to equal the GF(2) affine function obtained inde-pendently from the gate list, and each tag to be b′001 exactly for the Hadamard qubits. As D
+
+increases, the number of input variables on which an output depends, referred to as its support, grows rapidly. The results are shown in Table 11 and Figure 4. For shallow networks, verification remains fast even for thousands of qubits. At a fixed width, however, solve time increases rapidly with depth. For 32 qubits, the median solve time increases from 0.033s at depth 4 to 27s at depth 7, while at depth 8 two of the three seeds exceed the 300s timeout. For 64 qubits, the median increases from 0.20s at depth 5 to 125s at depth 7. The circuit size is small in all of these cases. The main difficulty is proving that two differ-ent XOR decompositions represent the same parity function, which is known to be difficult for resolution-based solvers [51]. These results show that the favourable scaling observed for GHZ and code circuits depends on their sparse constraint structure rather than applying to the abstraction in general, as discussed in Section 7.5. 33 Table 11: Random H+C-NOT networks of n qubits and depth D (three random seeds per configu-ration; 300 s timeout). “Max. support” is the largest number of input variables on which an output depends. 
+
+n Depth C-NOTs Max. support Median time (s) Result (3 seeds) 16 1 8 2 0.0100 3× Yes 16 2 16 4 0.0201 3× Yes 16 4 32 10 0.0249 3× Yes 16 8 64 13 0.641 3× Yes 16 12 96 12 5.61 3× Yes 16 16 128 13 4.81 3× Yes 32 1 16 2 0.0120 3× Yes 32 2 32 4 0.0291 3× Yes 32 4 64 10 0.0329 3× Yes 32 6 96 17 1.38 3× Yes 32 7 112 19 27.5 3× Yes 32 8 128 19 300 2× timeout, 1 × Yes 64 1 32 2 0.0106 3× Yes 64 2 64 4 0.0231 3× Yes 64 4 128 13 0.0417 3× Yes 64 5 160 16 0.205 3× Yes 64 6 192 22 4.61 3× Yes 64 7 224 32 125 3× Yes 256 1 128 2 0.0160 3× Yes 256 2 256 4 0.0392 3× Yes 256 3 384 8 0.0615 3× Yes 256 4 512 16 0.159 3× Yes 256 5 640 26 1.35 3× Yes 1,024 1 512 2 0.0443 3× Yes 1,024 2 1,024 4 0.103 3× Yes 1,024 3 1,536 8 0.294 3× Yes 4,096 1 2,048 2 0.170 3× Yes 4,096 2 4,096 4 0.458 3× Yes 
+
+34 2 4 6 8 10 12 14 16 Number of random C-NOT layers (depth) 10 −2
+
+10 −1
+
+10 0
+
+10 1
+
+10 2      
+
+> Solve time (s), median of 3 seeds  n= 16
+> n= 32
+> n= 64
+> n= 256
+> n= 1024
+> n= 4096
+
+Figure 4: Solve time of random H+C-NOT networks versus depth (median of three seeds; crosses mark configurations with at least one timeout). 35 6.8 Controlled ablation of encoding pipeline and solver version 
+
+To identify the factors contributing to the difference with [1], we compared the direct API pipeline with an SMT-LIB pipeline on the same machine and for identical constraint systems using GHZ star circuits. In the SMT-LIB pipeline, the query is written to an SMT-LIB 2 file and then parsed into a fresh solver before solving. The same file is also solved using the stand-alone z3 executable of the same release in a separate process. We also compared two Z3 releases. Table 12 shows that, for identical constraints, the SMT-LIB pipeline is not slower than the direct API. Serialisation and parsing add a cost that grows with query size, with 4.1s and 1.9s for 262,144 qubits and a 50MB file. However, the stand-alone z3 executable solves the SMT-LIB file, including start-up and parsing, in 5.0s, whereas solving the API-built query takes 8.8s. The same ordering is observed at all tested sizes. The measured difference between the two solve times appears to result from differences in the term structure of the two inputs: the API query contains one large conjunction, whereas the parsed file contains individual assertions. This was not investigated further. Thus, the direct API encoding does not explain the improvement over [1], and is treated as an observation only. Its practical advantage is instead that it avoids intermediate files and supports the programmatic construction of circuit families, mutants and miters, rather than providing faster solving. Table 12: Direct API versus SMT-LIB pipeline for identical GHZ-star queries (median of three repetitions).                                                                                 
+
+> Direct API SMT-LIB pipeline, in process (s) External Z3 msolve (s) serialise parse solve total z3 (s) 4.13.4 1,024 0.0174 0.0155 0.0049 0.0035 0.0242 0.0176 4.13.4 4,096 0.0668 0.0608 0.0204 0.0140 0.0965 0.0433 4.13.4 16,384 0.272 0.245 0.0949 0.0688 0.410 0.171 4.13.4 65,536 1.19 1.00 0.435 0.377 1.84 0.769 4.13.4 262,144 8.80 4.11 1.93 5.45 11.4 5.05 5.1.0 1,024 0.0181 0.0159 0.0052 0.0037 0.0252 0.0182 5.1.0 4,096 0.0688 0.0620 0.0206 0.0147 0.0982 0.0452 5.1.0 16,384 0.281 0.249 0.0958 0.0628 0.413 0.175 5.1.0 65,536 1.19 1.02 0.424 0.349 1.79 0.779 5.1.0 262,144 8.47 4.19 1.87 5.01 11.1 5.01
+
+Table 13: Solve time of GHZ-star queries for two Z3 releases on the same machine (median ± s.d.).                                 
+
+> mZ3 4.13.4 (s) Z3 5.1.0 (s) 4,096 0.0911 ±0.0013 0.0700 ±0.0010 16,384 0.364 ±0.0062 0.294 ±0.0058 65,536 1.44 ±0.0213 1.22 ±0.0221 131,072 3.14 ±0.0805 3.13 ±0.0950 262,144 9.01 ±0.455 9.01 ±0.199
+
+Table 13 compares the solve times of Z3 4.13.4 and Z3 5.1.0. The two versions are within about 25% of each other at all tested sizes and give identical times at the largest size. The solver version is therefore not a significant factor in the observed difference. These ablation experiments isolate the encoding pipeline and solver version on the same hard-ware. They do not reproduce the implementation used in [1], since its SMT-LIB generator, the 36 precise form of the generated constraints and the hardware all differ. The source of the difference from [1] therefore remains unresolved, and the comparison is purely observational. 
+
+6.9 Differential validation of the soundness theorem 
+
+To provide an independent check of Theorem 1, we compared the abstraction with exact state-vector simulation. For random circuits in F on 2-5 qubits, we used random qubit roles, random X and C-NOT gates, and random frame segments containing random phase-flip errors. The deep set contained up to eight frame segments per qubit. For every computational-basis input, we checked Eq. (7). Specifically, we verified that the support of the output state matched the set of basis states predicted by the abstraction over all branch assignments, that all amplitudes had magnitude 2−| B|/2, and that the odd tags occurred exactly on the branch qubits. Table 14: Differential test of the abstraction against state-vector simulation.                                     
+
+> Random circuits nCircuits Agree on all inputs In F22000 2000 In F32000 2000 In F42000 2000 In F52000 2000 In F, deep (639 saturate) 22000 2000 In F, deep (889 saturate) 32000 2000 Unrestricted 22000 1108 Unrestricted 32000 1073 Unrestricted 42000 1120
+
+Table 14 shows that all 12,000 circuits in F agreed for all inputs, including 1,528 circuits in which the tag saturated. For unrestricted random circuits over {H, X, C-NOT }, only about 55% agreed, and each of the counterexamples C1-C4 from Remark 1 produced a disagreement. These results support the soundness theorem on its stated fragment and show the need for the restriction to F.
+
+6.10 Mutation-based validation 
+
+The proposed correctness properties were also evaluated using the mutation-testing framework described in Section 5.2. Applying every operator in Table 3 at every valid location of every instance generated 682 mutants across 12 circuit families. A further 12 mutations had no valid location and were therefore not generated. The SMT miter identified 60 of the generated mutants as equivalent. These were exactly the 
+
+reorder cnot mutants, which reverse the order of commuting C-NOT gates, and no other mutants. They were excluded from the fault-detection analysis. Tables 15 and 16 summarise the results for the remaining 622 non-equivalent mutants, and Figure 5 shows the detection rates. Every non-equivalent mutant produced a property violation that was detected by the SMT solver, giving a 100% detection rate for every circuit family and every operator. These results are consistent with Lemmas 1-6 and provide empirical evidence that the imple-mented properties detect the implementation fault classes considered in this study. The 100% detection rate applies only to the evaluated mutation classes and circuit instances and does not imply complete fault coverage (Section 7). 37 Table 15: Mutation results per circuit family. 
+
+Circuit family Generated Not gen. Equivalent Evaluated Detected Rate repetition 140 0 20 120 120 100.0% concatenated phase-flip 129 0 12 117 117 100.0% Steane bit-flip 21 0 3 18 18 100.0% Steane phase-flip 42 0 3 39 39 100.0% surface d=3 bit-flip 28 0 4 24 24 100.0% surface d=3 phase-flip 55 0 4 51 51 100.0% Reed-Muller [[15,1,3]] bit-flip 70 0 10 60 60 100.0% Reed-Muller [[15,1,3]] phase-flip 73 0 4 69 69 100.0% Bell 4 0 0 4 4 100.0% GHZ star 40 4 0 40 40 100.0% GHZ chain 40 4 0 40 40 100.0% GHZ tree 40 4 0 40 40 100.0% 
+
+Total 682 12 60 622 622 100.0% 
+
+Table 16: Mutation results per operator (all families). 
+
+Operator Generated Not gen. Equivalent Evaluated Detected Rate 
+
+drop cnot 60 0 0 60 60 100.0% 
+
+wrong wire 60 0 0 60 60 100.0% 
+
+extra cnot 60 0 0 60 60 100.0% 
+
+swapped cnot 97 0 0 97 97 100.0% 
+
+reorder cnot 60 0 60 0 0 –
+
+mis init 60 0 0 60 60 100.0% 
+
+extra h anc 60 0 0 60 60 100.0% 
+
+missing h1 46 0 0 46 46 100.0% 
+
+missing h2 46 0 0 46 46 100.0% 
+
+extra h 59 0 0 59 59 100.0% 
+
+missing h 13 0 0 13 13 100.0% 
+
+missing cnot 37 0 0 37 37 100.0% 
+
+wrong target 24 12 0 24 24 100.0% 
+
+Total 682 12 60 622 622 100.0% 
+
+38 repetition concatenated phase-fl ip Steane bit-fl ip Steane phase-fl ip surface d=3 bit-fl ip surface d=3 phase-fl ip Reed-Muller [[15,1,3]] bit-fl ip Reed-Muller [[15,1,3]] phase-fl ip Bell GHZ star GHZ chain GHZ tree 
+
+020 40 60 80 100 120 140 Mutants 
+
+100% (20 eq.) 100% (12 eq.) 100% (3 eq.) 100% (3 eq.) 100% (4 eq.) 100% (4 eq.) 100% (10 eq.) 100% (4 eq.) 100% 100% 100% 100% non-equivalent mutants evaluated detected (property violated) Figure 5: Non-equivalent mutants evaluated and detected per circuit family. 39 6.11 Discussion of results 
+
+The experiments show that the proposed abstraction verifies all benchmark circuits considered in this study while remaining computationally efficient for circuits with sparse XOR structure. The generalised repetition and concatenated phase-flip experiments show that the correctness properties extend to parametrised circuit families. The CSS experiments show that the abstraction can be used for syndrome extraction with arbitrary CSS check matrices. The multiple-error experiments distinguish detection, identification and recovery and confirm the expected limits of the codes considered. The GHZ experiments show that the implementation scales to circuits with more than 2 .6 × 10 5
+
+qubits for all three evaluated topologies under the proposed abstraction. The random-network and recovery experiments also show the limits of this scaling. The differential test provides an independent check of the soundness theorem on its stated fragment and shows its failure outside that fragment. The mutation study provides empirical evidence that the implemented correctness properties detect the fault classes considered in Section 4.7. Taken together, the results show that the proposed verification framework can handle the circuit classes studied here at substantial scale, while also identifying constraint structures and decoder properties that lead to higher verification costs. 
+
+# 7 Discussion: Scope, Limitations, and Threats to Validity 
+
+This section discusses the scope of the proposed abstraction, its current limitations, and the main threats to the validity of the experimental evaluation. 
+
+7.1 Scope of the abstraction 
+
+The abstraction introduced in Section 4, together with the soundness result in Theorem 1, applies to circuits in the fragment F defined in Definition 12. This fragment is a proper subset of the circuits composed of H, X and C-NOT gates, and therefore the method is not a verification technique for general stabilizer circuits. The fragment is sufficient for all circuit families studied in this work, including repetition and concatenated codes, Bell and GHZ state preparation, random H+C-NOT networks, and CSS syn-drome extraction. This includes CSS codes with HX̸ = HZ , such as the [[15 , 1, 3]] quantum Reed-Muller code and the surface codes. Within these circuits, phase-flip errors are represented using the frame interpretation described in Section 4.1, rather than by an explicit Z gate. A physical bit-flip fault occurring inside a Hadamard frame segment is therefore outside the model. As shown by counterexample C1 in Remark 1, the abstraction would interpret such a fault as a phase flip. The abstraction also does not directly cover stabilizer codes whose generators contain intrinsic 
+
+Y -type Pauli operators that cannot be represented as purely X-type or purely Z-type operators on the same support. A representative example is the five-qubit perfect code [33], whose generators 
+
+XZZXI and their cyclic shifts contain both X and Z factors on overlapping qubit sets, so that products of generators can contain Y factors. Its stabilizer group therefore cannot be generated entirely from separate X-type and Z-type elements and has no CSS decomposition [34]. Supporting such codes would require additional gate semantics, in particular an abstract phase ( S) gate, together with a representation of the relative phases ω in Eq. (7), rather than only the current superposition status (Section 8). 40 Circuit-level verification versus physical validation. The framework verifies logical proper-ties of an abstract circuit description. These include which syndrome is computed, whether gates are connected as intended, and whether the expected entanglement structure is produced. It does not model hardware noise, decoherence, leakage, measurement errors, gate infidelities, crosstalk, timing effects, or other physical-device behaviour. In this work, the terms fault and mutant refer to design or implementation errors in the circuit description, whereas errors denote the discrete Pauli bit-flip and phase-flip patterns that the code is intended to handle. Establishing that a physical device correctly implements the verified circuit, or determining its logical error rate under a realistic noise model, requires complementary methods such as noise-aware simulation [47] and experimental characterisation. 
+
+7.2 Detection, correction, and fault tolerance 
+
+Section 2.4 distinguishes detection, identification, decoding, recovery and fault tolerance. The properties of [1] and Properties 4-7 verify correct syndrome extraction and error identification under a single error. Property 8 extends syndrome verification to arbitrary error patterns, while Property 9 verifies detection up to a specified error weight. Property 10 additionally verifies that a specified decoder, together with classically controlled corrections, returns the data to the error-free code word for all errors up to weight w. For the generalised repetition code with n > 3, the single-error properties establish identification only. Correction of multiple errors is established by Property 10 for the values of n and w that were verified in Section 6.4. These properties do not establish fault tolerance . In all verified circuits, the error variables act on the data qubits before syndrome extraction, while the extraction circuit itself is assumed to be fault-free. Faults affecting ancillas or C-NOT gates during extraction are not modelled, and neither is their propagation. In particular, a phase fault on an ancilla that is the target of several C-NOT gates can propagate to the control (data) qubits through phase kickback. Similarly, an ancilla prepared in |+⟩ that controls several C-NOT gates can propagate an X fault to subsequent targets. Either mechanism can convert a single fault into a correlated multi-qubit data error, commonly referred to as a hook error [52]. The present abstraction cannot represent these mechanisms. Phase kickback is a phase effect that is not captured by Definition 4. The second mechanism requires a qubit that has acted as a C-NOT control while in superposition to receive a second Hadamard gate, which is excluded from F, as shown by counterexample C2. Consequently, for the Steane code, the framework verifies the classical Hamming(7 , 4) syndrome logic of the ancilla-based extraction circuit in both Pauli frames. It does not verify the fault tolerance of the complete extraction circuit. Such verification would require, for example, modelling verified ancilla preparation, repeated extraction or flag qubits [7, 35]. More generally, fault-tolerance verification would require error variables at each location in the extraction circuit and an error-propagation semantics that includes phase kickback, as outlined in the phase-aware extension in Section 8. 
+
+7.3 Error model and preconditions 
+
+The single-error properties assume that at most one error is present. For the Steane and CSS properties, they also assume that the input is a valid code word, namely HZ v = 0 or HX v = 0, respectively. This code-word precondition is part of the specification of syndrome extraction: the syndrome of a non-code word is not an error syndrome. Producing a valid code word is therefore the responsibility of the encoding circuit, which can be verified separately and then composed with 41 the extraction circuit. The single-error assumption, in contrast, is not intrinsic to syndrome extraction. Property 8 removes this restriction and verifies syndrome extraction for every error pattern. Properties 9 and 10 then specify the error weights up to which detection and recovery are required to hold. The current model does not include errors that occur during syndrome extraction or recovery (Section 7.2), measurement errors, or repeated rounds of syndrome extraction. 
+
+7.4 Coverage of the mutation analysis 
+
+The mutation study in Section 6.10 focuses on implementation faults directly covered by Lem-mas 1-6. These include incorrect ancilla initialisation, omitted gates, additional gates and incorrect C-NOT wiring. Each mutant contains a single injected modification. Although combinations of modifications are covered by the characterisation in Lemma 6, they were not generated systemati-cally in the mutation experiment. Other fault classes were not considered. These include the insertion of gates outside the sup-ported {H, X, C-NOT } set, such as Z or S gates, timing-related faults in physical implementations, and systematically generated combinations of multiple simultaneous faults. The reported 100% detection rate should therefore be interpreted narrowly. It means that every non-equivalent single-modification mutant from the listed operator classes, for the listed circuit instances, violated its corresponding property. It is not evidence of complete fault coverage or of detection of physically realistic fault classes. Its main purpose is to show that the implemented encodings behave as predicted by Lemmas 1-6, as discussed in Section 5.2. 
+
+7.5 Interpretation of the scalability results 
+
+The GHZ-state experiments show substantially improved verification performance compared with the implementation reported in [1]. This comparison requires some care for three reasons. First, the GHZ, repetition, concatenated and surface-code queries contain sparse linear XOR relationships in which each output depends on only a small number of variables. These structures are well suited to SMT solving, and their solve times grow approximately linearly over the measured range. The reported scale is therefore a property of these circuit families under the proposed abstraction. It should not be interpreted as evidence that arbitrary circuits with 2 .6 × 10 5 qubits can be verified. The random H+C-NOT experiments in Section 6.7 show the other side of this result. When outputs depend on many input variables, proving equality between the XOR structure of the circuit and that of the specification becomes substantially harder. At fixed width, solve times therefore increase rapidly with circuit depth. This behaviour is consistent with the known difficulty of parity reasoning for resolution-based solvers [51]. Solvers with native XOR reasoning [53], or approaches based on Gaussian elimination, would be natural alternatives for these constraints because the underlying parity problems are decidable in polynomial time by linear algebra. Second, the reported scale should be considered in the context of stabilizer simulation [46, 47]. GHZ preparation is a Clifford circuit and can be simulated in polynomial time using tableau-based methods. The SMT queries address a different task: they verify a property for all admissible inputs and error patterns simultaneously, or return a counterexample. The results therefore measure the ability of the solver to handle the linear bit-vector constraints produced by the abstraction, rather than general symbolic reasoning over high-dimensional Hilbert spaces. Third, the comparison with [1] is not a controlled experiment because the original implementa-tion was not re-executed under identical conditions and the hardware differs. Section 6.8 therefore 42 isolates the factors that could be controlled. On the same hardware and for identical constraints, it compares the direct API pipeline with an SMT-LIB serialisation pipeline and also compares two Z3 releases. Neither factor explains the observed improvement. In particular, the stand-alone solver is faster on the SMT-LIB file than solving the API-built query, and the two Z3 releases have similar performance. The remaining differences, including the hardware and the details of the con-straint generator used in [1], could not be isolated. The comparison with [1] should consequently be regarded as observational rather than controlled. Finally, beyond 262,144 qubits, the main resource limitation is Python-side construction and memory rather than solver time (Section 6.5). At the largest size, construction of the Python term graph takes about five times longer than solving, 46s compared with 9s. Peak memory is also reached during construction and grows approximately linearly at around 5.3KiB per qubit. On the 16 GB machine used in the experiments, this corresponds to a limit of approximately three million qubits before the available memory is exhausted. 
+
+7.6 Threats to validity of the soundness argument 
+
+Theorem 1 is proved for the fragment F, and every benchmark circuit used in the experiments belongs to this fragment by construction. The theorem does not impose a bound on the number of Hadamard gates applied to a qubit. A frame qubit may pass through any number of frame segments, corresponding to repeated encode-decode cycles, because the saturating tag preserves parity (Definition 2). The theorem does require that, between two Hadamard gates, a qubit participates in no gate other than phase-flip error injections. It also requires that a qubit which has interacted with another qubit does not receive a further Hadamard gate. The need for these conditions is illustrated by counterexamples C1-C4. The differential test in Section 6.9 further supports the theorem, including tests with random circuits containing up to eight frame segments per qubit and therefore exercising tag saturation. Circuits outside F, including circuits that apply Hadamard gates to entangled qubits, circuits containing S or Z gates, or circuits in which data qubits in superposition act as C-NOT controls between Hadamard gates, require a richer abstract state. These cases are left for future work. 
+
+7.7 Applicability to CSS codes 
+
+The Steane experiment demonstrated the feasibility of the approach for one CSS construction in which the same Hamming matrix defines both check types. The evaluation extends this to a code with HX = HZ and higher check weight, namely the [[15 , 7, 3]] code; a code with HX̸ = HZ and asymmetric distances, namely the [[15 , 1, 3]] quantum Reed-Muller code with dX = 7 and dZ = 3; and a family with a two-dimensional local check structure and degenerate syndromes, namely the rotated surface codes. All of these cases are handled by Definition 10 without modifying the underlying gate abstrac-tion. This supports the use of the framework for CSS syndrome extraction because the corre-sponding property is defined by the pair ( HX , HZ ). The scope of this result is limited to syndrome extraction, detection, and look-up or minimum-weight recovery. It does not extend to fault-tolerant implementations or to decoders for degenerate codes, such as minimum-weight matching for surface codes, whose verification is left for future work. 43 8 Conclusion and Future Directions 
+
+This paper extends the bit-vector abstraction proposed in [1] for the formal verification of quantum error-detection and entanglement circuits in several directions. First, the original correctness prop-erties are generalised from fixed-size examples to parametrised repetition and concatenated code families. Second, the abstraction is applied to the Steane [[7 , 1, 3]] CSS code, demonstrating that the framework is applicable to a representative quantum error-correcting code beyond repetition-based constructions. Third, a soundness theorem is established for the abstraction within its supported gate set, and complete proofs are provided for the six lemmas that were stated without proof in the original work. Fourth, these theoretical results are supported by a mutation-based evaluation comprising 120 circuit mutants, all of which were successfully detected by the proposed verification properties. Finally, the verification framework is reimplemented using a direct Z3 API encoding, enabling GHZ-state verification at substantially larger scales than previously reported while using considerably fewer computational resources. Taken together, these results indicate that the proposed abstraction is not limited to the fixed-size examples considered in the original study. The generalised correctness properties, the verifica-tion of the Steane code, and the accompanying theoretical and empirical analyses demonstrate that the framework can be applied to a broader class of quantum circuits while maintaining efficient SMT-based verification. Several directions remain for future research. The first is to extend the abstraction beyond the current {H, X, C-NOT } gate set to support stabilizer codes containing genuine Y -type operators, such as the five-qubit perfect code. This will require enriching the abstract state representation to capture relative phase information. A second direction is to move beyond the current single-error assumption by modelling multiple simultaneous errors together with the corresponding recovery operations, thereby enabling end-to-end verification of complete fault-tolerant protocols. Finally, the mutation-based evaluation framework presented in this work could be extended and adopted more broadly as a complementary validation methodology for quantum circuit verification studies, providing empirical evidence for the fault-detection capability of proposed correctness properties. Overall, the experimental results demonstrate that the proposed SMT-based verification frame-work remains computationally efficient across the circuit families investigated, while the theoretical analysis establishes the correctness guarantees of the abstraction within its intended scope. These findings further support the use of SMT solving as a practical approach for the formal verification of quantum circuits constructed from the supported gate set. 
+
+# References 
+
+[1] Arun Govindankutty. Bit-vector abstractions to formally verify quantum error detection & entanglement. In 2026 IEEE 19th Dallas Circuits and Systems Conference (DCAS) , pages 1–6, 2026. doi: 10.1109/DCAS69364.2026.11544428. [2] V. Hassija, V. Chamola, A. Goyal, S. S. Kanhere, and N. Guizani. Forthcoming applications of quantum computing: peeking into the future. IET Quantum Communication , 1(2):35–41, 2020. doi: 10.1049/iet-qtc.2020.0026. [3] G. Arun and V. Mishra. A review on quantum computing and communication. In 2014 2nd International Conference on Emerging Technology Trends in Electronics, Communication and Networking , pages 1–5, 2014. doi: https://doi.org/10.1109/ET2ECN.2014.7044953. 44 [4] J. P, S. Hariharan, V. Madhivanan, S. N, M. Krisnamoorthy, and A. K. Cherukuri. Enhanced QSVM with elitist non-dominated sorting genetic optimisation algorithm for breast cancer diagnosis. IET Quantum Communication , 2024. doi: 10.1049/qtc2.12113. [5] M. Kim, D. Venturelli, and K. Jamieson. Towards hybrid classical-quantum computation structures in wirelessly-networked systems. In Proceedings of the 19th ACM Workshop on Hot Topics in Networks , pages 110–116, 2020. doi: 10.1145/3422604.3425928. [6] G. Carrascal, P. Hernamperez, G. Botella, and A. del Barrio. Backtesting quantum computing algorithms for portfolio optimization. IEEE Transactions on Quantum Engineering , 5:1–20, 2024. doi: https://doi.org/10.1109/TQE.2023.3337328. [7] P. Shor. Fault-tolerant quantum computation. In Proceedings of 37th Conference on Founda-tions of Computer Science , pages 56–65, 1996. doi: 10.1109/SFCS.1996.548464. [8] P. W. Shor. Scheme for reducing decoherence in quantum computer memory. Phys. Rev. A ,52:R2493–R2496, 1995. doi: 10.1103/PhysRevA.52.R2493. [9] M. Brooks. Beyond quantum supremacy: the hunt for useful quantum computers. Nature ,574:19–21, 2019. doi: 10.1038/d41586-019-02936-3. [10] J. Preskill. Quantum computing in the NISQ era and beyond. Quantum , 2:79, 2018. doi: 10.22331/q-2018-08-06-79. [11] J. Liu, B. Zhan, S. Wang, S. Ying, T. Liu, Y. Li, M. Ying, and N. Zhan. Formal verification of quantum algorithms using quantum Hoare logic. In I. Dillig and S. Tasiran, editors, Computer Aided Verification , pages 187–207, Cham, 2019. Springer International Publishing. doi: 10. 1007/978-3-030-25543-5 12. [12] Christophe Chareton, S´ ebastien Bardin, Dongho Lee, Benoˆ ıt Valiron, Renaud Vilmart, and Zhaowei Xu. Formal methods for quantum programs: A survey. 2022. URL https://arxiv. org/abs/2109.06493 .[13] A. Govindankutty. A review of formal methods in quantum-circuit verification. Electronics ,15(5):1125, 2026. doi: 10.3390/electronics15051125. [14] M. Amy. Towards large-scale functional verification of universal quantum circuits. Electronic Proceedings in Theoretical Computer Science , 287:1–21, 2019. doi: 10.4204/EPTCS.287.1. [15] J. Seiter, M. Soeken, R. Wille, and R. Drechsler. Property checking of quantum circuits using quantum multiple-valued decision diagrams. In R. Gl¨ uck and T. Yokoyama, editors, 
+
+Reversible Computation , pages 183–196, Berlin, Heidelberg, 2013. Springer Berlin Heidelberg. doi: 10.1007/978-3-642-38986-3 16. [16] L. Burgholzer and R. Wille. Advanced equivalence checking for quantum circuits. IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems , 40(9):1810–1824, 2021. doi: 10.1109/TCAD.2020.3032630. [17] S. Yamashita and I. L. Markov. Fast equivalence-checking for quantum circuits. In 2010 IEEE/ACM International Symposium on Nanoscale Architectures , pages 23–28, 2010. doi: 10.1109/NANOARCH.2010.5510932. 45 [18] M. A. Nielsen and I. L. Chuang. Quantum computation and quantum information: 10th anniversary edition, 2011. [19] C. Bernhardt. Quantum computing for everyone, 2020. [20] A. Barenco, C. H. Bennett, R. Cleve, D. P. DiVincenzo, N. Margolus, P. Shor, T. Sleator, J. A. Smolin, and H. Weinfurter. Elementary gates for quantum computation. Phys. Rev. A ,52:3457–3467, 1995. doi: https://doi.org/10.1103/PhysRevA.52.3457. [21] D. M. Greenberger, M. A. Horne, and A. Zeilinger. Going beyond Bell’s theorem. arXiv:0712.0921 [quant-ph], 2007. [22] S. J. Devitt, W. J. Munro, and K. Nemoto. Quantum error correction for beginners. Reports on Progress in Physics , 76(7):076001, 2013. doi: 10.1088/0034-4885/76/7/076001. [23] D. A. Lidar and T. A. Brun. Quantum error correction, 2013. [24] D. Gottesman. An introduction to quantum error correction. In Proceedings of Symposia in Applied Mathematics , volume 58, pages 221–236. American Mathematical Society, 2002. doi: 10.1090/psapm/058/1922900. [25] J. Roffe. Quantum error correction: an introductory guide. Contemporary Physics , 60(3): 226–245, 2019. doi: 10.1080/00107514.2019.1667078. [26] A. R. Calderbank and P. W. Shor. Good quantum error-correcting codes exist. Phys. Rev. A ,54:1098–1105, 1996. doi: https://doi.org/10.1103/PhysRevA.54.1098. [27] A. M. Steane. Error correcting codes in quantum theory. Phys. Rev. Lett. , 77:793–797, 1996. doi: 10.1103/PhysRevLett.77.793. [28] Daniel Gottesman. Stabilizer codes and quantum error correction, 1997. URL https://arxiv. org/abs/quant-ph/9705052 .[29] A. M. Steane. Simple quantum error-correcting codes. Phys. Rev. A , 54:4741–4751, 1996. doi: 10.1103/PhysRevA.54.4741. [30] S. Bravyi and A. Kitaev. Universal quantum computation with ideal Clifford gates and noisy ancillas. Phys. Rev. A , 71:022316, 2005. doi: 10.1103/PhysRevA.71.022316. [31] A. G. Fowler, M. Mariantoni, J. M. Martinis, and A. N. Cleland. Surface codes: Towards practical large-scale quantum computation. Phys. Rev. A , 86:032324, 2012. doi: 10.1103/ PhysRevA.86.032324. [32] Y. Tomita and K. M. Svore. Low-distance surface codes under realistic quantum noise. Phys. Rev. A , 90:062320, 2014. doi: 10.1103/PhysRevA.90.062320. [33] R. Laflamme, C. Miquel, J. P. Paz, and W. H. Zurek. Perfect quantum error correcting code. 
+
+Phys. Rev. Lett. , 77:198–201, 1996. doi: 10.1103/PhysRevLett.77.198. [34] A. R. Calderbank, E. M. Rains, P. W. Shor, and N. J. A. Sloane. Quantum error correction via codes over GF(4). IEEE Transactions on Information Theory , 44(4):1369–1387, 1998. doi: 10.1109/18.681315. 46 [35] R. Chao and B. W. Reichardt. Quantum error correction with only two extra qubits. Phys. Rev. Lett. , 121:050502, 2018. doi: 10.1103/PhysRevLett.121.050502. [36] O. Hasan and S. Tahar. Formal verification methods. In Encyclopedia of Information Sci-ence and Technology, Third Edition , pages 7162–7170. IGI Global, 2015. doi: 10.4018/ 978-1-4666-5888-2.ch704. [37] A. Gupta. Formal hardware verification methods: A survey. Formal Methods in System Design ,1:151–238, 1992. doi: 10.1007/BF00121125. [38] T. Schubert, M. V. Achutha Kiran Kumar, and E. Seligman. Formal verification, 2023. [39] A.-J. Quist, J. Mei, T. Coopmans, and A. Laarman. Advancing quantum computing with for-mal methods. In A. Platzer, K. Y. Rozier, M. Pradella, and M. Rossi, editors, Formal Methods ,pages 420–446, Cham, 2025. Springer Nature Switzerland. doi: 10.1007/978-3-031-71162-6 22. [40] L. De Moura and N. Bjørner. Z3: An efficient SMT solver. In Tools and Algorithms for the Construction and Analysis of Systems (TACAS 2008) , volume 4963 of Lecture Notes in Computer Science , pages 337–340, Berlin, Heidelberg, 2008. Springer-Verlag. doi: 10.1007/ 978-3-540-78800-3 24. [41] A. Govindankutty, S. K. Srinivasan, and N. Mathure. Rotational abstractions for verification of quantum Fourier transform circuits. IET Quantum Communication , 4(2):84–92, 2023. doi: 10.1049/qtc2.12055. [42] A. Govindankutty and S. K. Srinivasan. Superposition-based abstractions for quantum data encoding verification. IET Quantum Communication , 6(1), 2025. doi: 10.1049/qtc2.70002. [43] A. Govindankutty, S. K. Srinivasan, and Yusuf. Moshood. Verification of quantum Fourier transform and its inverse via rotational and superposition abstraction. In IEEE Interna-tional Symposium on Circuits and Systems (ISCAS) , 2026. doi: https://doi.org/10.1109/ ISCAS66217.2026.11562135. [44] Arun Govindankutty and Sudarshan K. Srinivasan. Formally verifying quantum phase estima-tion circuits with 1,000+ qubits. In 2026 IEEE 19th Dallas Circuits and Systems Conference (DCAS) , pages 1–6, 2026. doi: 10.1109/DCAS69364.2026.11544241. [45] D. Gottesman. The Heisenberg representation of quantum computers. arXiv:quant-ph/9807006, 1998. [46] S. Aaronson and D. Gottesman. Improved simulation of stabilizer circuits. Phys. Rev. A , 70: 052328, 2004. doi: 10.1103/PhysRevA.70.052328. [47] C. Gidney. Stim: a fast stabilizer circuit simulator. Quantum , 5:497, 2021. doi: 10.22331/ q-2021-07-06-497. [48] R. A. DeMillo, R. J. Lipton, and F. G. Sayward. Hints on test data selection: help for the practicing programmer. Computer , 11(4):34–41, 1978. doi: 10.1109/C-M.1978.218136. [49] Y. Jia and M. Harman. An analysis and survey of the development of mutation testing. IEEE Transactions on Software Engineering , 37(5):649–678, 2011. doi: 10.1109/TSE.2010.62. 47 [50] L. Madeyski, W. Orzeszyna, R. Torkar, and M. J´ ozala. Overcoming the equivalent mu-tant problem: A systematic literature review and a comparative experiment of second order mutation. IEEE Transactions on Software Engineering , 40(1):23–42, 2014. doi: 10.1109/TSE.2013.44. [51] A. Urquhart. Hard examples for resolution. Journal of the ACM , 34(1):209–219, 1987. doi: 10.1145/7531.8928. [52] E. Dennis, A. Kitaev, A. Landahl, and J. Preskill. Topological quantum memory. Journal of Mathematical Physics , 43(9):4452–4505, 2002. doi: 10.1063/1.1499754. [53] M. Soos, K. Nohl, and C. Castelluccia. Extending SAT solvers to cryptographic problems. In 
+
+Theory and Applications of Satisfiability Testing – SAT 2009 , volume 5584 of Lecture Notes in Computer Science , pages 244–257. Springer, 2009. doi: 10.1007/978-3-642-02777-2 24. 48
